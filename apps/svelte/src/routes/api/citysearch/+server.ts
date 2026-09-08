@@ -1,5 +1,5 @@
 import { json, error } from '@sveltejs/kit';
-import { searchCities } from '$lib/server/geocode';
+import { searchCities } from '@trippy/server/geocode';
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async ({ url, locals }) => {

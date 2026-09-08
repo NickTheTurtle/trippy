@@ -1,5 +1,5 @@
 import { fail, redirect } from '@sveltejs/kit';
-import { getTripForUser } from '$lib/server/trips';
+import { getTripForUser } from '@trippy/server/trips';
 import {
 	addExpense,
 	balances,
@@ -7,8 +7,8 @@ import {
 	listExpenses,
 	settlement,
 	tripMembers
-} from '$lib/server/expenses';
-import { convertCents, ensureRatesFresh, knownCurrencies } from '$lib/server/fx';
+} from '@trippy/server/expenses';
+import { convertCents, ensureRatesFresh, knownCurrencies } from '@trippy/server/fx';
 import { isSplitMode, type SplitMode } from '@trippy/core/split';
 import type { Actions, PageServerLoad } from './$types';
 

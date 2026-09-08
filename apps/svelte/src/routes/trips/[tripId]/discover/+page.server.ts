@@ -1,5 +1,5 @@
 import { fail, redirect } from '@sveltejs/kit';
-import { getTripForUser } from '$lib/server/trips';
+import { getTripForUser } from '@trippy/server/trips';
 import {
 	addPoi,
 	cityPois,
@@ -9,7 +9,7 @@ import {
 	setPoiPhoto,
 	toggleVote,
 	updatePoi
-} from '$lib/server/pois';
+} from '@trippy/server/pois';
 import {
 	addOption,
 	cityLodging,
@@ -17,8 +17,8 @@ import {
 	removeOption,
 	setDates,
 	vote as lodgingVote
-} from '$lib/server/lodging';
-import { activeProvider, lookupPhoto } from '$lib/server/places';
+} from '@trippy/server/lodging';
+import { activeProvider, lookupPhoto } from '@trippy/server/places';
 import type { Actions, PageServerLoad } from './$types';
 
 /**

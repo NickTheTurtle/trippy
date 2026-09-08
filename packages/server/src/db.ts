@@ -15,7 +15,7 @@ import { randomUUID } from 'node:crypto';
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
-const repoRoot = resolve(here, '../../../../..');
+const repoRoot = resolve(here, '../../..');
 const file = process.env.TRIPPY_DB ?? join(repoRoot, 'data', 'app.db');
 mkdirSync(dirname(file), { recursive: true });
 

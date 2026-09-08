@@ -1,7 +1,7 @@
 import { json, error } from '@sveltejs/kit';
-import { getTripForUser } from '$lib/server/trips';
-import { db } from '$lib/server/db';
-import { searchPlaces, MIN_QUERY, type SearchKind } from '$lib/server/places';
+import { getTripForUser } from '@trippy/server/trips';
+import { db } from '@trippy/server/db';
+import { searchPlaces, MIN_QUERY, type SearchKind } from '@trippy/server/places';
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async ({ locals, params, url }) => {

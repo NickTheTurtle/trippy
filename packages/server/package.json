@@ -1,0 +1,33 @@
+{
+	"name": "@trippy/server",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts",
+		"./auth": "./src/auth.ts",
+		"./cache": "./src/cache.ts",
+		"./costs": "./src/costs.ts",
+		"./db": "./src/db.ts",
+		"./env": "./src/env.ts",
+		"./expenses": "./src/expenses.ts",
+		"./fx": "./src/fx.ts",
+		"./geocode": "./src/geocode.ts",
+		"./lodging": "./src/lodging.ts",
+		"./members": "./src/members.ts",
+		"./parties": "./src/parties.ts",
+		"./places": "./src/places.ts",
+		"./pois": "./src/pois.ts",
+		"./routing": "./src/routing.ts",
+		"./schedule": "./src/schedule.ts",
+		"./seed-athens": "./src/seed-athens.ts",
+		"./tasks": "./src/tasks.ts",
+		"./trips": "./src/trips.ts"
+	},
+	"scripts": {
+		"check": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@trippy/core": "*"
+	}
+}

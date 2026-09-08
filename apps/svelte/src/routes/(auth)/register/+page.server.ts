@@ -1,5 +1,5 @@
 import { fail, redirect } from '@sveltejs/kit';
-import { createSession, createUser, findUserByEmail } from '$lib/server/auth';
+import { createSession, createUser, findUserByEmail } from '@trippy/server/auth';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = ({ locals }) => {

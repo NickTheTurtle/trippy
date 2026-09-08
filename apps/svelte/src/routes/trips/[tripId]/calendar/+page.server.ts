@@ -1,6 +1,6 @@
 import { redirect } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
-import { getTripForUser } from '$lib/server/trips';
+import { getTripForUser } from '@trippy/server/trips';
 import {
 	createItem,
 	createTrack,
@@ -8,10 +8,10 @@ import {
 	scheduleDays,
 	setAssignees,
 	tracksForDay
-} from '$lib/server/schedule';
-import { routeTracks } from '$lib/server/routing';
-import { savedPoisForTrip } from '$lib/server/pois';
-import { lodgingForDay, lodgingOptionById } from '$lib/server/lodging';
+} from '@trippy/server/schedule';
+import { routeTracks } from '@trippy/server/routing';
+import { savedPoisForTrip } from '@trippy/server/pois';
+import { lodgingForDay, lodgingOptionById } from '@trippy/server/lodging';
 import {
 	partiesForTrip,
 	partyDayMap,
@@ -23,7 +23,7 @@ import {
 	assignMembership,
 	firstTrackOfParty,
 	defaultPartyId
-} from '$lib/server/parties';
+} from '@trippy/server/parties';
 import type { Actions, PageServerLoad } from './$types';
 
 type ViewMode = 'day' | '3day' | 'people' | 'agenda';

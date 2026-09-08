@@ -1,5 +1,5 @@
 import { fail, redirect } from '@sveltejs/kit';
-import { createTrip, listTripsForUser } from '$lib/server/trips';
+import { createTrip, listTripsForUser } from '@trippy/server/trips';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = ({ locals }) => {

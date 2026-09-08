@@ -1,5 +1,5 @@
 import { error, redirect } from '@sveltejs/kit';
-import { getTripForUser } from '$lib/server/trips';
+import { getTripForUser } from '@trippy/server/trips';
 import type { LayoutServerLoad } from './$types';
 
 export const load: LayoutServerLoad = ({ locals, params }) => {

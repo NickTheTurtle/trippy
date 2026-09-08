@@ -1,5 +1,5 @@
 import { json, error } from '@sveltejs/kit';
-import { cycleBooking, deleteItem, editItem, moveItem, resizeItem } from '$lib/server/schedule';
+import { cycleBooking, deleteItem, editItem, moveItem, resizeItem } from '@trippy/server/schedule';
 import type { RequestHandler } from './$types';
 
 export const POST: RequestHandler = async ({ request, locals }) => {

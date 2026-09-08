@@ -1,4 +1,4 @@
-import { env } from '$env/dynamic/private';
+import { env } from './env';
 import { createCache } from './cache';
 
 /**

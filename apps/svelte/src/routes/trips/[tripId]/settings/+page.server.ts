@@ -1,5 +1,5 @@
 import { fail, redirect } from '@sveltejs/kit';
-import { updateTrip } from '$lib/server/trips';
+import { updateTrip } from '@trippy/server/trips';
 import type { Actions, PageServerLoad } from './$types';
 
 /**

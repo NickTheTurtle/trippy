@@ -1,6 +1,6 @@
 import type { Handle } from '@sveltejs/kit';
 import { dev } from '$app/environment';
-import { ensureDemoAccount, getSessionUser } from '$lib/server/auth';
+import { ensureDemoAccount, getSessionUser } from '@trippy/server/auth';
 
 const COOKIE = 'session';
 

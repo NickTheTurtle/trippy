@@ -1,5 +1,5 @@
 import { fail, redirect } from '@sveltejs/kit';
-import { getTripForUser } from '$lib/server/trips';
+import { getTripForUser } from '@trippy/server/trips';
 import {
 	inviteToTrip,
 	isOrganizer,
@@ -7,7 +7,7 @@ import {
 	listPendingInvites,
 	removeMember,
 	revokeInvite
-} from '$lib/server/members';
+} from '@trippy/server/members';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = ({ locals, params }) => {

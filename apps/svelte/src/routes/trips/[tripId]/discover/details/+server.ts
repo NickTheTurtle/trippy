@@ -1,6 +1,6 @@
 import { json, error } from '@sveltejs/kit';
-import { getTripForUser } from '$lib/server/trips';
-import { placeDetailsCached } from '$lib/server/places';
+import { getTripForUser } from '@trippy/server/trips';
+import { placeDetailsCached } from '@trippy/server/places';
 import type { RequestHandler } from './$types';
 
 /**

@@ -1,5 +1,5 @@
 import { redirect } from '@sveltejs/kit';
-import { deleteSession } from '$lib/server/auth';
+import { deleteSession } from '@trippy/server/auth';
 import type { Actions } from './$types';
 
 export const actions: Actions = {

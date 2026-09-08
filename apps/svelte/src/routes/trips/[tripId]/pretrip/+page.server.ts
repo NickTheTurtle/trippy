@@ -1,13 +1,13 @@
 import { fail, redirect } from '@sveltejs/kit';
-import { getTripForUser } from '$lib/server/trips';
-import { addTask, listTasks, removeTask, toggleTask } from '$lib/server/tasks';
+import { getTripForUser } from '@trippy/server/trips';
+import { addTask, listTasks, removeTask, toggleTask } from '@trippy/server/tasks';
 import {
 	COST_CATEGORIES,
 	getItemizedBudget,
 	addCostItem,
 	updateCostItem,
 	removeCostItem
-} from '$lib/server/costs';
+} from '@trippy/server/costs';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = ({ locals, params }) => {

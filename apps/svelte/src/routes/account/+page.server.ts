@@ -1,5 +1,5 @@
 import { fail, redirect } from '@sveltejs/kit';
-import { changePassword, findUserById, updateProfile } from '$lib/server/auth';
+import { changePassword, findUserById, updateProfile } from '@trippy/server/auth';
 import type { Actions, PageServerLoad } from './$types';
 
 function timeZones(): string[] {
