@@ -2,6 +2,9 @@ import { Routes, Route, NavLink, Navigate, Outlet } from 'react-router';
 import { SECTIONS } from './nav';
 import Placeholder from './pages/Placeholder';
 import Landing from './pages/Landing';
+import Login from './pages/Login';
+import Register from './pages/Register';
+import RequireAuth from './components/RequireAuth';
 
 /**
  * Route skeleton mirroring the SvelteKit app's URLs exactly, so the two can be
@@ -12,16 +15,23 @@ export default function App() {
 	return (
 		<Routes>
 			<Route path="/" element={<Landing />} />
-			<Route path="/login" element={<Placeholder title="Log in" />} />
-			<Route path="/register" element={<Placeholder title="Create account" />} />
-			<Route path="/account" element={<Placeholder title="Account" />} />
-			<Route path="/trips" element={<Placeholder title="Trips" />} />
-			<Route path="/trips/:tripId" element={<TripShell />}>
-				<Route index element={<Navigate to="calendar" replace />} />
-				{SECTIONS.map((s) => (
-					<Route key={s.slug} path={s.slug} element={<Placeholder title={s.label} />} />
-				))}
+			<Route path="/login" element={<Login />} />
+			<Route path="/register" element={<Register />} />
+
+			{/* Everything past this point needs a signed-in user. Grouping the
+			    guarded routes under one element beats repeating a check inside each
+			    page, where the one page that forgets it is the security hole. */}
+			<Route element={<RequireAuth />}>
+				<Route path="/account" element={<Placeholder title="Account" />} />
+				<Route path="/trips" element={<Placeholder title="Trips" />} />
+				<Route path="/trips/:tripId" element={<TripShell />}>
+					<Route index element={<Navigate to="calendar" replace />} />
+					{SECTIONS.map((s) => (
+						<Route key={s.slug} path={s.slug} element={<Placeholder title={s.label} />} />
+					))}
+				</Route>
 			</Route>
+
 			<Route path="*" element={<Placeholder title="Not found" />} />
 		</Routes>
 	);

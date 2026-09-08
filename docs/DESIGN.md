@@ -377,6 +377,46 @@ the regression test for the extraction.
 resolves from `import.meta.url` up to the repo root, with `TRIPPY_DB` as an
 override.
 
+### 5.0.1 Sessions and route guarding in the React app
+
+SvelteKit answered "who is signed in" in a server `load`, so every page already
+knew the user before it rendered. A single-page client has no equivalent
+moment, so `AuthProvider` asks `/api/auth/me` once on mount and shares the
+result.
+
+**Three states, not a nullable user.** `loading`, `authenticated`, `anonymous`.
+Collapsing `loading` into `anonymous` makes every reload flash the signed-out UI
+and, worse, makes the route guard redirect a signed-in user to `/login` before
+the session check has come back.
+
+**Guarded routes are grouped under one `RequireAuth` element** rather than each
+page checking for itself. A per-page check is only as good as the one page that
+forgets it, and that page is the security hole. The guard is a convenience, not
+the enforcement: the API authorises every request independently, so a client
+that skipped the guard entirely would still get 401s and 404s.
+
+**Redirect after login is declarative, and this is load-bearing.** The first
+version called `navigate(next)` after `logIn()` resolved. It never ran: `logIn`
+sets the auth state, which re-renders `Login`, and the `status ===
+'authenticated'` early return fired its own `<Navigate>` first. The imperative
+call always lost the race, so every deep link silently landed on `/trips`. Type
+checking cannot see this and it does not reproduce when the deep link happens to
+be the default destination, which is why it survived the first test pass. The
+fix is to have the single early-return redirect target `next`, and to make the
+state change the only trigger.
+
+**The attempted URL travels in history state, not the query string.** It is
+plumbing, so it does not belong in the address bar where a visitor can edit it.
+
+**Both hops use `replace`.** After signing in, `/login` is gone from history, so
+the back button cannot return the user to a form they have already satisfied.
+
+**Errors surface as the server's own message.** `api()` turns any non-2xx into
+an `ApiError` carrying the server's `error` field, so callers handle a value or
+a throw and never re-decide what `res.ok` means. The login failure text stays
+deliberately vague, because the API refuses to distinguish a wrong password from
+an unknown account.
+
 ## Shared UI conventions
 
 These exist so five pages don't each invent their own version. Reach for them
