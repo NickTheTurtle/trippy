@@ -28,6 +28,7 @@
 		"check": "tsc --noEmit"
 	},
 	"dependencies": {
-		"@trippy/core": "*"
+		"@trippy/core": "*",
+		"tz-lookup": "^6.1.25"
 	}
 }

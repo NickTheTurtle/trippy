@@ -1,3 +1,9 @@
+/// <reference path="./tz-lookup.d.ts" />
+// The reference above is deliberate. tz-lookup ships no types, and this file is
+// type-checked by more than one tsconfig (its own package, and the SvelteKit app
+// that reaches it through the workspace symlink). Binding the declaration to the
+// file that needs it works under all of them; relying on a tsconfig `include`
+// only works under the one that has it.
 import tzlookup from 'tz-lookup';
 
 /** A city suggestion returned from geocoding, with an autofilled time zone. */

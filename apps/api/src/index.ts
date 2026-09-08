@@ -1,0 +1,39 @@
+import { serve } from '@hono/node-server';
+import { Hono } from 'hono';
+import { session } from './middleware';
+import { auth } from './routes/auth';
+import { trips } from './routes/trips';
+import { ensureDemoAccount } from '@trippy/server/auth';
+
+/**
+ * Standalone JSON API. It owns the database and the Google keys, so the web and
+ * (later) native clients hold no credentials and share one implementation.
+ *
+ * Everything is mounted under /api because the web dev server proxies that
+ * prefix, which keeps the browser on a single origin: no CORS preflights, and
+ * the session cookie stays first-party. Production is expected to sit behind
+ * one host for the same reason.
+ */
+const app = new Hono();
+
+app.use('*', session);
+
+app.get('/api/health', (c) => c.json({ ok: true, provider: process.env.GOOGLE_PLACES_KEY ? 'google' : 'osm' }));
+app.route('/api/auth', auth);
+app.route('/api/trips', trips);
+
+app.notFound((c) => c.json({ error: 'Not found' }, 404));
+
+app.onError((err, c) => {
+	// Log the real error, return a generic one: stack traces and SQL text in a
+	// response body are an information leak.
+	console.error(err);
+	return c.json({ error: 'Something went wrong' }, 500);
+});
+
+if (process.env.NODE_ENV !== 'production') ensureDemoAccount();
+
+const port = Number(process.env.PORT ?? 5175);
+serve({ fetch: app.fetch, port }, (info) => {
+	console.log(`api listening on http://localhost:${info.port}`);
+});
