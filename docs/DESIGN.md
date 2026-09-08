@@ -454,6 +454,33 @@ the bar visibly flips from "Log in" to a username a moment after every load.
 for both, so the shell cannot tell them apart, and that is the point: trip IDs
 cannot be probed by watching which ones produce a different error.
 
+### 5.0.3 Bugs the port surfaced
+
+**Removing an invited placeholder orphaned its invite row.** `trip_invites`
+holds `placeholder_id TEXT REFERENCES users(id) ON DELETE SET NULL`, so deleting
+the placeholder user did not delete the invite, despite a comment in
+`removeMember` claiming it cascaded. Because the table is
+`UNIQUE (trip_id, email)`, the surviving row rejected every later attempt to
+invite that address to that trip with "already a member or invited", while
+nothing in the UI showed anyone by that name: an organizer could lock an address
+out of a trip permanently with no way to undo it. The row would also still have
+turned into a membership if that person ever registered, silently re-adding
+someone who had been removed. `removeMember` now deletes the invite explicitly.
+Found by running the People page twice in a row, which a single pass would not
+have caught.
+
+**`--danger-ink` was never defined.** Every reference in the Svelte stylesheet
+carried an inline fallback, and two of them had drifted (`#a8392f` against
+`#a12b21`), so the same "destructive" red was two different reds depending on
+which rule won. The React theme defines `--color-danger-ink` and
+`--color-danger-soft` once.
+
+**Pending invites are fetched but never shown.** The Svelte loader returned
+`invites` and defined a `revoke` action, and no markup used either. The API
+exposes both, so the React page can grow the list without server work. It is not
+built yet, and until it is, a pending invite is only visible as its placeholder
+row.
+
 ## Shared UI conventions
 
 These exist so five pages don't each invent their own version. Reach for them

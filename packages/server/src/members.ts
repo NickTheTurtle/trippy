@@ -154,9 +154,21 @@ export function removeMember(tripId: string, actorId: string, userId: string): b
 	const user = db.prepare(`SELECT password_hash FROM users WHERE id = ?`).get(userId) as
 		| { password_hash: string }
 		| undefined;
-	// A placeholder exists only for this trip, so removing it deletes the user
-	// (cascading to its membership, invite, and any votes).
+	// A placeholder exists only for this trip, so removing it deletes the user,
+	// which cascades to its membership and votes. The invite row does not
+	// cascade: its placeholder_id is ON DELETE SET NULL, so it would survive as
+	// an orphan. That matters because trip_invites is UNIQUE (trip_id, email),
+	// so the stale row would permanently reject re-inviting that address while
+	// being invisible in the UI, and would still turn into a membership if the
+	// person later registered.
 	if (user?.password_hash.startsWith('placeholder:')) {
+		// Delete the invite before the user: trip_invites is UNIQUE (trip_id,
+		// email), so this row is unambiguous, and deleting it first avoids
+		// relying on the state the SET NULL leaves behind.
+		db.prepare(`DELETE FROM trip_invites WHERE trip_id = ? AND email = ?`).run(
+			tripId,
+			user.password_hash.slice('placeholder:'.length)
+		);
 		db.prepare(`DELETE FROM users WHERE id = ?`).run(userId);
 		return true;
 	}
