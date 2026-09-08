@@ -906,26 +906,108 @@ trip-planner/
   docs/DESIGN.md
 ```
 
-### 5.2 Key API surface (indicative)
+### 5.2 API surface (as built)
+
+Everything is under `/api`, which the web dev server proxies so the browser
+stays on one origin. Session is an httpOnly cookie; there is no token.
+
 ```
-POST   /trips                          create trip
-POST   /trips/:id/locations            add location (city + tz)
-GET    /trips/:id/pois?locationId=     candidate pool
-POST   /trips/:id/pois                 add/import POI
-POST   /trips/:id/pois/:pid/vote       upvote POI
-GET    /trips/:id/tracks               tracks + schedule items
-POST   /trips/:id/tracks/:tid/items    place schedule item
-PATCH  /items/:id                      move/resize/rebook
-GET    /items/:id/travel               travel leg to next (cached)
-GET    /trips/:id/lodging              lodging candidates + tally
-POST   /lodging/:id/vote               ranked/approval vote
-GET    /trips/:id/costs                cost rollup (per person/day)
-POST   /trips/:id/expenses             log expense
-GET    /trips/:id/settlement           minimal transactions
+GET    /api/health
+
+POST   /api/auth/register | login | logout
+GET    /api/auth/me
+
+GET    /api/account                        profile + IANA time zone list
+PATCH  /api/account/profile
+POST   /api/account/password
+
+GET    /api/citysearch?q=                  geocoder, session-gated
+
+GET    /api/trips                          list
+POST   /api/trips                          create
+GET    /api/trips/:tripId                  trip + cities + members
+PATCH  /api/trips/:tripId                  rename / re-date / re-denominate
+
+GET    /api/trips/:tripId/discover                    places + stays + votes
+GET    /api/trips/:tripId/discover/search?q=&cityId=&kind=
+GET    /api/trips/:tripId/discover/details?id=
+POST   /api/trips/:tripId/discover/pois
+PATCH  /api/trips/:tripId/discover/pois/:poiId
+DELETE /api/trips/:tripId/discover/pois/:poiId
+POST   /api/trips/:tripId/discover/pois/:poiId/vote
+POST   /api/trips/:tripId/discover/stays
+POST   /api/trips/:tripId/discover/stays/:optionId/vote | /lock
+PATCH  /api/trips/:tripId/discover/stays/:optionId/dates
+DELETE /api/trips/:tripId/discover/stays/:optionId
+
+GET    /api/trips/:tripId/calendar?day=&view=          board for the visible days
+POST   /api/trips/:tripId/calendar/tracks
+POST   /api/trips/:tripId/calendar/items
+PUT    /api/trips/:tripId/calendar/items/:itemId/assignees
+POST   /api/trips/:tripId/calendar/items/:itemId/op    move|resize|edit|cycle|delete
+POST   /api/trips/:tripId/calendar/crews
+PATCH  /api/trips/:tripId/calendar/crews/:partyId
+DELETE /api/trips/:tripId/calendar/crews/:partyId
+PUT    /api/trips/:tripId/calendar/crews/:partyId/day
+POST   /api/trips/:tripId/calendar/crews/split | /rejoin
+
+GET    /api/trips/:tripId/expenses                     rows + balances + settlement
+POST   /api/trips/:tripId/expenses
+DELETE /api/trips/:tripId/expenses/:expenseId
+
+GET    /api/trips/:tripId/pretrip                      tasks + packing + budget
+POST   /api/trips/:tripId/pretrip/tasks
+POST   /api/trips/:tripId/pretrip/tasks/:taskId/toggle
+DELETE /api/trips/:tripId/pretrip/tasks/:taskId
+POST   /api/trips/:tripId/pretrip/costs
+PUT    /api/trips/:tripId/pretrip/costs/:itemId
+DELETE /api/trips/:tripId/pretrip/costs/:itemId
+
+GET    /api/trips/:tripId/people                       members + pending invites
+POST   /api/trips/:tripId/people/invites
+DELETE /api/trips/:tripId/people/invites/:inviteId
+DELETE /api/trips/:tripId/people/:userId
 ```
+
+Choices worth the words:
+
+**The section GET endpoints return the page payload, not a normalised
+resource.** `GET /calendar` returns the whole board: days, tracks, per-crew city
+and lodging cells, membership segments and the maps key. That is what the
+SvelteKit `load` returned, and it is one round trip instead of six. The cost is
+that it is shaped for a screen rather than for reuse, which is the right trade
+while there is exactly one consumer.
+
+**One `/op` endpoint for the five item mutations** (move, resize, edit, cycle
+booking, delete) rather than five REST verbs. The calendar fires all of them
+from one drag handler and the ownership check is identical, so splitting them
+would spread that check across five places for nothing.
+
+**Votes are POST, not PUT.** Sending the same request twice is a vote and then
+an un-vote. That is the intended behaviour, so claiming idempotence would be a
+lie.
+
+**Membership is checked once, by the router.** Each section router applies
+`requireMember`, which conflates "no such trip" with "a trip you cannot see" so
+trip ids cannot be probed. No handler repeats the check.
+
+**Split weights are a map, not flattened keys.** The SvelteKit form had to send
+`w:<userId>` fields because FormData has no nested values. JSON does, so the
+body carries `weights: { userId: number }`.
+
+**Untrusted bodies go through `parse.ts`.** A JSON field can be missing, null,
+or an object, and `String(x)` on an object yields "[object Object]" rather than
+failing. FormData could only ever yield strings, so the old `String(f.get(k) ??
+'')` idiom was safe and the JSON equivalent is not.
+
+**Known gaps, inherited rather than introduced.** `tracks` has no delete, and
+`addCity` / `updateCity` / `removeCity`, `getBudget` / `setBudget`,
+`toggleSave` and `linkedItemCount` exist in `packages/server` but no UI ever
+called them. They are deliberately not exposed: the API mirrors the app that
+exists. Cities currently only arrive via seed data, which is a real product gap
+to close before the Svelte app is retired.
 
 ---
-
 ## 6. Data Model (Drizzle-style sketch)
 
 ```ts

@@ -1,9 +1,11 @@
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
-import { session } from './middleware';
+import { session, requireUser } from './middleware';
 import { auth } from './routes/auth';
+import { account } from './routes/account';
 import { trips } from './routes/trips';
 import { ensureDemoAccount } from '@trippy/server/auth';
+import { searchCities } from '@trippy/server/geocode';
 
 /**
  * Standalone JSON API. It owns the database and the Google keys, so the web and
@@ -20,7 +22,17 @@ app.use('*', session);
 
 app.get('/api/health', (c) => c.json({ ok: true, provider: process.env.GOOGLE_PLACES_KEY ? 'google' : 'osm' }));
 app.route('/api/auth', auth);
+app.route('/api/account', account);
 app.route('/api/trips', trips);
+
+/**
+ * City lookup for the trip editor. It is not scoped to a trip because it is used
+ * while creating one, but it is still behind a session: it costs a geocoder call
+ * per request and must not be an open proxy.
+ */
+app.get('/api/citysearch', requireUser, async (c) =>
+	c.json({ results: await searchCities(c.req.query('q') ?? '') })
+);
 
 app.notFound((c) => c.json({ error: 'Not found' }, 404));
 
