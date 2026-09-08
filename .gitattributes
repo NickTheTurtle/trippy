@@ -1,0 +1,7 @@
+# Normalise line endings in the repo, so a Windows checkout does not show every
+# file as modified. Text is stored LF and checked out native.
+* text=auto
+
+*.png binary
+*.svg text
+*.db binary

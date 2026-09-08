@@ -1,0 +1,19 @@
+{
+	"name": "@trippy/core",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts",
+		"./types": "./src/types.ts",
+		"./settlement": "./src/settlement.ts",
+		"./split": "./src/split.ts",
+		"./tz": "./src/tz.ts",
+		"./layout": "./src/layout.ts",
+		"./cover": "./src/cover.ts",
+		"./sample": "./src/sample.ts"
+	},
+	"scripts": {
+		"check": "tsc --noEmit"
+	}
+}

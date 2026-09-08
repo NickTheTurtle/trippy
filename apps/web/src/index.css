@@ -1,0 +1,70 @@
+@import 'tailwindcss';
+
+/*
+ * Design tokens, carried over verbatim from the SvelteKit app so the React port
+ * renders the same palette rather than re-deriving one. Declaring them in
+ * `@theme` is what makes Tailwind v4 generate the matching utilities, so
+ * `--color-accent` gives `bg-accent`, `text-accent`, `border-accent` and so on.
+ */
+@theme {
+	--color-ink: #1c2321;
+	--color-ink-soft: #4a5551;
+	--color-ink-faint: #8a938f;
+	--color-line: #e4e6e2;
+	--color-surface: #ffffff;
+	--color-surface-2: #f6f5f1;
+	--color-bg: #fbfaf6;
+	--color-accent: #2f6d5e;
+	--color-accent-soft: #e4efe9;
+	--color-accent-ink: #1f4c41;
+	--color-warn: #b4682a;
+	--color-warn-soft: #f6e9dd;
+
+	--font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+	--font-serif: 'Fraunces', ui-serif, Georgia, serif;
+
+	--radius-sm: 6px;
+	--radius-DEFAULT: 10px;
+	--radius-lg: 16px;
+
+	--shadow-card: 0 1px 2px rgba(28, 35, 33, 0.04), 0 8px 24px rgba(28, 35, 33, 0.06);
+	--shadow-sm: 0 1px 2px rgba(28, 35, 33, 0.06);
+
+	/* Height of a section header row, so a header with no action button still
+	   starts its panel at the same y as one that has a button. */
+	--spacing-phead: 37.6px;
+}
+
+/*
+ * Always reserve the scrollbar gutter. Without it, navigating between a page
+ * taller than the viewport and one shorter than it adds or removes the
+ * scrollbar and the centred layout jumps sideways by its width.
+ * `overflow-y: scroll` is the fallback for browsers without scrollbar-gutter.
+ */
+html {
+	overflow-y: scroll;
+}
+@supports (scrollbar-gutter: stable) {
+	html {
+		overflow-y: auto;
+		scrollbar-gutter: stable;
+	}
+}
+
+body {
+	margin: 0;
+	font-family: var(--font-sans);
+	color: var(--color-ink);
+	background: var(--color-bg);
+	line-height: 1.55;
+	-webkit-font-smoothing: antialiased;
+	text-rendering: optimizeLegibility;
+}
+
+h1,
+h2,
+h3 {
+	font-family: var(--font-serif);
+	font-weight: 560;
+	line-height: 1.15;
+}

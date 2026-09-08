@@ -1,0 +1,21 @@
+{
+	"name": "trippy",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"workspaces": [
+		"packages/*",
+		"apps/*"
+	],
+	"scripts": {
+		"dev:svelte": "npm run dev -w @trippy/svelte",
+		"dev:api": "npm run dev -w @trippy/api",
+		"dev:web": "npm run dev -w @trippy/web",
+		"check": "npm run check --workspaces --if-present",
+		"build": "npm run build --workspaces --if-present"
+	},
+	"devDependencies": {
+		"@types/node": "^26.4.0",
+		"typescript": "^6.0.3"
+	}
+}

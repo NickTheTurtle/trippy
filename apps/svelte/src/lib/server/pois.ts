@@ -1,0 +1,276 @@
+import { randomUUID } from 'node:crypto';
+import { db } from './db';
+
+export interface PoiRow {
+	id: string;
+	name: string;
+	category: string;
+	notes: string | null;
+	url: string | null;
+	lat: number | null;
+	lng: number | null;
+	rating: number | null;
+	rating_count: number | null;
+	price_level: number | null;
+	hours: string | null;
+	photo: string | null;
+	saved: number;
+	votes: number;
+	you_voted: number;
+	voters: string[]; // names, most-recent-agnostic, alphabetical
+	linked: number; // scheduled calendar items pointing at this place
+}
+
+export interface CityPois {
+	id: string;
+	name: string;
+	lat: number | null;
+	lng: number | null;
+	pois: PoiRow[];
+}
+
+function isMember(tripId: string, userId: string): boolean {
+	return !!db
+		.prepare(`SELECT 1 FROM memberships WHERE trip_id = ? AND user_id = ?`)
+		.get(tripId, userId);
+}
+
+function cityInTrip(tripId: string, cityId: string): boolean {
+	return !!db.prepare(`SELECT 1 FROM cities WHERE id = ? AND trip_id = ?`).get(cityId, tripId);
+}
+
+export function cityPois(tripId: string, userId: string): CityPois[] {
+	const cities = db
+		.prepare(`SELECT id, name, lat, lng FROM cities WHERE trip_id = ? ORDER BY sort`)
+		.all(tripId) as unknown as {
+		id: string;
+		name: string;
+		lat: number | null;
+		lng: number | null;
+	}[];
+	// Voter names in one pass for the whole trip rather than a subquery per row:
+	// `group_concat` would need a separator that cannot appear in a person's name,
+	// and there is no such character.
+	const voterRows = db
+		.prepare(
+			`SELECT v.poi_id, u.name
+			 FROM poi_votes v
+			 JOIN users u ON u.id = v.user_id
+			 JOIN pois p ON p.id = v.poi_id
+			 WHERE p.trip_id = ?
+			 ORDER BY u.name COLLATE NOCASE`
+		)
+		.all(tripId) as unknown as { poi_id: string; name: string }[];
+	const voters = new Map<string, string[]>();
+	for (const r of voterRows) {
+		const list = voters.get(r.poi_id);
+		if (list) list.push(r.name);
+		else voters.set(r.poi_id, [r.name]);
+	}
+	return cities.map((c) => ({
+		...c,
+		pois: (
+			db
+				.prepare(
+					`SELECT p.id, p.name, p.category, p.notes, p.url, p.lat, p.lng,
+				        p.rating, p.rating_count, p.price_level, p.hours, p.saved, p.photo,
+				        (SELECT COUNT(*) FROM poi_votes v WHERE v.poi_id = p.id) AS votes,
+				        (SELECT COUNT(*) FROM poi_votes v WHERE v.poi_id = p.id AND v.user_id = ?) AS you_voted,
+				        (SELECT COUNT(*) FROM schedule_items s WHERE s.poi_id = p.id) AS linked
+				 FROM pois p WHERE p.city_id = ?
+				 ORDER BY votes DESC, p.created_at`
+				)
+				.all(userId, c.id) as unknown as Omit<PoiRow, 'voters'>[]
+		).map((p) => ({ ...p, voters: voters.get(p.id) ?? [] }))
+	}));
+}
+
+/** POIs available to schedule onto the calendar (all discovered places for the trip). */
+export function savedPoisForTrip(tripId: string): {
+	id: string;
+	name: string;
+	city_id: string;
+	lat: number | null;
+	lng: number | null;
+}[] {
+	return db
+		.prepare(`SELECT id, name, city_id, lat, lng FROM pois WHERE trip_id = ? ORDER BY name`)
+		.all(tripId) as unknown as {
+		id: string;
+		name: string;
+		city_id: string;
+		lat: number | null;
+		lng: number | null;
+	}[];
+}
+
+export interface PoiDetails {
+	rating?: number | null;
+	ratingCount?: number | null;
+	priceLevel?: number | null;
+	hours?: string[] | null;
+	photo?: string | null;
+}
+
+/**
+ * Whether this city already holds a place with this exact card title. One venue
+ * can legitimately appear several times: the Acropolis at sunrise and again for
+ * the museum. Duplicates are only a mistake when the *activity* repeats too,
+ * which is precisely when the resulting titles collide.
+ */
+export function poiTitleExists(tripId: string, cityId: string, name: string): boolean {
+	const row = db
+		.prepare(
+			`SELECT 1 FROM pois
+			 WHERE trip_id = ? AND city_id = ? AND lower(trim(name)) = lower(trim(?))`
+		)
+		.get(tripId, cityId, name);
+	return !!row;
+}
+
+export function addPoi(
+	tripId: string,
+	actorId: string,
+	cityId: string,
+	name: string,
+	category: string,
+	notes: string | null,
+	url: string | null,
+	lat: number | null,
+	lng: number | null,
+	details: PoiDetails = {}
+): string | null {
+	if (!isMember(tripId, actorId)) return null;
+	if (!cityInTrip(tripId, cityId)) return null;
+	const id = randomUUID();
+	const hours = details.hours && details.hours.length ? JSON.stringify(details.hours) : null;
+	db.prepare(
+		`INSERT INTO pois
+		 (id, trip_id, city_id, name, category, notes, url, lat, lng, rating, rating_count, price_level, hours, photo, saved, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`
+	).run(
+		id,
+		tripId,
+		cityId,
+		name,
+		category,
+		notes,
+		url,
+		lat,
+		lng,
+		details.rating ?? null,
+		details.ratingCount ?? null,
+		details.priceLevel ?? null,
+		hours,
+		details.photo ?? null,
+		Date.now()
+	);
+	return id;
+}
+
+export function toggleSave(tripId: string, actorId: string, poiId: string): boolean {
+	if (!isMember(tripId, actorId)) return false;
+	const res = db
+		.prepare(`UPDATE pois SET saved = 1 - saved WHERE id = ? AND trip_id = ?`)
+		.run(poiId, tripId);
+	return res.changes > 0;
+}
+
+export function toggleVote(tripId: string, actorId: string, poiId: string): boolean {
+	if (!isMember(tripId, actorId)) return false;
+	const poi = db.prepare(`SELECT 1 FROM pois WHERE id = ? AND trip_id = ?`).get(poiId, tripId);
+	if (!poi) return false;
+	const existing = db
+		.prepare(`SELECT 1 FROM poi_votes WHERE poi_id = ? AND user_id = ?`)
+		.get(poiId, actorId);
+	if (existing) {
+		db.prepare(`DELETE FROM poi_votes WHERE poi_id = ? AND user_id = ?`).run(poiId, actorId);
+	} else {
+		db.prepare(`INSERT INTO poi_votes (poi_id, user_id) VALUES (?, ?)`).run(poiId, actorId);
+	}
+	return true;
+}
+
+/**
+ * How many scheduled calendar items point at this place. Surfaced in the delete
+ * confirmation, because removing a place also removes what was scheduled there.
+ */
+export function linkedItemCount(tripId: string, poiId: string): number {
+	const row = db
+		.prepare(
+			`SELECT COUNT(*) AS n FROM schedule_items s
+			 JOIN tracks t ON t.id = s.track_id
+			 WHERE s.poi_id = ? AND t.trip_id = ?`
+		)
+		.get(poiId, tripId) as { n: number } | undefined;
+	return row?.n ?? 0;
+}
+
+/**
+ * Delete a place and everything scheduled from it. The FK is ON DELETE SET NULL,
+ * which would otherwise leave orphaned calendar blocks with no location, so the
+ * dependent items are removed explicitly and atomically.
+ */
+export function removePoi(tripId: string, actorId: string, poiId: string): boolean {
+	if (!isMember(tripId, actorId)) return false;
+	db.exec('BEGIN');
+	try {
+		db.prepare(
+			`DELETE FROM schedule_items WHERE poi_id = ? AND track_id IN
+			   (SELECT id FROM tracks WHERE trip_id = ?)`
+		).run(poiId, tripId);
+		const res = db.prepare(`DELETE FROM pois WHERE id = ? AND trip_id = ?`).run(poiId, tripId);
+		db.exec('COMMIT');
+		return Number(res.changes) > 0;
+	} catch (err) {
+		db.exec('ROLLBACK');
+		throw err;
+	}
+}
+
+/** Edits the traveller-authored fields of a place. Provider-derived data
+    (rating, hours, photo, coordinates) is not editable, because it belongs to the
+    provider and is refreshed from it, not typed by hand. */
+export function updatePoi(
+	tripId: string,
+	actorId: string,
+	poiId: string,
+	fields: { name: string; notes: string | null; url: string | null }
+): boolean {
+	if (!isMember(tripId, actorId)) return false;
+	const res = db
+		.prepare(`UPDATE pois SET name = ?, notes = ?, url = ? WHERE id = ? AND trip_id = ?`)
+		.run(fields.name, fields.notes, fields.url, poiId, tripId);
+	return Number(res.changes) > 0;
+}
+
+/** A place still waiting on a cover photo lookup, with the context to find it. */
+export interface PhotolessPoi {
+	id: string;
+	name: string;
+	lat: number | null;
+	lng: number | null;
+	city: string;
+	country: string;
+}
+
+/**
+ * Places in a trip that have never had a photo looked up. `photo IS NULL` means
+ * "not asked yet"; the NO_PHOTO sentinel means "asked, none exists", so misses
+ * are not retried on every page load.
+ */
+export function poisNeedingPhotos(tripId: string, limit = 24): PhotolessPoi[] {
+	return db
+		.prepare(
+			`SELECT p.id, p.name, p.lat, p.lng, c.name AS city, c.country
+			 FROM pois p JOIN cities c ON c.id = p.city_id
+			 WHERE p.trip_id = ? AND p.photo IS NULL
+			 ORDER BY p.created_at LIMIT ?`
+		)
+		.all(tripId, limit) as unknown as PhotolessPoi[];
+}
+
+/** Records the result of a photo lookup (a resource name, or the miss sentinel). */
+export function setPoiPhoto(poiId: string, photo: string): void {
+	db.prepare(`UPDATE pois SET photo = ? WHERE id = ?`).run(photo, poiId);
+}
