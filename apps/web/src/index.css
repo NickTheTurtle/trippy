@@ -68,3 +68,192 @@ h3 {
 	font-weight: 560;
 	line-height: 1.15;
 }
+
+/*
+ * A small set of element classes.
+ *
+ * These are the pieces where a utility list would be repeated verbatim on every
+ * use (buttons, cards, chips) or where Tailwind cannot express the selector at
+ * all: ::backdrop, and the .mbody / .mfoot parts of a dialog, which are written
+ * by whichever page renders the dialog's children rather than by Modal itself.
+ */
+
+.container {
+	max-width: 1120px;
+	margin: 0 auto;
+	padding-inline: 1.5rem;
+}
+
+.card {
+	background: var(--color-surface);
+	border: 1px solid var(--color-line);
+	border-radius: var(--radius-lg);
+	box-shadow: var(--shadow-sm);
+}
+
+.muted {
+	color: var(--color-ink-soft);
+}
+
+.btn {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.4rem;
+	padding: 0.55rem 1rem;
+	border: 1px solid var(--color-line);
+	border-radius: var(--radius);
+	background: var(--color-surface);
+	color: var(--color-ink);
+	font: inherit;
+	font-size: 0.92rem;
+	font-weight: 500;
+	cursor: pointer;
+	white-space: nowrap;
+}
+.btn:hover {
+	background: var(--color-surface-2);
+}
+.btn.primary {
+	background: var(--color-accent);
+	border-color: var(--color-accent);
+	color: #fff;
+}
+.btn.primary:hover {
+	opacity: 0.92;
+}
+.btn:disabled {
+	opacity: 0.6;
+	cursor: not-allowed;
+}
+
+.chip {
+	display: inline-block;
+	padding: 0.2rem 0.6rem;
+	border: 1px solid var(--color-line);
+	border-radius: 999px;
+	background: var(--color-surface);
+	font-size: 0.78rem;
+	font-weight: 500;
+}
+.chip.accent {
+	background: var(--color-accent-soft);
+	border-color: transparent;
+	color: var(--color-accent-ink);
+}
+
+/* --- Dialog ------------------------------------------------------------- */
+
+.modal {
+	padding: 0;
+	margin: auto;
+	border: 1px solid var(--color-line);
+	border-radius: var(--radius-lg);
+	background: var(--color-surface);
+	color: var(--color-ink);
+	box-shadow: var(--shadow-card);
+	width: min(var(--mw), calc(100vw - 2rem));
+	/* Cap the panel so the body scrolls internally rather than the whole page. */
+	max-height: min(86vh, calc(100vh - 3rem));
+	overflow: hidden;
+	flex-direction: column;
+}
+.modal[open] {
+	display: flex;
+}
+.modal::backdrop {
+	background: rgba(20, 24, 22, 0.45);
+	backdrop-filter: blur(2px);
+}
+
+.mhead {
+	display: flex;
+	align-items: center;
+	gap: 0.6rem;
+	padding: 0.95rem 1.15rem;
+	border-bottom: 1px solid var(--color-line);
+	flex: 0 0 auto;
+}
+.mtitle {
+	margin: 0;
+	font-family: var(--font-sans);
+	font-size: 1rem;
+	font-weight: 600;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	flex: 0 1 auto;
+}
+.msub {
+	color: var(--color-ink-faint);
+	font-size: 0.85rem;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	min-width: 0;
+}
+.mswatch {
+	width: 10px;
+	height: 10px;
+	border-radius: 3px;
+	flex: 0 0 auto;
+}
+.mclose {
+	flex: 0 0 auto;
+	margin-left: auto;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 30px;
+	height: 30px;
+	border: 1px solid transparent;
+	border-radius: var(--radius-sm);
+	background: transparent;
+	color: var(--color-ink-soft);
+	cursor: pointer;
+}
+.mclose svg {
+	width: 16px;
+	height: 16px;
+}
+.mclose:hover {
+	background: var(--color-surface-2);
+	color: var(--color-ink);
+}
+
+.mform {
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	overflow: hidden;
+}
+.mbody {
+	padding: 1.15rem;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	min-height: 0;
+	flex: 1 1 auto;
+}
+.mfoot {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 0.6rem;
+	flex-wrap: wrap;
+	padding: 0.85rem 1.15rem;
+	border-top: 1px solid var(--color-line);
+	background: var(--color-surface);
+	flex: 0 0 auto;
+}
+
+@media (max-width: 620px) {
+	.modal {
+		max-height: min(94vh, calc(100vh - 1rem));
+	}
+	.mfoot {
+		justify-content: stretch;
+	}
+	.mfoot .btn {
+		flex: 1 1 auto;
+		justify-content: center;
+	}
+}

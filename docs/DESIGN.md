@@ -417,6 +417,43 @@ a throw and never re-decide what `res.ok` means. The login failure text stays
 deliberately vague, because the API refuses to distinguish a wrong password from
 an unknown account.
 
+### 5.0.2 Route shape, the trip shell and data loading
+
+**The tab list was rebuilt from the running app, not from the scaffold.** The
+React scaffold listed nine sections and landed `/trips/:tripId` on the calendar.
+The app has **five** tabs, in the order discover, pretrip, calendar, expenses,
+people, and the bare trip URL lands on **discover**. Calendar is labelled
+"Schedule". `costs` and `lodging` are not tabs; they were folded into
+preparation and discover, and survive only as redirects so older links still
+land somewhere sensible. `settings` has no page at all: it is the organizer's
+edit dialog in the trip header. `nav.ts` is now the single source for all of
+this, and `App.tsx` generates both the tab routes and the redirects from it, so
+adding a section cannot leave the router and the tab bar disagreeing.
+
+**The trip shell owns the trip fetch; sections read it from outlet context.**
+Every section needs the same trip record. Letting each one fetch it would mean
+five identical requests per navigation and five chances to render a different
+name in the header than in the body. `TripShell` loads it once and passes
+`{ trip, reloadTrip }` down; `useTrip()` is the accessor. `reloadTrip` is handed
+down deliberately: a section that changes something the header shows has to be
+able to refresh it, and the alternative is a full page reload.
+
+**`useApi` returns `reload` rather than hiding it.** SvelteKit's
+`invalidateAll()` re-ran the page `load` after every form action, and React has
+no equivalent. It keeps the previous `data` visible while refetching, so an edit
+reads as an update rather than a flash of empty layout.
+
+**Layout is a route, not a component each page renders.** The top bar mounts
+once, so its open menu survives navigation. It renders a plain wrapper rather
+than a `<main>`, because every page renders its own.
+
+**The nav renders nothing while the session is loading.** Guessing wrong means
+the bar visibly flips from "Log in" to a username a moment after every load.
+
+**Unknown or forbidden trips render "not found" in place.** The API returns 404
+for both, so the shell cannot tell them apart, and that is the point: trip IDs
+cannot be probed by watching which ones produce a different error.
+
 ## Shared UI conventions
 
 These exist so five pages don't each invent their own version. Reach for them

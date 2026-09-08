@@ -1,10 +1,13 @@
-import { Routes, Route, NavLink, Navigate, Outlet } from 'react-router';
-import { SECTIONS } from './nav';
+import { Routes, Route, Navigate } from 'react-router';
+import { TABS, MERGED } from './nav';
+import Layout from './components/Layout';
+import RequireAuth from './components/RequireAuth';
 import Placeholder from './pages/Placeholder';
 import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Register from './pages/Register';
-import RequireAuth from './components/RequireAuth';
+import Trips from './pages/Trips';
+import TripShell from './pages/TripShell';
 
 /**
  * Route skeleton mirroring the SvelteKit app's URLs exactly, so the two can be
@@ -14,51 +17,32 @@ import RequireAuth from './components/RequireAuth';
 export default function App() {
 	return (
 		<Routes>
-			<Route path="/" element={<Landing />} />
-			<Route path="/login" element={<Login />} />
-			<Route path="/register" element={<Register />} />
+			<Route element={<Layout />}>
+				<Route path="/" element={<Landing />} />
+				<Route path="/login" element={<Login />} />
+				<Route path="/register" element={<Register />} />
 
-			{/* Everything past this point needs a signed-in user. Grouping the
-			    guarded routes under one element beats repeating a check inside each
-			    page, where the one page that forgets it is the security hole. */}
-			<Route element={<RequireAuth />}>
-				<Route path="/account" element={<Placeholder title="Account" />} />
-				<Route path="/trips" element={<Placeholder title="Trips" />} />
-				<Route path="/trips/:tripId" element={<TripShell />}>
-					<Route index element={<Navigate to="calendar" replace />} />
-					{SECTIONS.map((s) => (
-						<Route key={s.slug} path={s.slug} element={<Placeholder title={s.label} />} />
-					))}
+				{/* Everything past this point needs a signed-in user. Grouping the
+				    guarded routes under one element beats repeating a check inside
+				    each page, where the one page that forgets it is the security
+				    hole. It is convenience, not enforcement: the API authorises
+				    every request independently. */}
+				<Route element={<RequireAuth />}>
+					<Route path="/account" element={<Placeholder title="Account" />} />
+					<Route path="/trips" element={<Trips />} />
+					<Route path="/trips/:tripId" element={<TripShell />}>
+						<Route index element={<Navigate to="discover" replace />} />
+						{TABS.map((t) => (
+							<Route key={t.slug} path={t.slug} element={<Placeholder title={t.label} />} />
+						))}
+						{MERGED.map((m) => (
+							<Route key={m.slug} path={m.slug} element={<Navigate to={`../${m.into}`} replace />} />
+						))}
+					</Route>
 				</Route>
+
+				<Route path="*" element={<Placeholder title="Not found" />} />
 			</Route>
-
-			<Route path="*" element={<Placeholder title="Not found" />} />
 		</Routes>
-	);
-}
-
-function TripShell() {
-	return (
-		<div className="mx-auto max-w-5xl px-6 py-8">
-			<nav className="mb-6 flex flex-wrap gap-1 border-b border-line pb-2">
-				{SECTIONS.map((s) => (
-					<NavLink
-						key={s.slug}
-						to={s.slug}
-						className={({ isActive }) =>
-							[
-								'rounded-sm px-3 py-1.5 text-sm transition-colors',
-								isActive
-									? 'bg-accent-soft font-medium text-accent-ink'
-									: 'text-ink-soft hover:text-ink'
-							].join(' ')
-						}
-					>
-						{s.label}
-					</NavLink>
-				))}
-			</nav>
-			<Outlet />
-		</div>
 	);
 }
