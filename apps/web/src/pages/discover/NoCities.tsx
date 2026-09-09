@@ -26,10 +26,9 @@ export default function NoCities({
 	return (
 		<div className="card mx-auto flex w-full max-w-[34rem] flex-col items-start gap-3 p-8">
 			<PinMark />
-			<h2 className="m-0 text-[1.35rem]">{isOrganizer ? 'Start with a city' : 'No cities yet'}</h2>
+			<h2 className="m-0 text-[1.35rem]">Getting Started</h2>
 			<p className="muted m-0">
-				Places, stays and votes all belong to a city, so a trip needs one before there is anything
-				to collect.
+				Every great trip requires a destination. Add a city to start planning for your trip.
 			</p>
 			{isOrganizer ? (
 				<button type="button" className="btn primary mt-1" onClick={onAddCity}>
@@ -37,7 +36,7 @@ export default function NoCities({
 				</button>
 			) : (
 				<p className="m-0 text-[0.84rem] text-ink-faint">
-					This page fills in once an organizer adds the first stop.
+					Waiting for an organizer to add the first stop...
 				</p>
 			)}
 		</div>
