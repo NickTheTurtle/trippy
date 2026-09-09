@@ -3,6 +3,7 @@ import { db } from './db';
 import { estimateTravel, estimateTravelBetween, haversineKm } from '@trippy/core/geo';
 import { isItemType } from '@trippy/core/types';
 import { defaultPartyId, partyMemberIdsForDay } from './parties';
+import { publish } from './events';
 
 export interface ItemRow {
 	id: string;
@@ -138,6 +139,7 @@ export function createTrack(tripId: string, day: string, name: string, partyId?:
 	db.prepare(
 		`INSERT INTO tracks (id, trip_id, day, name, color, sort, party_id) VALUES (?, ?, ?, ?, ?, ?, ?)`
 	).run(id, tripId, day, name, TRACK_COLORS[count % TRACK_COLORS.length], count, party);
+	publish(tripId, 'schedule');
 	return id;
 }
 
@@ -154,6 +156,7 @@ export function createTrack(tripId: string, day: string, name: string, partyId?:
 export function removeTrack(trackId: string, tripId: string, userId: string): boolean {
 	if (!userTrack(trackId, tripId, userId)) return false;
 	db.prepare(`DELETE FROM tracks WHERE id = ? AND trip_id = ?`).run(trackId, tripId);
+	publish(tripId, 'schedule');
 	return true;
 }
 
@@ -275,6 +278,7 @@ export function createItem(
 		isFree ? null : (item.lng ?? null)
 	);
 	if (item.assignees && item.assignees.length) writeAssignees(id, tripId, item.assignees);
+	publish(tripId, 'schedule');
 	return id;
 }
 
@@ -296,12 +300,14 @@ export function setAssignees(
 	if (owner == null || owner !== tripId) return false;
 	if (!userOwnsItem(itemId, userId, owner)) return false;
 	writeAssignees(itemId, owner, assignees);
+	publish(owner, 'schedule');
 	return true;
 }
 
 export function deleteItem(itemId: string, userId: string, tripId: string): boolean {
 	if (!userOwnsItem(itemId, userId, tripId)) return false;
 	const res = db.prepare(`DELETE FROM schedule_items WHERE id = ?`).run(itemId);
+	if (res.changes > 0) publish(tripId, 'schedule');
 	return res.changes > 0;
 }
 
@@ -326,6 +332,7 @@ export function moveItem(
 		clampedStart + duration,
 		itemId
 	);
+	publish(tripId, 'schedule');
 	return true;
 }
 
@@ -345,6 +352,7 @@ export function resizeItem(
 	const snapped = Math.round(endMin / SNAP) * SNAP;
 	const clampedEnd = Math.max(item.start_min + 15, Math.min(snapped, 24 * 60));
 	db.prepare(`UPDATE schedule_items SET end_min = ? WHERE id = ?`).run(clampedEnd, itemId);
+	publish(tripId, 'schedule');
 	return true;
 }
 
@@ -401,6 +409,7 @@ export function editItem(
 
 	args.push(itemId);
 	db.prepare(`UPDATE schedule_items SET ${sets.join(', ')} WHERE id = ?`).run(...args);
+	publish(tripId, 'schedule');
 	return true;
 }
 
@@ -416,5 +425,6 @@ export function cycleBooking(itemId: string, userId: string, tripId: string): bo
 	const idx = BOOKING_CYCLE.indexOf(row.booking ?? 'unbooked');
 	const next = BOOKING_CYCLE[(idx + 1) % BOOKING_CYCLE.length];
 	db.prepare(`UPDATE schedule_items SET booking = ? WHERE id = ?`).run(next, itemId);
+	publish(tripId, 'schedule');
 	return true;
 }

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { db } from './db';
+import { publish } from './events';
 
 export interface TaskPerson {
 	id: string;
@@ -141,6 +142,7 @@ export function addTask(
 		db.exec('ROLLBACK');
 		throw err;
 	}
+	publish(tripId, 'tasks'); // after COMMIT
 	return id;
 }
 
@@ -181,6 +183,7 @@ export function toggleTask(
 			taskId,
 			tripId
 		);
+		publish(tripId, 'tasks');
 		return true;
 	}
 
@@ -196,11 +199,13 @@ export function toggleTask(
 			Date.now()
 		);
 	}
+	publish(tripId, 'tasks');
 	return true;
 }
 
 export function removeTask(tripId: string, actorId: string, taskId: string): boolean {
 	if (!isMember(tripId, actorId)) return false;
 	const res = db.prepare(`DELETE FROM trip_tasks WHERE id = ? AND trip_id = ?`).run(taskId, tripId);
+	if (Number(res.changes) > 0) publish(tripId, 'tasks');
 	return Number(res.changes) > 0;
 }

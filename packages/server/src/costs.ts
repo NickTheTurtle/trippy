@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { db } from './db';
+import { publish } from './events';
 
 export const COST_CATEGORIES = ['lodging', 'activities', 'food', 'travel'] as const;
 export type CostCategory = (typeof COST_CATEGORIES)[number];
@@ -82,6 +83,9 @@ export function setBudget(
 		const cents = Math.max(0, Math.round(e.cents));
 		upsert.run(tripId, e.cityId, e.category, cents);
 	}
+	// One event for the whole batch: the client refetches the budget section, so
+	// an event per cell would be the same refetch repeated.
+	publish(tripId, 'costs');
 	return true;
 }
 
@@ -185,6 +189,7 @@ export function addCostItem(
 		next.n,
 		Date.now()
 	);
+	publish(tripId, 'costs');
 	return true;
 }
 
@@ -210,6 +215,7 @@ export function updateCostItem(
 			 WHERE id = ? AND trip_id = ?`
 		)
 		.run(cityId, ok.category, ok.label, ok.cents, itemId, tripId);
+	if (res.changes > 0) publish(tripId, 'costs');
 	return res.changes > 0;
 }
 
@@ -218,5 +224,6 @@ export function removeCostItem(tripId: string, actorId: string, itemId: string):
 	const res = db
 		.prepare(`DELETE FROM cost_items WHERE id = ? AND trip_id = ?`)
 		.run(itemId, tripId);
+	if (res.changes > 0) publish(tripId, 'costs');
 	return res.changes > 0;
 }

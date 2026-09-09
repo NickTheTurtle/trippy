@@ -3,6 +3,7 @@ import { db } from './db';
 import { settle, type Balance, type Transaction } from '@trippy/core/settlement';
 import { splitByWeight, type SplitMode } from '@trippy/core/split';
 import { convertCents } from './fx';
+import { publish } from './events';
 
 export interface Member {
 	id: string;
@@ -128,6 +129,7 @@ export function addExpense(
 	for (const p of clean) {
 		insertPart.run(id, p.userId, Number.isFinite(p.weight) && p.weight > 0 ? p.weight : 1);
 	}
+	publish(tripId, 'expenses');
 	return id;
 }
 
@@ -136,6 +138,7 @@ export function deleteExpense(tripId: string, actorId: string, expenseId: string
 	const res = db
 		.prepare(`DELETE FROM expenses WHERE id = ? AND trip_id = ?`)
 		.run(expenseId, tripId);
+	if (res.changes > 0) publish(tripId, 'expenses');
 	return res.changes > 0;
 }
 
@@ -250,6 +253,12 @@ export function recordSettlement(
 		[{ userId: toId, weight: amountCents }],
 		'exact'
 	);
-	if (id) db.prepare(`UPDATE expenses SET settlement = 1 WHERE id = ?`).run(id);
+	// `addExpense` has already published, but that event describes the row before
+	// this flag was set, so a client that refetched instantly would label it a
+	// plain expense forever. A second invalidation after the update settles it.
+	if (id) {
+		db.prepare(`UPDATE expenses SET settlement = 1 WHERE id = ?`).run(id);
+		publish(tripId, 'expenses');
+	}
 	return id;
 }

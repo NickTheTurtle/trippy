@@ -10,22 +10,26 @@
 		"./costs": "./src/costs.ts",
 		"./db": "./src/db.ts",
 		"./env": "./src/env.ts",
+		"./events": "./src/events.ts",
 		"./expenses": "./src/expenses.ts",
 		"./fx": "./src/fx.ts",
 		"./geocode": "./src/geocode.ts",
 		"./lodging": "./src/lodging.ts",
 		"./members": "./src/members.ts",
 		"./parties": "./src/parties.ts",
+		"./photos": "./src/photos.ts",
 		"./places": "./src/places.ts",
 		"./pois": "./src/pois.ts",
 		"./routing": "./src/routing.ts",
 		"./schedule": "./src/schedule.ts",
 		"./seed-athens": "./src/seed-athens.ts",
+		"./seed-example": "./src/seed-example.ts",
 		"./tasks": "./src/tasks.ts",
 		"./trips": "./src/trips.ts"
 	},
 	"scripts": {
-		"check": "tsc --noEmit"
+		"check": "tsc --noEmit",
+		"test": "vitest run --config ../../vitest.config.ts \"test/**/*.test.ts\""
 	},
 	"dependencies": {
 		"@trippy/core": "*",

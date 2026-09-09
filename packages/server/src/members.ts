@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { db } from './db';
+import { publish, publishMany } from './events';
 
 export interface Person {
 	id: string;
@@ -88,6 +89,7 @@ export function inviteToTrip(tripId: string, actorId: string, email: string): In
 			tripId,
 			user.id
 		);
+		publish(tripId, 'members');
 		return 'added';
 	}
 
@@ -129,7 +131,257 @@ export function inviteToTrip(tripId: string, actorId: string, email: string): In
 		db.exec('ROLLBACK');
 		throw err;
 	}
+	// After COMMIT: an invalidation that names a change readers cannot see yet
+	// would send every client to refetch the old roster and never correct itself.
+	publish(tripId, 'members');
 	return 'invited';
+}
+
+/**
+ * Everything a removal touches, counted per table. Every field corresponds to
+ * one foreign key that references `users(id)`; see `removalImpact` for the
+ * cascade table it was derived from.
+ */
+export interface RemovalCounts {
+	/** Expenses this person PAID. The whole expense row goes, with everyone's shares on it. */
+	expensesPaid: number;
+	/** Sum of those expenses, in their own currencies' minor units. Indicative only when currencies are mixed. */
+	expensesPaidCents: number;
+	/** Shares this person owes (their `expense_participants` rows). */
+	expenseShares: number;
+	/** OTHER members' shares that disappear with the expenses this person paid. */
+	otherPeopleSharesLost: number;
+	poiVotes: number;
+	lodgingVotes: number;
+	/** Calendar items they are assigned to (`item_assignees`). */
+	itemAssignments: number;
+	/** Pre-trip tasks assigned to them (`task_assignees`). */
+	taskAssignments: number;
+	/** Their per-person task completions (`task_done`). */
+	taskCompletions: number;
+	/** Crew membership segments (`party_membership`). */
+	partySegments: number;
+	/** Invites they sent (`trip_invites.invited_by`), which cascade with the user row. */
+	invitesSent: number;
+	/** Membership rows. */
+	memberships: number;
+	/** Trips they organize. Deleting the user deletes the whole trip. */
+	tripsOrganized: number;
+}
+
+/** The blast radius of removing one member, as real numbers. */
+export interface RemovalImpact {
+	userId: string;
+	name: string;
+	/** Invited but never registered: removal deletes the user row itself. */
+	isPlaceholder: boolean;
+	/** A seeded demo companion. Cannot log in, but is a normal user row. */
+	isSeeded: boolean;
+	/**
+	 * True when the `users` row is deleted (placeholders only), which is what
+	 * makes every cascade below fire. False means only the membership row goes.
+	 */
+	deletesUserRow: boolean;
+	/** Rows in THIS trip that removal permanently destroys. */
+	destroyed: RemovalCounts;
+	/** The same, in the member's OTHER trips. Non-zero only when the user row is deleted. */
+	destroyedElsewhere: RemovalCounts;
+	/**
+	 * Rows in this trip that SURVIVE the removal but lose their member. All zero
+	 * for a placeholder. For a registered member these are what stays behind:
+	 * their expenses and shares remain in the ledger, their votes still count,
+	 * their name stays on calendar items and tasks.
+	 */
+	retained: RemovalCounts;
+	/** Login sessions ended. Only non-zero if the user row is deleted. */
+	sessionsEnded: number;
+	/**
+	 * True when removal genuinely changes who owes whom on this trip.
+	 *
+	 * For a placeholder it is destructive: their expenses and shares are deleted
+	 * and everyone else's balances move. For a registered member the rows stay,
+	 * but `balances()` builds its result from the CURRENT member list, so a
+	 * non-member's net silently drops out of the answer and the reported balances
+	 * stop summing to zero. Either way the settlement a member sees changes, so
+	 * either way this is true when they have any expense involvement.
+	 */
+	affectsSettlement: boolean;
+}
+
+const ZERO_COUNTS: RemovalCounts = {
+	expensesPaid: 0,
+	expensesPaidCents: 0,
+	expenseShares: 0,
+	otherPeopleSharesLost: 0,
+	poiVotes: 0,
+	lodgingVotes: 0,
+	itemAssignments: 0,
+	taskAssignments: 0,
+	taskCompletions: 0,
+	partySegments: 0,
+	invitesSent: 0,
+	memberships: 0,
+	tripsOrganized: 0
+};
+
+function countOne(sql: string, ...args: (string | number)[]): number {
+	const row = db.prepare(sql).get(...args) as { n: number } | undefined;
+	return Number(row?.n ?? 0);
+}
+
+/**
+ * Count everything owned by `userId` either inside this trip (`scope: 'trip'`)
+ * or in every other trip (`scope: 'elsewhere'`).
+ *
+ * The scope is a comparison operator chosen here, never taken from a caller, so
+ * the two variants stay one query each instead of two near-identical copies that
+ * can drift apart. Every value is a single aggregate; nothing runs per row.
+ */
+function countRows(tripId: string, userId: string, scope: 'trip' | 'elsewhere'): RemovalCounts {
+	const op = scope === 'trip' ? '=' : '<>';
+	const paid = db
+		.prepare(
+			`SELECT COUNT(*) AS n, COALESCE(SUM(amount_cents), 0) AS cents
+			 FROM expenses WHERE payer_id = ? AND trip_id ${op} ?`
+		)
+		.get(userId, tripId) as { n: number; cents: number } | undefined;
+	return {
+		expensesPaid: Number(paid?.n ?? 0),
+		expensesPaidCents: Number(paid?.cents ?? 0),
+		expenseShares: countOne(
+			`SELECT COUNT(*) AS n FROM expense_participants p
+			 JOIN expenses e ON e.id = p.expense_id
+			 WHERE p.user_id = ? AND e.trip_id ${op} ?`,
+			userId,
+			tripId
+		),
+		otherPeopleSharesLost: countOne(
+			`SELECT COUNT(*) AS n FROM expense_participants p
+			 JOIN expenses e ON e.id = p.expense_id
+			 WHERE e.payer_id = ? AND e.trip_id ${op} ? AND p.user_id <> ?`,
+			userId,
+			tripId,
+			userId
+		),
+		poiVotes: countOne(
+			`SELECT COUNT(*) AS n FROM poi_votes v JOIN pois p ON p.id = v.poi_id
+			 WHERE v.user_id = ? AND p.trip_id ${op} ?`,
+			userId,
+			tripId
+		),
+		lodgingVotes: countOne(
+			`SELECT COUNT(*) AS n FROM lodging_votes v JOIN cities c ON c.id = v.city_id
+			 WHERE v.user_id = ? AND c.trip_id ${op} ?`,
+			userId,
+			tripId
+		),
+		itemAssignments: countOne(
+			`SELECT COUNT(*) AS n FROM item_assignees a
+			 JOIN schedule_items i ON i.id = a.item_id
+			 JOIN tracks t ON t.id = i.track_id
+			 WHERE a.user_id = ? AND t.trip_id ${op} ?`,
+			userId,
+			tripId
+		),
+		taskAssignments: countOne(
+			`SELECT COUNT(*) AS n FROM task_assignees a JOIN trip_tasks t ON t.id = a.task_id
+			 WHERE a.user_id = ? AND t.trip_id ${op} ?`,
+			userId,
+			tripId
+		),
+		taskCompletions: countOne(
+			`SELECT COUNT(*) AS n FROM task_done d JOIN trip_tasks t ON t.id = d.task_id
+			 WHERE d.user_id = ? AND t.trip_id ${op} ?`,
+			userId,
+			tripId
+		),
+		partySegments: countOne(
+			`SELECT COUNT(*) AS n FROM party_membership pm JOIN parties p ON p.id = pm.party_id
+			 WHERE pm.user_id = ? AND p.trip_id ${op} ?`,
+			userId,
+			tripId
+		),
+		invitesSent: countOne(
+			`SELECT COUNT(*) AS n FROM trip_invites WHERE invited_by = ? AND trip_id ${op} ?`,
+			userId,
+			tripId
+		),
+		memberships: countOne(
+			`SELECT COUNT(*) AS n FROM memberships WHERE user_id = ? AND trip_id ${op} ?`,
+			userId,
+			tripId
+		),
+		tripsOrganized: countOne(
+			`SELECT COUNT(*) AS n FROM trips WHERE organizer_id = ? AND id ${op} ?`,
+			userId,
+			tripId
+		)
+	};
+}
+
+/**
+ * What removing this member would actually destroy. Read-only; writes nothing.
+ *
+ * `removeMember` does two completely different things depending on who it is
+ * pointed at, and only one of them is destructive:
+ *
+ *  - **A placeholder** (invited, never registered) has no life outside the
+ *    invite, so the `users` row itself is deleted. Every foreign key that
+ *    references `users(id)` with ON DELETE CASCADE then fires, and the rows are
+ *    gone with no undo. Derived from `db.ts`, those are:
+ *    `sessions.user_id`, `trips.organizer_id` (the whole trip),
+ *    `memberships.user_id`, `trip_invites.invited_by`, `expenses.payer_id`
+ *    (the expense and all of its shares), `expense_participants.user_id`,
+ *    `lodging_votes.user_id`, `poi_votes.user_id`, `item_assignees.user_id`,
+ *    `task_assignees.user_id`, `task_done.user_id`, `party_membership.user_id`.
+ *    `trip_invites.placeholder_id` is ON DELETE SET NULL, so it does NOT
+ *    cascade; `removeMember` deletes that row explicitly instead.
+ *  - **A registered member** loses only their `memberships` row. Nothing
+ *    cascades: the expenses, votes, assignments and completions all survive,
+ *    attached to a user who is no longer on the trip.
+ *
+ * Returns null under exactly the conditions that make `removeMember` return
+ * false: the actor is not the organizer, there is no such member, or the target
+ * is the organizer. So a caller can treat null as "not removable" and never has
+ * to ask twice.
+ */
+export function removalImpact(
+	tripId: string,
+	memberUserId: string,
+	actorId: string
+): RemovalImpact | null {
+	if (!isOrganizer(tripId, actorId)) return null;
+	const target = membership(tripId, memberUserId);
+	if (!target || target.role === 'organizer') return null;
+	const user = db.prepare(`SELECT name, password_hash FROM users WHERE id = ?`).get(memberUserId) as
+		| { name: string; password_hash: string }
+		| undefined;
+	if (!user) return null;
+
+	const isPlaceholder = user.password_hash.startsWith('placeholder:');
+	const inTrip = countRows(tripId, memberUserId, 'trip');
+	const elsewhere = isPlaceholder ? countRows(tripId, memberUserId, 'elsewhere') : ZERO_COUNTS;
+
+	// The membership row is deleted either way; it is the only thing the
+	// registered path touches, so it is destroyed in both branches.
+	const destroyed = isPlaceholder ? inTrip : { ...ZERO_COUNTS, memberships: inTrip.memberships };
+	const retained = isPlaceholder ? ZERO_COUNTS : { ...inTrip, memberships: 0 };
+
+	return {
+		userId: memberUserId,
+		name: user.name,
+		isPlaceholder,
+		isSeeded: user.password_hash.startsWith('seed:'),
+		deletesUserRow: isPlaceholder,
+		destroyed,
+		destroyedElsewhere: elsewhere,
+		retained,
+		sessionsEnded: isPlaceholder
+			? countOne(`SELECT COUNT(*) AS n FROM sessions WHERE user_id = ?`, memberUserId)
+			: 0,
+		// Paying and owing both move balances, so either alone is enough.
+		affectsSettlement: inTrip.expensesPaid > 0 || inTrip.expenseShares > 0
+	};
 }
 
 /**
@@ -137,6 +389,9 @@ export function inviteToTrip(tripId: string, actorId: string, email: string): In
  *
  * This is also how an invite is revoked: a pending invite always has a
  * placeholder member, so removing that row is the same operation.
+ *
+ * Destructive for a placeholder, by decision: see `removalImpact`, which
+ * reports exactly what this will delete so the confirmation can state numbers.
  */
 export function removeMember(tripId: string, actorId: string, userId: string): boolean {
 	if (!isOrganizer(tripId, actorId)) return false;
@@ -161,11 +416,17 @@ export function removeMember(tripId: string, actorId: string, userId: string): b
 			user.password_hash.slice('placeholder:'.length)
 		);
 		db.prepare(`DELETE FROM users WHERE id = ?`).run(userId);
+		// The cascade reaches expense shares, expenses they paid, both vote
+		// tables, item and task assignments and crew segments, so every section
+		// that could have shown them is invalidated. `removalImpact` reports the
+		// same set as counts, before the fact.
+		publishMany(tripId, ['members', 'expenses', 'schedule', 'pois', 'lodging', 'tasks']);
 		return true;
 	}
 	const res = db
 		.prepare(`DELETE FROM memberships WHERE trip_id = ? AND user_id = ?`)
 		.run(tripId, userId);
+	if (res.changes > 0) publishMany(tripId, ['members', 'expenses', 'schedule']);
 	return res.changes > 0;
 }
 
@@ -214,4 +475,8 @@ export function consumeInvites(userId: string, email: string): void {
 		db.exec('ROLLBACK');
 		throw err;
 	}
+	// After COMMIT, and once per affected trip: a placeholder turning into a real
+	// account changes the roster and re-points that person's expenses and votes,
+	// so anyone with the trip open is looking at a stale name on stale rows.
+	for (const inv of invites) publishMany(inv.trip_id, ['members', 'expenses', 'pois', 'lodging']);
 }

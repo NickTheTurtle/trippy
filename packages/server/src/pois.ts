@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { db } from './db';
+import { publish, publishMany } from './events';
 import { poiKindFromCategory, toPoiKind, type PoiKind } from '@trippy/core/types';
 
 export interface PoiRow {
@@ -182,6 +183,7 @@ export function addPoi(
 		details.photo ?? null,
 		Date.now()
 	);
+	publish(tripId, 'pois');
 	return id;
 }
 
@@ -190,6 +192,7 @@ export function toggleSave(tripId: string, actorId: string, poiId: string): bool
 	const res = db
 		.prepare(`UPDATE pois SET saved = 1 - saved WHERE id = ? AND trip_id = ?`)
 		.run(poiId, tripId);
+	if (res.changes > 0) publish(tripId, 'pois');
 	return res.changes > 0;
 }
 
@@ -205,6 +208,7 @@ export function toggleVote(tripId: string, actorId: string, poiId: string): bool
 	} else {
 		db.prepare(`INSERT INTO poi_votes (poi_id, user_id) VALUES (?, ?)`).run(poiId, actorId);
 	}
+	publish(tripId, 'pois');
 	return true;
 }
 
@@ -238,6 +242,9 @@ export function removePoi(tripId: string, actorId: string, poiId: string): boole
 		).run(poiId, tripId);
 		const res = db.prepare(`DELETE FROM pois WHERE id = ? AND trip_id = ?`).run(poiId, tripId);
 		db.exec('COMMIT');
+		// After COMMIT, and both sections: the calendar loses the items that were
+		// scheduled from this place.
+		if (Number(res.changes) > 0) publishMany(tripId, ['pois', 'schedule']);
 		return Number(res.changes) > 0;
 	} catch (err) {
 		db.exec('ROLLBACK');
@@ -273,6 +280,7 @@ export function updatePoi(
 	const res = db
 		.prepare(`UPDATE pois SET ${sets.join(', ')} WHERE id = ? AND trip_id = ?`)
 		.run(...args);
+	if (Number(res.changes) > 0) publish(tripId, 'pois');
 	return Number(res.changes) > 0;
 }
 
@@ -302,7 +310,11 @@ export function poisNeedingPhotos(tripId: string, limit = 24): PhotolessPoi[] {
 		.all(tripId, limit) as unknown as PhotolessPoi[];
 }
 
-/** Records the result of a photo lookup (a resource name, or the miss sentinel). */
+/**
+ * Records the result of a photo lookup (a resource name, or the miss sentinel).
+ * Does not publish, for the same reason as `setCityPhoto`: it is a cosmetic
+ * backfill loop, not an edit someone made.
+ */
 export function setPoiPhoto(poiId: string, photo: string): void {
 	db.prepare(`UPDATE pois SET photo = ? WHERE id = ?`).run(photo, poiId);
 }

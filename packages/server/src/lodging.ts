@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { db } from './db';
+import { publish, publishMany } from './events';
 
 export interface LodgingOption {
 	id: string;
@@ -132,6 +133,7 @@ export function addOption(
 		photo,
 		Date.now()
 	);
+	publish(tripId, 'lodging');
 	return id;
 }
 
@@ -162,7 +164,10 @@ export function lodgingNeedingPhotos(tripId: string, limit = 24): LodgingNeeding
 		.all(tripId, limit) as unknown as LodgingNeedingPhoto[];
 }
 
-/** Records the result of a photo lookup (a resource name, or the miss sentinel). */
+/**
+ * Records the result of a photo lookup (a resource name, or the miss sentinel).
+ * Does not publish: cosmetic backfill, same reasoning as the other two.
+ */
 export function setLodgingPhoto(optionId: string, photo: string): void {
 	db.prepare(`UPDATE lodging_options SET photo = ? WHERE id = ?`).run(photo, optionId);
 }
@@ -239,12 +244,14 @@ export function vote(tripId: string, actorId: string, optionId: string): boolean
 			opt.city_id,
 			actorId
 		);
+		publish(tripId, 'lodging');
 		return true;
 	}
 	db.prepare(
 		`INSERT INTO lodging_votes (city_id, user_id, option_id) VALUES (?, ?, ?)
 		 ON CONFLICT(city_id, user_id) DO UPDATE SET option_id = excluded.option_id`
 	).run(opt.city_id, actorId, optionId);
+	publish(tripId, 'lodging');
 	return true;
 }
 
@@ -260,6 +267,8 @@ export function lockOption(tripId: string, actorId: string, optionId: string): b
 	if (!opt.locked) {
 		db.prepare(`UPDATE lodging_options SET locked = 1 WHERE id = ?`).run(optionId);
 	}
+	// The calendar renders the day's stay, so a lock changes that board too.
+	publishMany(tripId, ['lodging', 'schedule']);
 	return true;
 }
 
@@ -268,6 +277,9 @@ export function removeOption(tripId: string, actorId: string, optionId: string):
 	const res = db
 		.prepare(`DELETE FROM lodging_options WHERE id = ? AND trip_id = ?`)
 		.run(optionId, tripId);
+	// `party_day.lodging_option_id` is ON DELETE SET NULL, so a crew pinned to
+	// this stay silently loses it: the calendar has to refetch as well.
+	if (res.changes > 0) publishMany(tripId, ['lodging', 'schedule']);
 	return res.changes > 0;
 }
 
@@ -283,5 +295,6 @@ export function setDates(
 	const res = db
 		.prepare(`UPDATE lodging_options SET check_in = ?, check_out = ? WHERE id = ? AND trip_id = ?`)
 		.run(checkIn, checkOut, optionId, tripId);
+	if (res.changes > 0) publishMany(tripId, ['lodging', 'schedule']);
 	return res.changes > 0;
 }

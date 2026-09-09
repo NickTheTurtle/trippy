@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { formatDayRange, isDayString, normalizeDay } from '@trippy/core/tz';
 import { db } from './db';
 import { defaultPartyId } from './parties';
+import { publish, publishMany } from './events';
 
 export interface TripRow {
 	id: string;
@@ -72,7 +73,13 @@ export function citiesNeedingPhotos(userId: string, limit = 24): CityNeedingPhot
 		.all(userId, limit) as unknown as CityNeedingPhoto[];
 }
 
-/** Records the result of a photo lookup (a resource name, or the miss sentinel). */
+/**
+ * Records the result of a photo lookup (a resource name, or the miss sentinel).
+ *
+ * Deliberately does not publish: this is a cosmetic backfill that runs up to
+ * `limit` times per page load, so publishing would turn one page view into a
+ * burst of invalidations that send every other tab to refetch the trip.
+ */
 export function setCityPhoto(cityId: string, photo: string): void {
 	db.prepare(`UPDATE cities SET photo = ? WHERE id = ?`).run(photo, cityId);
 }
@@ -281,6 +288,8 @@ export function updateTrip(tripId: string, actorId: string, e: TripEdit): string
 		currency,
 		tripId
 	);
+	// The home currency is part of every balance figure, so the ledger is stale too.
+	publishMany(tripId, ['trip', 'expenses']);
 	return null;
 }
 
@@ -329,6 +338,9 @@ export function addCity(tripId: string, actorId: string, c: CityInput): string |
 		c.lng ?? null,
 		next
 	);
+	// A city is the spine of the itinerary: the calendar's days, the stays
+	// portal and the budget's columns are all derived from it.
+	publishMany(tripId, ['trip', 'schedule', 'lodging', 'costs']);
 	return id;
 }
 
@@ -357,6 +369,7 @@ export function updateCity(
 			cityId,
 			tripId
 		);
+	if (res.changes > 0) publishMany(tripId, ['trip', 'schedule', 'lodging', 'costs']);
 	return res.changes > 0;
 }
 
@@ -369,6 +382,10 @@ export function removeCity(tripId: string, actorId: string, cityId: string): boo
 			| undefined)?.n ?? 0;
 	if (count <= 1) return false;
 	const res = db.prepare(`DELETE FROM cities WHERE id = ? AND trip_id = ?`).run(cityId, tripId);
+	// Removing a city cascades into its places, stays, lodging votes and budget
+	// cells, and nulls the crew/day city, so every section that reads a city is
+	// invalidated rather than just the header.
+	if (res.changes > 0) publishMany(tripId, ['trip', 'pois', 'lodging', 'costs', 'schedule']);
 	return res.changes > 0;
 }
 

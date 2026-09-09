@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { db } from './db';
+import { publish } from './events';
 
 export interface Party {
 	id: string;
@@ -182,6 +183,7 @@ export function setPartyDay(
 	if (!partyInTrip(tripId, partyId)) return false;
 	if (cityId === null && lodgingOptionId === null) {
 		db.prepare(`DELETE FROM party_day WHERE party_id = ? AND day = ?`).run(partyId, day);
+		publish(tripId, 'schedule');
 		return true;
 	}
 	if (cityId !== null && !cityInTrip(tripId, cityId)) return false;
@@ -194,6 +196,7 @@ export function setPartyDay(
 		`INSERT INTO party_day (party_id, day, city_id, lodging_option_id) VALUES (?, ?, ?, ?)
 		 ON CONFLICT(party_id, day) DO UPDATE SET city_id = excluded.city_id, lodging_option_id = excluded.lodging_option_id`
 	).run(partyId, day, cityId, lodgingOptionId);
+	publish(tripId, 'schedule');
 	return true;
 }
 
@@ -216,6 +219,9 @@ export function createParty(
 		`INSERT INTO parties (id, trip_id, name, color, is_solo, is_default, sort, created_at)
 		 VALUES (?, ?, ?, ?, ?, 0, ?, ?)`
 	).run(id, tripId, name.trim() || 'Crew', color, isSolo ? 1 : 0, count, Date.now());
+	// Crews are part of the calendar payload, so they invalidate `schedule`
+	// rather than carrying a topic of their own.
+	publish(tripId, 'schedule');
 	return id;
 }
 
@@ -243,6 +249,7 @@ export function editParty(
 	const res = db
 		.prepare(`UPDATE parties SET ${sets.join(', ')} WHERE id = ? AND trip_id = ? AND is_default = 0`)
 		.run(...args);
+	if (res.changes > 0) publish(tripId, 'schedule');
 	return res.changes > 0;
 }
 
@@ -256,6 +263,7 @@ export function deleteParty(tripId: string, actorId: string, partyId: string): b
 	const fallback = defaultPartyId(tripId);
 	db.prepare(`UPDATE tracks SET party_id = ? WHERE party_id = ?`).run(fallback, partyId);
 	db.prepare(`DELETE FROM parties WHERE id = ?`).run(partyId);
+	publish(tripId, 'schedule');
 	return true;
 }
 
@@ -304,6 +312,7 @@ export function assignMembership(
 		if (seg.end_min > e) ins.run(randomUUID(), seg.party_id, userId, day, e, seg.end_min);
 	}
 	ins.run(randomUUID(), partyId, userId, day, s, e);
+	publish(tripId, 'schedule');
 	return true;
 }
 
