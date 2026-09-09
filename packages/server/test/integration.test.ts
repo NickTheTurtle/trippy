@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { splitByWeight } from '@trippy/core/split';
 import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -564,6 +565,196 @@ describe('money paths', () => {
 		expect(balances.reduce((sum, b) => sum + b.netCents, 0)).toBe(0);
 		expect(balances.map((b) => b.netCents).sort((a, b) => a - b)).toEqual([-460, 460]);
 	});
+});
+
+describe('zero-weight participants', () => {
+	interface ThreeWay extends Fixture {
+		payer: string;
+	}
+
+	function threeWayFixture(label: string): ThreeWay {
+		const f = createTripFixture(label);
+		const payer = createUser(`${label}-payer`);
+		expect(members.inviteToTrip(f.tripId, f.organizer, auth.findUserById(payer)!.email)).toBe(
+			'added'
+		);
+		return { ...f, payer };
+	}
+
+	// A participant who is selected but stakes nothing must be stored as 0, not
+	// coerced to 1. Anything else charges someone who owes nothing and makes the
+	// ledger disagree with the dialog's `splitByWeight` preview.
+	it('stores a blank shares participant as weight 0 and matches the split preview', () => {
+		const f = threeWayFixture('shares-blank');
+
+		const id = expenses.addExpense(
+			f.tripId,
+			f.organizer,
+			f.payer,
+			'Taxi',
+			9000,
+			'USD',
+			[
+				{ userId: f.organizer, weight: 2 },
+				{ userId: f.member, weight: 0 }
+			],
+			'shares'
+		)!;
+		expect(id).toBeTruthy();
+
+		expect(storedWeights(id)).toEqual(
+			new Map([
+				[f.organizer, 2],
+				[f.member, 0]
+			])
+		);
+
+		const preview = splitByWeight(9000, [2, 0]);
+		expect(preview).toEqual([9000, 0]);
+
+		const bals = balanceMap(expenses.balances(f.tripId));
+		expect(bals.get(f.organizer)).toBe(-preview[0]);
+		expect(bals.get(f.member)).toBe(0);
+		expect(preview[1]).toBe(0);
+		expect(bals.get(f.payer)).toBe(9000);
+		expect(sumBalances(f.tripId)).toBe(0);
+	});
+
+	it('stores an exact 0.00 participant as weight 0 and leaves them at exactly zero', () => {
+		const f = threeWayFixture('exact-zero');
+
+		const id = expenses.addExpense(
+			f.tripId,
+			f.organizer,
+			f.payer,
+			'Hotel',
+			10000,
+			'USD',
+			[
+				{ userId: f.organizer, weight: 10000 },
+				{ userId: f.member, weight: 0 }
+			],
+			'exact'
+		)!;
+		expect(id).toBeTruthy();
+
+		expect(storedWeights(id)).toEqual(
+			new Map([
+				[f.organizer, 10000],
+				[f.member, 0]
+			])
+		);
+
+		const bals = balanceMap(expenses.balances(f.tripId));
+		expect(bals.get(f.organizer)).toBe(-10000);
+		expect(bals.get(f.member)).toBe(0);
+		expect(bals.get(f.payer)).toBe(10000);
+		expect(sumBalances(f.tripId)).toBe(0);
+	});
+
+	// Zero is a real stake of nothing; NaN, Infinity and negatives are garbage
+	// input and still normalize to 0 rather than to a silent 1.
+	it('normalizes negative, NaN and Infinity weights to 0', () => {
+		const f = threeWayFixture('bad-weights');
+		const fourth = createUser('bad-weights-fourth');
+		expect(members.inviteToTrip(f.tripId, f.organizer, auth.findUserById(fourth)!.email)).toBe(
+			'added'
+		);
+
+		const id = expenses.addExpense(
+			f.tripId,
+			f.organizer,
+			f.payer,
+			'Ferry',
+			6000,
+			'USD',
+			[
+				{ userId: f.organizer, weight: 3 },
+				{ userId: f.member, weight: -2 },
+				{ userId: fourth, weight: Number.NaN }
+			],
+			'shares'
+		)!;
+		expect(id).toBeTruthy();
+
+		expect(storedWeights(id)).toEqual(
+			new Map([
+				[f.organizer, 3],
+				[f.member, 0],
+				[fourth, 0]
+			])
+		);
+
+		const bals = balanceMap(expenses.balances(f.tripId));
+		expect(bals.get(f.organizer)).toBe(-6000);
+		expect(bals.get(f.member)).toBe(0);
+		expect(bals.get(fourth)).toBe(0);
+		expect(bals.get(f.payer)).toBe(6000);
+		expect(sumBalances(f.tripId)).toBe(0);
+	});
+
+	it('stores Infinity as 0 too', () => {
+		const f = threeWayFixture('infinite-weight');
+		const id = expenses.addExpense(
+			f.tripId,
+			f.organizer,
+			f.payer,
+			'Bus',
+			500,
+			'USD',
+			[
+				{ userId: f.organizer, weight: 1 },
+				{ userId: f.member, weight: Number.POSITIVE_INFINITY }
+			],
+			'shares'
+		)!;
+		expect(storedWeights(id)).toEqual(
+			new Map([
+				[f.organizer, 1],
+				[f.member, 0]
+			])
+		);
+		expect(sumBalances(f.tripId)).toBe(0);
+	});
+
+	// Documents the boundary rather than blessing it: persistence stores all
+	// zeros faithfully, and `splitByWeight` then falls back to an even split so
+	// no money is dropped. Whether the route should reject this is a product
+	// call, not a persistence one.
+	it('records an all-zero-weight expense as stored zeros with an even-split fallback', () => {
+		const f = threeWayFixture('all-zero');
+		const id = expenses.addExpense(
+			f.tripId,
+			f.organizer,
+			f.payer,
+			'Mystery',
+			1000,
+			'USD',
+			[
+				{ userId: f.organizer, weight: 0 },
+				{ userId: f.member, weight: 0 }
+			],
+			'shares'
+		)!;
+		expect(storedWeights(id)).toEqual(
+			new Map([
+				[f.organizer, 0],
+				[f.member, 0]
+			])
+		);
+		const bals = balanceMap(expenses.balances(f.tripId));
+		expect(bals.get(f.organizer)).toBe(-500);
+		expect(bals.get(f.member)).toBe(-500);
+		expect(bals.get(f.payer)).toBe(1000);
+		expect(sumBalances(f.tripId)).toBe(0);
+	});
+
+	function storedWeights(expenseId: string): Map<string, number> {
+		const rows = db
+			.prepare(`SELECT user_id, weight FROM expense_participants WHERE expense_id = ?`)
+			.all(expenseId) as { user_id: string; weight: number }[];
+		return new Map(rows.map((r) => [r.user_id, r.weight]));
+	}
 });
 
 function snapshotRemovalCounts(tripId: string, userId: string) {

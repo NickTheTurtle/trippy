@@ -127,7 +127,13 @@ export function addExpense(
 		`INSERT INTO expense_participants (expense_id, user_id, weight) VALUES (?, ?, ?)`
 	);
 	for (const p of clean) {
-		insertPart.run(id, p.userId, Number.isFinite(p.weight) && p.weight > 0 ? p.weight : 1);
+		// Zero is a legitimate stake of nothing: in `shares` a selected person who
+		// entered no shares, in `exact` one who entered 0.00. Persist it as 0 so the
+		// ledger matches the `splitByWeight` preview the dialog shows. Only genuinely
+		// unusable input (NaN, Infinity, negative) is normalized, and it normalizes to
+		// 0 as well, never to a silent 1 that would charge someone who owes nothing.
+		// `even` needs no fallback here: its weights are always 1 by construction.
+		insertPart.run(id, p.userId, Number.isFinite(p.weight) && p.weight > 0 ? p.weight : 0);
 	}
 	publish(tripId, 'expenses');
 	return id;
