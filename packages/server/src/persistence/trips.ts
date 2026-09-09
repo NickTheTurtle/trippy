@@ -19,6 +19,11 @@ export interface CityRow {
 	id: string;
 	name: string;
 	country: string;
+	/**
+	 * State / province, or null when the geocoder had none (city-states) or the
+	 * row predates the column. Never the string 'undefined'.
+	 */
+	region: string | null;
 	tz: string;
 	arrive: string;
 	depart: string;
@@ -140,7 +145,7 @@ export function citySearchContext(
 function listCities(tripId: string): CityRow[] {
 	return db
 		.prepare(
-			`SELECT id, name, country, tz, arrive, depart, lat, lng, photo
+			`SELECT id, name, country, region, tz, arrive, depart, lat, lng, photo
 			 FROM cities WHERE trip_id = ? ORDER BY sort`
 		)
 		.all(tripId) as unknown as CityRow[];
@@ -296,11 +301,23 @@ export function updateTrip(tripId: string, actorId: string, e: TripEdit): string
 export interface CityInput {
 	name: string;
 	country: string;
+	/**
+	 * State / province. Optional the same way coordinates are: a hand-entered
+	 * city may have none, and some places genuinely have none. Anything empty
+	 * or blank is stored as NULL rather than ''.
+	 */
+	region?: string | null;
 	tz: string;
 	arrive: string;
 	depart: string;
 	lat?: number | null;
 	lng?: number | null;
+}
+
+/** Trimmed region, or null for absent/blank. Keeps '' out of the column. */
+function cityRegion(c: CityInput): string | null {
+	const r = c.region?.trim();
+	return r ? r : null;
 }
 
 function validCity(c: CityInput): boolean {
@@ -324,13 +341,14 @@ export function addCity(tripId: string, actorId: string, c: CityInput): string |
 		)?.m ?? -1) + 1;
 	const id = randomUUID();
 	db.prepare(
-		`INSERT INTO cities (id, trip_id, name, country, tz, arrive, depart, lat, lng, sort)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		`INSERT INTO cities (id, trip_id, name, country, region, tz, arrive, depart, lat, lng, sort)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	).run(
 		id,
 		tripId,
 		c.name.trim(),
 		c.country.trim(),
+		cityRegion(c),
 		c.tz,
 		c.arrive,
 		c.depart,
@@ -355,12 +373,13 @@ export function updateCity(
 	if (!validCity(c)) return false;
 	const res = db
 		.prepare(
-			`UPDATE cities SET name = ?, country = ?, tz = ?, arrive = ?, depart = ?, lat = ?, lng = ?
+			`UPDATE cities SET name = ?, country = ?, region = ?, tz = ?, arrive = ?, depart = ?, lat = ?, lng = ?
 			 WHERE id = ? AND trip_id = ?`
 		)
 		.run(
 			c.name.trim(),
 			c.country.trim(),
+			cityRegion(c),
 			c.tz,
 			c.arrive,
 			c.depart,

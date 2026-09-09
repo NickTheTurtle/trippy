@@ -129,6 +129,15 @@ function itemRow(itemId: string) {
 	) as { title: string; start_min: number; end_min: number; booking: string | null } | undefined;
 }
 
+function cityRow(cityId: string) {
+	return db.prepare(`SELECT name, country, region, tz FROM cities WHERE id = ?`).get(cityId) as {
+		name: string;
+		country: string;
+		region: string | null;
+		tz: string;
+	};
+}
+
 function tableCount(table: string, where: string, ...args: unknown[]): number {
 	const row = db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE ${where}`).get(...args) as {
 		n: number;
@@ -683,6 +692,7 @@ describe('schema and migrations', () => {
 			['expenses', 'split_mode', 'TEXT'],
 			['expense_participants', 'weight', 'REAL'],
 			['cities', 'photo', 'TEXT'],
+			['cities', 'region', 'TEXT'],
 			['trips', 'start_date', 'TEXT'],
 			['trips', 'end_date', 'TEXT'],
 			['tracks', 'party_id', 'TEXT']
@@ -723,6 +733,113 @@ describe('schema and migrations', () => {
 		expect(tableCount('expense_participants', 'expense_id = ?', expenseId)).toBe(0);
 		expect(tableCount('poi_votes', 'poi_id = ? AND user_id = ?', poiId, placeholder)).toBe(0);
 		expect(tableCount('memberships', 'user_id = ?', placeholder)).toBe(0);
+	});
+});
+
+describe('city regions', () => {
+	it('stores and returns a region, and accepts a city without one', () => {
+		const f = createTripFixture('regions');
+		const withRegion = trips.addCity(f.tripId, f.organizer, {
+			name: 'Springfield',
+			country: 'United States',
+			region: 'Illinois',
+			tz: 'America/Chicago',
+			arrive: '2026-10-01',
+			depart: '2026-10-02'
+		});
+		const otherSpringfield = trips.addCity(f.tripId, f.organizer, {
+			name: 'Springfield',
+			country: 'United States',
+			region: 'Missouri',
+			tz: 'America/Chicago',
+			arrive: '2026-10-02',
+			depart: '2026-10-03'
+		});
+		// No region at all is a valid city: some places have none, and a
+		// hand-entered one may simply not say.
+		const noRegion = trips.addCity(f.tripId, f.organizer, {
+			name: 'Singapore',
+			country: 'Singapore',
+			tz: 'Asia/Singapore',
+			arrive: '2026-10-03',
+			depart: '2026-10-03'
+		});
+		// A blank region is the same as no region, never the empty string.
+		const blankRegion = trips.addCity(f.tripId, f.organizer, {
+			name: 'Monaco',
+			country: 'Monaco',
+			region: '   ',
+			tz: 'Europe/Monaco',
+			arrive: '2026-10-03',
+			depart: '2026-10-03'
+		});
+		expect(withRegion).toBeTruthy();
+		expect(otherSpringfield).toBeTruthy();
+		expect(noRegion).toBeTruthy();
+		expect(blankRegion).toBeTruthy();
+
+		const cities = trips.getTripForUser(f.tripId, f.organizer)!.cities;
+		const byId = new Map(cities.map((c) => [c.id, c]));
+		expect(byId.get(withRegion!)!.region).toBe('Illinois');
+		expect(byId.get(otherSpringfield!)!.region).toBe('Missouri');
+		expect(byId.get(noRegion!)!.region).toBeNull();
+		expect(byId.get(blankRegion!)!.region).toBeNull();
+		// Nothing anywhere in what the client receives is the string 'undefined'.
+		expect(JSON.stringify(cities)).not.toContain('undefined');
+	});
+
+	it('round-trips a region through updateCity and can clear it', () => {
+		const f = createTripFixture('region-update');
+		const cityId = trips.addCity(f.tripId, f.organizer, {
+			name: 'Springfield',
+			country: 'United States',
+			region: 'Illinois',
+			tz: 'America/Chicago',
+			arrive: '2026-10-01',
+			depart: '2026-10-02'
+		})!;
+		const base = {
+			name: 'Springfield',
+			country: 'United States',
+			tz: 'America/Chicago',
+			arrive: '2026-10-01',
+			depart: '2026-10-02'
+		};
+		expect(trips.updateCity(f.tripId, f.organizer, cityId, { ...base, region: 'Missouri' })).toBe(true);
+		expect(cityRow(cityId).region).toBe('Missouri');
+		expect(trips.updateCity(f.tripId, f.organizer, cityId, { ...base, region: null })).toBe(true);
+		expect(cityRow(cityId).region).toBeNull();
+	});
+
+	it('leaves a pre-migration city row readable and editable', () => {
+		const f = createTripFixture('region-legacy');
+		// A row written before the column existed: every other column set, the
+		// region simply absent. This is exactly what the rows already in
+		// data/app.db look like after the additive migration runs.
+		const legacyId = crypto.randomUUID();
+		db.prepare(
+			`INSERT INTO cities (id, trip_id, name, country, tz, arrive, depart, lat, lng, sort)
+			 VALUES (?, ?, 'Old Town', 'Greece', 'Europe/Athens', '2026-10-01', '2026-10-02', 37.9, 23.7, 9)`
+		).run(legacyId, f.tripId);
+
+		const legacy = trips.getTripForUser(f.tripId, f.organizer)!.cities.find((c) => c.id === legacyId)!;
+		expect(legacy.region).toBeNull();
+		expect(legacy.name).toBe('Old Town');
+		expect(legacy.tz).toBe('Europe/Athens');
+		expect(legacy.lat).toBe(37.9);
+
+		// It stays editable, and a region can be filled in later.
+		expect(
+			trips.updateCity(f.tripId, f.organizer, legacyId, {
+				name: 'Old Town',
+				country: 'Greece',
+				region: 'Attica',
+				tz: 'Europe/Athens',
+				arrive: '2026-10-01',
+				depart: '2026-10-02'
+			})
+		).toBe(true);
+		expect(cityRow(legacyId).region).toBe('Attica');
 	});
 });
 

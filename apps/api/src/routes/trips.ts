@@ -102,14 +102,17 @@ trips.delete('/:tripId/cities/:cityId', requireMember, (c) => {
 });
 
 /**
- * The seven fields a city carries. Coordinates are optional: a city added by
- * hand may have none, and `num` reads a numeric string as well as a number, so
- * a client posting form-style values keeps its pin.
+ * The eight fields a city carries. The region and the coordinates are optional:
+ * a city added by hand may have neither, some places genuinely have no region
+ * at all, and `num` reads a numeric string as well as a number, so a client
+ * posting form-style values keeps its pin. `optStr` turns a missing or blank
+ * region into null, so the literal string 'undefined' can never be stored.
  */
 function cityInput(b: Record<string, unknown>): CityInput {
 	return {
 		name: str(b.name),
 		country: str(b.country),
+		region: optStr(b.region),
 		tz: str(b.tz),
 		arrive: str(b.arrive),
 		depart: str(b.depart),

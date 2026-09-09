@@ -255,6 +255,13 @@ addColumn('expenses', 'settlement', 'INTEGER');
 // null means never looked up, the sentinel means looked up and nothing found.
 addColumn('cities', 'photo', 'TEXT');
 
+// State / province of a city, so two cities that share a name in the same
+// country stay distinguishable after they are saved. Nullable with no default:
+// rows written before this column existed genuinely have no region, and we
+// cannot retroactively know which Springfield someone meant, so NULL is the
+// honest value rather than a placeholder.
+addColumn('cities', 'region', 'TEXT');
+
 // Trip dates were originally a free-text label. Keep the label (it is what the
 // header renders) but store the real endpoints so the edit form can round-trip
 // date pickers instead of asking people to retype a formatted string.
