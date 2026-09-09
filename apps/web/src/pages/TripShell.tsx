@@ -13,6 +13,18 @@ export type TripCity = {
 	id: string;
 	name: string;
 	country: string;
+	/**
+	 * State / province, as `cities.region`. Null when the geocoder had none
+	 * (Singapore, Monaco) or the row predates the column, so every reader has to
+	 * cope with its absence rather than print an empty separator.
+	 *
+	 * Declared here and not only where it is rendered because the itinerary
+	 * editor's date save is a PATCH of the whole row (`{ ...city, ...next }`).
+	 * A field missing from this type is missing from that body, and the city
+	 * route writes `region = ?` unconditionally, so leaving it out would quietly
+	 * null the region of any city whose dates were edited.
+	 */
+	region: string | null;
 	tz: string;
 	arrive: string;
 	depart: string;

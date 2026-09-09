@@ -11,6 +11,14 @@ import { PlusIcon, RemoveCardButton } from './card-controls';
 export type CityRow = {
 	id: string;
 	name: string;
+	/**
+	 * The state / province, and only when this list contains another city with
+	 * the same name. Discover fills it in conditionally (see `Discover.tsx`)
+	 * because this sidebar is a lookup, not a gazetteer: hanging "Kanagawa" off
+	 * a lone Kamakura buys nothing and costs a line of width in a 190px column.
+	 * Absent, null and blank all render as nothing.
+	 */
+	region?: string | null;
 	/** The count shown beside the name, which follows the current view. */
 	badge: number;
 	places: number;
@@ -70,9 +78,16 @@ export default function CityList({
 								type="button"
 								className={on ? 'sec on' : 'sec'}
 								aria-current={on ? 'true' : undefined}
+								// The region is set only when a same-named city is in the
+								// list, and the column is narrow enough to ellipsise it, so
+								// the full label is on the hover title as well.
+								title={c.region ? `${c.name}, ${c.region}` : undefined}
 								onClick={() => onChange(c.id)}
 							>
-								<span className="lbl">{c.name}</span>
+								<span className="lbl">
+									{c.name}
+									{c.region && <span className="muted ml-1.5 text-[0.78rem]">{c.region}</span>}
+								</span>
 								{c.badge > 0 && <span className="badge">{c.badge}</span>}
 							</button>
 							{isOrganizer && (
@@ -148,7 +163,13 @@ function DeleteBody({ city }: { city: CityRow }) {
 
 	return (
 		<>
-			<p className="m-0 mb-2 font-semibold [overflow-wrap:anywhere]">{city.name}</p>
+			{/* Carries the region when the sidebar had to disambiguate, because
+			    this is the irreversible step and "Delete Springfield?" is not
+			    enough to act on when the trip holds two of them. */}
+			<p className="m-0 mb-2 font-semibold [overflow-wrap:anywhere]">
+				{city.name}
+				{city.region && <span className="muted ml-1.5 text-[0.78rem]">{city.region}</span>}
+			</p>
 			<p className="m-0 mb-2 text-[0.9rem]">
 				{bits.length > 0
 					? `${bits.join(' and ')} in ${city.name} will be deleted, with every vote on them and the city's estimated costs.`

@@ -763,6 +763,67 @@ select.input.compact {
 		opacity: 0.6;
 	}
 }
+/* --- Search dropdown ----------------------------------------------------- */
+
+/*
+ * The results popup shared by the city search and the place search.
+ *
+ * Same anchoring as .selmenu and .mmenu, for the same reason: fixed, so the
+ * modal body's overflow cannot clip it, positioned by useAnchor, and on the
+ * z-index those two already use. The panel is a column so the list scrolls
+ * inside the height useAnchor allows while the attribution stays pinned under
+ * it: the provider's terms want it with the results, not scrolled off them.
+ */
+.sdrop {
+	position: relative;
+	min-width: 0;
+}
+.sdropmenu {
+	position: fixed;
+	z-index: 40;
+	display: flex;
+	flex-direction: column;
+	padding: 0.25rem;
+	background: var(--color-surface);
+	border: 1px solid var(--color-line);
+	border-radius: var(--radius-sm);
+	box-shadow: var(--shadow-card);
+	max-width: calc(100vw - 1rem);
+}
+.sdroplist {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	min-height: 0;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+}
+/* A row is two lines (a name and an address), so unlike .selopt it wraps
+   rather than ellipsising, and a long unbroken name breaks instead of widening
+   the panel. */
+.sdropopt {
+	display: flex;
+	flex-direction: column;
+	gap: 0.1rem;
+	padding: 0.4rem 0.5rem;
+	border-radius: var(--radius-sm);
+	color: var(--color-ink);
+	cursor: pointer;
+	overflow-wrap: anywhere;
+}
+/* The keyboard highlight doubles as hover: only one of the two is ever
+   showing, since the pointer takes the active row with it as it moves. */
+.sdropopt.active {
+	background: var(--color-accent-soft);
+}
+.sdropnote {
+	margin: 0;
+	padding: 0.4rem 0.5rem;
+	font-size: 0.82rem;
+	color: var(--color-ink-faint);
+	overflow-wrap: anywhere;
+}
+
 /* --- MultiSelect -------------------------------------------------------- */
 
 .msel {

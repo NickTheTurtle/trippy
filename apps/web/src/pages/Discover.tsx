@@ -112,9 +112,21 @@ export default function Discover() {
 	/** `cities.tz` is where the IANA zone lives; Discover joins the trip on it. */
 	const tzOf = (cityId: string) => trip.cities.find((c) => c.id === cityId)?.tz ?? '';
 
+	// Same join for the region, which the Discover payload does not carry: the
+	// trip already has it on every stop. It reaches the sidebar only when two
+	// stops share a name, since that is the only time the name alone fails to
+	// identify one, and a state on every row is width this column has not got.
+	// Cities saved before the column existed have null and stay bare.
+	const ambiguous = new Set(
+		cities.filter((c, i) => cities.some((o, j) => i !== j && o.name === c.name)).map((c) => c.id)
+	);
+	const regionOf = (cityId: string) =>
+		ambiguous.has(cityId) ? (trip.cities.find((c) => c.id === cityId)?.region ?? null) : null;
+
 	const rows: CityRow[] = cities.map((c) => ({
 		id: c.id,
 		name: c.name,
+		region: regionOf(c.id),
 		// The badge counts what the current view would show, so it never reads as
 		// a places count while you are comparing stays.
 		badge: stay ? staysIn(c.id).length : c.pois.filter((p) => p.kind === view).length,

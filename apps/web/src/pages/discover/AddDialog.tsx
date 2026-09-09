@@ -6,6 +6,7 @@ import Modal from '../../components/Modal';
 import FormError from '../../components/FormError';
 import { LinkButton } from '../../components/buttons';
 import { Field } from '../../components/Field';
+import SearchDropdown from '../../components/SearchDropdown';
 import type { PlaceHit, PlaceHitDetails } from '../../api-types';
 import { HitSummary, MIN_QUERY, hitKey } from './place-meta';
 import { LinkField, NotesField, TypeField } from './place-fields';
@@ -292,7 +293,6 @@ export default function AddDialog({
 	}
 
 	const query = name.trim();
-	const showList = listOpen && query.length > 0;
 	const busy = add.busy || detailLoading;
 
 	return (
@@ -300,57 +300,47 @@ export default function AddDialog({
 			<form className="mform" onSubmit={submit}>
 				<div className="mbody">
 					<div className="flex flex-col gap-3">
-						<Field
+						{/* The Name field *is* the search: the results hang off it as an
+						    overlay, so a lookup never moves the fields below it. Capped at
+						    six rather than scrolled, as it was in flow; the dropdown only
+						    scrolls when the window is too short for six. */}
+						<SearchDropdown
 							label="Name"
 							hint={`Type to search ${stay ? 'hotels and rentals' : 'places'} in ${city.name}, or just write the name.`}
 							autoFocus
 							required
 							value={name}
-							onChange={(e) => onNameChange(e.target.value)}
-							inputClassName="w-full"
-						/>
-
-						{showList && (
-							<div className="rounded-[10px] border border-line bg-surface-2 p-1.5">
-								<ul className="m-0 flex list-none flex-col p-0">
-									{/* Capped rather than scrolled: `.mbody` is the dialog's one
-									    scrolling region, and a second one nested inside it is
-									    what makes a modal scroll in two places at once. */}
-									{hits.slice(0, 6).map((h) => (
-										<li key={hitKey(h)}>
-											{/* The whole row is the control: a small "Add" button
-											    beside a rich result makes the target far smaller than
-											    the thing it acts on. */}
-											<button
-												type="button"
-												onClick={() => pick(h)}
-												className="flex w-full cursor-pointer flex-col gap-0.5 rounded-md border-none bg-transparent px-2 py-2 text-left hover:bg-surface"
-											>
-												<span className="font-medium [overflow-wrap:anywhere]">{h.name}</span>
-												{h.address && (
-													<span className="muted line-clamp-1 text-[0.8rem]">{h.address}</span>
-												)}
-											</button>
-										</li>
-									))}
-									{hits.length === 0 && (
-										<li className="muted px-2 py-2 text-[0.85rem] [overflow-wrap:anywhere]">
-											{query.length < MIN_QUERY
-												? 'Keep typing to search.'
-												: searching
-													? 'Searching...'
-													: searched
-														? `No ${stay ? 'stays' : 'matches'} for "${query}". Add it by hand instead.`
-														: 'Keep typing to search.'}
-										</li>
+							onChange={onNameChange}
+							open={listOpen}
+							onOpenChange={setListOpen}
+							busy={searching}
+							items={hits.slice(0, 6)}
+							itemKey={hitKey}
+							onPick={pick}
+							renderItem={(h) => (
+								<>
+									<span className="font-medium">{h.name}</span>
+									{h.address && (
+										<span className="muted line-clamp-1 text-[0.8rem]">{h.address}</span>
 									)}
-								</ul>
-								{/* The attribution has to sit with the data it describes. */}
+								</>
+							)}
+							empty={
+								query.length < MIN_QUERY
+									? 'Keep typing to search.'
+									: searching
+										? 'Searching...'
+										: searched
+											? `No ${stay ? 'stays' : 'matches'} for "${query}". Add it by hand instead.`
+											: 'Keep typing to search.'
+							}
+							footer={
+								/* The attribution has to sit with the data it describes. */
 								<p className="m-0 px-2 pt-1 text-right text-[0.68rem] text-ink-faint">
 									Powered by {providerLabel}
 								</p>
-							</div>
-						)}
+							}
+						/>
 
 						{hit && (
 							<div className="rounded-[10px] border border-accent-soft bg-accent-soft/40 px-3 py-2.5">
