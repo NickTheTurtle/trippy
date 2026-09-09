@@ -19,6 +19,7 @@ import { calendar } from './calendar';
 import { expenses } from './expenses';
 import { pretrip } from './pretrip';
 import { people } from './people';
+import { events } from './events';
 
 export const trips = new Hono<Env>();
 
@@ -124,3 +125,10 @@ trips.route('/:tripId/calendar', calendar);
 trips.route('/:tripId/expenses', expenses);
 trips.route('/:tripId/pretrip', pretrip);
 trips.route('/:tripId/people', people);
+
+// The one exception to the line above: the event stream is authenticated here
+// (by `requireUser`, at the top of this router) but authorized by `subscribe`,
+// which owns membership for the life of the connection rather than for one
+// request. Adding `requireMember` would be a second, staler answer to the same
+// question. See routes/events.ts.
+trips.route('/:tripId/events', events);

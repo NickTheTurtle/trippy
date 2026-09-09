@@ -16,11 +16,13 @@ import type { Context } from 'hono';
  *  - 401 there is no session
  *  - 403 there is a session, but this member may not do this
  *  - 404 the thing does not exist, or exists in a trip the caller cannot see
+ *  - 503 a capacity limit was hit; the same request may succeed later, so the
+ *    caller should be given a `Retry-After` alongside it
  *
  * 404 is deliberately overloaded for the "not yours" case (see `requireMember`):
  * distinguishing it from "no such id" tells a stranger which ids are real.
  */
-export type FailStatus = 400 | 401 | 403 | 404 | 409 | 502;
+export type FailStatus = 400 | 401 | 403 | 404 | 409 | 502 | 503;
 
 /** The standard error envelope. */
 export function fail(c: Context, status: FailStatus, message: string) {

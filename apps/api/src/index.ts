@@ -7,6 +7,7 @@ import { account } from './routes/account';
 import { trips } from './routes/trips';
 import { placePhoto } from './routes/place-photo';
 import { ensureDemoAccount } from '@trippy/server/auth';
+import { closeAll } from '@trippy/server/events';
 import { searchCities } from '@trippy/server/geocode';
 
 /**
@@ -52,3 +53,16 @@ const port = Number(process.env.PORT ?? 5175);
 serve({ fetch: app.fetch, port }, (info) => {
 	console.log(`api listening on http://localhost:${info.port}`);
 });
+
+/**
+ * Every open SSE stream is a socket this process is holding. On the way out they
+ * are closed explicitly, with reason `shutdown`, so each client sees its stream
+ * end and reconnects deliberately rather than sitting on a half-open connection
+ * waiting for an event that will never come.
+ */
+for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+	process.once(signal, () => {
+		closeAll();
+		process.exit(0);
+	});
+}

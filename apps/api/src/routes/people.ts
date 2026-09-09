@@ -3,7 +3,13 @@ import { requireMember } from '../middleware';
 import { body, str } from '../parse';
 import { fail, ok } from '../respond';
 import type { Env } from '../types';
-import { inviteToTrip, isOrganizer, listPeople, removeMember } from '@trippy/server/members';
+import {
+	inviteToTrip,
+	isOrganizer,
+	listPeople,
+	removalImpact,
+	removeMember
+} from '@trippy/server/members';
 
 export const people = new Hono<Env>();
 
@@ -39,6 +45,22 @@ people.post('/invites', async (c) => {
 			// organizer, so the two are not told apart by trying.
 			return fail(c, 400, 'Enter a valid email address. Only the organizer can invite.');
 	}
+});
+
+/**
+ * What removing this member would destroy, as counts, so the confirmation can
+ * state numbers instead of "this cannot be undone".
+ *
+ * Read-only. `removalImpact` returns null for all three ways this is not a
+ * removable member (the caller is not the organizer, there is no such member,
+ * the target IS the organizer), which are indistinguishable to the client on
+ * purpose and are all 404 here: a stranger must not learn a trip's roster by
+ * reading the difference between the answers.
+ */
+people.get('/:userId/removal-impact', (c) => {
+	const impact = removalImpact(c.get('trip').id, c.req.param('userId'), c.get('user').id);
+	if (!impact) return fail(c, 404, 'Not found');
+	return c.json(impact);
 });
 
 people.delete('/:userId', (c) => {
