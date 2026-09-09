@@ -296,6 +296,221 @@ describe('member removal cascade', () => {
 	});
 });
 
+describe('invite consumption relinks placeholder history', () => {
+	interface Placeholder {
+		id: string;
+		email: string;
+		expenseId: string;
+		poiId: string;
+		optionId: string;
+		itemId: string;
+		taskId: string;
+		partyId: string;
+	}
+
+	/**
+	 * A placeholder carrying a row in every table that cascades off `users(id)`.
+	 * If any of these is not relinked on registration, the cascade behind
+	 * `DELETE FROM users` destroys it silently.
+	 */
+	function placeholderWithFullHistory(f: Fixture): Placeholder {
+		const email = `invitee-${crypto.randomUUID()}@example.test`;
+		expect(members.inviteToTrip(f.tripId, f.organizer, email)).toBe('invited');
+		const id = members.listPeople(f.tripId).find((p) => p.placeholder)!.id;
+
+		const expenseId = expenses.addExpense(f.tripId, f.organizer, id, 'Deposit', 900, 'USD', [
+			{ userId: f.organizer, weight: 1 },
+			{ userId: id, weight: 1 }
+		])!;
+		const poiId = pois.addPoi(f.tripId, f.organizer, f.cityId, 'Acropolis', 'Sights', null, null, null, null)!;
+		expect(pois.toggleVote(f.tripId, id, poiId)).toBe(true);
+		const optionId = lodging.addOption(f.tripId, f.organizer, f.cityId, 'Guesthouse')!;
+		expect(lodging.vote(f.tripId, id, optionId)).toBe(true);
+		const itemId = createScheduleItem(f);
+		expect(schedule.setAssignees(itemId, f.tripId, f.organizer, [id])).toBe(true);
+		const taskId = tasks.addTask(f.tripId, f.organizer, 'prep', 'Pack', [id], null)!;
+		expect(tasks.toggleTask(f.tripId, id, taskId)).toBe(true);
+		const partyId = parties.createParty(f.tripId, f.organizer, 'Crew')!;
+		expect(parties.assignMembership(f.tripId, f.organizer, partyId, id, '2026-10-01', 60, 120)).toBe(true);
+
+		return { id, email, expenseId, poiId, optionId, itemId, taskId, partyId };
+	}
+
+	it('moves every cascade-owned row to the new account instead of destroying it', () => {
+		const f = createTripFixture('relink-all');
+		const ph = placeholderWithFullHistory(f);
+		const before = snapshotRemovalCounts(f.tripId, ph.id);
+		const doneAt = scalar(`SELECT done_at FROM task_done WHERE task_id = ? AND user_id = ?`, ph.taskId, ph.id);
+		expect(before.itemAssignments).toBe(1);
+		expect(before.taskAssignments).toBe(1);
+		expect(before.taskCompletions).toBe(1);
+		expect(before.partySegments).toBe(1);
+
+		const real = auth.createUser(ph.email, 'Invitee', 'password123');
+
+		// The placeholder is gone and nothing anywhere still points at it.
+		expect(auth.findUserById(ph.id)).toBeUndefined();
+		expect(snapshotRemovalCounts(f.tripId, ph.id)).toEqual(zeroCounts());
+		// Every row it owned now belongs to the real account, table for table.
+		expect(snapshotRemovalCounts(f.tripId, real.id)).toEqual(before);
+
+		expect(tableCount('memberships', 'trip_id = ? AND user_id = ?', f.tripId, real.id)).toBe(1);
+		expect(tableCount('expenses', 'id = ? AND payer_id = ?', ph.expenseId, real.id)).toBe(1);
+		expect(tableCount('expense_participants', 'expense_id = ? AND user_id = ?', ph.expenseId, real.id)).toBe(1);
+		expect(tableCount('poi_votes', 'poi_id = ? AND user_id = ?', ph.poiId, real.id)).toBe(1);
+		expect(tableCount('lodging_votes', 'city_id = ? AND user_id = ?', f.cityId, real.id)).toBe(1);
+		expect(tableCount('item_assignees', 'item_id = ? AND user_id = ?', ph.itemId, real.id)).toBe(1);
+		expect(tableCount('task_assignees', 'task_id = ? AND user_id = ?', ph.taskId, real.id)).toBe(1);
+		expect(tableCount('task_done', 'task_id = ? AND user_id = ?', ph.taskId, real.id)).toBe(1);
+		expect(tableCount('party_membership', 'party_id = ? AND user_id = ?', ph.partyId, real.id)).toBe(1);
+
+		// The completion keeps its original timestamp: a relink is not a re-tick.
+		expect(scalar(`SELECT done_at FROM task_done WHERE task_id = ? AND user_id = ?`, ph.taskId, real.id)).toBe(
+			doneAt
+		);
+		// The vote still points at the option that was chosen, not just the city.
+		expect(tableCount('lodging_votes', 'user_id = ? AND option_id = ?', real.id, ph.optionId)).toBe(1);
+		// The invite is spent.
+		expect(tableCount('trip_invites', 'trip_id = ? AND email = ?', f.tripId, ph.email)).toBe(0);
+	});
+
+	it('publishes every topic whose rows the relink touched', () => {
+		const f = createTripFixture('relink-events');
+		const ph = placeholderWithFullHistory(f);
+		const seen: import('../src/events.ts').TripEvent[] = [];
+		const sub = events.subscribe(f.tripId, f.organizer, (event) => seen.push(event));
+		expect(sub.ok).toBe(true);
+
+		auth.createUser(ph.email, 'Invitee', 'password123');
+
+		expect(seen.map((e) => e.topic)).toEqual([
+			'members',
+			'expenses',
+			'schedule',
+			'pois',
+			'lodging',
+			'tasks'
+		]);
+		expect(seen.every((e) => e.tripId === f.tripId)).toBe(true);
+
+		if (sub.ok) sub.sub.close();
+	});
+
+	// The collision case: the real account already holds the identical row in
+	// every composite-key table. A plain UPDATE would violate the primary key and
+	// abort registration outright, so this is the test that pins the OR IGNORE
+	// choice down.
+	it('merges without duplicating or throwing when the real account already holds the same rows', () => {
+		const f = createTripFixture('relink-collide');
+		const email = `rejoin-${crypto.randomUUID()}@example.test`;
+		const real = auth.createUser(email, 'Rejoiner', 'password123');
+		expect(members.inviteToTrip(f.tripId, f.organizer, email)).toBe('added');
+
+		const ghost = `ghost-${crypto.randomUUID()}@example.test`;
+		expect(members.inviteToTrip(f.tripId, f.organizer, ghost)).toBe('invited');
+		const phId = members.listPeople(f.tripId).find((p) => p.placeholder)!.id;
+
+		// Identical rows under both identities, one per composite-key table.
+		const sharedExpense = expenses.addExpense(f.tripId, f.organizer, f.organizer, 'Taxi', 1200, 'USD', [
+			{ userId: real.id, weight: 1 },
+			{ userId: phId, weight: 1 }
+		])!;
+		const placeholderExpense = expenses.addExpense(f.tripId, f.organizer, phId, 'Snacks', 300, 'USD', [
+			{ userId: f.organizer, weight: 1 }
+		])!;
+		const poiId = pois.addPoi(f.tripId, f.organizer, f.cityId, 'Agora', 'Sights', null, null, null, null)!;
+		expect(pois.toggleVote(f.tripId, real.id, poiId)).toBe(true);
+		expect(pois.toggleVote(f.tripId, phId, poiId)).toBe(true);
+		const optionId = lodging.addOption(f.tripId, f.organizer, f.cityId, 'Hostel')!;
+		expect(lodging.vote(f.tripId, real.id, optionId)).toBe(true);
+		expect(lodging.vote(f.tripId, phId, optionId)).toBe(true);
+		const itemId = createScheduleItem(f);
+		expect(schedule.setAssignees(itemId, f.tripId, f.organizer, [real.id, phId])).toBe(true);
+		const taskId = tasks.addTask(f.tripId, f.organizer, 'prep', 'Visa', [real.id, phId], null)!;
+		expect(tasks.toggleTask(f.tripId, real.id, taskId)).toBe(true);
+		expect(tasks.toggleTask(f.tripId, phId, taskId)).toBe(true);
+		const partyId = parties.createParty(f.tripId, f.organizer, 'Crew')!;
+		expect(parties.assignMembership(f.tripId, f.organizer, partyId, real.id, '2026-10-01', 60, 120)).toBe(true);
+		expect(parties.assignMembership(f.tripId, f.organizer, partyId, phId, '2026-10-01', 60, 120)).toBe(true);
+
+		// Rows in the same tables that do NOT collide, so the merge has to both
+		// collapse duplicates and carry the placeholder's own history across.
+		const soloItem = createScheduleItem(f);
+		expect(schedule.setAssignees(soloItem, f.tripId, f.organizer, [phId])).toBe(true);
+		const soloTask = tasks.addTask(f.tripId, f.organizer, 'prep', 'Insurance', [phId], null)!;
+		expect(tasks.toggleTask(f.tripId, phId, soloTask)).toBe(true);
+
+		// Distinguishable completion timestamps, so the surviving row can be
+		// attributed rather than guessed at.
+		db.prepare(`UPDATE task_done SET done_at = 1111 WHERE task_id = ? AND user_id = ?`).run(taskId, real.id);
+		db.prepare(`UPDATE task_done SET done_at = 2222 WHERE task_id = ? AND user_id = ?`).run(taskId, phId);
+
+		// Point the pending invite at the already-registered address, which is the
+		// state that makes every one of these a live primary-key conflict.
+		db.prepare(`UPDATE trip_invites SET email = ? WHERE trip_id = ? AND email = ?`).run(
+			email,
+			f.tripId,
+			ghost
+		);
+
+		expect(() => members.consumeInvites(real.id, email)).not.toThrow();
+
+		expect(auth.findUserById(phId)).toBeUndefined();
+		expect(snapshotRemovalCounts(f.tripId, phId)).toEqual(zeroCounts());
+
+		// Exactly one row per key: merged, not duplicated.
+		expect(tableCount('memberships', 'trip_id = ? AND user_id = ?', f.tripId, real.id)).toBe(1);
+		expect(tableCount('expense_participants', 'expense_id = ?', sharedExpense)).toBe(1);
+		expect(tableCount('expense_participants', 'expense_id = ? AND user_id = ?', sharedExpense, real.id)).toBe(1);
+		expect(tableCount('poi_votes', 'poi_id = ?', poiId)).toBe(1);
+		expect(tableCount('lodging_votes', 'city_id = ?', f.cityId)).toBe(1);
+		expect(tableCount('item_assignees', 'item_id = ?', itemId)).toBe(1);
+		expect(tableCount('item_assignees', 'item_id = ? AND user_id = ?', itemId, real.id)).toBe(1);
+		expect(tableCount('task_assignees', 'task_id = ?', taskId)).toBe(1);
+		expect(tableCount('task_done', 'task_id = ?', taskId)).toBe(1);
+		expect(tableCount('party_membership', 'party_id = ? AND day = ?', partyId, '2026-10-01')).toBe(1);
+		expect(tableCount('party_membership', 'party_id = ? AND user_id = ?', partyId, real.id)).toBe(1);
+
+		// On a collision the real account keeps the completion it made itself.
+		expect(scalar(`SELECT done_at FROM task_done WHERE task_id = ? AND user_id = ?`, taskId, real.id)).toBe(1111);
+
+		// The non-colliding row still moves: payer_id is under no unique index.
+		expect(tableCount('expenses', 'id = ? AND payer_id = ?', placeholderExpense, real.id)).toBe(1);
+		// The placeholder's own, non-colliding assignments survive the merge too.
+		expect(tableCount('item_assignees', 'item_id = ? AND user_id = ?', soloItem, real.id)).toBe(1);
+		expect(tableCount('task_assignees', 'task_id = ? AND user_id = ?', soloTask, real.id)).toBe(1);
+		expect(tableCount('task_done', 'task_id = ? AND user_id = ?', soloTask, real.id)).toBe(1);
+		expect(tableCount('trip_invites', 'trip_id = ? AND email = ?', f.tripId, email)).toBe(0);
+	});
+
+	// Documents a boundary left deliberately unresolved: identical crew segments
+	// are collapsed, but a segment that merely overlaps is kept, because deciding
+	// which crew wins a contested window is a product call, not a merge detail.
+	it('collapses identical crew segments and keeps genuinely different ones', () => {
+		const f = createTripFixture('relink-parties');
+		const email = `crew-${crypto.randomUUID()}@example.test`;
+		const real = auth.createUser(email, 'Crewmate', 'password123');
+		expect(members.inviteToTrip(f.tripId, f.organizer, email)).toBe('added');
+		const ghost = `ghost-${crypto.randomUUID()}@example.test`;
+		expect(members.inviteToTrip(f.tripId, f.organizer, ghost)).toBe('invited');
+		const phId = members.listPeople(f.tripId).find((p) => p.placeholder)!.id;
+
+		const crew = parties.createParty(f.tripId, f.organizer, 'Crew')!;
+		const other = parties.createParty(f.tripId, f.organizer, 'Other')!;
+		expect(parties.assignMembership(f.tripId, f.organizer, crew, real.id, '2026-10-01', 60, 120)).toBe(true);
+		expect(parties.assignMembership(f.tripId, f.organizer, crew, phId, '2026-10-01', 60, 120)).toBe(true);
+		expect(parties.assignMembership(f.tripId, f.organizer, other, phId, '2026-10-02', 300, 400)).toBe(true);
+
+		db.prepare(`UPDATE trip_invites SET email = ? WHERE trip_id = ? AND email = ?`).run(email, f.tripId, ghost);
+		members.consumeInvites(real.id, email);
+
+		expect(tableCount('party_membership', 'user_id = ?', real.id)).toBe(2);
+		expect(tableCount('party_membership', 'party_id = ? AND day = ?', crew, '2026-10-01')).toBe(1);
+		expect(tableCount('party_membership', 'party_id = ? AND user_id = ? AND day = ?', other, real.id, '2026-10-02')).toBe(1);
+		expect(tableCount('party_membership', 'user_id = ?', phId)).toBe(0);
+	});
+});
+
 describe('known balance behavior', () => {
 	it('documents current behavior: balances stop summing to zero after a participant is removed (KNOWN BUG)', () => {
 		const f = createTripFixture('known-bug');

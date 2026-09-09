@@ -448,13 +448,70 @@ export function consumeInvites(userId: string, email: string): void {
 		`INSERT OR IGNORE INTO memberships (trip_id, user_id, role) VALUES (?, ?, 'member')`
 	);
 	const drop = db.prepare(`DELETE FROM trip_invites WHERE id = ?`);
-	// Statements that hand a placeholder's data over to the real account.
+	// Statements that hand a placeholder's data over to the real account, in
+	// order, each run as (realUserId, placeholderId).
+	//
+	// This list must cover every foreign key that references `users(id)` ON
+	// DELETE CASCADE and carries trip history, because anything still pointing at
+	// the placeholder when its `users` row is deleted below is destroyed by that
+	// cascade with no undo. The authoritative set is in `db.ts`; `removalImpact`
+	// enumerates the same one.
+	//
+	// Conflict handling is per table, not blanket. Every join table below has a
+	// composite primary key containing `user_id`, so the real account can already
+	// hold the identical row, and a plain UPDATE would violate that primary key
+	// and abort the registration. `UPDATE OR IGNORE` skips exactly those
+	// colliding rows and leaves them on the placeholder; the `DELETE FROM users`
+	// that follows then cascades them away. So a collision resolves to the real
+	// account's own row, one row per key, and nothing throws.
 	const relinks = [
+		// PK (trip_id, user_id): collides when the real account is already a member
+		// of the trip they were invited to.
 		`UPDATE OR IGNORE memberships SET user_id = ? WHERE user_id = ?`,
+		// payer_id is a plain column under no unique index, so it cannot collide
+		// and a plain UPDATE is correct: every expense the placeholder paid moves.
 		`UPDATE expenses SET payer_id = ? WHERE payer_id = ?`,
+		// PK (expense_id, user_id): collides when both identities were listed as
+		// participants on one expense. Keeping the real account's row is also the
+		// only safe answer for money, since merging two shares into one would
+		// double-count a stake that the split already apportioned.
 		`UPDATE OR IGNORE expense_participants SET user_id = ? WHERE user_id = ?`,
+		// PK (poi_id, user_id): collides when both voted for the same POI. A vote
+		// is a boolean per person, so the surviving single row is the right count.
 		`UPDATE OR IGNORE poi_votes SET user_id = ? WHERE user_id = ?`,
-		`UPDATE OR IGNORE lodging_votes SET user_id = ? WHERE user_id = ?`
+		// PK (city_id, user_id): one vote per city, so a collision means both
+		// identities voted for that city. The real account's choice wins; taking
+		// the placeholder's instead would silently overwrite a live preference.
+		`UPDATE OR IGNORE lodging_votes SET user_id = ? WHERE user_id = ?`,
+		// PK (item_id, user_id): collides when the real account is already
+		// assigned to the same calendar item. Assignment is set membership, so one
+		// row is the whole meaning and the duplicate is dropped.
+		`UPDATE OR IGNORE item_assignees SET user_id = ? WHERE user_id = ?`,
+		// PK (task_id, user_id): same shape as item_assignees, one row per person
+		// per task.
+		`UPDATE OR IGNORE task_assignees SET user_id = ? WHERE user_id = ?`,
+		// PK (task_id, user_id) plus a `done_at` payload. `done_at` is a timestamp,
+		// never a counter or an accumulated total, so collapsing two rows into one
+		// cannot double-count anything. On a collision the real account keeps its
+		// own `done_at`: it ticked that task under its own identity, and that
+		// timestamp is the truer record than the placeholder's.
+		`UPDATE OR IGNORE task_done SET user_id = ? WHERE user_id = ?`,
+		// party_membership is the one exception: it has a surrogate `id` primary
+		// key and no unique index over (party_id, user_id, day), so an UPDATE here
+		// can never raise a constraint error and OR IGNORE would be meaningless.
+		// The risk is redundancy instead. Drop placeholder segments the real
+		// account already holds byte for byte first, which loses no information,
+		// then move the rest. Segments that overlap without being identical are
+		// deliberately left alone: choosing which crew wins a contested window is a
+		// product decision, and discarding one would be the same data loss this
+		// change exists to stop.
+		`DELETE FROM party_membership AS pm
+		 WHERE EXISTS (
+		   SELECT 1 FROM party_membership o
+		   WHERE o.user_id = ? AND o.party_id = pm.party_id AND o.day = pm.day
+		     AND o.start_min = pm.start_min AND o.end_min = pm.end_min
+		 ) AND pm.user_id = ?`,
+		`UPDATE party_membership SET user_id = ? WHERE user_id = ?`
 	].map((sql) => db.prepare(sql));
 	if (invites.length === 0) return;
 	db.exec('BEGIN');
@@ -476,7 +533,12 @@ export function consumeInvites(userId: string, email: string): void {
 		throw err;
 	}
 	// After COMMIT, and once per affected trip: a placeholder turning into a real
-	// account changes the roster and re-points that person's expenses and votes,
+	// account changes the roster and re-points that person's expenses, votes,
+	// calendar assignments, task assignments and completions, and crew segments,
 	// so anyone with the trip open is looking at a stale name on stale rows.
-	for (const inv of invites) publishMany(inv.trip_id, ['members', 'expenses', 'pois', 'lodging']);
+	// Topics are the `TRIP_TOPICS` names from `events.ts`; `schedule` covers both
+	// item assignees and party membership, which the calendar reads together.
+	for (const inv of invites) {
+		publishMany(inv.trip_id, ['members', 'expenses', 'schedule', 'pois', 'lodging', 'tasks']);
+	}
 }
