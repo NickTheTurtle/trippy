@@ -12,6 +12,7 @@ import People from './pages/People';
 import Expenses from './pages/Expenses';
 import Pretrip from './pages/Pretrip';
 import Discover from './pages/Discover';
+import Calendar from './pages/Calendar';
 
 /** Section pages, keyed by the slug in `nav.ts`. Anything not listed yet falls
  *  back to a stub, so the router stays complete while the port is in progress. */
@@ -19,7 +20,8 @@ const SECTION_PAGES: Partial<Record<(typeof TABS)[number]['slug'], React.Compone
 	people: People,
 	expenses: Expenses,
 	pretrip: Pretrip,
-	discover: Discover
+	discover: Discover,
+	calendar: Calendar
 };
 
 /**

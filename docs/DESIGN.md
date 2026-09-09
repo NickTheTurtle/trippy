@@ -510,6 +510,23 @@ block, so the green pill the user asked for came back as a plain grey `Select`
 in React with nothing to indicate it. Now a real rule in `index.css`, asserted in
 the browser suite by reading the computed background colour rather than by eye.
 
+**Escape inside a `Select` or `MultiSelect` closed the whole dialog.** Both
+components closed their own menu on Escape and stopped there, so the key went on
+to the surrounding `<dialog>` and dismissed it, losing everything typed into the
+form. `stopPropagation` alone does not fix this: the browser closes a `<dialog>`
+as the *default action* of the Escape keydown, not by listening for the bubbled
+event, so `preventDefault` is the part that matters. The handler also moved from
+the trigger button to the component root, because once the menu is open focus
+sits on an option, which is not inside the trigger. Only reachable by keyboard,
+which is why it survived the SvelteKit original and was found by a browser suite
+pressing Escape to dismiss a picker.
+
+**Tailwind's preflight left `h4` to `h6` at the inherited weight.** The theme
+restyles `h1` to `h3` and stops, so every `h4` sub-heading rendered at body
+weight and simply read as another paragraph. Nothing errors and a type-check
+cannot see it. Caught by screenshotting the calendar's "Travel legs" heading
+against the Svelte page, where the same markup is bold.
+
 ### 5.0.4 Preparation: tasks, packing and estimated costs
 
 **One list component serves both tasks and packing.** They differ only in
@@ -589,6 +606,70 @@ made the click target far smaller than the thing it acted on.
 **Deleting a place is confirmed, deleting a stay is not.** A place can have
 calendar events pointing at it, and those go with it; the dialog says how many.
 A stay carries only votes.
+
+### 5.0.6 Calendar: the board, crews and the port's one plain stylesheet
+
+**The calendar is the only page with its own stylesheet, and that is deliberate.**
+`calendar.css` is plain CSS rather than Tailwind utilities because the board is an
+absolutely positioned time grid whose geometry *is* the layout. A block's `top`
+and `height` come from `(minutes - DAY_START) * PX_PER_MIN`, its `left` and
+`width` are percentages produced by `layoutDay`, its colour is `color-mix()` over
+a per-track `--c`, and how many lines of title and how many people chips fit come
+from `--trows` and `--wrows`. Expressing one coordinate system in arbitrary-value
+brackets would scatter it across dozens of class strings where no reader could
+check it.
+
+**Every rule is scoped under `.cal`.** Svelte gave the original page scoping for
+free, and this page uses names a shared stylesheet would also want: `.board`,
+`.empty`, `.small`, `.hint`, `.tools`, `.swatch`, `.tag`. The page root carries
+`className="cal"`, and `Modal` renders its `<dialog>` inline in the tree rather
+than through a portal, so the scope still reaches the dialogs even in the top
+layer. The one name that could not be reused is `.chip`, which `index.css`
+already defines as a static label; the calendar's quick-add templates are
+buttons, so they are `.tchip`.
+
+**The geometry constants live in exactly two places and must move together.**
+`DAY_START`, `DAY_END`, `PX_PER_MIN` and `HEAD_PX` in `Calendar.tsx` decide where
+a block lands; the 56px gutter and 34px head in `calendar.css` decide where the
+hour axis is drawn. Change one without the other and every block silently sits
+off its own time label. The browser suite pins this by asserting a three-hour
+block is exactly 216px tall.
+
+**`didDrag` is a ref, not state.** It is written during `pointermove` and read by
+the `click` that follows in the same event sequence. As state it would lag a
+render behind, and every drag would also open the detail popup on release.
+
+**A drag or resize only writes when the snapped value actually changed.** Live
+position snaps to five-minute steps so the label never shows decimals, and a
+resize will not go below fifteen minutes. Pressing and releasing without moving
+therefore costs no request, which is what makes click-to-open and drag-to-move
+able to share one pointer sequence.
+
+**The detail popup deliberately sends up to four requests.** `edit` handles the
+title, type and travel buffer; `move` and `resize` have different validity rules
+on the server and can each be refused on their own; assignees are a separate
+`PUT`. Collapsing them into one endpoint would mean one rejection discarding
+edits that were fine.
+
+**`EventDetail` is keyed by the event id.** Switching from one block to another
+remounts it, so its working copy resets without a hand-written effect. The Svelte
+original rebuilt a `detail` object field by field in `openDetail` and had to
+remember to add each new field.
+
+**The day and the view live in the URL.** `?day=…&view=…`, navigated with
+`<Link>`, so a board is addressable, the back button walks the days, and
+`useApi`, which keys off the query string, refetches without any extra wiring.
+
+**Crews are a day-scoped membership, not a group.** A person belongs to a crew
+from a given minute of a given day, which is what lets the board draw switch
+lines and hop arrows instead of just colouring lanes. Splitting people off
+between two cities also writes a travel item on the target crew's lane, so the
+gap between "we left" and "we arrived" is on the calendar rather than implied.
+
+**Both map components tolerate a double mount.** React's StrictMode mounts twice
+in development. Google Maps survives being handed the same div again, but Leaflet
+throws "Map container is already initialized", so each effect sets a `cancelled`
+flag and tears the map down on cleanup.
 
 ## Shared UI conventions
 

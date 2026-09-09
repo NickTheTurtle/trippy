@@ -78,6 +78,17 @@ h3 {
 }
 
 /*
+ * Tailwind's preflight resets every heading to font-weight: inherit. h1 to h3
+ * are restyled above, but h4 to h6 are used as plain bold sub-headings and need
+ * the browser default put back.
+ */
+h4,
+h5,
+h6 {
+	font-weight: bold;
+}
+
+/*
  * A small set of element classes.
  *
  * These are the pieces where a utility list would be repeated verbatim on every
@@ -560,4 +571,141 @@ h3 {
 /* The caret defaults to a faint grey that disappears on the green. */
 .cityselect .selcaret {
 	color: rgba(255, 255, 255, 0.75);
+}
+/* --- MultiSelect -------------------------------------------------------- */
+
+.msel {
+	position: relative;
+	/* Same reasoning as .sel: shrink rather than overflow a narrow parent. */
+	min-width: min(8rem, 100%);
+}
+.mtrigger {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.5rem;
+	width: 100%;
+	padding: 0.5rem 0.6rem;
+	border: 1px solid var(--color-line);
+	border-radius: var(--radius-sm);
+	background: var(--color-surface);
+	font: inherit;
+	color: var(--color-ink);
+	cursor: pointer;
+	text-align: left;
+}
+.msel.compact .mtrigger {
+	padding: 0.3rem 0.5rem;
+	font-size: 0.82rem;
+}
+.mtrigger:hover {
+	border-color: var(--color-accent);
+}
+.mlabel {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.mlabel.placeholder {
+	color: var(--color-ink-faint);
+}
+.mcaret {
+	font-size: 0.7rem;
+	color: var(--color-ink-faint);
+	flex-shrink: 0;
+}
+.mmenu {
+	/* Positioned by useAnchor; fixed so .mbody's overflow cannot clip it. */
+	position: fixed;
+	z-index: 40;
+	list-style: none;
+	margin: 0;
+	padding: 0.25rem;
+	background: var(--color-surface);
+	border: 1px solid var(--color-line);
+	border-radius: var(--radius-sm);
+	box-shadow: var(--shadow-card);
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	width: max-content;
+	max-width: min(20rem, calc(100vw - 1rem));
+}
+.mopt {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	width: 100%;
+	text-align: left;
+	border: none;
+	background: none;
+	font: inherit;
+	cursor: pointer;
+	padding: 0.4rem 0.5rem;
+	border-radius: var(--radius-sm);
+	color: var(--color-ink);
+}
+.mopt:hover {
+	background: var(--color-accent-soft);
+}
+.mopttext {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.mbox {
+	display: inline-grid;
+	place-items: center;
+	width: 16px;
+	height: 16px;
+	border: 1px solid var(--color-line);
+	border-radius: 4px;
+	font-size: 0.7rem;
+	color: #fff;
+	flex-shrink: 0;
+}
+.mbox.on {
+	background: var(--color-accent);
+	border-color: var(--color-accent);
+}
+.mempty {
+	padding: 0.4rem 0.5rem;
+	font-size: 0.82rem;
+	color: var(--color-ink-faint);
+}
+
+/* --- Maps ---------------------------------------------------------------- */
+
+.gmapbox {
+	height: 420px;
+	border-radius: var(--radius-md);
+	overflow: hidden;
+}
+.mapbox {
+	height: 260px;
+	border-radius: var(--radius-md);
+	overflow: hidden;
+	/* Leaflet panes carry their own z-index; without this the map paints over
+	   the page header when it scrolls under it. */
+	z-index: 0;
+}
+.nogeo {
+	font-size: 0.82rem;
+	margin: 0.6rem 0 0;
+}
+.wp-pin span {
+	display: grid;
+	place-items: center;
+	width: 24px;
+	height: 24px;
+	border-radius: 50% 50% 50% 0;
+	transform: rotate(-45deg);
+	background: var(--pin, #2f6d5e);
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+	border: 2px solid #fff;
+}
+.wp-pin span b {
+	transform: rotate(45deg);
+	color: #fff;
+	font: 600 0.75rem/1 var(--font-sans);
 }

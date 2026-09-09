@@ -1,27 +1,26 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAnchor } from '../anchor';
-
-export type Option = { value: string; label: string };
+import type { Option } from './Select';
 
 /**
- * The app's dropdown. A custom control rather than a native <select> because the
- * menu has to be styled to match, and because a native select's popup cannot be
- * anchored the way `useAnchor` does inside a scrolling modal body.
+ * The multi-pick sibling of `Select`, used wherever a field means "these people"
+ * rather than "this one thing".
  *
- * Everything a native select gives away for free has to be put back by hand:
- * the roles below are what make it a listbox to a screen reader.
+ * It stays open while you tick, because picking four people out of twenty is the
+ * normal case and a menu that closed on every choice would make that four
+ * round-trips through the trigger.
  */
-export default function Select({
+export default function MultiSelect({
 	options,
-	value,
+	selected,
 	onChange,
-	placeholder = 'Select...',
-	ariaLabel = 'Select',
+	placeholder = 'Anyone',
+	ariaLabel = 'Assign people',
 	compact = false
 }: {
 	options: Option[];
-	value: string;
-	onChange: (value: string) => void;
+	selected: string[];
+	onChange: (next: string[]) => void;
 	placeholder?: string;
 	ariaLabel?: string;
 	compact?: boolean;
@@ -30,10 +29,15 @@ export default function Select({
 	const rootRef = useRef<HTMLDivElement>(null);
 	const { triggerRef, menuRef } = useAnchor<HTMLButtonElement, HTMLUListElement>(open);
 
-	const selected = options.find((o) => o.value === value) ?? null;
+	const chosen = options.filter((o) => selected.includes(o.value));
+	// Past two names the list is longer than the trigger, so switch to a count.
+	const summary =
+		chosen.length === 0
+			? placeholder
+			: chosen.length <= 2
+				? chosen.map((o) => o.label).join(', ')
+				: `${chosen.length} people`;
 
-	// A click anywhere outside closes. Registered on the window rather than a
-	// backdrop so the click still reaches whatever it landed on.
 	useEffect(() => {
 		if (!open) return;
 		const onClick = (e: MouseEvent) => {
@@ -43,10 +47,14 @@ export default function Select({
 		return () => window.removeEventListener('click', onClick);
 	}, [open]);
 
+	function toggle(v: string) {
+		onChange(selected.includes(v) ? selected.filter((x) => x !== v) : [...selected, v]);
+	}
+
 	return (
 		<div
 			ref={rootRef}
-			className={compact ? 'sel compact' : 'sel'}
+			className={compact ? 'msel compact' : 'msel'}
 			onKeyDown={(e) => {
 				// Escape belongs to the open menu. Without stopping it here the key
 				// keeps bubbling and closes the surrounding <dialog> as well.
@@ -63,41 +71,38 @@ export default function Select({
 			<button
 				ref={triggerRef}
 				type="button"
-				className="seltrigger"
+				className="mtrigger"
 				aria-haspopup="listbox"
 				aria-expanded={open}
 				aria-label={ariaLabel}
 				onClick={(e) => {
-					// The window listener above would otherwise see this same click.
 					e.stopPropagation();
 					setOpen((v) => !v);
 				}}
 			>
-				<span className={selected ? 'sellabel' : 'sellabel placeholder'}>
-					{selected?.label ?? placeholder}
-				</span>
-				<span className="selcaret">▾</span>
+				<span className={chosen.length === 0 ? 'mlabel placeholder' : 'mlabel'}>{summary}</span>
+				<span className="mcaret">▾</span>
 			</button>
 
 			{open && (
-				<ul ref={menuRef} className="selmenu" role="listbox" tabIndex={-1}>
+				<ul ref={menuRef} className="mmenu" role="listbox" aria-multiselectable tabIndex={-1}>
 					{options.map((o) => (
 						<li key={o.value}>
 							<button
 								type="button"
 								role="option"
-								aria-selected={o.value === value}
-								className={o.value === value ? 'selopt on' : 'selopt'}
-								onClick={() => {
-									onChange(o.value);
-									setOpen(false);
-								}}
+								aria-selected={selected.includes(o.value)}
+								className="mopt"
+								onClick={() => toggle(o.value)}
 							>
-								<span className="selopttext">{o.label}</span>
-								{o.value === value && <span className="selcheck">✓</span>}
+								<span className={selected.includes(o.value) ? 'mbox on' : 'mbox'}>
+									{selected.includes(o.value) ? '✓' : ''}
+								</span>
+								<span className="mopttext">{o.label}</span>
 							</button>
 						</li>
 					))}
+					{options.length === 0 && <li className="mempty">No members yet</li>}
 				</ul>
 			)}
 		</div>
