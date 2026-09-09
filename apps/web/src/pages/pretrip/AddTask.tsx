@@ -1,0 +1,115 @@
+import { useState } from 'react';
+import { api } from '../../lib/api';
+import { useMutation } from '../../hooks/useMutation';
+import Modal from '../../components/ui/Modal';
+import FormError from '../../components/ui/FormError';
+import { LinkButton } from '../../components/ui/buttons';
+
+/** Adds one task or one packing item, with who has to do it. */
+export default function AddTask({
+	kind,
+	members,
+	me,
+	tripId,
+	onClose,
+	onSaved
+}: {
+	kind: 'task' | 'packing';
+	members: { id: string; name: string }[];
+	me: string;
+	tripId: string;
+	onClose: () => void;
+	onSaved: () => void;
+}) {
+	const [label, setLabel] = useState('');
+	const [assignees, setAssignees] = useState<Set<string>>(new Set());
+
+	const save = useMutation(
+		async () => {
+			await api(`/trips/${tripId}/pretrip/tasks`, {
+				method: 'POST',
+				body: { kind, label, assignees: [...assignees] }
+			});
+			onSaved();
+			onClose();
+		},
+		{ fallback: 'Could not add that.' }
+	);
+
+	return (
+		<Modal
+			open
+			size="sm"
+			title={kind === 'task' ? 'Add a task' : 'Add a packing item'}
+			onClose={onClose}
+		>
+			<form className="mform" onSubmit={save.submit}>
+				<div className="mbody flex flex-col gap-3">
+					<label className="field">
+						<span>What needs doing?</span>
+						<input
+							autoFocus
+							required
+							value={label}
+							onChange={(e) => setLabel(e.target.value)}
+							className="input w-full"
+						/>
+					</label>
+
+					<fieldset className="m-0 min-w-0 rounded-[10px] border border-line px-3 py-3">
+						<legend className="px-1 text-[0.8rem] text-ink-soft">Who has to do it?</legend>
+						<p className="muted m-0 mb-2 text-[0.78rem] text-pretty">
+							Pick more than one and each person ticks their own box. Leave it empty for a one-off
+							the group only needs once.
+						</p>
+						<div className="grid max-h-48 grid-cols-[repeat(auto-fill,minmax(min(9rem,100%),1fr))] gap-0.5 overflow-y-auto overscroll-contain">
+							{members.map((m) => (
+								<label
+									key={m.id}
+									className="flex min-w-0 cursor-pointer items-center gap-2 rounded-sm px-1.5 py-1 text-[0.85rem] text-ink hover:bg-surface-2"
+								>
+									<input
+										type="checkbox"
+										checked={assignees.has(m.id)}
+										onChange={() =>
+											setAssignees((prev) => {
+												const next = new Set(prev);
+												if (next.has(m.id)) next.delete(m.id);
+												else next.add(m.id);
+												return next;
+											})
+										}
+										className="flex-none accent-accent"
+									/>
+									<span className="min-w-0 truncate">
+										{m.name}
+										{m.id === me ? ' (you)' : ''}
+									</span>
+								</label>
+							))}
+							{members.length === 0 && <p className="muted text-[0.9rem]">No members yet.</p>}
+						</div>
+						{members.length > 2 && (
+							<div className="flex gap-3 px-1 pt-2">
+								<LinkButton onClick={() => setAssignees(new Set(members.map((m) => m.id)))}>
+									Select everyone
+								</LinkButton>
+								<LinkButton onClick={() => setAssignees(new Set())}>Clear</LinkButton>
+							</div>
+						)}
+					</fieldset>
+				</div>
+
+				<div className="mfoot">
+					<FormError message={save.error} />
+					<button className="btn" type="button" onClick={onClose}>
+						Cancel
+					</button>
+					<button className="btn primary" type="submit" disabled={save.busy}>
+						{save.busy ? 'Adding...' : 'Add'}
+					</button>
+				</div>
+			</form>
+		</Modal>
+	);
+}
