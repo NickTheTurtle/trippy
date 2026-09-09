@@ -12,7 +12,7 @@ Read the relevant section before changing behavior.
 |---|---|---|
 | `apps/web` | `@trippy/web` | **React on :5174 - the live app.** All new UI work goes here |
 | `apps/api` | `@trippy/api` | Hono JSON API on :5175 (`tsx watch`) |
-| `packages/server` | `@trippy/server` | SQLite persistence + integrations; owns `app.db` |
+| `packages/server` | `@trippy/server` | SQLite persistence + integrations; owns the schema and `data/app.db` |
 | `packages/core` | `@trippy/core` | Pure domain logic - no I/O, browser-safe |
 
 The SvelteKit -> React port is **complete** and the SvelteKit app has been deleted.

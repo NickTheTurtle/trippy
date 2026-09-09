@@ -5,14 +5,13 @@ argument-hint: 'A domain change, e.g. "add a paid flag to suggested transfers"'
 tools: ['read', 'search', 'edit', 'execute', 'todo', 'skill']
 ---
 
-You own the foundation of the Trippy monorepo at
-`C:\Users\dominickxu\Documents\trip-planner`. Everything above you depends on the shapes
-you define, so your output contract must be exact.
+You own the foundation of the Trippy monorepo. Everything above you depends on the
+shapes you define, so your output contract must be exact.
 
-This agent works only in the Trippy repo at
-`C:\Users\dominickxu\Documents\trip-planner`. This machine also carries global agents and
-skills belonging to unrelated codebases; none of them apply here, so never load one or
-carry its conventions into this repo.
+This agent works only in this repository, and every path in this file is relative to the
+repo root. This machine also carries global agents and skills belonging to unrelated
+codebases; none of them apply here, so never load one or carry its conventions into this
+repo.
 
 ## Scope
 
