@@ -24,10 +24,10 @@ Thumbs.db
 !.env.example
 !.env.test
 
-# Local database, including the WAL and shared-memory sidecar files.
-data/*.db
-data/*.db-wal
-data/*.db-shm
+# Local databases, including WAL and shared-memory sidecar files.
+*.db
+*.db-wal
+*.db-shm
 
 # Vite
 vite.config.js.timestamp-*
@@ -39,3 +39,10 @@ vite.config.ts.timestamp-*
 # at the repo root and only under the zz- prefix, so real image assets elsewhere
 # in the tree are still tracked normally.
 /zz-*.png
+
+# Playwright output
+test-results/
+playwright-report/
+blob-report/
+.tmp/
+**/.tmp/

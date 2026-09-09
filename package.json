@@ -5,7 +5,8 @@
 	"type": "module",
 	"workspaces": [
 		"packages/*",
-		"apps/*"
+		"apps/*",
+		"tests-e2e"
 	],
 	"scripts": {
 		"dev:api": "npm run dev -w @trippy/api",
@@ -15,6 +16,7 @@
 		"format:check": "prettier --check \"apps/web/src/**/*.{ts,tsx,css}\"",
 		"build": "npm run build --workspaces --if-present",
 		"test": "vitest run",
+		"test:e2e": "npm run test -w @trippy/e2e",
 		"test:watch": "vitest"
 	},
 	"devDependencies": {
