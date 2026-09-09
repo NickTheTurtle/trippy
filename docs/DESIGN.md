@@ -630,6 +630,16 @@ made the click target far smaller than the thing it acted on.
 calendar events pointing at it, and those go with it; the dialog says how many.
 A stay carries only votes.
 
+**Stays get cover photos from the same pipeline as places.** Every option in the
+lodging vote rendered as the same grey bed icon, which is nothing to vote on when
+the choice is between an apartment, a villa and a hostel. `lodging_options` gains
+the same nullable `photo` column, and the backfill that already runs on the
+Discover load now covers stays too: null means never asked, the sentinel means
+asked and Google had nothing, so each stay costs at most one lookup ever. Stays
+hold no coordinates, so the lookup is biased by city and country alone, which is
+specific enough for a hotel name. A stay added from the hotel search carries its
+photo straight over and skips the lookup entirely.
+
 **Remove on a place card waits for hover.** It was a red link under a divider on
 every card, so a 14 place city put fourteen red links on the page for the action
 almost nobody takes, while the card's real affordance (click it to edit) is

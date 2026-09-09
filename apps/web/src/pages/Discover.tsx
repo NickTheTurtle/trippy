@@ -33,6 +33,7 @@ type Stay = {
 	locked: number;
 	check_in: string | null;
 	check_out: string | null;
+	photo: string | null;
 	votes: number;
 	you_voted: number;
 };
@@ -793,7 +794,7 @@ function StayCard({
 
 	return (
 		<article className={`${CARD} ${ring}`}>
-			<Cover photo={null} seed={o.name} category="stay" />
+			<Cover photo={o.photo} seed={o.name} category="stay" />
 			<div className="flex min-w-0 flex-auto flex-col px-4 pt-3.5 pb-4">
 				<div className="flex items-start justify-between gap-2">
 					<h4 className="m-0 line-clamp-2 min-w-0 text-base [overflow-wrap:anywhere]">{o.name}</h4>
@@ -1195,6 +1196,7 @@ function AddStay({
 		url: string;
 		checkIn: string;
 		checkOut: string;
+		photo: string | null;
 	}) => Promise<void>;
 }) {
 	const [name, setName] = useState(h?.name ?? '');
@@ -1210,7 +1212,10 @@ function AddStay({
 			price,
 			url: url.trim(),
 			checkIn,
-			checkOut
+			checkOut,
+			// Carried straight from the search hit when there was one. A stay
+			// typed in by hand gets its photo from the backfill on the next load.
+			photo: h?.photo ?? null
 		})
 	);
 

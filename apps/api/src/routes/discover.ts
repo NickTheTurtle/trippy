@@ -17,8 +17,10 @@ import {
 	addOption,
 	cityLodging,
 	lockOption,
+	lodgingNeedingPhotos,
 	removeOption,
 	setDates,
+	setLodgingPhoto,
 	vote as lodgingVote
 } from '@trippy/server/lodging';
 import {
@@ -43,13 +45,20 @@ discover.use('*', requireMember);
  */
 async function backfillPhotos(tripId: string): Promise<void> {
 	const pending = poisNeedingPhotos(tripId);
-	if (!pending.length) return;
-	await Promise.allSettled(
-		pending.map(async (p) => {
+	const stays = lodgingNeedingPhotos(tripId);
+	if (!pending.length && !stays.length) return;
+	await Promise.allSettled([
+		...pending.map(async (p) => {
 			const photo = await lookupPhoto(p.name, { city: p.city, country: p.country }, p.lat, p.lng);
 			setPoiPhoto(p.id, photo);
+		}),
+		// Stays carry no coordinates, so the city and country are the only bias
+		// available. That is enough: a hotel name plus its city is specific.
+		...stays.map(async (s) => {
+			const photo = await lookupPhoto(s.name, { city: s.city, country: s.country });
+			setLodgingPhoto(s.id, photo);
 		})
-	);
+	]);
 }
 
 discover.get('/', async (c) => {
@@ -217,7 +226,8 @@ discover.post('/stays', async (c) => {
 		trip.home_currency,
 		optStr(b.url),
 		checkIn,
-		checkOut
+		checkOut,
+		optStr(b.photo)
 	);
 	if (!id) return c.json({ error: 'Could not add stay.' }, 400);
 	return c.json({ id }, 201);

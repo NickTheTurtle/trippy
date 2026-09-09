@@ -239,6 +239,11 @@ addColumn('lodging_options', 'check_out', 'TEXT');
 // or a plain https URL for hand-entered places.
 addColumn('pois', 'photo', 'TEXT');
 
+// The same for a lodging option. A voting portal where every choice renders as
+// an identical grey icon gives the vote nothing to go on, and the lookup and
+// proxy that places already use work here unchanged.
+addColumn('lodging_options', 'photo', 'TEXT');
+
 // Trip dates were originally a free-text label. Keep the label (it is what the// header renders) but store the real endpoints so the edit form can round-trip
 // date pickers instead of asking people to retype a formatted string.
 addColumn('trips', 'start_date', 'TEXT');

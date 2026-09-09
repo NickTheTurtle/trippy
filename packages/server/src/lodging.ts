@@ -11,6 +11,7 @@ export interface LodgingOption {
 	locked: number;
 	check_in: string | null;
 	check_out: string | null;
+	photo: string | null;
 	votes: number;
 	you_voted: number; // 1 if the viewer picked this option
 }
@@ -57,7 +58,7 @@ export function cityLodging(tripId: string, userId: string): CityLodging[] {
 	return cities.map((c) => {
 		const options = db
 			.prepare(
-				`SELECT o.id, o.name, o.tag, o.price_cents, o.currency, o.url, o.locked, o.check_in, o.check_out,
+				`SELECT o.id, o.name, o.tag, o.price_cents, o.currency, o.url, o.locked, o.check_in, o.check_out, o.photo,
 				        (SELECT COUNT(*) FROM lodging_votes v WHERE v.option_id = o.id) AS votes,
 				        (SELECT COUNT(*) FROM lodging_votes v WHERE v.option_id = o.id AND v.user_id = ?) AS you_voted
 				 FROM lodging_options o WHERE o.city_id = ?
@@ -83,16 +84,58 @@ export function addOption(
 	currency: string,
 	url: string | null,
 	checkIn: string | null = null,
-	checkOut: string | null = null
+	checkOut: string | null = null,
+	photo: string | null = null
 ): string | null {
 	if (!isMember(tripId, actorId)) return null;
 	if (!cityInTrip(tripId, cityId)) return null;
 	const id = randomUUID();
 	db.prepare(
-		`INSERT INTO lodging_options (id, trip_id, city_id, name, tag, price_cents, currency, url, locked, check_in, check_out, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`
-	).run(id, tripId, cityId, name, tag, priceCents, currency, url, checkIn, checkOut, Date.now());
+		`INSERT INTO lodging_options (id, trip_id, city_id, name, tag, price_cents, currency, url, locked, check_in, check_out, photo, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`
+	).run(
+		id,
+		tripId,
+		cityId,
+		name,
+		tag,
+		priceCents,
+		currency,
+		url,
+		checkIn,
+		checkOut,
+		photo,
+		Date.now()
+	);
 	return id;
+}
+
+/** A stay still waiting on a cover photo lookup, with the context to find it. */
+export interface LodgingNeedingPhoto {
+	id: string;
+	name: string;
+	city: string;
+	country: string;
+}
+
+/**
+ * Stays in a trip that have never had a photo looked up. As with places,
+ * `photo IS NULL` means "never asked" and the miss sentinel means "asked, and
+ * Google had nothing", so each stay costs at most one lookup ever.
+ */
+export function lodgingNeedingPhotos(tripId: string): LodgingNeedingPhoto[] {
+	return db
+		.prepare(
+			`SELECT o.id, o.name, c.name AS city, c.country
+			 FROM lodging_options o JOIN cities c ON c.id = o.city_id
+			 WHERE o.trip_id = ? AND o.photo IS NULL`
+		)
+		.all(tripId) as unknown as LodgingNeedingPhoto[];
+}
+
+/** Records the result of a photo lookup (a resource name, or the miss sentinel). */
+export function setLodgingPhoto(optionId: string, photo: string): void {
+	db.prepare(`UPDATE lodging_options SET photo = ? WHERE id = ?`).run(photo, optionId);
 }
 
 /**
