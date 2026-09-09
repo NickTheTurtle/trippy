@@ -12,8 +12,8 @@
  * Both roles get an honest answer. Adding a city is organizer-only on the
  * server, so a member gets no button rather than a disabled one.
  *
- * The button is the page's single call to action: the trip header suppresses
- * its own "Add a city" while this is on screen (see TripShell).
+ * The button is the page's single call to action, and now the only "Add a city"
+ * anywhere: the trip header carries just an "Edit itinerary" link.
  */
 export default function NoCities({
 	isOrganizer,

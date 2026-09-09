@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, NavLink, Outlet, useLocation, useOutletContext, useParams } from 'react-router';
+import { Link, NavLink, Outlet, useOutletContext, useParams } from 'react-router';
 import { api } from '../api';
 import { useApi } from '../useApi';
 import { useTripEvents, TripEventsProvider } from '../useTripEvents';
@@ -54,7 +54,6 @@ export function useTrip(): Ctx {
 
 export default function TripShell() {
 	const { tripId } = useParams();
-	const { pathname } = useLocation();
 	const { data, error, reload } = useApi<{ trip: Trip }>(`/trips/${tripId}`);
 	const [showEdit, setShowEdit] = useState(false);
 	const [showItinerary, setShowItinerary] = useState(false);
@@ -90,8 +89,6 @@ export default function TripShell() {
 
 	const base = `/trips/${trip.id}`;
 	const extra = trip.members.length - 8;
-	// Discover carries its own "Add a city" in its empty state; see below.
-	const onDiscover = pathname === base || pathname.startsWith(`${base}/discover`);
 
 	return (
 		<TripEventsProvider value={events}>
@@ -125,43 +122,20 @@ export default function TripShell() {
 						</div>
 					</div>
 
-					<div className="mt-5 mb-1.5 flex flex-wrap items-center gap-1.5">
-						{trip.cities.map((c, i) => (
-							<div key={c.id} className="inline-flex items-center gap-1.5">
-								<span className="size-2 rounded-full bg-accent" />
-								<span className="font-medium">{c.name}</span>
-								{i < trip.cities.length - 1 && <span className="mx-1 h-px w-7 bg-line" />}
-							</div>
-						))}
-						{/* The itinerary opens from the chain it edits. A trip starts with
-						    no cities and every section is scoped to one, so on a new trip
-						    this is the only thing on the page worth pressing.
+					{/* The header used to list every city with an "Add a city" or "Edit
+					    itinerary" control beside them. The chain is gone: it grew long
+					    enough to wrap on a real trip, and it implied a single shared
+					    route when tracks mean different people are in different places.
+					    Cities belong to the pages scoped to them, not to the chrome.
 
-						    Except on Discover, which renders its own empty state with the
-						    same "Add a city" button in it. Two primary buttons for one
-						    intent, three feet apart, is one too many, and the empty state
-						    is the better of the two: it sits where the missing content
-						    would be and says why the page is blank. So this one stands
-						    down while that one is on screen. Every other tab keeps it,
-						    because Discover's empty state is the *only* other way in and
-						    a cityless Calendar would otherwise be a dead end. */}
-						{trip.role === 'organizer' &&
-							(trip.cities.length === 0 ? (
-								onDiscover ? null : (
-									<button
-										type="button"
-										className="btn small primary"
-										onClick={() => setShowItinerary(true)}
-									>
-										Add a city
-									</button>
-								)
-							) : (
-								<LinkButton className="ml-2" onClick={() => setShowItinerary(true)}>
-									Edit itinerary
-								</LinkButton>
-							))}
-					</div>
+					    The way into the itinerary stays, and stays even at zero cities,
+					    because Discover's empty state is otherwise the only entrance and
+					    a cityless Calendar would be a dead end. */}
+					{trip.role === 'organizer' && (
+						<div className="mt-5 mb-1.5 flex flex-wrap items-center gap-1.5">
+							<LinkButton onClick={() => setShowItinerary(true)}>Edit itinerary</LinkButton>
+						</div>
+					)}
 
 					<nav className="mt-5 flex gap-1 overflow-x-auto">
 						{TABS.map((t) => (
