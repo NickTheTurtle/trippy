@@ -130,10 +130,15 @@ export function eachDay(start: string, end: string): string[] {
  * Human label for a day range, e.g. "Apr 16 – 20, 2026" when the month and year
  * match, "Apr 28 – May 3, 2026" across months, "Dec 30, 2026 – Jan 2, 2027"
  * across years. Formatted from UTC parts so it never shifts by the reader's zone.
+ *
+ * A same-day trip collapses to the single date. Both endpoints being equal is a
+ * valid trip, not an error, and "Jan 2 – 2, 2028" reads as a typo, so it renders
+ * exactly like the one-sided cases already do.
  */
 export function formatDayRange(start: string | null, end: string | null): string {
 	if (!start && !end) return 'Dates to be set';
 	if (!start || !end) return niceDay((start ?? end)!, true);
+	if (start === end) return niceDay(start, true);
 	const [sy, sm] = start.split('-');
 	const [ey, em] = end.split('-');
 	if (sy !== ey) return `${niceDay(start, true)} – ${niceDay(end, true)}`;

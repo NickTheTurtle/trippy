@@ -66,6 +66,21 @@ describe('formatDayRange', () => {
 		expect(formatDayRange(null, null)).toBe('Dates to be set');
 	});
 
+	it('collapses a same-day range to a single date', () => {
+		expect(formatDayRange('2028-01-02', '2028-01-02')).toBe('Jan 2, 2028');
+		expect(formatDayRange('2026-04-16', '2026-04-16')).toBe('Apr 16, 2026');
+	});
+
+	it('keeps adjacent days as a range', () => {
+		expect(formatDayRange('2026-04-16', '2026-04-17')).toBe('Apr 16 \u2013 17, 2026');
+		expect(formatDayRange('2026-04-30', '2026-05-01')).toBe('Apr 30 \u2013 May 1, 2026');
+		expect(formatDayRange('2026-12-31', '2027-01-01')).toBe('Dec 31, 2026 \u2013 Jan 1, 2027');
+	});
+
+	it('shows both years when the same month falls in different years', () => {
+		expect(formatDayRange('2026-01-30', '2027-01-02')).toBe('Jan 30, 2026 \u2013 Jan 2, 2027');
+	});
+
 	it('passes malformed one-sided dates through unchanged', () => {
 		expect(formatDayRange('not-a-day', null)).toBe('not-a-day');
 	});
