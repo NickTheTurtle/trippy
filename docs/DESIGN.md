@@ -527,6 +527,22 @@ weight and simply read as another paragraph. Nothing errors and a type-check
 cannot see it. Caught by screenshotting the calendar's "Travel legs" heading
 against the Svelte page, where the same markup is bold.
 
+**`/account` was a live dead-end.** The top-bar user menu linked to it from
+every signed-in page, but the route rendered the "Not ported yet" placeholder,
+so the only way to change a password was unreachable. The API route had been
+finished all along. The placeholder is now deleted outright and the router's
+`SECTION_PAGES` is a full `Record` rather than a `Partial`, so adding a tab
+without a page is a compile error instead of a blank panel.
+
+**The home time zone picker read as unset for every default account.**
+`Intl.supportedValuesOf('timeZone')` returns canonical zone names and omits
+`UTC`, which is exactly the value new accounts start on and the value the
+profile route falls back to, so the stored zone matched no option and the
+`Select` fell through to its "Select..." placeholder. Saving still worked and
+still resolved to `UTC`, which is why nobody noticed. The offered list is now
+built per user and always contains the zone the row actually holds, which also
+covers an alias or any zone a given runtime does not enumerate.
+
 ### 5.0.4 Preparation: tasks, packing and estimated costs
 
 **One list component serves both tasks and packing.** They differ only in
@@ -670,6 +686,25 @@ gap between "we left" and "we arrived" is on the calendar rather than implied.
 in development. Google Maps survives being handed the same div again, but Leaflet
 throws "Map container is already initialized", so each effect sets a `cancelled`
 flag and tears the map down on cleanup.
+
+### 5.0.7 Account settings
+
+**Profile and password are two independent forms with their own messages.** They
+fail for unrelated reasons: a profile save loses to a duplicate email, a password
+change loses to a wrong current password or a mismatched confirmation. A single
+shared banner would report one form's error above the other form's fields, and a
+single submit would make the user re-enter a password to rename themselves.
+
+**Saving the profile calls `refresh()` on the auth context.** The top bar renders
+the signed-in name from the session snapshot the provider holds, so without this
+a rename appears in the field and nowhere else until a reload. `refresh()`
+re-reads `/auth/me` and swallows failures deliberately: it runs in the background
+with no place to surface an error, and the page's own save already reported
+whatever went wrong.
+
+**The `Profile` component is keyed on the loaded email.** Its inputs are local
+state seeded from props, so a refetch after saving would otherwise leave stale
+values in the boxes. Keying it remounts the form against the new server truth.
 
 ## Shared UI conventions
 

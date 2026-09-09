@@ -21,6 +21,21 @@ function timeZones(): string[] {
 	return ['UTC', 'America/New_York', 'America/Los_Angeles', 'Europe/London', 'Asia/Shanghai'];
 }
 
+/**
+ * The offered list always contains the zone the account actually holds.
+ *
+ * `Intl.supportedValuesOf('timeZone')` returns canonical zone names and omits
+ * `UTC`, which is exactly the value every new account starts on and the value
+ * this route falls back to. Without this the picker renders as unset for the
+ * default case, and any account carrying an alias or a zone this runtime does
+ * not list would appear to have no zone at all.
+ */
+function timeZonesFor(current: string | null): string[] {
+	const list = timeZones();
+	if (!current || list.includes(current)) return list;
+	return [current, ...list];
+}
+
 account.get('/', (c) => {
 	const user = findUserById(c.get('user').id);
 	// The session outlived the row, which means the account was deleted. Treat it
@@ -28,7 +43,7 @@ account.get('/', (c) => {
 	if (!user) return c.json({ error: 'Not signed in' }, 401);
 	return c.json({
 		profile: { name: user.name, email: user.email, homeTz: user.home_tz },
-		timeZones: timeZones()
+		timeZones: timeZonesFor(user.home_tz)
 	});
 });
 

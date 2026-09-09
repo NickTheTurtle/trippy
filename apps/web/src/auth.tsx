@@ -28,6 +28,9 @@ type AuthContextValue = AuthState & {
 	logIn: (email: string, password: string) => Promise<void>;
 	register: (name: string, email: string, password: string) => Promise<void>;
 	logOut: () => Promise<void>;
+	/** Re-read the session after the user edits their own profile, so the name in
+	 *  the top bar is not stale until the next full page load. */
+	refresh: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -81,9 +84,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 		}
 	}, []);
 
+	const refresh = useCallback(async () => {
+		try {
+			const { user } = await api<{ user: User }>('/auth/me');
+			setState({ status: 'authenticated', user });
+		} catch {
+			// A failure here means the session is gone or the server is unreachable.
+			// Neither is worth surfacing from a background refresh: the next guarded
+			// request will report it with the context of what the user was doing.
+		}
+	}, []);
+
 	const value = useMemo(
-		() => ({ ...state, logIn, register, logOut }),
-		[state, logIn, register, logOut]
+		() => ({ ...state, logIn, register, logOut, refresh }),
+		[state, logIn, register, logOut, refresh]
 	);
 
 	return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
