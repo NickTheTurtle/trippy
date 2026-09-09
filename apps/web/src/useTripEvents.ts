@@ -40,7 +40,10 @@ import {
  *  - once those are exhausted, or when the browser gives up on its own
  *    (`readyState === CLOSED`, which is what a non-200 produces), this takes
  *    over with its own backoff, and after a fixed number of attempts it stops
- *    and says so. It never retries indefinitely;
+ *    and says so. It never retries indefinitely. Both budgets are refilled
+ *    only by a connection that stayed up (`STABLE_MS`), never by one that was
+ *    merely accepted: an endpoint that answers 200 and hangs up immediately
+ *    must run out too;
  *  - `event: closed` with reason `revoked` is terminal: the stream is closed and
  *    nothing is retried, because the trip is no longer readable and every retry
  *    would be a 404.
@@ -87,7 +90,7 @@ const BROWSER_RETRIES = 3;
 const MAX_ATTEMPTS = 6;
 /** Backoff for our attempts, ms. The last value repeats until the cap is hit. */
 const BACKOFF = [1000, 2000, 4000, 8000, 15000, 30000];
-/** A stream that stayed up this long counts as healthy, so the next drop starts from zero. */
+/** Uptime that makes a stream count as healthy, refilling both budgets above. */
 const STABLE_MS = 20000;
 /** Burst window. A save that touches three sections should be one refetch each, not three. */
 const COALESCE_MS = 120;
@@ -178,6 +181,20 @@ export function useTripEvents(tripId: string | null): TripEvents {
 			es = null;
 		};
 
+		/**
+		 * Did the connection that just dropped prove the endpoint actually works?
+		 *
+		 * This is the *only* thing that refills either retry budget, and both are
+		 * refilled together, because a drop is a drop whoever is going to redial.
+		 * Being accepted is not proof: an endpoint that answers 200 and then drops
+		 * the stream at once (a proxy killing the response, a load balancer hanging
+		 * up after the status line, a stream that dies before its first keepalive)
+		 * would otherwise look healthy on every `onopen` while delivering nothing,
+		 * and reconnecting on that forever is the one thing this module promises
+		 * not to do. Only uptime counts.
+		 */
+		const provedItself = () => openedAt !== 0 && Date.now() - openedAt > STABLE_MS;
+
 		/** Terminal. No further attempts, by design. */
 		const giveUp = () => {
 			stopped = true;
@@ -204,8 +221,8 @@ export function useTripEvents(tripId: string | null): TripEvents {
 			es = source;
 
 			source.onopen = () => {
+				// Just the clock. Neither budget is refilled here: see `provedItself`.
 				openedAt = Date.now();
-				browserRetries = 0;
 				setStatus('live');
 				// Anything could have happened while this was down, and a stream we
 				// opened ourselves carries no resume point, so assume the worst.
@@ -239,7 +256,7 @@ export function useTripEvents(tripId: string | null): TripEvents {
 				if (stopped) return;
 				// A connection that stayed up is evidence the endpoint works; the next
 				// drop should start from the top of the backoff, not the bottom.
-				if (openedAt && Date.now() - openedAt > STABLE_MS) {
+				if (provedItself()) {
 					attempts = 0;
 					browserRetries = 0;
 				}
