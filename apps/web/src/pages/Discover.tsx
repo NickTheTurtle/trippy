@@ -14,6 +14,7 @@ import PlaceCard from './discover/PlaceCard';
 import StayCard from './discover/StayCard';
 import AddDialog from './discover/AddDialog';
 import EditPlaceDialog from './discover/EditPlaceDialog';
+import NoCities from './discover/NoCities';
 import { PlusIcon } from './discover/card-controls';
 import { VIEW_LABEL, VIEW_OPTIONS, isStayView, type DiscoverView } from './discover/views';
 
@@ -90,23 +91,10 @@ export default function Discover() {
 	if (!data) return error ? <p className="text-warn">{error}</p> : null;
 
 	if (data.cities.length === 0) {
-		// The sentence alone used to point at something the page had no way to do.
-		return (
-			<EmptyState
-				message={
-					trip.role === 'organizer'
-						? 'Places are collected per city, so add the first stop to start.'
-						: 'The organizer has not added any cities yet.'
-				}
-				action={
-					trip.role === 'organizer' ? (
-						<button type="button" className="btn primary" onClick={editItinerary}>
-							Add a city
-						</button>
-					) : undefined
-				}
-			/>
-		);
+		// A whole blank page, so it gets a panel rather than the in-card
+		// `EmptyState` line, which was written to sit inside a box and read as a
+		// stray sentence when it was the only thing here.
+		return <NoCities isOrganizer={trip.role === 'organizer'} onAddCity={editItinerary} />;
 	}
 
 	const stay = isStayView(view);
