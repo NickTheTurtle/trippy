@@ -209,16 +209,21 @@ function CityRow({
 }
 
 /**
- * Search, pick, set dates, add.
+ * Search, pick, add.
  *
  * The search is the geocoder behind `/citysearch`, which returns the country,
  * the coordinates and the IANA zone with the name, so the organizer never types
- * a time zone. That endpoint existed and had no caller before this.
+ * a time zone.
  *
- * Exported so Discover's own "Add city" popup is the same control rather than a
- * second copy of it. (Additive: nothing else about this component changed.)
+ * Adding does not ask for dates. `arrive` and `depart` are NOT NULL columns and
+ * `validCity` rejects a city without real ones, so they are still sent; they are
+ * just derived rather than demanded. Picking a city is the answer to "where",
+ * and making that the moment you also answer "when" put two decisions behind one
+ * search box. The dates land on the row below, which is already an editor for
+ * exactly this and is where they can be adjusted against the rest of the
+ * itinerary instead of in isolation.
  */
-export function AddCity({
+function AddCity({
 	trip,
 	onAdd
 }: {
@@ -285,10 +290,11 @@ export function AddCity({
 		setQuery('');
 		setHits([]);
 		setOpen(false);
-		// Default to the day after the last city leaves, or to the trip's own
-		// start: the common case is appending the next stop, and typing the same
-		// date twice is what an itinerary editor should save you from. A brand new
-		// trip has free-text dates and no parsed start, hence today.
+		// The dates the city is created with. Nothing asks for these, so they are
+		// the stored values rather than a prefill: a stop appended to the itinerary
+		// starts the day after the last one leaves, and the first city of a trip
+		// spans the trip. A brand new trip has free-text dates and no parsed start,
+		// hence today. All of it is editable on the row once the city exists.
 		const last = trip.cities[trip.cities.length - 1];
 		const from = last ? nextDay(last.depart) : (trip.start_date ?? today());
 		setArrive(from);
@@ -310,37 +316,19 @@ export function AddCity({
 	if (picked) {
 		return (
 			<div className="flex flex-col gap-2.5 rounded-[10px] border border-accent-soft bg-accent-soft/40 px-3 py-3">
-				<div className="flex flex-wrap items-end gap-2.5">
-					<span className="flex min-w-0 flex-[1_1_140px] flex-col">
-						{/* Laid out like the saved rows below, so the card you confirm
-						    reads the same as the row it becomes. */}
-						<span className="flex items-baseline gap-1.5">
-							<span className="truncate font-medium">{picked.name}</span>
-							{picked.region && (
-								<span className="muted min-w-0 truncate text-[0.78rem]">{picked.region}</span>
-							)}
-						</span>
-						<span className="muted truncate text-[0.78rem]">
-							{detail(picked.country, picked.tz.replace(/_/g, ' '))}
-						</span>
+				<span className="flex min-w-0 flex-col">
+					{/* Laid out like the saved rows below, so the card you confirm
+					    reads the same as the row it becomes. */}
+					<span className="flex items-baseline gap-1.5">
+						<span className="truncate font-medium">{picked.name}</span>
+						{picked.region && (
+							<span className="muted min-w-0 truncate text-[0.78rem]">{picked.region}</span>
+						)}
 					</span>
-					<Field
-						label="Arrive"
-						className="flex-[0_1_140px]"
-						type="date"
-						inputClassName="compact"
-						value={arrive}
-						onChange={(e) => setArrive(e.target.value)}
-					/>
-					<Field
-						label="Depart"
-						className="flex-[0_1_140px]"
-						type="date"
-						inputClassName="compact"
-						value={depart}
-						onChange={(e) => setDepart(e.target.value)}
-					/>
-				</div>
+					<span className="muted truncate text-[0.78rem]">
+						{detail(picked.country, picked.tz.replace(/_/g, ' '))}
+					</span>
+				</span>
 				<div className="flex gap-2">
 					<button className="btn small primary" type="button" disabled={busy} onClick={add}>
 						{busy ? 'Adding...' : `Add ${picked.name}`}
