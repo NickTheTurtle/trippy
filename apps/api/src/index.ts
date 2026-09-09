@@ -4,6 +4,7 @@ import { session, requireUser } from './middleware';
 import { auth } from './routes/auth';
 import { account } from './routes/account';
 import { trips } from './routes/trips';
+import { placePhoto } from './routes/place-photo';
 import { ensureDemoAccount } from '@trippy/server/auth';
 import { searchCities } from '@trippy/server/geocode';
 
@@ -24,6 +25,7 @@ app.get('/api/health', (c) => c.json({ ok: true, provider: process.env.GOOGLE_PL
 app.route('/api/auth', auth);
 app.route('/api/account', account);
 app.route('/api/trips', trips);
+app.route('/api/place-photo', placePhoto);
 
 /**
  * City lookup for the trip editor. It is not scoped to a trip because it is used

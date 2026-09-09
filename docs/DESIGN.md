@@ -493,6 +493,23 @@ that the name worked.
 missing, so a footer error message would have sat to the right of the buttons
 instead of pushing them aside. Found by porting a page that actually uses it.
 
+**`/api/place-photo` was never ported, so no card could ever show a real photo.**
+`photoSrc` turns a Google photo reference into `/api/place-photo?name=…`, and the
+proxy behind it existed only as a SvelteKit route. The React app therefore fell
+back to generated cover art on every place, silently: a missing photo is exactly
+what the fallback is *for*, so nothing looked broken, and a type-check cannot see
+a URL that has no route. Caught only by screenshotting both apps side by side.
+The proxy now lives on the API. It keeps the original's SSRF guard, a strict
+pattern match on the photo resource name before any outbound request, and is
+session-gated for the same reason `/citysearch` is: the pictures are public, but
+every miss spends our Google quota and this must not be an open proxy.
+
+**The accent city dropdown was styled by a scoped rule that had no React home.**
+The Svelte page carried `.cityselect :global(.seltrigger)` in its own `<style>`
+block, so the green pill the user asked for came back as a plain grey `Select`
+in React with nothing to indicate it. Now a real rule in `index.css`, asserted in
+the browser suite by reading the computed background colour rather than by eye.
+
 ### 5.0.4 Preparation: tasks, packing and estimated costs
 
 **One list component serves both tasks and packing.** They differ only in
@@ -530,6 +547,48 @@ already has a label saying the same thing, and a placeholder that repeats its
 label is noise that also disappears the moment you type. This follows the
 convention already used in People: labels always, placeholders only where
 the *format* is not obvious.
+
+### 5.0.5 Discover: places, stays and the search
+
+**Search is split in two, and the split is the whole design.** Typing hits
+`/discover/search`, which returns names, addresses and pins only. Ratings,
+opening hours, the website and the photo come from `/discover/details`, and only
+for the one result a member actually clicks. Fetching everything up front would
+buy eight enriched results per keystroke to add one place. Three things enforce
+it: a 350ms debounce, a three-character floor mirrored from the server's
+`MIN_QUERY`, and an `AbortController` so a slow early request cannot land after a
+later one and replace good results with stale ones ("acr" overwriting
+"acropolis"). Verified by counting requests during a real search: typing
+"acropolis museum" cost **one** search call and **one** details call.
+
+**The details response is merged back into the row, not just the popup.** A place
+you looked at once keeps its rating in the list, so closing the popup and
+reopening it costs nothing. The merge is guarded by the result's key, because the
+user may have closed the popup or clicked another result while the request was in
+flight.
+
+**The dropdown opens on focus, not on results.** "Add manually" is the answer to
+"the place I want is not findable", and you often know that before you type. An
+empty query therefore shows the sticky footer alone, with no "type to search"
+line telling you to use the box you just clicked.
+
+**Adding a place does not close the results.** One place is often added several
+times, once per activity, so the count of adds is shown on the row ("Added ×2")
+rather than a tick that would understate it. The click-away and Escape handlers
+both ignore events while a modal is open, because a modal is a layer above the
+dropdown rather than a click elsewhere on the page.
+
+**Switching section clears the search.** Places and stays are different searches
+against different provider filters, and one's results never apply to the other.
+Leaving hotel results hanging over the places pool would let you add a hotel as a
+place with two clicks.
+
+**The whole result row is the button.** A small "Add" button beside a rich result
+made the click target far smaller than the thing it acted on.
+
+**Deleting a place is confirmed, deleting a stay is not.** A place can have
+calendar events pointing at it, and those go with it; the dialog says how many.
+A stay carries only votes.
 
 ## Shared UI conventions
 

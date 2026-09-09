@@ -444,3 +444,120 @@ h3 {
 		flex: 0 0 auto;
 	}
 }
+/* --- Button variants used by cards ------------------------------------- */
+
+.btn.small {
+	padding: 0.32rem 0.65rem;
+	font-size: 0.82rem;
+}
+.btn.danger {
+	border-color: var(--color-danger-ink);
+	color: var(--color-danger-ink);
+}
+.btn.danger.solid {
+	background: var(--color-danger-ink);
+	border-color: var(--color-danger-ink);
+	color: #fff;
+}
+.btn.danger.solid:hover {
+	opacity: 0.92;
+}
+
+/* Underlined text control. Not a .btn: these sit in a card footer where a
+   bordered button would compete with the card's own edges. */
+.link {
+	background: none;
+	border: 0;
+	padding: 0;
+	font: inherit;
+	font-size: 0.82rem;
+	color: var(--color-ink-soft);
+	cursor: pointer;
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+.link:hover {
+	color: var(--color-ink);
+}
+.link.danger {
+	color: var(--color-danger-ink);
+}
+
+/* --- Cover art ---------------------------------------------------------- */
+
+.cover {
+	position: relative;
+	display: grid;
+	place-items: center;
+	overflow: hidden;
+	flex: 0 0 auto;
+}
+.cover img {
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+	display: block;
+}
+.cover .glyph {
+	font-size: 2.4rem;
+	opacity: 0.4;
+	filter: saturate(0.35);
+}
+
+/* --- Search progress bar ------------------------------------------------ */
+
+/* Indeterminate: the places provider gives no progress, so this says "working"
+   without pretending to know how far along. It overlays the input's lower edge
+   rather than sitting under it, so starting a search adds no height to the
+   header row and the cards below never move. */
+.progress span {
+	display: block;
+	height: 100%;
+	width: 40%;
+	border-radius: 999px;
+	background: var(--color-accent);
+	transform: translateX(-110%);
+}
+.progress.on span {
+	animation: progress-slide 1.1s ease-in-out infinite;
+}
+@keyframes progress-slide {
+	0% {
+		transform: translateX(-110%);
+	}
+	100% {
+		transform: translateX(320%);
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.progress.on span {
+		animation: none;
+		width: 100%;
+		transform: none;
+		opacity: 0.6;
+	}
+}
+/* --- The city dropdown on Discover -------------------------------------- */
+
+/* Solid accent, as the selected city pill used to be: this is the control that
+   says which city everything below belongs to, so it should read as the page's
+   current state rather than as one more neutral input in the row. It must also
+   be exactly as tall as the search input beside it, or the header row height
+   changes with it and the cards below move. */
+.cityselect .seltrigger {
+	padding: 0.4rem 0.85rem;
+	border-radius: 999px;
+	font-size: 0.88rem;
+	background: var(--color-accent);
+	border-color: var(--color-accent);
+	color: #fff;
+	font-weight: 500;
+}
+.cityselect .seltrigger:hover {
+	background: var(--color-accent-ink);
+	border-color: var(--color-accent-ink);
+}
+/* The caret defaults to a faint grey that disappears on the green. */
+.cityselect .selcaret {
+	color: rgba(255, 255, 255, 0.75);
+}
