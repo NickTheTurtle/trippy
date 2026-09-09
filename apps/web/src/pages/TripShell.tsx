@@ -4,6 +4,8 @@ import { api, ApiError } from '../api';
 import { useApi } from '../useApi';
 import { TABS } from '../nav';
 import Modal from '../components/Modal';
+import Select from '../components/Select';
+import { Field, FieldShell } from '../components/Field';
 
 export type TripCity = {
 	id: string;
@@ -48,7 +50,10 @@ export default function TripShell() {
 		return (
 			<main className="container py-8">
 				<p>
-					Trip not found. <Link to="/trips" className="text-accent-ink underline">Back to trips</Link>
+					Trip not found.{' '}
+					<Link to="/trips" className="text-accent-ink underline">
+						Back to trips
+					</Link>
 				</p>
 			</main>
 		);
@@ -125,9 +130,7 @@ export default function TripShell() {
 				</div>
 			</div>
 
-			{showEdit && (
-				<EditTrip trip={trip} onClose={() => setShowEdit(false)} onSaved={reload} />
-			)}
+			{showEdit && <EditTrip trip={trip} onClose={() => setShowEdit(false)} onSaved={reload} />}
 
 			<main className="container py-8">
 				<Outlet context={{ trip, reloadTrip: reload } satisfies Ctx} />
@@ -153,8 +156,21 @@ function Avatar({ title, label, rest }: { title: string; label: string; rest?: b
 }
 
 const CURRENCIES = [
-	'USD', 'EUR', 'GBP', 'JPY', 'CAD', 'AUD', 'CHF',
-	'CNY', 'INR', 'MXN', 'SEK', 'NZD', 'SGD', 'ZAR', 'BRL'
+	'USD',
+	'EUR',
+	'GBP',
+	'JPY',
+	'CAD',
+	'AUD',
+	'CHF',
+	'CNY',
+	'INR',
+	'MXN',
+	'SEK',
+	'NZD',
+	'SGD',
+	'ZAR',
+	'BRL'
 ];
 
 function EditTrip({
@@ -199,54 +215,38 @@ function EditTrip({
 							{error}
 						</p>
 					)}
-					<L label="Trip name">
-						<input
-							// The dialog opens with nothing focused otherwise, so Escape
-							// works but typing does not go anywhere useful.
-							autoFocus
-							required
-							value={name}
-							onChange={(e) => setName(e.target.value)}
-							className={INPUT}
-						/>
-					</L>
+					<Field
+						label="Trip name"
+						// The dialog opens with nothing focused otherwise, so Escape
+						// works but typing does not go anywhere useful.
+						autoFocus
+						required
+						value={name}
+						onChange={(e) => setName(e.target.value)}
+					/>
 					<div className="flex flex-wrap gap-2.5">
-						<div className="min-w-0 flex-[1_1_130px]">
-							<L label="Start">
-								<input
-									type="date"
-									value={startDate}
-									onChange={(e) => setStartDate(e.target.value)}
-									className={INPUT}
-								/>
-							</L>
-						</div>
-						<div className="min-w-0 flex-[1_1_130px]">
-							<L label="End">
-								<input
-									type="date"
-									value={endDate}
-									onChange={(e) => setEndDate(e.target.value)}
-									className={INPUT}
-								/>
-							</L>
-						</div>
-						<div className="min-w-0 flex-[0_1_130px]">
-							<L label="Currency">
-								<select
-									aria-label="Home currency"
-									value={currency}
-									onChange={(e) => setCurrency(e.target.value)}
-									className={INPUT}
-								>
-									{CURRENCIES.map((c) => (
-										<option key={c} value={c}>
-											{c}
-										</option>
-									))}
-								</select>
-							</L>
-						</div>
+						<Field
+							label="Start"
+							className="flex-[1_1_130px]"
+							type="date"
+							value={startDate}
+							onChange={(e) => setStartDate(e.target.value)}
+						/>
+						<Field
+							label="End"
+							className="flex-[1_1_130px]"
+							type="date"
+							value={endDate}
+							onChange={(e) => setEndDate(e.target.value)}
+						/>
+						<FieldShell label="Currency" className="flex-[0_1_130px]">
+							<Select
+								ariaLabel="Home currency"
+								value={currency}
+								onChange={setCurrency}
+								options={CURRENCIES.map((c) => ({ value: c, label: c }))}
+							/>
+						</FieldShell>
 					</div>
 					<p className="muted m-0 text-[0.78rem] leading-relaxed">
 						The header label is generated from these dates. Currency is what totals and estimates
@@ -263,17 +263,5 @@ function EditTrip({
 				</div>
 			</form>
 		</Modal>
-	);
-}
-
-const INPUT =
-	'w-full min-w-0 rounded border border-line bg-surface px-2.5 py-2 text-ink outline-none focus:border-accent';
-
-function L({ label, children }: { label: string; children: React.ReactNode }) {
-	return (
-		<label className="flex min-w-0 flex-col gap-1 text-[0.8rem] text-ink-soft">
-			<span>{label}</span>
-			{children}
-		</label>
 	);
 }

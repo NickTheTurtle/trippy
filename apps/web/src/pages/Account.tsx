@@ -3,6 +3,7 @@ import { api, ApiError } from '../api';
 import { useApi } from '../useApi';
 import { useAuth } from '../auth';
 import Select from '../components/Select';
+import { Field, FieldShell } from '../components/Field';
 
 type AccountData = {
 	profile: { name: string; email: string; homeTz: string };
@@ -52,14 +53,20 @@ function Profile({ data, onSaved }: { data: AccountData; onSaved: () => void }) 
 	const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 	const [saving, setSaving] = useState(false);
 
-	const zones = data.timeZones.map((tz) => ({ value: tz, label: tz.replace(/_/g, ' ') }));
+	const zones = data.timeZones.map((tz) => ({
+		value: tz,
+		label: tz.replace(/_/g, ' ')
+	}));
 
 	async function submit(e: React.FormEvent) {
 		e.preventDefault();
 		setSaving(true);
 		setMsg(null);
 		try {
-			await api('/account/profile', { method: 'PATCH', body: { name, email, homeTz } });
+			await api('/account/profile', {
+				method: 'PATCH',
+				body: { name, email, homeTz }
+			});
 			setMsg({ ok: true, text: 'Profile saved.' });
 			// The top bar renders the session user, not this form, so it has to be
 			// told the name it is showing has changed.
@@ -80,17 +87,25 @@ function Profile({ data, onSaved }: { data: AccountData; onSaved: () => void }) 
 			<h2 className="mb-4 text-[1.15rem]">Profile</h2>
 			<Message msg={msg} />
 			<form className="flex flex-col gap-3.5" onSubmit={submit}>
-				<Field label="Name" type="text" autoComplete="name" value={name} onChange={setName} />
-				<Field label="Email" type="email" autoComplete="email" value={email} onChange={setEmail} />
-				<label className="flex flex-col gap-1.5 text-sm font-medium text-ink-soft">
-					Home time zone
-					<Select
-						value={homeTz}
-						onChange={setHomeTz}
-						options={zones}
-						ariaLabel="Home time zone"
-					/>
-				</label>
+				<Field
+					label="Name"
+					type="text"
+					autoComplete="name"
+					required
+					value={name}
+					onChange={(e) => setName(e.target.value)}
+				/>
+				<Field
+					label="Email"
+					type="email"
+					autoComplete="email"
+					required
+					value={email}
+					onChange={(e) => setEmail(e.target.value)}
+				/>
+				<FieldShell label="Home time zone">
+					<Select value={homeTz} onChange={setHomeTz} options={zones} ariaLabel="Home time zone" />
+				</FieldShell>
 				<button className="btn primary mt-1 self-start" type="submit" disabled={saving}>
 					{saving ? 'Saving...' : 'Save profile'}
 				</button>
@@ -111,7 +126,10 @@ function Password() {
 		setSaving(true);
 		setMsg(null);
 		try {
-			await api('/account/password', { method: 'POST', body: { current, next, confirm } });
+			await api('/account/password', {
+				method: 'POST',
+				body: { current, next, confirm }
+			});
 			setMsg({ ok: true, text: 'Password updated.' });
 			// Clearing on success matters more here than elsewhere: these are live
 			// credentials sitting in a form the next person at the desk can read.
@@ -137,23 +155,26 @@ function Password() {
 					label="Current password"
 					type="password"
 					autoComplete="current-password"
+					required
 					value={current}
-					onChange={setCurrent}
+					onChange={(e) => setCurrent(e.target.value)}
 				/>
 				<Field
 					label="New password"
 					type="password"
 					autoComplete="new-password"
 					hint="At least 8 characters"
+					required
 					value={next}
-					onChange={setNext}
+					onChange={(e) => setNext(e.target.value)}
 				/>
 				<Field
 					label="Confirm new password"
 					type="password"
 					autoComplete="new-password"
+					required
 					value={confirm}
-					onChange={setConfirm}
+					onChange={(e) => setConfirm(e.target.value)}
 				/>
 				<button className="btn primary mt-1 self-start" type="submit" disabled={saving}>
 					{saving ? 'Working...' : 'Change password'}
@@ -177,34 +198,5 @@ function Message({ msg }: { msg: { ok: boolean; text: string } | null }) {
 		>
 			{msg.text}
 		</p>
-	);
-}
-
-function Field({
-	label,
-	hint,
-	value,
-	onChange,
-	...input
-}: {
-	label: string;
-	hint?: string;
-	value: string;
-	onChange: (v: string) => void;
-} & Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange'>) {
-	return (
-		<label className="flex flex-col gap-1.5 text-sm font-medium text-ink-soft">
-			{label}
-			<input
-				{...input}
-				required
-				value={value}
-				onChange={(e) => onChange(e.target.value)}
-				className="rounded border border-line bg-surface px-3 py-2.5 font-normal text-ink outline-none focus:border-accent"
-			/>
-			{/* A rule the value has to keep satisfying stays visible while typing;
-			    a placeholder would be gone at the first keystroke. */}
-			{hint && <span className="text-[0.78rem] font-normal text-ink-faint">{hint}</span>}
-		</label>
 	);
 }

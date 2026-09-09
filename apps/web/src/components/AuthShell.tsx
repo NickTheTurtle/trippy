@@ -60,25 +60,3 @@ export function AuthShell({
 		</div>
 	);
 }
-
-/**
- * A labelled input. The label is always present rather than a placeholder that
- * vanishes at the first keystroke, and `hint` is for a rule the value has to
- * keep satisfying, which is exactly when a placeholder would be gone.
- */
-export function Field({
-	label,
-	hint,
-	...input
-}: { label: string; hint?: string } & React.InputHTMLAttributes<HTMLInputElement>) {
-	return (
-		<label className="flex flex-col gap-1.5 text-sm font-medium text-ink-soft">
-			{label}
-			<input
-				{...input}
-				className="rounded border border-line bg-surface px-3 py-2.5 font-normal text-ink outline-none focus:border-accent"
-			/>
-			{hint && <span className="text-[0.78rem] font-normal text-ink-faint">{hint}</span>}
-		</label>
-	);
-}

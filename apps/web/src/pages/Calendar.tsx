@@ -334,7 +334,9 @@ export default function Calendar() {
 		const trackVisible = (t: Track) => !viewAs || t.partyMembers.includes(viewAs);
 		return (data?.board ?? []).map((b) => ({
 			...b,
-			tracks: b.tracks.filter(trackVisible).map((t) => ({ ...t, items: t.items.filter(itemVisible) }))
+			tracks: b.tracks
+				.filter(trackVisible)
+				.map((t) => ({ ...t, items: t.items.filter(itemVisible) }))
 		}));
 	}, [data, viewAs]);
 
@@ -395,7 +397,9 @@ export default function Calendar() {
 
 	const layoutFor = useCallback(
 		(events: DayEvent[]) =>
-			layoutDay(events.map((e) => ({ id: e.id, start: e.start_min, end: e.end_min, people: e.people }))),
+			layoutDay(
+				events.map((e) => ({ id: e.id, start: e.start_min, end: e.end_min, people: e.people }))
+			),
 		[]
 	);
 
@@ -534,7 +538,10 @@ export default function Calendar() {
 			d
 				? // Snap the live position to 5-minute steps so the label never shows
 					// decimals while dragging.
-					{ ...d, liveStart: Math.round((d.origStart + (y - d.pointerStartY) / PX_PER_MIN) / 5) * 5 }
+					{
+						...d,
+						liveStart: Math.round((d.origStart + (y - d.pointerStartY) / PX_PER_MIN) / 5) * 5
+					}
 				: d
 		);
 	}
@@ -1011,7 +1018,9 @@ export default function Calendar() {
 								<span className="swimswtag">{hhmm(sw.min)}</span>
 							</span>
 						))}
-						{nowMin !== null && <span className="swimnow" style={{ left: `${pctLeft(nowMin)}%` }} />}
+						{nowMin !== null && (
+							<span className="swimnow" style={{ left: `${pctLeft(nowMin)}%` }} />
+						)}
 					</div>
 
 					{swimPeople.map((person) => (
@@ -1107,7 +1116,9 @@ export default function Calendar() {
 													{item.travel_mode} · {item.travel_mins}m to next
 												</span>
 											)}
-											{item.booking && <span className={`tag ${item.booking}`}>{item.booking}</span>}
+											{item.booking && (
+												<span className={`tag ${item.booking}`}>{item.booking}</span>
+											)}
 										</li>
 									))}
 								</ul>
@@ -1124,7 +1135,11 @@ export default function Calendar() {
 			<div className="toolbar">
 				<div className="navgroup">
 					<div className="daynav">
-						<Link className="navbtn" to={navUrl(shiftDay(data.day, -1), view)} aria-label="Previous day">
+						<Link
+							className="navbtn"
+							to={navUrl(shiftDay(data.day, -1), view)}
+							aria-label="Previous day"
+						>
 							‹
 						</Link>
 						<span className="curday">{dayLabel(data.day)}</span>
@@ -1483,7 +1498,12 @@ function AddEvent({
 						</label>
 						<label className="tf2">
 							<span>Type</span>
-							<Select value={type} onChange={setType} options={ITEM_TYPES} ariaLabel="Activity type" />
+							<Select
+								value={type}
+								onChange={setType}
+								options={ITEM_TYPES}
+								ariaLabel="Activity type"
+							/>
 						</label>
 					</div>
 
@@ -1880,9 +1900,7 @@ function Crews({
 									className="btn small danger"
 									type="button"
 									title="Delete crew"
-									onClick={() =>
-										act(() => api(`${base}/crews/${crew.id}`, { method: 'DELETE' }))
-									}
+									onClick={() => act(() => api(`${base}/crews/${crew.id}`, { method: 'DELETE' }))}
 								>
 									Delete
 								</button>

@@ -46,7 +46,9 @@ export async function api<T>(path: string, options: Options = {}): Promise<T> {
 
 	if (!res.ok) {
 		const message =
-			payload && typeof payload === 'object' && typeof (payload as { error?: unknown }).error === 'string'
+			payload &&
+			typeof payload === 'object' &&
+			typeof (payload as { error?: unknown }).error === 'string'
 				? (payload as { error: string }).error
 				: 'Something went wrong. Please try again.';
 		throw new ApiError(res.status, message);

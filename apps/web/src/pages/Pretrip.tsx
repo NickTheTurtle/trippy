@@ -66,8 +66,16 @@ export default function Pretrip() {
 
 	/** Badges count what is still outstanding: the number you act on. */
 	const sections = [
-		{ id: 'tasks', label: 'Tasks', badge: data.tasks.length - doneCount || null },
-		{ id: 'packing', label: 'Packing', badge: data.packing.length - packedCount || null },
+		{
+			id: 'tasks',
+			label: 'Tasks',
+			badge: data.tasks.length - doneCount || null
+		},
+		{
+			id: 'packing',
+			label: 'Packing',
+			badge: data.packing.length - packedCount || null
+		},
 		{ id: 'costs', label: 'Estimated costs', badge: null }
 	];
 
@@ -158,7 +166,9 @@ export default function Pretrip() {
 							}
 							onRemove={(taskId) =>
 								act(() =>
-									api(`/trips/${trip.id}/pretrip/tasks/${taskId}`, { method: 'DELETE' })
+									api(`/trips/${trip.id}/pretrip/tasks/${taskId}`, {
+										method: 'DELETE'
+									})
 								)
 							}
 						/>
@@ -198,7 +208,11 @@ export default function Pretrip() {
 								})
 							}
 							onRemove={(id) =>
-								act(() => api(`/trips/${trip.id}/pretrip/costs/${id}`, { method: 'DELETE' }))
+								act(() =>
+									api(`/trips/${trip.id}/pretrip/costs/${id}`, {
+										method: 'DELETE'
+									})
+								)
 							}
 						/>
 					</>
@@ -322,7 +336,9 @@ function TaskList({
 											<span className="block h-1 w-[34px] flex-none overflow-hidden rounded-full bg-line">
 												<span
 													className="block h-full bg-accent"
-													style={{ width: `${(it.doneCount / it.people.length) * 100}%` }}
+													style={{
+														width: `${(it.doneCount / it.people.length) * 100}%`
+													}}
 												/>
 											</span>
 											<span className="tabular-nums whitespace-nowrap">
@@ -333,9 +349,7 @@ function TaskList({
 									{mine && (
 										<span
 											className={`flex-none rounded-full px-2 py-0.5 text-[0.72rem] whitespace-nowrap ${
-												mine.done
-													? 'bg-accent-soft text-accent-ink'
-													: 'bg-surface-2 text-ink-faint'
+												mine.done ? 'bg-accent-soft text-accent-ink' : 'bg-surface-2 text-ink-faint'
 											}`}
 										>
 											{mine.done ? 'You: done' : 'You: to do'}
@@ -433,7 +447,8 @@ function CostTable({
 	onRemove: (id: string) => void;
 }) {
 	const CELL = 'border-b border-line px-4 py-2.5 text-left text-[0.92rem]';
-	const TH = 'border-b border-line px-4 py-2.5 text-left text-[0.72rem] font-medium tracking-[0.06em] text-ink-faint uppercase';
+	const TH =
+		'border-b border-line px-4 py-2.5 text-left text-[0.72rem] font-medium tracking-[0.06em] text-ink-faint uppercase';
 
 	return (
 		<div className="card overflow-hidden p-0">
@@ -555,25 +570,30 @@ function AddTask({
 	}
 
 	return (
-		<Modal open size="sm" title={kind === 'task' ? 'Add a task' : 'Add a packing item'} onClose={onClose}>
+		<Modal
+			open
+			size="sm"
+			title={kind === 'task' ? 'Add a task' : 'Add a packing item'}
+			onClose={onClose}
+		>
 			<form className="mform" onSubmit={submit}>
 				<div className="mbody flex flex-col gap-3">
-					<label className="flex min-w-0 flex-col gap-1 text-[0.8rem] text-ink-soft">
+					<label className="field">
 						<span>What needs doing?</span>
 						<input
 							autoFocus
 							required
 							value={label}
 							onChange={(e) => setLabel(e.target.value)}
-							className={INPUT}
+							className="input w-full"
 						/>
 					</label>
 
 					<fieldset className="m-0 min-w-0 rounded-[10px] border border-line px-3 py-3">
 						<legend className="px-1 text-[0.8rem] text-ink-soft">Who has to do it?</legend>
 						<p className="muted m-0 mb-2 text-[0.78rem] text-pretty">
-							Pick more than one and each person ticks their own box, so the task is not done
-							until everyone is. Leave empty for a one-off the group only needs once.
+							Pick more than one and each person ticks their own box, so the task is not done until
+							everyone is. Leave empty for a one-off the group only needs once.
 						</p>
 						<div className="grid max-h-48 grid-cols-[repeat(auto-fill,minmax(min(9rem,100%),1fr))] gap-0.5 overflow-y-auto overscroll-contain">
 							{members.map((m) => (
@@ -661,9 +681,7 @@ function EditCost({
 		setError('');
 		try {
 			await api(
-				draft.id
-					? `/trips/${tripId}/pretrip/costs/${draft.id}`
-					: `/trips/${tripId}/pretrip/costs`,
+				draft.id ? `/trips/${tripId}/pretrip/costs/${draft.id}` : `/trips/${tripId}/pretrip/costs`,
 				{
 					method: draft.id ? 'PUT' : 'POST',
 					body: { label, amount: Number(amount), category, cityId }
@@ -681,18 +699,18 @@ function EditCost({
 		<Modal open size="sm" title={draft.id ? 'Edit cost' : 'Add cost'} onClose={onClose}>
 			<form className="mform" onSubmit={submit}>
 				<div className="mbody flex flex-col gap-3">
-					<label className="flex min-w-0 flex-col gap-1 text-[0.8rem] text-ink-soft">
+					<label className="field">
 						<span>What is it?</span>
 						<input
 							autoFocus
 							required
 							value={label}
 							onChange={(e) => setLabel(e.target.value)}
-							className={INPUT}
+							className="input w-full"
 						/>
 					</label>
 					<div className="flex flex-wrap gap-2.5">
-						<label className="flex min-w-0 flex-[0_1_130px] flex-col gap-1 text-[0.8rem] text-ink-soft">
+						<label className="field flex-[0_1_130px]">
 							<span>Amount ({currency})</span>
 							<input
 								type="number"
@@ -701,10 +719,10 @@ function EditCost({
 								required
 								value={amount}
 								onChange={(e) => setAmount(e.target.value)}
-								className={INPUT}
+								className="input w-full"
 							/>
 						</label>
-						<label className="flex min-w-0 flex-[1_1_130px] flex-col gap-1 text-[0.8rem] text-ink-soft">
+						<label className="field flex-[1_1_130px]">
 							<span>Category</span>
 							<Select
 								options={categories.map((c) => ({ value: c, label: cap(c) }))}
@@ -713,7 +731,7 @@ function EditCost({
 								ariaLabel="Category"
 							/>
 						</label>
-						<label className="flex min-w-0 flex-[1_1_130px] flex-col gap-1 text-[0.8rem] text-ink-soft">
+						<label className="field flex-[1_1_130px]">
 							<span>City</span>
 							<Select
 								options={[
@@ -745,9 +763,6 @@ function EditCost({
 		</Modal>
 	);
 }
-
-const INPUT =
-	'w-full min-w-0 rounded-[10px] border border-line bg-surface px-2.5 py-2 text-ink outline-none focus:border-accent';
 
 function LinkBtn({ onClick, children }: { onClick: () => void; children: string }) {
 	return (

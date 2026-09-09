@@ -61,7 +61,9 @@ function TopBar() {
 								}}
 								className={[
 									'inline-flex items-center gap-2 rounded-full border py-1 pr-2 pl-1.5 font-medium text-ink',
-									menuOpen ? 'border-line bg-surface' : 'border-transparent hover:border-line hover:bg-surface'
+									menuOpen
+										? 'border-line bg-surface'
+										: 'border-transparent hover:border-line hover:bg-surface'
 								].join(' ')}
 							>
 								<span className="grid size-7 place-items-center rounded-full bg-accent text-[0.8rem] font-semibold text-white">

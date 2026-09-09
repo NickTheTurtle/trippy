@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { api, ApiError } from '../api';
 import { useApi } from '../useApi';
 import { useTrip } from './TripShell';
+import { Field } from '../components/Field';
 
 type Person = {
 	id: string;
@@ -17,7 +18,10 @@ type Data = { me: string; organizer: boolean; people: Person[] };
 export default function People() {
 	const { trip, reloadTrip } = useTrip();
 	const { data, error, reload } = useApi<Data>(`/trips/${trip.id}/people`);
-	const [notice, setNotice] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
+	const [notice, setNotice] = useState<{
+		kind: 'ok' | 'error';
+		text: string;
+	} | null>(null);
 
 	// The header shows the member avatars, so anything that changes the roster
 	// has to refresh the shell too, not just this page.
@@ -206,17 +210,14 @@ function Invite({
 		<section className="card sticky top-4 px-5 py-5">
 			<h3 className="mb-3.5 text-[1.05rem]">Invite someone</h3>
 			<form className="flex flex-col gap-2" onSubmit={submit}>
-				<label className="flex flex-col gap-1.5 text-[0.82rem] font-medium text-ink-soft">
-					Email address
-					<input
-						type="email"
-						required
-						autoComplete="off"
-						value={email}
-						onChange={(e) => setEmail(e.target.value)}
-						className="min-w-0 rounded-lg border border-line bg-surface px-2.5 py-2 font-normal text-ink outline-none focus:border-accent"
-					/>
-				</label>
+				<Field
+					label="Email address"
+					type="email"
+					required
+					autoComplete="off"
+					value={email}
+					onChange={(e) => setEmail(e.target.value)}
+				/>
 				<button className="btn primary justify-center" type="submit" disabled={busy}>
 					{busy ? 'Sending...' : 'Send invite'}
 				</button>

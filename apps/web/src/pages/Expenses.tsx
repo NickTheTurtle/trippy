@@ -6,6 +6,7 @@ import { useTrip } from './TripShell';
 import Modal from '../components/Modal';
 import Select from '../components/Select';
 import SectionNav, { type SectionItem } from '../components/SectionNav';
+import { FieldShell } from '../components/Field';
 
 type Member = { id: string; name: string };
 type Expense = {
@@ -53,7 +54,11 @@ export default function Expenses() {
 
 	const sections: SectionItem[] = [
 		{ id: 'expenses', label: 'Expenses', badge: data.expenses.length },
-		{ id: 'balances', label: 'Balances', badge: unsettled === 0 ? '✓' : unsettled },
+		{
+			id: 'balances',
+			label: 'Balances',
+			badge: unsettled === 0 ? '✓' : unsettled
+		},
 		{ id: 'settle', label: 'Settle up', badge: data.settlement.length || '✓' }
 	];
 
@@ -210,8 +215,7 @@ function ExpenseRow({
 					)}
 				</span>
 				<span className="muted truncate text-[0.8rem]">
-					{e.payer_name} {credit ? 'received' : 'paid'} ·{' '}
-					{splitLabel(e.split_mode, e.participants)}
+					{e.payer_name} {credit ? 'received' : 'paid'} · {splitLabel(e.split_mode, e.participants)}
 				</span>
 			</div>
 			<span
@@ -239,7 +243,11 @@ function ExpenseRow({
 
 const MODES: { value: SplitMode; label: string; hint: string }[] = [
 	{ value: 'even', label: 'Evenly', hint: 'Everyone selected pays the same.' },
-	{ value: 'shares', label: 'By shares', hint: 'Weight each person: 2 shares pays double.' },
+	{
+		value: 'shares',
+		label: 'By shares',
+		hint: 'Weight each person: 2 shares pays double.'
+	},
 	{ value: 'exact', label: 'By amount', hint: 'Type what each person owes.' }
 ];
 
@@ -373,16 +381,16 @@ function AddExpense({
 					{/* A 12-column grid, so the four top fields keep their proportions
 					    instead of wrapping at hard pixel widths as the modal narrows. */}
 					<div className="grid grid-cols-12 gap-x-2.5 gap-y-3.5">
-						<Field className="col-span-12" label="Description">
+						<FieldShell className="col-span-12" label="Description">
 							<input
 								autoFocus
 								required
 								value={description}
 								onChange={(e) => setDescription(e.target.value)}
-								className={INPUT}
+								className="input"
 							/>
-						</Field>
-						<Field className="col-span-4" label="Amount">
+						</FieldShell>
+						<FieldShell className="col-span-4" label="Amount">
 							<input
 								type="number"
 								step="0.01"
@@ -390,25 +398,25 @@ function AddExpense({
 								required
 								value={amount}
 								onChange={(e) => setAmount(e.target.value)}
-								className={INPUT}
+								className="input"
 							/>
-						</Field>
-						<Field className="col-span-3" label="Currency">
+						</FieldShell>
+						<FieldShell className="col-span-3" label="Currency">
 							<Select
 								options={currencies.map((c) => ({ value: c, label: c }))}
 								value={currency}
 								onChange={setCurrency}
 								ariaLabel="Currency"
 							/>
-						</Field>
-						<Field className="col-span-5" label={income ? 'Received by' : 'Paid by'}>
+						</FieldShell>
+						<FieldShell className="col-span-5" label={income ? 'Received by' : 'Paid by'}>
 							<Select
 								options={members.map((m) => ({ value: m.id, label: m.name }))}
 								value={payerId}
 								onChange={setPayerId}
 								ariaLabel="Paid by"
 							/>
-						</Field>
+						</FieldShell>
 					</div>
 
 					<p className={`-mt-2 text-[0.82rem] ${income ? 'text-accent-ink' : 'text-ink-faint'}`}>
@@ -457,12 +465,8 @@ function AddExpense({
 										: ` · ${money(Math.abs(exactOff) / 100, currency)} ${exactOff > 0 ? 'left' : 'over'}`)}
 							</span>
 							<span className="flex flex-none gap-3">
-								{splitMode === 'exact' && (
-									<LinkBtn onClick={autofillExact}>Split the rest</LinkBtn>
-								)}
-								<LinkBtn onClick={() => setPicked(new Set(members.map((m) => m.id)))}>
-									All
-								</LinkBtn>
+								{splitMode === 'exact' && <LinkBtn onClick={autofillExact}>Split the rest</LinkBtn>}
+								<LinkBtn onClick={() => setPicked(new Set(members.map((m) => m.id)))}>All</LinkBtn>
 								<LinkBtn onClick={() => setPicked(new Set())}>None</LinkBtn>
 							</span>
 						</div>
@@ -497,9 +501,12 @@ function AddExpense({
 												aria-label={`${splitMode === 'exact' ? 'Amount' : 'Shares'} for ${m.name}`}
 												value={weights[m.id] ?? ''}
 												onChange={(e) =>
-													setWeights((prev) => ({ ...prev, [m.id]: e.target.value }))
+													setWeights((prev) => ({
+														...prev,
+														[m.id]: e.target.value
+													}))
 												}
-												className="w-[4.6rem] flex-none rounded-[10px] border border-line bg-surface px-1.5 py-1 text-right text-[0.85rem] text-ink outline-none focus:border-accent"
+												className="input compact w-[4.6rem] flex-none text-right"
 											/>
 										)}
 										{on && totalCents !== 0 && preview.has(m.id) && (
@@ -518,7 +525,10 @@ function AddExpense({
 
 				<div className="mfoot">
 					{error && (
-						<p role="alert" className="mfoot-note m-0 rounded-sm bg-danger-soft px-2.5 py-2 text-[0.86rem] text-danger-ink">
+						<p
+							role="alert"
+							className="mfoot-note m-0 rounded-sm bg-danger-soft px-2.5 py-2 text-[0.86rem] text-danger-ink"
+						>
 							{error}
 						</p>
 					)}
@@ -534,9 +544,6 @@ function AddExpense({
 	);
 }
 
-const INPUT =
-	'w-full min-w-0 rounded-[10px] border border-line bg-surface px-2.5 py-2 text-ink outline-none focus:border-accent';
-
 function LinkBtn({ onClick, children }: { onClick: () => void; children: string }) {
 	return (
 		<button
@@ -546,22 +553,5 @@ function LinkBtn({ onClick, children }: { onClick: () => void; children: string 
 		>
 			{children}
 		</button>
-	);
-}
-
-function Field({
-	className,
-	label,
-	children
-}: {
-	className: string;
-	label: string;
-	children: React.ReactNode;
-}) {
-	return (
-		<label className={`flex min-w-0 flex-col gap-1 text-[0.82rem] text-ink-soft ${className}`}>
-			<span>{label}</span>
-			{children}
-		</label>
 	);
 }

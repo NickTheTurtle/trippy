@@ -12,11 +12,14 @@
 		"dev:api": "npm run dev -w @trippy/api",
 		"dev:web": "npm run dev -w @trippy/web",
 		"check": "npm run check --workspaces --if-present",
+		"format": "prettier --write \"apps/web/src/**/*.{ts,tsx,css}\"",
+		"format:check": "prettier --check \"apps/web/src/**/*.{ts,tsx,css}\"",
 		"build": "npm run build --workspaces --if-present"
 	},
 	"devDependencies": {
 		"@types/node": "^26.4.0",
 		"playwright-core": "^1.63.0",
+		"prettier": "^3.8.2",
 		"typescript": "^6.0.3"
 	}
 }

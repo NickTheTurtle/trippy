@@ -160,6 +160,60 @@ h6 {
 	color: var(--color-accent-ink);
 }
 
+/*
+ * Text inputs and textareas.
+ *
+ * Every page had grown its own `INPUT` utility string and they had drifted:
+ * four different corner radii and three different paddings across the same
+ * app. Deliberately sets no width, because callers legitimately need full
+ * width, a fixed width for a number box, or an intrinsic width in a toolbar;
+ * an unlayered rule here would beat the Tailwind width utility that says so.
+ */
+.input {
+	min-width: 0;
+	padding: 0.5rem 0.625rem;
+	border: 1px solid var(--color-line);
+	border-radius: var(--radius-md);
+	background: var(--color-surface);
+	color: var(--color-ink);
+	font: inherit;
+	outline: none;
+}
+.input:focus {
+	border-color: var(--color-accent);
+}
+.input::placeholder {
+	color: var(--color-ink-faint);
+}
+.input:disabled {
+	opacity: 0.6;
+	cursor: not-allowed;
+}
+/* For number boxes and toolbar fields, sized to sit level with `.btn.small`. */
+.input.compact {
+	padding: 0.25rem 0.4rem;
+	border-radius: var(--radius-sm);
+	font-size: 0.85rem;
+}
+
+/*
+ * A labelled field: the label sits above its control, and an optional hint
+ * below it. Used by the shared Field component and by any page laying a
+ * Select or a custom control out in a form.
+ */
+.field {
+	display: flex;
+	min-width: 0;
+	flex-direction: column;
+	gap: 0.35rem;
+	font-size: 0.82rem;
+	color: var(--color-ink-soft);
+}
+.field > .fhint {
+	font-size: 0.75rem;
+	color: var(--color-ink-faint);
+}
+
 /* --- Dialog ------------------------------------------------------------- */
 
 .modal {
@@ -273,12 +327,12 @@ h6 {
 	}
 	/* Pushes an error message to the left of the footer buttons, so a long one
    wraps in place instead of shoving the buttons off the row. */
-.mfoot .mfoot-note {
-	margin-right: auto;
-	min-width: 0;
-	overflow-wrap: anywhere;
-}
-.mfoot .btn {
+	.mfoot .mfoot-note {
+		margin-right: auto;
+		min-width: 0;
+		overflow-wrap: anywhere;
+	}
+	.mfoot .btn {
 		flex: 1 1 auto;
 		justify-content: center;
 	}

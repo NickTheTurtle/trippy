@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, Navigate } from 'react-router';
-import { AuthShell, Field } from '../components/AuthShell';
+import { AuthShell } from '../components/AuthShell';
+import { Field } from '../components/Field';
 import { useAuth } from '../auth';
 
 export default function Register() {

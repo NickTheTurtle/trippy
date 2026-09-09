@@ -54,7 +54,11 @@ export default function App() {
 							return <Route key={t.slug} path={t.slug} element={<Page />} />;
 						})}
 						{MERGED.map((m) => (
-							<Route key={m.slug} path={m.slug} element={<Navigate to={`../${m.into}`} replace />} />
+							<Route
+								key={m.slug}
+								path={m.slug}
+								element={<Navigate to={`../${m.into}`} replace />}
+							/>
 						))}
 					</Route>
 				</Route>

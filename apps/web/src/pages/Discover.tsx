@@ -293,9 +293,10 @@ export default function Discover() {
 			? 'Price TBD'
 			: // Non-breaking spaces so the price and its unit wrap as one chunk rather
 				// than leaving "night" stranded on its own line in a narrow card.
-				new Intl.NumberFormat(undefined, { style: 'currency', currency: data.currency }).format(
-					cents / 100
-				) + '\u00a0/\u00a0night';
+				new Intl.NumberFormat(undefined, {
+					style: 'currency',
+					currency: data.currency
+				}).format(cents / 100) + '\u00a0/\u00a0night';
 
 	async function addFromHit(h: Hit, activity: string, notes: string) {
 		if (!current) return;
@@ -366,10 +367,7 @@ export default function Discover() {
 						</span>
 					)}
 
-					<div
-						ref={searchEl}
-						className="relative ml-auto min-w-0 max-w-[420px] flex-[1_1_240px]"
-					>
+					<div ref={searchEl} className="relative ml-auto min-w-0 max-w-[420px] flex-[1_1_240px]">
 						<div className="relative min-w-0">
 							<input
 								value={query}
@@ -591,7 +589,10 @@ export default function Discover() {
 					poi={editPoi}
 					onClose={() => setEditPoi(null)}
 					onSubmit={async (v) => {
-						await api(`${base}/pois/${editPoi.id}`, { method: 'PATCH', body: v });
+						await api(`${base}/pois/${editPoi.id}`, {
+							method: 'PATCH',
+							body: v
+						});
 						setEditPoi(null);
 						reload();
 					}}
@@ -608,7 +609,10 @@ export default function Discover() {
 						setStayHit(null);
 					}}
 					onSubmit={async (v) => {
-						await api(`${base}/stays`, { method: 'POST', body: { cityId: current.id, ...v } });
+						await api(`${base}/stays`, {
+							method: 'POST',
+							body: { cityId: current.id, ...v }
+						});
 						setShowAddStay(false);
 						setStayHit(null);
 						reload();
@@ -711,7 +715,8 @@ function PlaceCard({
 					<div className="flex flex-wrap items-center gap-1.5">
 						{p.url && (
 							<a className="btn small" href={p.url} target="_blank" rel="noopener">
-								Open<span className="sr-only"> {p.name} (opens in a new tab)</span>
+								Open
+								<span className="sr-only"> {p.name} (opens in a new tab)</span>
 							</a>
 						)}
 						<button
@@ -788,7 +793,8 @@ function StayCard({
 					<div className="flex flex-wrap items-center gap-1.5">
 						{o.url && (
 							<a className="btn small" href={o.url} target="_blank" rel="noopener">
-								Open<span className="sr-only"> {o.name} (opens in a new tab)</span>
+								Open
+								<span className="sr-only"> {o.name} (opens in a new tab)</span>
 							</a>
 						)}
 						<button
@@ -827,7 +833,7 @@ function StayCard({
 								type="date"
 								value={checkIn}
 								onChange={(e) => setCheckIn(e.target.value)}
-								className="max-w-full min-w-0 rounded-sm border border-line bg-surface px-1.5 py-1.5 text-[0.8rem] text-ink"
+								className="input compact max-w-full"
 							/>
 						</label>
 						<label className="flex min-w-0 flex-col gap-1 text-[0.75rem] text-ink-faint">
@@ -836,7 +842,7 @@ function StayCard({
 								type="date"
 								value={checkOut}
 								onChange={(e) => setCheckOut(e.target.value)}
-								className="max-w-full min-w-0 rounded-sm border border-line bg-surface px-1.5 py-1.5 text-[0.8rem] text-ink"
+								className="input compact max-w-full"
 							/>
 						</label>
 						<button
@@ -853,10 +859,6 @@ function StayCard({
 }
 
 // --- Dialogs ----------------------------------------------------------------
-
-const INPUT =
-	'max-w-full min-w-0 rounded-[10px] border border-line bg-surface px-2.5 py-2 text-ink';
-const FIELD = 'flex min-w-0 flex-col gap-1 text-[0.8rem] text-ink-soft';
 
 function Optional() {
 	return <span className="muted">(optional)</span>;
@@ -940,17 +942,22 @@ function AddFromHit({
 						<p className="muted mb-3.5 text-[0.85rem] [overflow-wrap:anywhere]">{h.address}</p>
 					)}
 					<div className="flex flex-col gap-3">
-						<label className={FIELD}>
+						<label className="field">
 							<span>
 								Activity <Optional />
 							</span>
-							<input autoFocus value={activity} onChange={(e) => setActivity(e.target.value)} className={INPUT} />
+							<input
+								autoFocus
+								value={activity}
+								onChange={(e) => setActivity(e.target.value)}
+								className="input w-full"
+							/>
 						</label>
 						<span className="muted text-[0.75rem] leading-snug">
 							Name the activity and it becomes the card title, so one place can appear once per
 							thing you will do there.
 						</span>
-						<label className={FIELD}>
+						<label className="field">
 							<span>
 								Notes <Optional />
 							</span>
@@ -958,7 +965,7 @@ function AddFromHit({
 								rows={3}
 								value={notes}
 								onChange={(e) => setNotes(e.target.value)}
-								className={`${INPUT} w-full resize-y leading-relaxed`}
+								className="input w-full resize-y leading-relaxed"
 							/>
 						</label>
 					</div>
@@ -995,7 +1002,12 @@ function ManualPlace({
 	const [url, setUrl] = useState('');
 	const [notes, setNotes] = useState('');
 	const { submit, busy, err } = useSubmit(() =>
-		onSubmit({ name: name.trim(), activity: activity.trim(), url: url.trim(), notes: notes.trim() })
+		onSubmit({
+			name: name.trim(),
+			activity: activity.trim(),
+			url: url.trim(),
+			notes: notes.trim()
+		})
 	);
 
 	return (
@@ -1003,24 +1015,28 @@ function ManualPlace({
 			<form className="mform" onSubmit={submit}>
 				<div className="mbody">
 					<div className="flex flex-col gap-3">
-						<label className={FIELD}>
+						<label className="field">
 							<span>Place in {cityName}</span>
 							<input
 								autoFocus
 								required
 								value={name}
 								onChange={(e) => setName(e.target.value)}
-								className={INPUT}
+								className="input w-full"
 							/>
 						</label>
 						<div className="flex flex-wrap gap-2.5">
-							<label className={`${FIELD} flex-[1_1_180px]`}>
+							<label className="field flex-[1_1_180px]">
 								<span>
 									Activity <Optional />
 								</span>
-								<input value={activity} onChange={(e) => setActivity(e.target.value)} className={INPUT} />
+								<input
+									value={activity}
+									onChange={(e) => setActivity(e.target.value)}
+									className="input w-full"
+								/>
 							</label>
-							<label className={`${FIELD} flex-[1_1_180px]`}>
+							<label className="field flex-[1_1_180px]">
 								<span>
 									Link <Optional />
 								</span>
@@ -1029,11 +1045,11 @@ function ManualPlace({
 									placeholder="https://"
 									value={url}
 									onChange={(e) => setUrl(e.target.value)}
-									className={INPUT}
+									className="input w-full"
 								/>
 							</label>
 						</div>
-						<label className={FIELD}>
+						<label className="field">
 							<span>
 								Notes <Optional />
 							</span>
@@ -1041,7 +1057,7 @@ function ManualPlace({
 								rows={3}
 								value={notes}
 								onChange={(e) => setNotes(e.target.value)}
-								className={`${INPUT} w-full resize-y leading-relaxed`}
+								className="input w-full resize-y leading-relaxed"
 							/>
 						</label>
 					</div>
@@ -1081,17 +1097,17 @@ function EditPlace({
 			<form className="mform" onSubmit={submit}>
 				<div className="mbody">
 					<div className="flex flex-col gap-3">
-						<label className={FIELD}>
+						<label className="field">
 							<span>Name</span>
 							<input
 								autoFocus
 								required
 								value={name}
 								onChange={(e) => setName(e.target.value)}
-								className={INPUT}
+								className="input w-full"
 							/>
 						</label>
-						<label className={FIELD}>
+						<label className="field">
 							<span>
 								Notes <Optional />
 							</span>
@@ -1099,10 +1115,10 @@ function EditPlace({
 								rows={3}
 								value={notes}
 								onChange={(e) => setNotes(e.target.value)}
-								className={`${INPUT} w-full resize-y leading-relaxed`}
+								className="input w-full resize-y leading-relaxed"
 							/>
 						</label>
-						<label className={FIELD}>
+						<label className="field">
 							<span>
 								Link <Optional />
 							</span>
@@ -1111,7 +1127,7 @@ function EditPlace({
 								placeholder="https://"
 								value={url}
 								onChange={(e) => setUrl(e.target.value)}
-								className={INPUT}
+								className="input w-full"
 							/>
 						</label>
 					</div>
@@ -1121,9 +1137,7 @@ function EditPlace({
 					    rather than avatar chips: with a dozen voters the initials repeat
 					    and become noise, and there is room here for real names. */}
 					<p className="mt-3.5 border-t border-line pt-3.5 text-[0.85rem] leading-normal">
-						<span className="font-semibold">
-							{p.votes === 1 ? '1 vote' : `${p.votes} votes`}
-						</span>
+						<span className="font-semibold">{p.votes === 1 ? '1 vote' : `${p.votes} votes`}</span>
 						<span className="muted">
 							{p.voters.length ? `: ${p.voters.join(', ')}` : ', nobody yet'}
 						</span>
@@ -1170,7 +1184,14 @@ function AddStay({
 	const [checkOut, setCheckOut] = useState('');
 	const [url, setUrl] = useState(h?.url ?? '');
 	const { submit, busy, err } = useSubmit(() =>
-		onSubmit({ name: name.trim(), tag: tag.trim(), price, url: url.trim(), checkIn, checkOut })
+		onSubmit({
+			name: name.trim(),
+			tag: tag.trim(),
+			price,
+			url: url.trim(),
+			checkIn,
+			checkOut
+		})
 	);
 
 	// A prefilled name is already right; the price is the one thing the search
@@ -1196,7 +1217,7 @@ function AddStay({
 					)}
 					<div className="flex flex-col gap-3">
 						<div className="flex flex-wrap gap-2.5">
-							<label className={`${FIELD} flex-[1_1_180px]`}>
+							<label className="field flex-[1_1_180px]">
 								{/* Prefilled from the result but still editable: "Athens Plaka
 								    Acropolis Suites" is what Google calls it, not what the group
 								    will call it in a vote. */}
@@ -1206,12 +1227,12 @@ function AddStay({
 									required
 									value={name}
 									onChange={(e) => setName(e.target.value)}
-									className={INPUT}
+									className="input w-full"
 								/>
 							</label>
 							{/* Wide enough that the label stays on one line: a wrapped label
 							    makes this input sit a line lower than the one beside it. */}
-							<label className={`${FIELD} flex-[0_1_186px]`}>
+							<label className="field flex-[0_1_186px]">
 								<span>
 									Price / night <Optional />
 								</span>
@@ -1222,18 +1243,22 @@ function AddStay({
 									step="1"
 									value={price}
 									onChange={(e) => setPrice(e.target.value)}
-									className={INPUT}
+									className="input w-full"
 								/>
 							</label>
 						</div>
 						<div className="flex flex-wrap gap-2.5">
-							<label className={`${FIELD} flex-[1_1_180px]`}>
+							<label className="field flex-[1_1_180px]">
 								<span>
 									Tag <Optional />
 								</span>
-								<input value={tag} onChange={(e) => setTag(e.target.value)} className={INPUT} />
+								<input
+									value={tag}
+									onChange={(e) => setTag(e.target.value)}
+									className="input w-full"
+								/>
 							</label>
-							<label className={`${FIELD} flex-[0_1_145px]`}>
+							<label className="field flex-[0_1_145px]">
 								<span>
 									Check in <Optional />
 								</span>
@@ -1241,10 +1266,10 @@ function AddStay({
 									type="date"
 									value={checkIn}
 									onChange={(e) => setCheckIn(e.target.value)}
-									className={INPUT}
+									className="input w-full"
 								/>
 							</label>
-							<label className={`${FIELD} flex-[0_1_145px]`}>
+							<label className="field flex-[0_1_145px]">
 								<span>
 									Check out <Optional />
 								</span>
@@ -1252,11 +1277,11 @@ function AddStay({
 									type="date"
 									value={checkOut}
 									onChange={(e) => setCheckOut(e.target.value)}
-									className={INPUT}
+									className="input w-full"
 								/>
 							</label>
 						</div>
-						<label className={FIELD}>
+						<label className="field">
 							<span>
 								Link <Optional />
 							</span>
@@ -1265,7 +1290,7 @@ function AddStay({
 								placeholder="https://"
 								value={url}
 								onChange={(e) => setUrl(e.target.value)}
-								className={INPUT}
+								className="input w-full"
 							/>
 						</label>
 					</div>

@@ -727,8 +727,33 @@ not obvious from its name (`https://` on a URL field, `mm/dd/yyyy` from the
 native date input). A placeholder is never used to restate the label, to give an
 example of the content, or to carry a rule the user must satisfy: a rule that
 disappears when you start typing is missing exactly when it is needed, so those
-go in a `.hint` under the field (as on password fields and the free-text trip
-`Dates` field).
+go in a `.fhint` under the field (as on password fields and the free-text trip
+`Dates` field), which is what `Field`'s `hint` prop renders.
+
+**Fields: `src/components/Field.tsx`, styled by `.field` and `.input`.** Four
+pages had each grown their own `Field` component and their own `INPUT` class
+string, and they had drifted: three label sizes, four corner radii and three
+paddings for what is meant to be one control. The spec now lives in two element
+classes in `index.css` and the components are only markup. `Field` is a label
+plus a text input; `FieldShell` is a label plus any control, which is what a
+`Select` or a custom widget needs. `.input` deliberately sets no width, because
+callers legitimately need full width, a fixed width for a number box, or an
+intrinsic width in a toolbar, and an unlayered rule here would beat the Tailwind
+width utility that says so. `.input.compact` is the tight variant, sized to sit
+level with `.btn.small`.
+
+**One picker component, not two.** The trip settings dialog used a native
+`<select>` for currency while every other picker in the app used `Select`. It
+looked different, it did not get the Escape fix, and it opened an OS menu in the
+middle of a styled dialog. Native `<select>` is not used anywhere now.
+
+**Formatting is Prettier, configured at the repo root.** Tabs, single quotes, no
+trailing commas, 100 columns: not a fresh opinion, but the settings that leave
+the SvelteKit app's hand-carried style unchanged, so the port's files and the
+originals stay diffable. There was no config before, which meant anyone running
+`npx prettier` picked up the defaults (spaces, double quotes) and rewrote every
+file they touched. `npm run format` and `npm run format:check` cover
+`apps/web/src`; the API and the retiring Svelte app are left alone.
 
 **Modals: `src/lib/components/Modal.svelte`.** Every dialog in the app uses it.
 It wraps the native `<dialog>` element with `showModal()`, which gives focus

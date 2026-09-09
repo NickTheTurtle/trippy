@@ -52,7 +52,12 @@ export default function TripMap({ tracks }: { tracks: MapTrack[] }) {
 			});
 			if (t.line !== false && line.length > 1) {
 				overlays.current.push(
-					L.polyline(line, { color: t.color, weight: 3, opacity: 0.7, dashArray: '6 6' }).addTo(map)
+					L.polyline(line, {
+						color: t.color,
+						weight: 3,
+						opacity: 0.7,
+						dashArray: '6 6'
+					}).addTo(map)
 				);
 			}
 		}
@@ -67,10 +72,10 @@ export default function TripMap({ tracks }: { tracks: MapTrack[] }) {
 			if (cancelled || !elRef.current) return;
 			const L = mod.default;
 			lRef.current = L;
-			const map = L.map(elRef.current, { zoomControl: true, attributionControl: true }).setView(
-				[39.9163, 116.3972],
-				12
-			);
+			const map = L.map(elRef.current, {
+				zoomControl: true,
+				attributionControl: true
+			}).setView([39.9163, 116.3972], 12);
 			L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 				maxZoom: 19,
 				attribution: '&copy; OpenStreetMap'

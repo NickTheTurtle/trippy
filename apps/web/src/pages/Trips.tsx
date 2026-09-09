@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { api, ApiError } from '../api';
 import { useApi } from '../useApi';
+import { Field } from '../components/Field';
 
 type City = { id: string; name: string };
 type Trip = {
@@ -38,7 +39,9 @@ export default function Trips() {
 			<section className="container grid grid-cols-1 gap-5 md:grid-cols-2">
 				{error && <p className="col-span-full text-warn">{error}</p>}
 
-				{data?.trips.map((t) => <TripCard key={t.id} trip={t} />)}
+				{data?.trips.map((t) => (
+					<TripCard key={t.id} trip={t} />
+				))}
 
 				{/* Only after a successful load, so an empty grid mid-fetch does not
 				    briefly claim the user has no trips. */}
@@ -67,9 +70,7 @@ function TripCard({ trip }: { trip: Trip }) {
 				<h3 className="text-[1.15rem]">{trip.name}</h3>
 				<p className="muted mt-1 mb-3 text-[0.9rem]">{trip.dates}</p>
 				<p className="mb-4 text-[0.95rem] text-ink-soft">
-					{trip.cities.length
-						? trip.cities.map((c) => c.name).join('  ›  ')
-						: 'No cities yet'}
+					{trip.cities.length ? trip.cities.map((c) => c.name).join('  ›  ') : 'No cities yet'}
 				</p>
 				<span className="chip accent capitalize">{trip.role}</span>
 			</div>
@@ -96,7 +97,11 @@ function NewTrip({ onCancel, onCreated }: { onCancel: () => void; onCreated: () 
 		try {
 			const { trip } = await api<{ trip: { id: string } }>('/trips', {
 				method: 'POST',
-				body: { name, dates: dates.trim() || 'Dates to be set', homeCurrency: currency }
+				body: {
+					name,
+					dates: dates.trim() || 'Dates to be set',
+					homeCurrency: currency
+				}
 			});
 			onCreated();
 			navigate(`/trips/${trip.id}`);
@@ -114,16 +119,16 @@ function NewTrip({ onCancel, onCreated }: { onCancel: () => void; onCreated: () 
 				</p>
 			)}
 			<div className="grid grid-cols-1 gap-3.5 sm:grid-cols-[2fr_1.5fr_1fr]">
-				<Field label="Trip name" value={name} onChange={setName} />
+				<Field label="Trip name" value={name} onChange={(e) => setName(e.target.value)} />
 				{/* The field takes free text, so the accepted shape has to stay
 				    readable while you type it, which a placeholder does not. */}
 				<Field
 					label="Dates"
 					value={dates}
-					onChange={setDates}
+					onChange={(e) => setDates(e.target.value)}
 					hint="e.g. Jul 3 – Jul 15, 2027"
 				/>
-				<Field label="Currency" value={currency} onChange={setCurrency} />
+				<Field label="Currency" value={currency} onChange={(e) => setCurrency(e.target.value)} />
 			</div>
 			<div className="mt-4 flex justify-end gap-2.5">
 				<button className="btn" type="button" onClick={onCancel}>
@@ -134,29 +139,5 @@ function NewTrip({ onCancel, onCreated }: { onCancel: () => void; onCreated: () 
 				</button>
 			</div>
 		</form>
-	);
-}
-
-function Field({
-	label,
-	value,
-	onChange,
-	hint
-}: {
-	label: string;
-	value: string;
-	onChange: (v: string) => void;
-	hint?: string;
-}) {
-	return (
-		<label className="flex flex-col gap-1.5 text-[0.82rem] font-medium text-ink-soft">
-			{label}
-			<input
-				value={value}
-				onChange={(e) => onChange(e.target.value)}
-				className="rounded border border-line bg-surface px-3 py-2 font-normal text-ink outline-none focus:border-accent"
-			/>
-			{hint && <span className="text-[0.75rem] font-normal text-ink-faint">{hint}</span>}
-		</label>
 	);
 }

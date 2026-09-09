@@ -36,7 +36,10 @@ type AuthContextValue = AuthState & {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-	const [state, setState] = useState<AuthState>({ status: 'loading', user: null });
+	const [state, setState] = useState<AuthState>({
+		status: 'loading',
+		user: null
+	});
 
 	useEffect(() => {
 		const ac = new AbortController();

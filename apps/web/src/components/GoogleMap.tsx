@@ -10,7 +10,11 @@ export type MapTrack = {
 	/** True to draw small dots rather than numbered pins. */
 	dot?: boolean;
 };
-export type MapCenter = { lat: number | null; lng: number | null; name: string } | null;
+export type MapCenter = {
+	lat: number | null;
+	lng: number | null;
+	name: string;
+} | null;
 
 /* The Maps JS API has no types here, and pulling in @types/google.maps for one
    component is more surface than it is worth. */
@@ -73,7 +77,8 @@ export default function GoogleMap({
 				const c = centerRef.current;
 				gRef.current = g;
 				mapRef.current = new g.maps.Map(elRef.current, {
-					center: c?.lat != null && c?.lng != null ? { lat: c.lat, lng: c.lng } : { lat: 20, lng: 0 },
+					center:
+						c?.lat != null && c?.lng != null ? { lat: c.lat, lng: c.lng } : { lat: 20, lng: 0 },
 					zoom: c?.lat != null ? 12 : 2,
 					mapTypeControl: false,
 					streetViewControl: false,
