@@ -1,13 +1,6 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { getTripForUser } from '@trippy/server/trips';
-import {
-	inviteToTrip,
-	isOrganizer,
-	listPeople,
-	listPendingInvites,
-	removeMember,
-	revokeInvite
-} from '@trippy/server/members';
+import { inviteToTrip, isOrganizer, listPeople, removeMember } from '@trippy/server/members';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = ({ locals, params }) => {
@@ -15,12 +8,10 @@ export const load: PageServerLoad = ({ locals, params }) => {
 	const trip = getTripForUser(params.tripId, locals.user.id);
 	if (!trip) throw redirect(303, '/trips');
 
-	const organizer = isOrganizer(trip.id, locals.user.id);
 	return {
 		me: locals.user.id,
-		organizer,
-		people: listPeople(trip.id),
-		invites: organizer ? listPendingInvites(trip.id) : []
+		organizer: isOrganizer(trip.id, locals.user.id),
+		people: listPeople(trip.id)
 	};
 };
 
@@ -56,17 +47,6 @@ export const actions: Actions = {
 		if (userId && !removeMember(trip.id, locals.user.id, userId)) {
 			return fail(400, { error: 'Could not remove that member.' });
 		}
-		return { ok: true };
-	},
-
-	revoke: async ({ request, locals, params }) => {
-		if (!locals.user) throw redirect(303, '/login');
-		const trip = getTripForUser(params.tripId, locals.user.id);
-		if (!trip) throw redirect(303, '/trips');
-
-		const form = await request.formData();
-		const inviteId = String(form.get('inviteId') ?? '');
-		if (inviteId) revokeInvite(trip.id, locals.user.id, inviteId);
 		return { ok: true };
 	}
 };

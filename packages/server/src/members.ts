@@ -23,11 +23,6 @@ function nameFromEmail(email: string): string {
 	);
 }
 
-export interface PendingInvite {
-	id: string;
-	email: string;
-}
-
 function membership(tripId: string, userId: string): { role: string } | undefined {
 	return db
 		.prepare(`SELECT role FROM memberships WHERE trip_id = ? AND user_id = ?`)
@@ -69,12 +64,6 @@ export function listPeople(tripId: string): Person[] {
 			invitedEmail: r.invited_email
 		};
 	});
-}
-
-export function listPendingInvites(tripId: string): PendingInvite[] {
-	return db
-		.prepare(`SELECT id, email FROM trip_invites WHERE trip_id = ? ORDER BY created_at`)
-		.all(tripId) as unknown as PendingInvite[];
 }
 
 export type InviteResult = 'added' | 'invited' | 'exists' | 'invalid';
@@ -132,21 +121,12 @@ export function inviteToTrip(tripId: string, actorId: string, email: string): In
 	return 'invited';
 }
 
-export function revokeInvite(tripId: string, actorId: string, inviteId: string): boolean {
-	if (!isOrganizer(tripId, actorId)) return false;
-	const inv = db
-		.prepare(`SELECT placeholder_id FROM trip_invites WHERE id = ? AND trip_id = ?`)
-		.get(inviteId, tripId) as { placeholder_id: string | null } | undefined;
-	if (!inv) return false;
-	// Deleting the placeholder user cascades to its membership and invite row.
-	if (inv.placeholder_id) {
-		db.prepare(`DELETE FROM users WHERE id = ?`).run(inv.placeholder_id);
-	}
-	db.prepare(`DELETE FROM trip_invites WHERE id = ? AND trip_id = ?`).run(inviteId, tripId);
-	return true;
-}
-
-/** Remove a member. Organizers only; the organizer cannot be removed. */
+/**
+ * Remove a member. Organizers only; the organizer cannot be removed.
+ *
+ * This is also how an invite is revoked: a pending invite always has a
+ * placeholder member, so removing that row is the same operation.
+ */
 export function removeMember(tripId: string, actorId: string, userId: string): boolean {
 	if (!isOrganizer(tripId, actorId)) return false;
 	const target = membership(tripId, userId);

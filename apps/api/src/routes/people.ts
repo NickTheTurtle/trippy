@@ -2,14 +2,7 @@ import { Hono } from 'hono';
 import { requireMember } from '../middleware';
 import { body, str } from '../parse';
 import type { Env } from '../types';
-import {
-	inviteToTrip,
-	isOrganizer,
-	listPeople,
-	listPendingInvites,
-	removeMember,
-	revokeInvite
-} from '@trippy/server/members';
+import { inviteToTrip, isOrganizer, listPeople, removeMember } from '@trippy/server/members';
 
 export const people = new Hono<Env>();
 
@@ -17,14 +10,15 @@ people.use('*', requireMember);
 
 people.get('/', (c) => {
 	const trip = c.get('trip');
-	const organizer = isOrganizer(trip.id, c.get('user').id);
 	return c.json({
 		me: c.get('user').id,
-		organizer,
-		people: listPeople(trip.id),
-		// Pending invites are addresses of people who are not members yet, so only
-		// the organizer who sent them gets to see the list.
-		invites: organizer ? listPendingInvites(trip.id) : []
+		organizer: isOrganizer(trip.id, c.get('user').id),
+		// No separate pending-invite list: an invite always creates a placeholder
+		// member, so it is already in `people` with its real email and an
+		// `invited` tag, and removing that row deletes the invite with it. A
+		// second representation of the same fact is a second thing to keep in
+		// sync, and this one was never rendered by either client.
+		people: listPeople(trip.id)
 	});
 });
 
@@ -42,11 +36,6 @@ people.post('/invites', async (c) => {
 		default:
 			return c.json({ error: 'Enter a valid email address. Only the organizer can invite.' }, 400);
 	}
-});
-
-people.delete('/invites/:inviteId', (c) => {
-	revokeInvite(c.get('trip').id, c.get('user').id, c.req.param('inviteId'));
-	return c.json({ ok: true });
 });
 
 people.delete('/:userId', (c) => {

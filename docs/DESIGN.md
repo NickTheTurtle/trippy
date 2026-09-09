@@ -475,11 +475,11 @@ carried an inline fallback, and two of them had drifted (`#a8392f` against
 which rule won. The React theme defines `--color-danger-ink` and
 `--color-danger-soft` once.
 
-**Pending invites are fetched but never shown.** The Svelte loader returned
-`invites` and defined a `revoke` action, and no markup used either. The API
-exposes both, so the React page can grow the list without server work. It is not
-built yet, and until it is, a pending invite is only visible as its placeholder
-row.
+**Pending invites were fetched but never shown.** The Svelte loader returned
+`invites` and defined a `revoke` action, and no markup used either. Carried
+over into the API and then removed on both sides: see "An invite has one
+representation" below for why a second list could not have said anything the
+roster does not already say.
 
 **`--radius-DEFAULT` produced no `--radius`.** Tailwind v4 does not emit a bare
 variable for a `DEFAULT` key in a theme namespace, so every plain-CSS rule
@@ -746,6 +746,18 @@ level with `.btn.small`.
 `<select>` for currency while every other picker in the app used `Select`. It
 looked different, it did not get the Escape fix, and it opened an OS menu in the
 middle of a styled dialog. Native `<select>` is not used anywhere now.
+
+**An invite has one representation, not two.** `GET /people` used to return a
+separate `invites` array and there was a `DELETE /people/invites/:id` to revoke
+one, but neither client ever rendered or called them, and they could not have
+said anything new: `inviteToTrip` always creates a placeholder member, so a
+pending invite is already a roster row carrying the real address and an
+`invited` tag, and `removeMember` on that row deletes the invite with it. Both
+are gone. The revoke route was also lying, discarding `revokeInvite`'s boolean
+and answering `{ok:true}` whether or not anything was removed. What is verified
+now is the property that matters: after removing an invited row, the same
+address can be invited again, which only holds if the `trip_invites` row went
+too (it is `UNIQUE (trip_id, email)`).
 
 **Formatting is Prettier, configured at the repo root.** Tabs, single quotes, no
 trailing commas, 100 columns: not a fresh opinion, but the settings that leave
@@ -1277,10 +1289,9 @@ POST   /api/trips/:tripId/pretrip/costs
 PUT    /api/trips/:tripId/pretrip/costs/:itemId
 DELETE /api/trips/:tripId/pretrip/costs/:itemId
 
-GET    /api/trips/:tripId/people                       members + pending invites
+GET    /api/trips/:tripId/people                       members, invited ones included
 POST   /api/trips/:tripId/people/invites
-DELETE /api/trips/:tripId/people/invites/:inviteId
-DELETE /api/trips/:tripId/people/:userId
+DELETE /api/trips/:tripId/people/:userId               also revokes an invite
 ```
 
 Choices worth the words:
