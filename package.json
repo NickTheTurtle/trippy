@@ -13,12 +13,16 @@
 		"check": "npm run check --workspaces --if-present",
 		"format": "prettier --write \"apps/web/src/**/*.{ts,tsx,css}\"",
 		"format:check": "prettier --check \"apps/web/src/**/*.{ts,tsx,css}\"",
-		"build": "npm run build --workspaces --if-present"
+		"build": "npm run build --workspaces --if-present",
+		"test": "vitest run",
+		"test:watch": "vitest"
 	},
 	"devDependencies": {
 		"@types/node": "^26.4.0",
+		"@vitest/coverage-v8": "^4.1.11",
 		"playwright-core": "^1.63.0",
 		"prettier": "^3.8.2",
-		"typescript": "^6.0.3"
+		"typescript": "^6.0.3",
+		"vitest": "^4.1.11"
 	}
 }

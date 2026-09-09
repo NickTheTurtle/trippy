@@ -11,9 +11,11 @@
 		"./tz": "./src/tz.ts",
 		"./layout": "./src/layout.ts",
 		"./cover": "./src/cover.ts",
+		"./geo": "./src/geo.ts",
 		"./sample": "./src/sample.ts"
 	},
 	"scripts": {
-		"check": "tsc --noEmit"
+		"check": "tsc --noEmit",
+		"test": "vitest run packages/core/test --root ../.. --config vitest.config.ts"
 	}
 }
