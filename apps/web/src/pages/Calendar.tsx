@@ -6,6 +6,7 @@ import { useTrip } from './TripShell';
 import Modal from '../components/Modal';
 import Select, { type Option } from '../components/Select';
 import MultiSelect from '../components/MultiSelect';
+import { Field, FieldShell } from '../components/Field';
 import GoogleMap, { type MapTrack } from '../components/GoogleMap';
 import TripMap from '../components/TripMap';
 import { localTime, zoneAbbr, localDayMinutes } from '@trippy/core/tz';
@@ -255,6 +256,8 @@ export default function Calendar() {
 	const [showCrews, setShowCrews] = useState(false);
 	const [newTrackName, setNewTrackName] = useState('');
 	const [newTrackParty, setNewTrackParty] = useState('');
+	/** Track awaiting a second click to confirm, since deleting takes its events. */
+	const [killTrack, setKillTrack] = useState('');
 	/** The event whose detail popup is open. */
 	const [openEvent, setOpenEvent] = useState<DayEvent | null>(null);
 
@@ -657,7 +660,8 @@ export default function Calendar() {
 			})
 		);
 		setNewTrackName('');
-		setShowAddTrack(false);
+		// The panel stays open: it is now the place tracks are managed, and after
+		// adding one the next thing you often want is to look at the list.
 	}
 
 	// --- Board rendering ----------------------------------------------------
@@ -1185,8 +1189,15 @@ export default function Calendar() {
 					<button className="btn" type="button" onClick={() => setShowCrews(true)}>
 						Crews
 					</button>
-					<button className="btn" type="button" onClick={() => setShowAddTrack((v) => !v)}>
-						+ Add track
+					<button
+						className="btn"
+						type="button"
+						onClick={() => {
+							setShowAddTrack((v) => !v);
+							setKillTrack('');
+						}}
+					>
+						Tracks
 					</button>
 					<button
 						className="btn primary"
@@ -1206,33 +1217,71 @@ export default function Calendar() {
 			)}
 
 			{showAddTrack && (
-				<form
-					className="addtrack card"
-					onSubmit={(e) => {
-						e.preventDefault();
-						addTrack();
-					}}
-				>
-					<input
-						autoFocus
-						aria-label="Track name"
-						placeholder="Track name, e.g. Museum group"
-						value={newTrackName}
-						onChange={(e) => setNewTrackName(e.target.value)}
-					/>
-					{crews.length > 0 && (
-						<Select
-							value={newTrackParty}
-							onChange={setNewTrackParty}
-							options={trackPartyChoices}
-							ariaLabel="Crew for this track"
-							compact
-						/>
+				<div className="addtrack card">
+					{anchorTracks.length > 0 && (
+						<ul className="tracklist">
+							{anchorTracks.map((t) => (
+								<li key={t.id}>
+									<span className="agswatch" style={{ background: t.color }} />
+									<span className="tlname">{t.name}</span>
+									<span className="muted small tlcount">
+										{t.items.length === 0
+											? 'empty'
+											: `${t.items.length} ${t.items.length === 1 ? 'event' : 'events'}`}
+									</span>
+									<button
+										className="btn small danger"
+										type="button"
+										onClick={() => {
+											// A track owns its events, so deleting it deletes them.
+											// Confirm only when there is something to lose, so
+											// clearing away an empty mistake stays one click.
+											if (t.items.length > 0 && killTrack !== t.id) {
+												setKillTrack(t.id);
+												return;
+											}
+											setKillTrack('');
+											act(() => api(`${base}/tracks/${t.id}`, { method: 'DELETE' }));
+										}}
+									>
+										{killTrack === t.id ? `Delete ${t.items.length}?` : 'Delete'}
+									</button>
+								</li>
+							))}
+						</ul>
 					)}
-					<button className="btn primary" type="submit">
-						Add
-					</button>
-				</form>
+					<form
+						className="trackadd"
+						onSubmit={(e) => {
+							e.preventDefault();
+							addTrack();
+						}}
+					>
+						<Field
+							label="New track"
+							className="flex-1"
+							inputClassName="compact"
+							hint="e.g. Museum group"
+							autoFocus
+							value={newTrackName}
+							onChange={(e) => setNewTrackName(e.target.value)}
+						/>
+						{crews.length > 0 && (
+							<FieldShell label="Crew" className="w-40">
+								<Select
+									value={newTrackParty}
+									onChange={setNewTrackParty}
+									options={trackPartyChoices}
+									ariaLabel="Crew for this track"
+									compact
+								/>
+							</FieldShell>
+						)}
+						<button className="btn primary" type="submit">
+							Add
+						</button>
+					</form>
+				</div>
 			)}
 
 			<div className={wide ? 'split wide' : 'split'}>

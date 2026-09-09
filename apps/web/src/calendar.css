@@ -102,25 +102,54 @@
 	display: inline-flex;
 	align-items: center;
 	gap: 0.3rem;
+	flex: none;
+}
+/* `.sel`'s default `min(7.5rem, 100%)` is a percentage against a shrink-to-fit
+   parent, which cannot be resolved while measuring it, so the box came out
+   narrower than its own trigger and the picker sat on top of the next button.
+   A flat width here has no such cycle. */
+.cal .viewas .sel {
+	width: 7.5rem;
+	min-width: 0;
 }
 .cal .vaicon {
 	font-size: 0.9rem;
 }
 
-/* --- Add track ----------------------------------------------------------- */
+/* --- Tracks panel -------------------------------------------------------- */
 
 .cal .addtrack {
 	display: flex;
-	gap: 0.6rem;
+	flex-direction: column;
+	gap: 0.8rem;
 	padding: 0.8rem;
 	margin-bottom: 1rem;
 }
-.cal .addtrack input {
-	flex: 1;
-	padding: 0.5rem 0.7rem;
-	border: 1px solid var(--color-line);
-	border-radius: var(--radius-md);
-	font: inherit;
+.cal .tracklist {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 0.3rem;
+}
+.cal .tracklist li {
+	display: flex;
+	align-items: center;
+	gap: 0.6rem;
+	padding: 0.35rem 0.2rem;
+}
+.cal .tracklist .tlname {
+	font-weight: 500;
+}
+/* Keeps the delete buttons in one column whatever the names are. */
+.cal .tracklist .tlcount {
+	margin-right: auto;
+}
+.cal .trackadd {
+	display: flex;
+	align-items: flex-end;
+	gap: 0.6rem;
 }
 
 /* --- Add / edit event form ---------------------------------------------- */

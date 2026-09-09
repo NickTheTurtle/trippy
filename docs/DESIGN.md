@@ -687,6 +687,29 @@ in development. Google Maps survives being handed the same div again, but Leafle
 throws "Map container is already initialized", so each effect sets a `cancelled`
 flag and tears the map down on cleanup.
 
+**"+ Add track" is now a "Tracks" panel, because tracks could never be deleted.**
+There was `createTrack` and nothing else, so a typo, or a split that was planned
+and then dropped, sat on the day forever and kept showing up in the event form's
+track picker. The toolbar button now opens a panel that lists the day's tracks
+with their event counts and a Delete on each, with the add form underneath, and
+the panel stays open after adding since it is a place you manage rather than a
+one-shot form.
+
+**Deleting a track deletes its events, by cascade, and confirms only when there
+is something to lose.** The events belong to the track and there is nowhere else
+to put them, so the delete button on a track with events becomes "Delete 3?" and
+needs a second click, while clearing away an empty mistake stays one click.
+Closing the panel drops the pending confirmation. Unlike a city, the last track
+can go: a day with no tracks is how every day starts.
+
+**`.sel`'s `min-width: min(7.5rem, 100%)` cannot resolve inside a shrink-to-fit
+parent.** The percentage is measured against a container that is itself being
+measured, so the "View as" box in the calendar toolbar came out narrower than the
+trigger inside it and the picker painted on top of the Crews button. `.viewas`
+gives its `.sel` a flat width instead. Any other inline-flex or floated wrapper
+around a `Select` needs the same. A sweep of every page at 1440 and 1100 for
+controls painting outside their parent found no other instance.
+
 ### 5.0.7 Account settings
 
 **Profile and password are two independent forms with their own messages.** They
@@ -1313,6 +1336,7 @@ DELETE /api/trips/:tripId/discover/stays/:optionId
 
 GET    /api/trips/:tripId/calendar?day=&view=          board for the visible days
 POST   /api/trips/:tripId/calendar/tracks
+DELETE /api/trips/:tripId/calendar/tracks/:trackId   takes its items with it
 POST   /api/trips/:tripId/calendar/items
 PUT    /api/trips/:tripId/calendar/items/:itemId/assignees
 POST   /api/trips/:tripId/calendar/items/:itemId/op    move|resize|edit|cycle|delete

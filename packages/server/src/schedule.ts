@@ -160,6 +160,22 @@ export function createTrack(tripId: string, day: string, name: string, partyId?:
 	return id;
 }
 
+/**
+ * Delete a track and, by cascade, everything scheduled on it.
+ *
+ * Tracks were created freely and could never be removed, so a typo or a split
+ * that never happened stayed on the day forever and kept appearing in the event
+ * form's track picker. Returns false when the track is not this trip's or the
+ * caller is not a member. A day with no tracks is a legitimate state, which it
+ * has to be since that is how every day starts, so unlike cities there is no
+ * last-one rule here.
+ */
+export function removeTrack(trackId: string, tripId: string, userId: string): boolean {
+	if (!userTrack(trackId, tripId, userId)) return false;
+	db.prepare(`DELETE FROM tracks WHERE id = ? AND trip_id = ?`).run(trackId, tripId);
+	return true;
+}
+
 /** True when the user is a member of the trip that owns the item. */
 function userOwnsItem(itemId: string, userId: string): boolean {
 	const row = db

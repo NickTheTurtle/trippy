@@ -11,6 +11,7 @@ import {
 	editItem,
 	estimateCityTravel,
 	moveItem,
+	removeTrack,
 	resizeItem,
 	scheduleDays,
 	setAssignees,
@@ -139,6 +140,15 @@ calendar.post('/tracks', async (c) => {
 		optStr(b.partyId) ?? undefined
 	);
 	return c.json({ id }, 201);
+});
+
+// Deleting a track takes its scheduled items with it, by cascade. That is the
+// point rather than a side effect: a track is the thing the items belong to,
+// and there is nowhere else to put them.
+calendar.delete('/tracks/:trackId', (c) => {
+	const okay = removeTrack(c.req.param('trackId'), c.get('trip').id, c.get('user').id);
+	if (!okay) return c.json({ error: 'Track not found.' }, 404);
+	return c.json({ ok: true });
 });
 
 calendar.post('/items', async (c) => {
