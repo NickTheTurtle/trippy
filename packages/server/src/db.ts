@@ -244,6 +244,11 @@ addColumn('pois', 'photo', 'TEXT');
 // proxy that places already use work here unchanged.
 addColumn('lodging_options', 'photo', 'TEXT');
 
+// Marks an expense that records a transfer between two members rather than a
+// cost the group shared. It changes only how the row is labelled: a settlement
+// has to count towards balances like any other expense, which is the point.
+addColumn('expenses', 'settlement', 'INTEGER');
+
 // Trip dates were originally a free-text label. Keep the label (it is what the// header renders) but store the real endpoints so the edit form can round-trip
 // date pickers instead of asking people to retype a formatted string.
 addColumn('trips', 'start_date', 'TEXT');

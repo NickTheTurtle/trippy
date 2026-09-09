@@ -7,6 +7,7 @@ import {
 	balances,
 	deleteExpense,
 	listExpenses,
+	recordSettlement,
 	settlement,
 	tripMembers
 } from '@trippy/server/expenses';
@@ -103,6 +104,34 @@ expenses.post('/', async (c) => {
 		splitMode
 	);
 	if (!id) return c.json({ error: 'Could not add expense.' }, 400);
+	return c.json({ id }, 201);
+});
+
+/**
+ * Records one of the suggested transfers as having been paid.
+ *
+ * The amount comes from the request rather than being recomputed, so that what
+ * gets written is the number the member was looking at when they pressed the
+ * button. A stale figure is caught by the balances simply not clearing, which is
+ * visible on the same screen.
+ */
+expenses.post('/settle', async (c) => {
+	const trip = c.get('trip');
+	const b = await body(c);
+
+	const amount = num(b.amount);
+	if (amount === null || Math.round(amount * 100) <= 0) {
+		return c.json({ error: 'Enter an amount.' }, 400);
+	}
+
+	const id = recordSettlement(
+		trip.id,
+		c.get('user').id,
+		str(b.fromId),
+		str(b.toId),
+		Math.round(amount * 100)
+	);
+	if (!id) return c.json({ error: 'Could not record that payment.' }, 400);
 	return c.json({ id }, 201);
 });
 

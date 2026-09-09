@@ -17,6 +17,7 @@ type Expense = {
 	currency: string;
 	split_mode: SplitMode;
 	participants: number;
+	settlement: number;
 	created_at: number;
 	home_cents: number;
 	converted: boolean;
@@ -27,8 +28,9 @@ type Data = {
 	members: Member[];
 	expenses: Expense[];
 	balances: { name: string; net: number }[];
-	settlement: { from: string; to: string; amount: number }[];
+	settlement: Transfer[];
 };
+type Transfer = { fromId: string; toId: string; from: string; to: string; amount: number };
 
 const money = (value: number, currency: string) =>
 	new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(value);
@@ -83,6 +85,19 @@ export default function Expenses() {
 
 	async function remove(id: string) {
 		await api(`/trips/${trip.id}/expenses/${id}`, { method: 'DELETE' });
+		reload();
+	}
+
+	/**
+	 * Records a suggested transfer as paid. It lands in the ledger as an ordinary
+	 * expense, so the list of remaining transfers is recomputed from the same
+	 * numbers and this row disappears from it.
+	 */
+	async function settleUp(fromId: string, toId: string, amount: number) {
+		await api(`/trips/${trip.id}/expenses/settle`, {
+			method: 'POST',
+			body: { fromId, toId, amount }
+		});
 		reload();
 	}
 
@@ -159,21 +174,14 @@ export default function Expenses() {
 							{data.settlement.length === 0 ? (
 								<p className="muted m-0 text-[0.9rem]">Nothing to settle.</p>
 							) : (
-								<ul className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-1.5 p-0">
+								<ul className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-1.5 p-0">
 									{data.settlement.map((t) => (
-										<li
-											key={t.from + t.to}
-											className="flex items-center gap-2 rounded-[10px] bg-surface-2 px-2.5 py-2 text-[0.92rem]"
-										>
-											<span className="truncate font-semibold" title={t.from}>
-												{t.from}
-											</span>
-											<span className="shrink-0 text-[0.82rem] text-ink-faint">pays</span>
-											<span className="truncate" title={t.to}>
-												{t.to}
-											</span>
-											<span className="ml-auto font-semibold">{fmt(t.amount)}</span>
-										</li>
+										<SettleRow
+											key={t.fromId + t.toId}
+											t={t}
+											fmt={fmt}
+											onSettle={() => settleUp(t.fromId, t.toId, t.amount)}
+										/>
 									))}
 								</ul>
 							)}
@@ -205,6 +213,62 @@ function Head({ text, children }: { text: string; children?: React.ReactNode }) 
 	);
 }
 
+/**
+ * One suggested transfer, with the button that records it as paid.
+ *
+ * Marking it paid is not destructive and is undone by deleting the expense it
+ * writes, so it takes one click rather than a confirmation. The button reports
+ * its own failure in place: the alternative, a banner at the top of a grid of
+ * twenty rows, would not say which one failed.
+ */
+function SettleRow({
+	t,
+	fmt,
+	onSettle
+}: {
+	t: Transfer;
+	fmt: (units: number) => string;
+	onSettle: () => Promise<void>;
+}) {
+	const [busy, setBusy] = useState(false);
+	const [err, setErr] = useState('');
+
+	async function go() {
+		setBusy(true);
+		setErr('');
+		try {
+			await onSettle();
+		} catch (e) {
+			setErr(e instanceof ApiError ? e.message : 'Could not record that payment.');
+			setBusy(false);
+		}
+	}
+
+	return (
+		<li className="flex flex-col gap-1 rounded-[10px] bg-surface-2 px-2.5 py-2 text-[0.92rem]">
+			<div className="flex items-center gap-2">
+				<span className="truncate font-semibold" title={t.from}>
+					{t.from}
+				</span>
+				<span className="shrink-0 text-[0.82rem] text-ink-faint">pays</span>
+				<span className="truncate" title={t.to}>
+					{t.to}
+				</span>
+				<span className="ml-auto font-semibold">{fmt(t.amount)}</span>
+				<button
+					className="btn small flex-none"
+					disabled={busy}
+					onClick={go}
+					aria-label={`Record that ${t.from} paid ${t.to} ${fmt(t.amount)}`}
+				>
+					{busy ? 'Saving' : 'Mark paid'}
+				</button>
+			</div>
+			{err && <p className="m-0 text-[0.8rem] text-warn">{err}</p>}
+		</li>
+	);
+}
+
 function ExpenseRow({
 	expense: e,
 	home,
@@ -215,6 +279,7 @@ function ExpenseRow({
 	onRemove: () => void;
 }) {
 	const credit = e.amount_cents < 0;
+	const settled = e.settlement === 1;
 	return (
 		<li className="flex items-center gap-3">
 			<span
@@ -227,15 +292,25 @@ function ExpenseRow({
 			<div className="flex min-w-0 flex-col">
 				<span className="truncate text-[0.93rem] font-medium" title={e.description}>
 					{e.description}
-					{credit && (
+					{/* A settlement is an expense in every way that matters to the maths,
+					    but it is not a cost anyone shared, so the ledger says which it is. */}
+					{(credit || settled) && (
 						<span className="ml-1 rounded-full border border-accent-soft px-1.5 py-px text-[0.66rem] font-semibold tracking-wider text-accent-ink uppercase">
-							income
+							{settled ? 'payment' : 'income'}
 						</span>
 					)}
 				</span>
 				<span className="muted truncate text-[0.8rem]">
-					{e.payer_name} {credit ? 'received' : 'paid'} · {splitLabel(e.split_mode, e.participants)}{' '}
-					· {logged(e.created_at)}
+					{/* The description of a settlement already names both sides, so
+					    repeating the payer and calling it a one-way split is noise. */}
+					{settled ? (
+						logged(e.created_at)
+					) : (
+						<>
+							{e.payer_name} {credit ? 'received' : 'paid'} ·{' '}
+							{splitLabel(e.split_mode, e.participants)} · {logged(e.created_at)}
+						</>
+					)}
 				</span>
 			</div>
 			<span

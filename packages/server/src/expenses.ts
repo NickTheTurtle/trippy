@@ -19,6 +19,7 @@ export interface ExpenseRow {
 	payer_name: string;
 	split_mode: SplitMode;
 	participants: number;
+	settlement: number; // 1 when this row records a transfer, not a shared cost
 	created_at: number;
 }
 
@@ -35,6 +36,8 @@ export interface BalanceRow {
 }
 
 export interface SettlementRow {
+	fromId: string;
+	toId: string;
 	from: string; // name
 	to: string; // name
 	amount: number;
@@ -59,7 +62,7 @@ export function listExpenses(tripId: string): ExpenseRow[] {
 	return db
 		.prepare(
 			`SELECT e.id, e.description, e.amount_cents, e.currency, e.payer_id, e.split_mode,
-			        u.name AS payer_name, e.created_at,
+			        u.name AS payer_name, e.created_at, COALESCE(e.settlement, 0) AS settlement,
 			        (SELECT COUNT(*) FROM expense_participants p WHERE p.expense_id = e.id) AS participants
 			 FROM expenses e JOIN users u ON u.id = e.payer_id
 			 WHERE e.trip_id = ? ORDER BY e.created_at DESC`
@@ -182,8 +185,59 @@ export function settlement(tripId: string): SettlementRow[] {
 	const nameById = new Map(bals.map((b) => [b.id, b.name]));
 	const input: Balance[] = bals.map((b) => ({ userId: b.id, net: b.net }));
 	return settle(input).map((t: Transaction) => ({
+		fromId: t.from,
+		toId: t.to,
 		from: nameById.get(t.from) ?? t.from,
 		to: nameById.get(t.to) ?? t.to,
 		amount: t.amount
 	}));
+}
+
+/**
+ * Records a transfer that actually happened, as an ordinary expense.
+ *
+ * A settlement is exactly an expense the payer covered on one other person's
+ * behalf: `from` paid `amount`, `to` is the only participant, so `from` is
+ * credited and `to` is charged and the pair's balances move to zero. Writing it
+ * as an expense rather than as a second kind of record means balances,
+ * settlement, currency conversion and deletion all keep working with no special
+ * case, and undoing a payment is just deleting the row.
+ *
+ * The amount is always in the trip's home currency, because that is the
+ * currency the suggested transfers are computed and displayed in.
+ *
+ * Returns the new expense id, or null if either side is not a member, they are
+ * the same person, or the amount is not positive.
+ */
+export function recordSettlement(
+	tripId: string,
+	actorId: string,
+	fromId: string,
+	toId: string,
+	amountCents: number
+): string | null {
+	if (fromId === toId) return null;
+	if (!isMember(tripId, fromId) || !isMember(tripId, toId)) return null;
+	if (!Number.isFinite(amountCents) || amountCents <= 0) return null;
+
+	const home =
+		(
+			db.prepare(`SELECT home_currency FROM trips WHERE id = ?`).get(tripId) as
+				| { home_currency: string }
+				| undefined
+		)?.home_currency ?? 'USD';
+	const names = new Map(tripMembers(tripId).map((m) => [m.id, m.name]));
+
+	const id = addExpense(
+		tripId,
+		actorId,
+		fromId,
+		`Payment from ${names.get(fromId)} to ${names.get(toId)}`,
+		amountCents,
+		home,
+		[{ userId: toId, weight: amountCents }],
+		'exact'
+	);
+	if (id) db.prepare(`UPDATE expenses SET settlement = 1 WHERE id = ?`).run(id);
+	return id;
 }

@@ -1405,6 +1405,7 @@ POST   /api/trips/:tripId/calendar/crews/split | /rejoin
 
 GET    /api/trips/:tripId/expenses                     rows + balances + settlement
 POST   /api/trips/:tripId/expenses
+POST   /api/trips/:tripId/expenses/settle             records a suggested transfer
 DELETE /api/trips/:tripId/expenses/:expenseId
 
 GET    /api/trips/:tripId/pretrip                      tasks + packing + budget
@@ -1492,6 +1493,20 @@ Enums: `role`, `item_type (poi|meal|travel|lodging|freetime|meetup)`,
 2. Net balance per user = paid − owed.
 3. Greedy match largest creditor with largest debtor until all ≈ 0.
    Produces ≤ n−1 transactions.
+
+**Recording a transfer writes an ordinary expense.** A settlement is exactly an
+expense one member covered on one other member's behalf: the payer is credited,
+the single participant is charged, and both balances move to zero. Storing it
+that way means balances, the transfer suggestions, currency conversion and
+deletion all keep working with no second code path, and undoing a payment is
+just deleting the row. The only thing the `settlement` flag changes is the
+label: the ledger calls the row a payment rather than a shared cost, and drops
+the payer and split line, since the description already names both sides.
+
+The amount posted is the one the member was looking at, not one recomputed on
+the server. If it has gone stale the balances simply do not clear, which is
+visible on the same screen, and that is a better failure than silently paying a
+different number than the button said.
 
 ### 7.2 Travel-fit conflict check
 For consecutive items A→B on a track: required = A.end + leg(A,B).duration.
