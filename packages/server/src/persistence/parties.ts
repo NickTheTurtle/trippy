@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { db } from './db';
-import { publish } from './events';
+import { db } from '../db';
+import { publish } from '../events';
 
 export interface Party {
 	id: string;

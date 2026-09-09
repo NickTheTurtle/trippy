@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
-import { db } from './db';
-import { consumeInvites } from './members';
-import { seedExampleTrips } from './seed-example';
+import { db } from '../db';
+import { consumeInvites } from '../persistence/members';
+import { seedExampleTrips } from '../seeds/seed-example';
 
 const SESSION_DAYS = 30;
 

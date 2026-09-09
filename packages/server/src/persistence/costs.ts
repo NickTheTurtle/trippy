@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { db } from './db';
-import { publish } from './events';
+import { db } from '../db';
+import { publish } from '../events';
 
 export const COST_CATEGORIES = ['lodging', 'activities', 'food', 'travel'] as const;
 export type CostCategory = (typeof COST_CATEGORIES)[number];

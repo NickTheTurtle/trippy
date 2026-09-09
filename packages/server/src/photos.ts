@@ -1,7 +1,7 @@
-import { lookupPhoto } from './places';
-import { citiesNeedingPhotos, setCityPhoto } from './trips';
-import { lodgingNeedingPhotos, setLodgingPhoto } from './lodging';
-import { poisNeedingPhotos, setPoiPhoto } from './pois';
+import { lookupPhoto } from './providers/places';
+import { citiesNeedingPhotos, setCityPhoto } from './persistence/trips';
+import { lodgingNeedingPhotos, setLodgingPhoto } from './persistence/lodging';
+import { poisNeedingPhotos, setPoiPhoto } from './persistence/pois';
 
 /**
  * One home for the "find cover photos for rows that never had one" job.

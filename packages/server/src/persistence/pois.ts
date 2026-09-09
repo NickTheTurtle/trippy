@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { db } from './db';
-import { publish, publishMany } from './events';
+import { db } from '../db';
+import { publish, publishMany } from '../events';
 import { poiKindFromCategory, toPoiKind, type PoiKind } from '@trippy/core/types';
 
 export interface PoiRow {

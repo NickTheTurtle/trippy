@@ -9,16 +9,16 @@ mkdirSync(tempRoot, { recursive: true });
 process.env.TRIPPY_DB = dbPath;
 
 let db: Awaited<typeof import('../src/db.ts')>['db'];
-let auth: typeof import('../src/auth.ts');
-let trips: typeof import('../src/trips.ts');
-let schedule: typeof import('../src/schedule.ts');
-let members: typeof import('../src/members.ts');
-let expenses: typeof import('../src/expenses.ts');
+let auth: typeof import('../src/infra/auth.ts');
+let trips: typeof import('../src/persistence/trips.ts');
+let schedule: typeof import('../src/persistence/schedule.ts');
+let members: typeof import('../src/persistence/members.ts');
+let expenses: typeof import('../src/persistence/expenses.ts');
 let events: typeof import('../src/events.ts');
-let pois: typeof import('../src/pois.ts');
-let lodging: typeof import('../src/lodging.ts');
-let parties: typeof import('../src/parties.ts');
-let tasks: typeof import('../src/tasks.ts');
+let pois: typeof import('../src/persistence/pois.ts');
+let lodging: typeof import('../src/persistence/lodging.ts');
+let parties: typeof import('../src/persistence/parties.ts');
+let tasks: typeof import('../src/persistence/tasks.ts');
 
 interface Fixture {
 	organizer: string;
@@ -43,16 +43,16 @@ beforeAll(async () => {
 		tasks
 	] = await Promise.all([
 		import('../src/db.ts'),
-		import('../src/auth.ts'),
-		import('../src/trips.ts'),
-		import('../src/schedule.ts'),
-		import('../src/members.ts'),
-		import('../src/expenses.ts'),
+		import('../src/infra/auth.ts'),
+		import('../src/persistence/trips.ts'),
+		import('../src/persistence/schedule.ts'),
+		import('../src/persistence/members.ts'),
+		import('../src/persistence/expenses.ts'),
 		import('../src/events.ts'),
-		import('../src/pois.ts'),
-		import('../src/lodging.ts'),
-		import('../src/parties.ts'),
-		import('../src/tasks.ts')
+		import('../src/persistence/pois.ts'),
+		import('../src/persistence/lodging.ts'),
+		import('../src/persistence/parties.ts'),
+		import('../src/persistence/tasks.ts')
 	]);
 });
 

@@ -1,5 +1,5 @@
-import { env } from './env';
-import { createCache } from './cache';
+import { env } from '../infra/env';
+import { createCache } from '../infra/cache';
 
 /**
  * A place returned from a search provider, normalised across backends.

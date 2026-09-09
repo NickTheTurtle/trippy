@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { formatDayRange, isDayString, normalizeDay } from '@trippy/core/tz';
-import { db } from './db';
+import { db } from '../db';
 import { defaultPartyId } from './parties';
-import { publish, publishMany } from './events';
+import { publish, publishMany } from '../events';
 
 export interface TripRow {
 	id: string;

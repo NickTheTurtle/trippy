@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { db } from './db';
+import { db } from '../db';
 import { seedAthensTrip } from './seed-athens';
 import { poiKindFromCategory } from '@trippy/core/types';
 import { trips as sampleTrips, sampleDay } from '@trippy/core/sample';
