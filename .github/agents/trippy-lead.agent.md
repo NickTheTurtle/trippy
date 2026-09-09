@@ -23,7 +23,7 @@ repo.
 | `packages/core` | `@trippy/core` | Pure domain logic, no I/O: `types.ts`, `settlement.ts`, `split.ts`, `tz.ts`, `layout.ts`, `cover.ts`, `sample.ts` |
 | `packages/server` | `@trippy/server` | SQLite persistence + integrations (19 modules): `db.ts` schema/migrations; entities (`trips`, `members`, `parties`, `schedule`, `pois`, `lodging`, `expenses`, `costs`, `tasks`); infra (`auth`, `env`, `cache`); paid providers (`places`, `geocode`, `routing`, `fx`). Owns `app.db` |
 | `apps/api` | `@trippy/api` | HTTP layer (Hono, :5175): `src/routes/*.ts`, `middleware.ts`, `parse.ts`. Runs on `tsx watch` |
-| `apps/web` | `@trippy/web` | **React + Vite on :5174 - the only client.** `src/pages/*`, `src/components/*`, `api.ts`, `useApi.ts` |
+| `apps/web` | `@trippy/web` | **React + Vite on :5174 - the only client.** `src/pages/*` (bigger pages get a folder), `src/components/*` with generic widgets under `src/components/ui/*`, plus `src/hooks/*`, `src/lib/*`, `src/styles/*` |
 
 Data flows **core → server → api → web**. A change that alters a shape must be
 planned in that order, and every downstream layer must be updated in the same pass.

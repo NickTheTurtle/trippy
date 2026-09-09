@@ -16,7 +16,14 @@ repo.
 
 | Client | Path | Status |
 |---|---|---|
-| `@trippy/web` | `apps/web/src` | **React + Vite on :5174 - the only client.** `pages/*`, `components/*`, `api.ts`, `useApi.ts`, `auth.tsx`, `nav.ts`, `calendar.css` |
+| `@trippy/web` | `apps/web/src` | **React + Vite on :5174 - the only client.** `pages/*`, `components/*`, `components/ui/*`, `hooks/*`, `lib/*`, `styles/*`, `auth.tsx`, `nav.ts` |
+
+Sources are grouped by role: `hooks/` (`useApi`, `useMutation`, `useTripEvents`), `lib/`
+(`api`, `api-types`, `format`, `currencies`, `anchor`, `scroll-lock`), `styles/`
+(`index.css`, `calendar.css`), and `components/ui/` for generic widgets. A component
+belongs in `components/ui/` only if it would drop into another app unchanged; anything
+that imports `Trip`/`TripCity`, calls `/trips/...`, or renders a trip concept stays at
+`components/` top level. Bigger pages get a folder of their own, as `pages/discover/` does.
 
 The old client app has been deleted now that the React port is complete. If you find a
 stale reference to `apps/svelte`, remove it.
@@ -30,12 +37,13 @@ only if asked directly; never volunteer polish there.
 
 ## Rules
 
-1. **Reuse the existing components.** `Field`, `Select`, `MultiSelect`, `Modal`, `Layout`,
-   `SectionNav`, `Cover`, `GoogleMap`, `TripMap`, `Itinerary` already exist in
-   `apps/web/src/components`. Read them first; extend rather than duplicate. Bespoke
+1. **Reuse the existing components.** `Field`, `Select`, `MultiSelect`, `Modal`,
+   `SectionNav`, `ConfirmDialog`, `EmptyState`, `SearchDropdown` live in
+   `apps/web/src/components/ui`; `Layout`, `Cover`, `GoogleMap`, `TripMap` and `Itinerary`
+   in `apps/web/src/components`. Read them first; extend rather than duplicate. Bespoke
    one-off markup that re-implements an existing component is a defect.
-2. **All server calls go through the shared client** (`api.ts` / `useApi.ts`). No raw
-   `fetch` scattered in a page.
+2. **All server calls go through the shared client** (`lib/api.ts` / `hooks/useApi.ts`). No
+   raw `fetch` scattered in a page.
 3. **Never re-derive domain math in the client.** Settlement, splits, timezone conversion,
    and calendar layout come from `@trippy/core` or the API. Import it; don't reimplement it.
 4. **The calendar is frozen pending redesign** (`docs/DESIGN.md` M3). If you must touch it,

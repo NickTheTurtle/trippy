@@ -970,6 +970,25 @@ cannot use it.
 These exist so five pages don't each invent their own version. Reach for them
 before adding page-local CSS.
 
+**Where a file goes in `apps/web/src`.** Sources are grouped by role: `hooks/`,
+`lib/`, `styles/`, `components/`, and `pages/`. The one boundary that needs a
+rule is `components/ui/` versus `components/`: a `ui/` component is generic and
+would drop into another app unchanged, while a top-level component knows about
+this domain, meaning it imports `Trip`/`TripCity`, calls `/trips/...`, or renders
+a trip concept. The test is the import list, not how widget-shaped something
+looks: `Cover` sits at top level despite being a plain card, because it imports
+`coverArt` from `@trippy/core/cover`. `GoogleMap` is the deliberate exception,
+kept top level even though it imports only React, because its props are authored
+around itinerary tracks (per-day polylines, numbered pins) and `TripMap`
+re-exports its `MapTrack` type.
+
+The layout previously said nothing: 16 loose files at the root of `src` and 19
+flat ones under `components/` that mixed generic widgets with trip-specific
+ones, with `pages/discover/` the only page ever given a folder. Grouping by role
+means a new file has one obvious home. A page earns a folder of its own once it
+grows dialogs, cards or rows worth naming; `pages/discover/` is the pattern to
+copy.
+
 **Writing style.** No em dashes, anywhere: not in UI copy, not in code comments,
 not in this document. Use a colon to introduce an explanation, commas or
 parentheses around an aside, and a semicolon or a full stop between independent
@@ -989,7 +1008,7 @@ disappears when you start typing is missing exactly when it is needed, so those
 go in a `.fhint` under the field (as on password fields), which is what
 `Field`'s `hint` prop renders.
 
-**Fields: `src/components/Field.tsx`, styled by `.field` and `.input`.** Four
+**Fields: `src/components/ui/Field.tsx`, styled by `.field` and `.input`.** Four
 pages had each grown their own `Field` component and their own `INPUT` class
 string, and they had drifted: three label sizes, four corner radii and three
 paddings for what is meant to be one control. The spec now lives in two element
@@ -1026,7 +1045,7 @@ originals stay diffable. There was no config before, which meant anyone running
 file they touched. `npm run format` and `npm run format:check` cover
 `apps/web/src`; the API and the retiring Svelte app are left alone.
 
-**Modals: `src/lib/components/Modal.svelte`.** Every dialog in the app uses it.
+**Modals: `src/components/ui/Modal.tsx`.** Every dialog in the app uses it.
 It wraps the native `<dialog>` element with `showModal()`, which gives focus
 trapping, Escape-to-close, focus restore, background inertness and top-layer
 rendering (immune to z-index and `transform` clipping) for free. The one thing
@@ -1098,7 +1117,7 @@ keep class names distinct within a file, and remember bare element selectors
 file, so a wrapping chip list must set `flex-direction: row` explicitly.
 Beware specificity too: `.mform label` (0,1,1) beats `.wholine` (0,1,0).
 
-**Section sidebars: `src/lib/components/SectionNav.svelte`.** A page with
+**Section sidebars: `src/components/ui/SectionNav.tsx`.** A page with
 several related panels (Discover, Preparation, Expenses) switches between them
 with a vertical list on the left, not a second row of tabs or a segmented
 control. Tabs move you between features; this moves you within one. Items carry
@@ -1141,7 +1160,7 @@ browser and compare `window.innerWidth - document.documentElement.clientWidth`
 plus a fixed element's `getBoundingClientRect()` across views.
 
 **Card cover images use real photographs, then generated art**
-(`src/lib/components/Cover.svelte`): a place's Google Places photo: the
+(`src/components/Cover.tsx`): a place's Google Places photo: the
 storefront-style picture Maps shows, and deterministic generated art when there
 is none. Map thumbnails were tried as a middle tier and dropped: a card showing a
 street map told you nothing the map beside it wasn't already showing, and read as
@@ -1167,7 +1186,7 @@ so a large backlog drains over several visits instead of being billed at once
 and opening dozens of sockets. The at-most-one-lookup-ever rule and the
 `NO_PHOTO` sentinel are unchanged.
 
-**Cover images: `src/lib/components/Cover.svelte`.** Cards for places and stays
+**Cover images: `src/components/Cover.tsx`.** Cards for places and stays
 always show a cover. When a photo exists it is rendered; otherwise `coverArt()`
 in `src/lib/cover.ts` hashes the name (FNV-1a) into one of eight muted gradients
 and picks a category emoji. The fallback still has to look deliberate rather than
@@ -1342,7 +1361,7 @@ Two seeded trips, chosen to exercise opposite ends of the layout engine:
   moment of adding. Category is provider-derived and never shown as an input or a card
   chip: on a card of real places the tag was the same handful of words over and over
   and told you nothing the photo and name did not. It survives only to seed
-  `Cover.svelte`'s generated art when a place has no photo. `googleCategory()` orders
+  `Cover.tsx`'s generated art when a place has no photo. `googleCategory()` orders
   its tests **specific before generic** and consults Google's own `primaryType` first,
   because Google tags nearly everything visit-worthy as `tourist_attraction`; testing
   that early collapsed a flea market, a hill and a museum into one bucket.
@@ -1387,7 +1406,7 @@ Two seeded trips, chosen to exercise opposite ends of the layout engine:
   `schedule.ts` estimates each leg (haversine distance with a padding factor, then
   walk / transit / drive by distance) and renders it between blocks. Saved POIs can be
   scheduled onto a track from the calendar, carrying their coordinates so legs compute.
-- Interactive map (`src/lib/components/TripMap.svelte`): a real Leaflet map on the
+- Interactive map (`src/components/TripMap.tsx`): a real Leaflet map on the
   calendar with keyless OpenStreetMap tiles. Scheduled items with coordinates render
   as numbered, track-coloured pins with a dashed route line per track, and the map
   fits to the day's stops. Loaded client-side only (dynamic import) so SSR is clean.
@@ -1466,7 +1485,7 @@ Two seeded trips, chosen to exercise opposite ends of the layout engine:
   names only, without the time-zone label.
 - Multi-person assignment (pre-trip): tasks and packing items can be assigned to several
   members via a checkbox dropdown; assignees render as chips. Stored comma-separated.
-- Google Maps on the calendar (`GoogleMap.svelte`): when `GOOGLE_MAPS_KEY` is set the
+- Google Maps on the calendar (`GoogleMap.tsx`): when `GOOGLE_MAPS_KEY` is set the
   calendar uses a larger Google map that defaults to previewing the day's city (from its
   coordinates) and draws track-coloured numbered pins with route lines; it falls back to
   the Leaflet/OpenStreetMap map when no key is present.
