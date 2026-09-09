@@ -124,7 +124,7 @@ function Row({
 			: person.email;
 
 	return (
-		<li className="flex items-center gap-3 rounded-md p-2 hover:bg-surface-2">
+		<li className="flex items-center gap-3 rounded-sm p-2 hover:bg-surface-2">
 			<span className="grid size-[34px] shrink-0 place-items-center rounded-full bg-accent-soft font-semibold text-accent-ink">
 				{person.name[0]}
 			</span>

@@ -29,7 +29,10 @@
 	--font-serif: 'Fraunces', ui-serif, Georgia, serif;
 
 	--radius-sm: 6px;
-	--radius-DEFAULT: 10px;
+	/* Named `md`, not `DEFAULT`. Tailwind v4 does not emit a bare `--radius` for
+	   a `DEFAULT` key, so the plain-CSS rules below that referenced it fell back
+	   to square corners. */
+	--radius-md: 10px;
 	--radius-lg: 16px;
 
 	--shadow-card: 0 1px 2px rgba(28, 35, 33, 0.04), 0 8px 24px rgba(28, 35, 33, 0.06);
@@ -106,7 +109,7 @@ h3 {
 	gap: 0.4rem;
 	padding: 0.55rem 1rem;
 	border: 1px solid var(--color-line);
-	border-radius: var(--radius);
+	border-radius: var(--radius-md);
 	background: var(--color-surface);
 	color: var(--color-ink);
 	font: inherit;
@@ -257,8 +260,187 @@ h3 {
 	.mfoot {
 		justify-content: stretch;
 	}
-	.mfoot .btn {
+	/* Pushes an error message to the left of the footer buttons, so a long one
+   wraps in place instead of shoving the buttons off the row. */
+.mfoot .mfoot-note {
+	margin-right: auto;
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+.mfoot .btn {
 		flex: 1 1 auto;
 		justify-content: center;
+	}
+}
+/*
+ * Select and SectionNav.
+ *
+ * Plain CSS for the same reason the dialog block is: the menu is positioned by
+ * `useAnchor` at runtime, it needs `position: fixed` to escape the modal body's
+ * overflow, and the narrow-screen SectionNav hides its scrollbar through
+ * ::-webkit-scrollbar. None of that is expressible as utility classes.
+ */
+.sel {
+	position: relative;
+	/* Wide enough to read by default, but never wider than the space it's given;
+	   a bare min-width here overflows narrow parents like the modal's field row. */
+	min-width: min(9rem, 100%);
+}
+.sel.compact {
+	min-width: min(7.5rem, 100%);
+}
+.seltrigger {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.5rem;
+	width: 100%;
+	padding: 0.5rem 0.6rem;
+	border: 1px solid var(--color-line);
+	border-radius: var(--radius-sm);
+	background: var(--color-surface);
+	font: inherit;
+	color: var(--color-ink);
+	cursor: pointer;
+	text-align: left;
+}
+.sel.compact .seltrigger {
+	padding: 0.35rem 0.5rem;
+	font-size: 0.85rem;
+}
+.seltrigger:hover {
+	border-color: var(--color-accent);
+}
+.sellabel {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.sellabel.placeholder {
+	color: var(--color-ink-faint);
+}
+.selcaret {
+	font-size: 0.7rem;
+	color: var(--color-ink-faint);
+	flex-shrink: 0;
+}
+.selmenu {
+	/* Positioned by useAnchor; fixed so .mbody's overflow cannot clip it. */
+	position: fixed;
+	z-index: 40;
+	width: max-content;
+	max-width: min(20rem, calc(100vw - 1rem));
+	list-style: none;
+	margin: 0;
+	padding: 0.25rem;
+	background: var(--color-surface);
+	border: 1px solid var(--color-line);
+	border-radius: var(--radius-sm);
+	box-shadow: var(--shadow-card);
+	overflow-y: auto;
+	overscroll-behavior: contain;
+}
+.selopt {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.75rem;
+	width: 100%;
+	text-align: left;
+	border: none;
+	background: none;
+	font: inherit;
+	cursor: pointer;
+	padding: 0.4rem 0.5rem;
+	border-radius: var(--radius-sm);
+	color: var(--color-ink);
+	white-space: nowrap;
+}
+.selopttext {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.selcheck {
+	color: var(--color-accent-ink);
+	font-size: 0.8rem;
+	flex: 0 0 auto;
+}
+.selopt:hover {
+	background: var(--color-accent-soft);
+}
+.selopt.on {
+	color: var(--color-accent-ink);
+	font-weight: 500;
+}
+
+.secnav {
+	display: flex;
+	flex-direction: column;
+	gap: 0.15rem;
+	position: sticky;
+	top: 84px;
+}
+.sec {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.6rem;
+	width: 100%;
+	text-align: left;
+	background: none;
+	border: 1px solid transparent;
+	border-radius: var(--radius-md);
+	padding: 0.5rem 0.7rem;
+	font: inherit;
+	font-size: 0.92rem;
+	font-weight: 500;
+	color: var(--color-ink-soft);
+	cursor: pointer;
+	min-width: 0;
+}
+.sec:hover {
+	background: var(--color-surface-2);
+	color: var(--color-ink);
+}
+.sec.on {
+	background: var(--color-surface);
+	border-color: var(--color-line);
+	color: var(--color-accent-ink);
+	box-shadow: var(--shadow-sm);
+}
+.sec .lbl {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	min-width: 0;
+}
+.sec .badge {
+	flex: 0 0 auto;
+	font-size: 0.75rem;
+	font-weight: 500;
+	color: var(--color-ink-faint);
+	font-variant-numeric: tabular-nums;
+}
+.sec.on .badge {
+	color: var(--color-accent);
+}
+
+@media (max-width: 860px) {
+	.secnav {
+		flex-direction: row;
+		position: static;
+		overflow-x: auto;
+		scrollbar-width: none;
+		padding-bottom: 0.2rem;
+		border-bottom: 1px solid var(--color-line);
+		margin-bottom: 1rem;
+	}
+	.secnav::-webkit-scrollbar {
+		display: none;
+	}
+	.sec {
+		width: auto;
+		flex: 0 0 auto;
 	}
 }

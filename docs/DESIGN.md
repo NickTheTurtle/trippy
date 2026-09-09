@@ -481,6 +481,18 @@ exposes both, so the React page can grow the list without server work. It is not
 built yet, and until it is, a pending invite is only visible as its placeholder
 row.
 
+**`--radius-DEFAULT` produced no `--radius`.** Tailwind v4 does not emit a bare
+variable for a `DEFAULT` key in a theme namespace, so every plain-CSS rule
+written as `border-radius: var(--radius)` resolved to nothing and rendered
+square. Buttons, inputs and panels were all affected, and nothing failed: an
+undefined custom property is not an error. The token is now `--radius-md`.
+Caught by reading the computed value out of a live page rather than trusting
+that the name worked.
+
+**One dialog rule was dropped in the first CSS port.** `.mfoot .mfoot-note` was
+missing, so a footer error message would have sat to the right of the buttons
+instead of pushing them aside. Found by porting a page that actually uses it.
+
 ## Shared UI conventions
 
 These exist so five pages don't each invent their own version. Reach for them
