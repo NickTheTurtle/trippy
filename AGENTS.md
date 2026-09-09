@@ -15,7 +15,7 @@ Read the relevant section before changing behavior.
 | `packages/server` | `@trippy/server` | SQLite persistence + integrations; owns `app.db` |
 | `packages/core` | `@trippy/core` | Pure domain logic - no I/O, browser-safe |
 
-The SvelteKit → React port is **complete** and the SvelteKit app has been deleted.
+The SvelteKit -> React port is **complete** and the SvelteKit app has been deleted.
 `apps/web` is the only client.
 
 ## Standing instructions
@@ -43,7 +43,8 @@ The SvelteKit → React port is **complete** and the SvelteKit app has been dele
 
 ## Hard rules
 
-- `packages/server/src/app.db` is **real data**. Never delete, reset, or rebuild it.
+- `data/app.db` is **real data**. Never delete, reset, or rebuild it. Its `-shm`
+  and `-wal` siblings live beside it; use `TRIPPY_DB` for throwaway test databases.
   Schema changes are **additive migrations** in `db.ts`, with defaults for existing rows.
 - `.env` holds **live paid API keys** (places / geocode / routing / fx). Never print it,
   read it back into a transcript, or commit it. New keys go into `.env.example` by name only.
@@ -51,7 +52,18 @@ The SvelteKit → React port is **complete** and the SvelteKit app has been dele
   uncached provider call inside a loop.
 - **Dev servers are already running** (:5174 web, :5175 api) with
   watch/HMR. Never kill, restart, or start a competing server, and never bind those ports.
-- `packages/core` stays pure - no SQLite, no `fetch`, no `process.env`. Both clients import it.
+- `packages/core` stays pure - no SQLite, no `fetch`, no `process.env`. It must run
+  in a browser and stay portable to a future Expo / React Native client.
+
+## Scope
+
+- This repo is self-contained: everything an agent needs is in this tree.
+- This machine also carries global agents and skills belonging to unrelated codebases.
+  None of them applies here. Never load one, and never carry a convention from another
+  codebase into this one - notably, do not use a global `git` skill, which may assume a
+  build environment this repo does not have. This repo has no git hooks.
+- This repo's agents are the six in `.github/agents/`: Trippy Lead (coordinator and default
+  entry point), Trippy Domain, Trippy API, Trippy UI, Trippy Verify, and Trippy Review.
 
 ## Concurrency
 

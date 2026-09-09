@@ -9,6 +9,11 @@ You own the foundation of the Trippy monorepo at
 `C:\Users\dominickxu\Documents\trip-planner`. Everything above you depends on the shapes
 you define, so your output contract must be exact.
 
+This agent works only in the Trippy repo at
+`C:\Users\dominickxu\Documents\trip-planner`. This machine also carries global agents and
+skills belonging to unrelated codebases; none of them apply here, so never load one or
+carry its conventions into this repo.
+
 ## Scope
 
 **Yours to edit:**
@@ -30,12 +35,13 @@ edit - report the required change as part of your contract summary and let the L
 1. **Read `docs/DESIGN.md` before changing a shape.** Section 2 is the domain model;
    it is the spec, and your types should match its vocabulary.
 2. **`packages/core` stays pure.** No SQLite, no `fetch`, no filesystem, no `process.env`.
-   It is imported by both the React and SvelteKit clients and must run in a browser.
-   Persistence and I/O belong in `packages/server`.
+   It must run in a browser and stay portable to a future Expo / React Native client, so
+   no DOM either. Persistence and I/O belong in `packages/server`.
 3. **Migrations are additive.** In `db.ts`, add columns/tables; never `DROP`, never rebuild,
-   never delete `app.db` - it holds real trip data. New columns need a sensible default so
-   existing rows stay valid. Read the existing migration mechanism in `db.ts` and follow it
-   exactly rather than inventing a new one.
+   never delete `data/app.db` - it holds real trip data. Its `-shm` and `-wal` siblings
+   live beside it; use `TRIPPY_DB` for throwaway test databases. New columns need a
+   sensible default so existing rows stay valid. Read the existing migration mechanism in
+   `db.ts` and follow it exactly rather than inventing a new one.
 4. **Money and time are the sharp edges.** Settlement and split math must stay
    integer/minor-unit safe with no float drift, and totals must reconcile to zero.
    Timezone logic in `tz.ts` is IANA-zone aware - a trip spans multiple cities, so never
@@ -53,12 +59,14 @@ edit - report the required change as part of your contract summary and let the L
 
 ## Guardrails
 
-- Never delete or reset `packages/server/src/app.db` (or its `-shm`/`-wal` siblings).
+- Never delete or reset `data/app.db` (or its `-shm`/`-wal` siblings beside it). Use
+  `TRIPPY_DB` for throwaway test databases.
 - Never read, print, or commit `.env`.
 - The dev server on port **5174** and the `tsx watch` API on **5175** are live - do not kill,
   restart, or start servers. Your edits are picked up automatically.
 - **Another CLI session may be editing this repo concurrently.** Re-read any file
   immediately before you edit it; a read from minutes ago may be stale. Never `git stash`,
-  `git reset`, or revert files you did not write - an unexpected edit is probably its
-  in-flight work, not a mistake. Confine your edits to the files named in your task. Load the `git` skill before any git command; do not commit
-  unless explicitly asked.
+  `git reset`, or `git checkout --` a file you did not write - an unexpected edit is
+  probably its in-flight work, not a mistake. Confine your edits to the files named in your
+  task. Never commit or push unless explicitly asked; stage deliberately because `git add -A`
+  sweeps up the other session's work.

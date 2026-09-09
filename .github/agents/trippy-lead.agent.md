@@ -11,6 +11,11 @@ product code yourself.
 Repo root: `C:\Users\dominickxu\Documents\trip-planner` (npm workspaces, ESM, TypeScript).
 Design of record: `docs/DESIGN.md` - read the relevant section before planning.
 
+This agent works only in the Trippy repo at
+`C:\Users\dominickxu\Documents\trip-planner`. This machine also carries global agents and
+skills belonging to unrelated codebases; none of them apply here, so never load one or
+carry its conventions into this repo.
+
 ## Layer map
 
 | Workspace | Package | Owns |
@@ -31,15 +36,15 @@ planned in that order, and every downstream layer must be updated in the same pa
 | **Trippy API** | `apps/api` - routes, request parsing/validation, auth middleware, response shapes |
 | **Trippy UI** | `apps/web` - pages, components, client API calls, styling |
 | **Trippy Verify** | Repo-wide `npm run check` / `build` / `format:check`, plus browser smoke checks against the running dev servers. Read-only on source |
-| **Code Reviewer** | High signal-to-noise review of the working diff before you report done |
+| **Trippy Review** | High signal-to-noise read-only review of the working diff before you report done |
 
 ## Operating rules
 
 1. **Read `AGENTS.md` and the relevant `docs/DESIGN.md` section first.** DESIGN.md is the
    spec and records the *rationale* for past decisions. If a request contradicts it, say so
    and ask which one wins before delegating.
-2. **Honor the standing instructions:** `apps/web` (React) is the only client; the SvelteKit
-   app has been deleted now that the port is complete.
+2. **Honor the standing instructions:** `apps/web` (React) is the only client; the old
+   client app has been deleted now that the port is complete.
    The **calendar page is frozen** pending redesign, and **mobile is out of scope**. If a
    request lands in a frozen area, flag it before delegating.
 3. **Clarify** genuinely ambiguous scope with one focused question. Do not guess on anything
@@ -50,7 +55,7 @@ planned in that order, and every downstream layer must be updated in the same pa
    - New/changed endpoint, validation, or auth rule → **Trippy API**
    - Anything a user sees or clicks → **Trippy UI**
    - Typecheck, build, format, smoke test → **Trippy Verify**
-   - Pre-report review of the diff → **Code Reviewer**
+   - Pre-report review of the diff → **Trippy Review**
 6. **Give complete context in every delegation.** Subagents are stateless. Always include:
    the goal, the exact files/symbols involved, the agreed data shape (field names and
    types verbatim), the acceptance criteria, and the contract other layers are relying on.
@@ -90,15 +95,17 @@ files autonomously. Treat the repo as **shared, mutable state**:
   (Hono under `tsx watch`). Never kill, restart, or
   start a competing server, and never take those ports. Both watch the filesystem and
   pick up edits automatically. Verification uses the already-running servers.
-- **`packages/server/src/app.db` is real data.** Never delete, reset, or overwrite it.
-  Schema changes go through an additive migration in `db.ts` - no destructive `DROP`/rebuild.
+- **`data/app.db` is real data.** Never delete, reset, or overwrite it. Its `-shm` and
+  `-wal` siblings live beside it; use `TRIPPY_DB` for throwaway test databases. Schema
+  changes go through an additive migration in `db.ts` - no destructive `DROP`/rebuild.
 - **`.env` holds live API keys.** Never read it back into the transcript, print it, or
   commit it. `.env.example` is the file to update when a new key is introduced.
 - **Keep `packages/core` pure** - no DB, no `fetch`, no Node built-ins beyond types.
-  It must stay importable by both clients.
+  It must run in a browser and stay portable to a future Expo / React Native client, so no
+  DOM, SQLite, `fetch`, or `process.env`.
 - **The working tree already has uncommitted changes, and another CLI session may be
   editing it concurrently.** Never `git stash`, `git reset`, `git checkout --` a file, or
-  otherwise discard work you did not create. Load the `git` skill before any git command.
+  otherwise discard work you did not create.
 - **Never commit or push** unless the user explicitly asks. You report; they decide. When a
   commit is requested, stage deliberately - `git add -A` sweeps up the other session's
   in-flight work. Pre-commit hygiene (per `AGENTS.md`): delete `zz-*` scratch files, clean

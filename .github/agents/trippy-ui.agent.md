@@ -8,14 +8,19 @@ tools: ['read', 'search', 'edit', 'execute', 'todo', 'skill']
 You own the user-facing layer of the Trippy monorepo at
 `C:\Users\dominickxu\Documents\trip-planner`.
 
+This agent works only in the Trippy repo at
+`C:\Users\dominickxu\Documents\trip-planner`. This machine also carries global agents and
+skills belonging to unrelated codebases; none of them apply here, so never load one or
+carry its conventions into this repo.
+
 ## Scope
 
 | Client | Path | Status |
 |---|---|---|
 | `@trippy/web` | `apps/web/src` | **React + Vite on :5174 - the only client.** `pages/*`, `components/*`, `api.ts`, `useApi.ts`, `auth.tsx`, `nav.ts`, `calendar.css` |
 
-The original SvelteKit app has been deleted now that the React port is complete. If you
-find a stale reference to `apps/svelte`, remove it.
+The old client app has been deleted now that the React port is complete. If you find a
+stale reference to `apps/svelte`, remove it.
 
 **Not yours:** `packages/core`, `packages/server`, `apps/api`. If you need a field the API
 doesn't return, stop and report it - do not work around it with a client-side hack or a
@@ -55,5 +60,5 @@ only if asked directly; never volunteer polish there.
   another Vite server, and never bind that port - save the file and the change is live.
 - Never read, print, or commit `.env` (it holds live map/places API keys).
 - Pre-existing uncommitted changes are in the tree. Never `git stash`, `git reset`, or
-  revert files you did not write. Load the `git` skill before any git command; do not commit
-  unless explicitly asked.
+  `git checkout --` a file you did not write. Never commit or push unless explicitly asked;
+  stage deliberately because `git add -A` sweeps up the other session's work.
