@@ -821,6 +821,27 @@ expense they are typing in now, and there is no schema change. The year is shown
 only when it is not the current one, since it would otherwise repeat on every row
 of the page.
 
+### 5.0.10 The trip list
+
+**A trip card leads with its first city's photograph.** The cards were flat
+gradients on the first screen anyone sees after signing in, while every other
+card in the app had gained a real picture. The same lookup and the same proxy
+serve it, and the trip's gradient stays as the fallback so a trip with no cities
+yet looks exactly as it did before. Only the first city of each trip is looked
+up, because that is the only one a card shows, which also keeps the cost of
+opening this page proportional to the number of trips rather than to the number
+of cities in them.
+
+**Cards say how many people are on the trip.** The card already answered where
+and when and what your role is; group size is the other thing that distinguishes
+two trips at a glance, and it is one aggregate on a query that already runs.
+
+**The photo pipeline is now used in three places**, so the rule is worth stating
+once: a nullable `photo` column, `NULL` meaning never looked up and a sentinel
+meaning looked up and missing, a backfill on the page that displays it, and the
+value carried straight over when the record came from a search that already had
+one. `pois`, `lodging_options` and `cities` all follow it.
+
 ## Shared UI conventions
 
 These exist so five pages don't each invent their own version. Reach for them

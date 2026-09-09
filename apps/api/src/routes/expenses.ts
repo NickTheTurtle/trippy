@@ -33,7 +33,8 @@ expenses.get('/', (c) => {
 			converted: e.currency !== home
 		})),
 		balances: balances(trip.id),
-		settlement: settlement(trip.id)
+		settlement: settlement(trip.id),
+		me: c.get('user').id
 	});
 });
 

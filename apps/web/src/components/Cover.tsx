@@ -13,12 +13,17 @@ export default function Cover({
 	photo = null,
 	seed,
 	category = null,
-	height = '128px'
+	height = '128px',
+	background,
+	children
 }: {
 	photo?: string | null;
 	seed: string;
 	category?: string | null;
 	height?: string;
+	/** Overrides the generated art, for callers that already have their own. */
+	background?: string;
+	children?: React.ReactNode;
 }) {
 	const art = coverArt(seed, category);
 	const url = photoSrc(photo);
@@ -28,14 +33,17 @@ export default function Cover({
 	useEffect(() => setFailed(false), [url]);
 
 	return (
-		<div className="cover" style={{ height, background: art.background }}>
+		<div className="cover" style={{ height, background: background ?? art.background }}>
 			{url && !failed ? (
 				<img src={url} alt="" loading="lazy" decoding="async" onError={() => setFailed(true)} />
 			) : (
-				<span className="glyph" aria-hidden="true">
-					{art.glyph}
-				</span>
+				!background && (
+					<span className="glyph" aria-hidden="true">
+						{art.glyph}
+					</span>
+				)
 			)}
+			{children}
 		</div>
 	);
 }

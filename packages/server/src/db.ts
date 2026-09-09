@@ -249,6 +249,10 @@ addColumn('lodging_options', 'photo', 'TEXT');
 // has to count towards balances like any other expense, which is the point.
 addColumn('expenses', 'settlement', 'INTEGER');
 
+// Cover image for a city, used on the trip cards. Same rules as the other two:
+// null means never looked up, the sentinel means looked up and nothing found.
+addColumn('cities', 'photo', 'TEXT');
+
 // Trip dates were originally a free-text label. Keep the label (it is what the// header renders) but store the real endpoints so the edit form can round-trip
 // date pickers instead of asking people to retype a formatted string.
 addColumn('trips', 'start_date', 'TEXT');

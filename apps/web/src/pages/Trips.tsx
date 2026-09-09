@@ -3,8 +3,9 @@ import { Link, useNavigate } from 'react-router';
 import { api, ApiError } from '../api';
 import { useApi } from '../useApi';
 import { Field } from '../components/Field';
+import Cover from '../components/Cover';
 
-type City = { id: string; name: string };
+type City = { id: string; name: string; photo: string | null };
 type Trip = {
 	id: string;
 	name: string;
@@ -12,6 +13,7 @@ type Trip = {
 	cover: string;
 	role: string;
 	cities: City[];
+	memberCount: number;
 };
 
 export default function Trips() {
@@ -56,23 +58,37 @@ export default function Trips() {
 }
 
 function TripCard({ trip }: { trip: Trip }) {
+	const first = trip.cities[0] ?? null;
 	return (
 		<Link
 			to={`/trips/${trip.id}`}
 			className="card overflow-hidden transition-[box-shadow,transform] duration-150 hover:-translate-y-0.5 hover:shadow-card"
 		>
-			<div className="flex h-[150px] items-start p-4" style={{ background: trip.cover }}>
-				<span className="chip border-none bg-white/85">
+			{/* The trip's own gradient stays the fallback, so a trip with no cities
+			    yet, or one whose first city has no picture, looks the same as it
+			    always did rather than blank. */}
+			<Cover
+				photo={first?.photo ?? null}
+				seed={trip.name}
+				height="150px"
+				background={first?.photo ? undefined : trip.cover}
+			>
+				<span className="chip absolute top-4 left-4 border-none bg-white/85">
 					{trip.cities.length} {trip.cities.length === 1 ? 'city' : 'cities'}
 				</span>
-			</div>
+			</Cover>
 			<div className="px-6 pt-5 pb-6">
 				<h3 className="text-[1.15rem]">{trip.name}</h3>
 				<p className="muted mt-1 mb-3 text-[0.9rem]">{trip.dates}</p>
 				<p className="mb-4 text-[0.95rem] text-ink-soft">
 					{trip.cities.length ? trip.cities.map((c) => c.name).join('  ›  ') : 'No cities yet'}
 				</p>
-				<span className="chip accent capitalize">{trip.role}</span>
+				<span className="flex flex-wrap items-center gap-2.5">
+					<span className="chip accent capitalize">{trip.role}</span>
+					<span className="muted text-[0.85rem]">
+						{trip.memberCount} {trip.memberCount === 1 ? 'person' : 'people'}
+					</span>
+				</span>
 			</div>
 		</Link>
 	);

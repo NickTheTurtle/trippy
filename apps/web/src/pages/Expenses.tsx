@@ -27,8 +27,9 @@ type Data = {
 	currencies: string[];
 	members: Member[];
 	expenses: Expense[];
-	balances: { name: string; net: number }[];
+	balances: { id: string; name: string; net: number }[];
 	settlement: Transfer[];
+	me: string;
 };
 type Transfer = { fromId: string; toId: string; from: string; to: string; amount: number };
 
@@ -152,6 +153,11 @@ export default function Expenses() {
 										<li key={b.name} className="flex justify-between gap-2.5 text-[0.9rem]">
 											<span className="truncate" title={b.name}>
 												{b.name}
+												{/* The reader's own number is the one they came for, and
+												    twenty names in three columns is too many to find it in. */}
+												{b.id === data.me && (
+													<span className="muted ml-1.5 text-[0.75rem]">you</span>
+												)}
 											</span>
 											<span
 												className={`shrink-0 font-semibold ${b.net > 0 ? 'text-accent-ink' : 'text-danger-ink'}`}

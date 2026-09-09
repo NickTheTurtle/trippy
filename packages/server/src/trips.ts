@@ -22,18 +22,57 @@ export interface CityRow {
 	depart: string;
 	lat: number | null;
 	lng: number | null;
+	photo: string | null;
 }
 
-export function listTripsForUser(userId: string): (TripRow & { cities: CityRow[] })[] {
+export function listTripsForUser(userId: string): (TripRow & {
+	cities: CityRow[];
+	memberCount: number;
+})[] {
 	const trips = db
 		.prepare(
-			`SELECT t.id, t.name, t.dates, t.cover, t.home_currency, t.start_date, t.end_date, m.role
+			`SELECT t.id, t.name, t.dates, t.cover, t.home_currency, t.start_date, t.end_date, m.role,
+			        (SELECT COUNT(*) FROM memberships x WHERE x.trip_id = t.id) AS memberCount
 			 FROM trips t JOIN memberships m ON m.trip_id = t.id
 			 WHERE m.user_id = ?
 			 ORDER BY t.created_at DESC`
 		)
-		.all(userId) as unknown as TripRow[];
+		.all(userId) as unknown as (TripRow & { memberCount: number })[];
 	return trips.map((t) => ({ ...t, cities: listCities(t.id) }));
+}
+
+/** A city still waiting on a cover photo lookup. */
+export interface CityNeedingPhoto {
+	id: string;
+	name: string;
+	country: string;
+	lat: number | null;
+	lng: number | null;
+}
+
+/**
+ * First cities of the user's trips that have never had a photo looked up.
+ *
+ * Only the first city of each trip is worth a lookup, because that is the only
+ * one a trip card shows. Restricting it also keeps the cost of opening the trip
+ * list proportional to the number of trips rather than to the number of cities
+ * in them.
+ */
+export function citiesNeedingPhotos(userId: string): CityNeedingPhoto[] {
+	return db
+		.prepare(
+			`SELECT c.id, c.name, c.country, c.lat, c.lng
+			 FROM cities c
+			 JOIN memberships m ON m.trip_id = c.trip_id AND m.user_id = ?
+			 WHERE c.photo IS NULL
+			   AND c.sort = (SELECT MIN(x.sort) FROM cities x WHERE x.trip_id = c.trip_id)`
+		)
+		.all(userId) as unknown as CityNeedingPhoto[];
+}
+
+/** Records the result of a photo lookup (a resource name, or the miss sentinel). */
+export function setCityPhoto(cityId: string, photo: string): void {
+	db.prepare(`UPDATE cities SET photo = ? WHERE id = ?`).run(photo, cityId);
 }
 
 export function getTripForUser(
@@ -76,7 +115,7 @@ export function listMembersFull(tripId: string): TripMember[] {
 function listCities(tripId: string): CityRow[] {
 	return db
 		.prepare(
-			`SELECT id, name, country, tz, arrive, depart, lat, lng
+			`SELECT id, name, country, tz, arrive, depart, lat, lng, photo
 			 FROM cities WHERE trip_id = ? ORDER BY sort`
 		)
 		.all(tripId) as unknown as CityRow[];

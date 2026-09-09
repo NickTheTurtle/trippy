@@ -10,8 +10,11 @@ import {
 	addCity,
 	updateCity,
 	removeCity,
+	citiesNeedingPhotos,
+	setCityPhoto,
 	type CityInput
 } from '@trippy/server/trips';
+import { lookupPhoto } from '@trippy/server/places';
 import { discover } from './discover';
 import { calendar } from './calendar';
 import { expenses } from './expenses';
@@ -22,7 +25,30 @@ export const trips = new Hono<Env>();
 
 trips.use('*', requireUser);
 
-trips.get('/', (c) => c.json({ trips: listTripsForUser(c.get('user').id) }));
+/**
+ * The trip list, with a cover photo found for any trip whose first city has
+ * never had one looked up. Each city costs at most one lookup ever (the result,
+ * hit or miss, is written back), so this is a one-off on the first visit.
+ * Failures are swallowed: the card falls back to its gradient.
+ */
+trips.get('/', async (c) => {
+	const userId = c.get('user').id;
+	const pending = citiesNeedingPhotos(userId);
+	if (pending.length) {
+		await Promise.allSettled(
+			pending.map(async (city) => {
+				const photo = await lookupPhoto(
+					city.name,
+					{ city: city.name, country: city.country },
+					city.lat,
+					city.lng
+				);
+				setCityPhoto(city.id, photo);
+			})
+		);
+	}
+	return c.json({ trips: listTripsForUser(userId) });
+});
 
 trips.post('/', async (c) => {
 	const b = await body(c);
