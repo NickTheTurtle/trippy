@@ -33,5 +33,9 @@ data/*.db-shm
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 
-# Scratch verification scripts and screenshots
-*.png
+# Scratch verification output. The Playwright probe scripts themselves (zz-*.cjs)
+# are deliberately NOT ignored: a leftover one shows up as a dirty tree and gets
+# cleaned up. Their screenshot output is pure noise, so it is ignored - but only
+# at the repo root and only under the zz- prefix, so real image assets elsewhere
+# in the tree are still tracked normally.
+/zz-*.png
