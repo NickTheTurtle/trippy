@@ -706,6 +706,48 @@ whatever went wrong.
 state seeded from props, so a refetch after saving would otherwise leave stale
 values in the boxes. Keying it remounts the form against the new server truth.
 
+### 5.0.8 The itinerary editor
+
+**Every section is scoped to a city, and until this existed nothing could create
+one.** `createTrip` inserts a trip, a membership and the default Everyone party,
+and no city, so a freshly created trip rendered "Add cities to this trip to start
+collecting places." with no control anywhere in the app that added one. The three
+server functions (`addCity`, `updateCity`, `removeCity`) had been written and
+were fully unreachable: no route, no UI. The app only worked on seeded data.
+
+**Cities are edited from the chain they are shown in, not from the Edit trip
+dialog.** The Edit trip form saves on submit; these controls take effect
+immediately. Sharing a dialog between the two would leave the user unable to tell
+which half of it was already saved, and Cancel would mean two different things in
+one box. The chain in the trip header gains "Edit itinerary" for an organizer, or
+a primary "Add a city" when there are none.
+
+**Discover's empty state opens the same dialog.** That page is where a new
+organizer actually lands, and its copy pointed at something the app could not do.
+It now says what the rule is (places are collected per city) and offers the
+button, or explains the wait if the reader is not the organizer.
+
+**The city picker is the geocoder, not seven text boxes.** `GET /citysearch`
+already existed, unused, and returns name, country, latitude, longitude and the
+IANA zone together, the zone resolved offline from the coordinates by `tz-lookup`.
+So the organizer types a city name and never sees a time zone field, which
+matters because the zone is what the whole calendar renders through and is the
+single field a human is most likely to get wrong.
+
+**Dates default forward.** A new city arrives the day after the previous one
+departs, because the common case is appending the next stop. The first city falls
+back to the trip's start date, or to today when the trip's dates are still the
+free-text string `createTrip` accepts.
+
+**Dates save on blur, with no per-row Save button.** One button per city reads as
+one form per city. If the server refuses the edit, the row resets to the value
+the trip actually holds rather than keeping a number that was never stored.
+
+**The last city cannot be removed** (`removeCity` refuses, and the button is
+disabled with a `title` saying why). Removing it would put the trip back into
+exactly the dead-end state this feature exists to get out of. Disabled rather
+than hidden: a button that vanishes as you delete down to one looks like a bug.
+
 ## Shared UI conventions
 
 These exist so five pages don't each invent their own version. Reach for them
@@ -1253,6 +1295,9 @@ GET    /api/trips                          list
 POST   /api/trips                          create
 GET    /api/trips/:tripId                  trip + cities + members
 PATCH  /api/trips/:tripId                  rename / re-date / re-denominate
+POST   /api/trips/:tripId/cities           add a city (organizer)
+PATCH  /api/trips/:tripId/cities/:cityId   re-date a city (organizer)
+DELETE /api/trips/:tripId/cities/:cityId   remove a city, never the last one
 
 GET    /api/trips/:tripId/discover                    places + stays + votes
 GET    /api/trips/:tripId/discover/search?q=&cityId=&kind=

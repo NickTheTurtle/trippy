@@ -99,7 +99,7 @@ function nightsLabel(inD: string | null, outD: string | null): string | null {
 }
 
 export default function Discover() {
-	const { trip } = useTrip();
+	const { trip, editItinerary } = useTrip();
 	const base = `/trips/${trip.id}/discover`;
 	const { data, error, reload } = useApi<Data>(base);
 
@@ -271,7 +271,22 @@ export default function Discover() {
 	if (!data) return error ? <p className="text-warn">{error}</p> : null;
 
 	if (cities.length === 0) {
-		return <p className="muted">Add cities to this trip to start collecting places.</p>;
+		// This used to be the sentence alone, which pointed at something the app
+		// had no way to do.
+		return (
+			<div className="flex flex-col items-start gap-3">
+				<p className="muted m-0">
+					{trip.role === 'organizer'
+						? 'Places are collected per city, so add the first stop to start.'
+						: 'The organizer has not added any cities yet.'}
+				</p>
+				{trip.role === 'organizer' && (
+					<button type="button" className="btn primary" onClick={editItinerary}>
+						Add a city
+					</button>
+				)}
+			</div>
+		);
 	}
 	if (!current) return null;
 

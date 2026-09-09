@@ -5,6 +5,7 @@ import { useApi } from '../useApi';
 import { TABS } from '../nav';
 import Modal from '../components/Modal';
 import Select from '../components/Select';
+import Itinerary from '../components/Itinerary';
 import { Field, FieldShell } from '../components/Field';
 
 export type TripCity = {
@@ -32,7 +33,7 @@ export type Trip = {
 	memberList: { id: string; name: string }[];
 };
 
-type Ctx = { trip: Trip; reloadTrip: () => void };
+type Ctx = { trip: Trip; reloadTrip: () => void; editItinerary: () => void };
 
 /** Lets a section page read the trip the shell already loaded, rather than refetch it. */
 export function useTrip(): Ctx {
@@ -43,6 +44,7 @@ export default function TripShell() {
 	const { tripId } = useParams();
 	const { data, error, loading, reload } = useApi<{ trip: Trip }>(`/trips/${tripId}`);
 	const [showEdit, setShowEdit] = useState(false);
+	const [showItinerary, setShowItinerary] = useState(false);
 
 	if (loading && !data) return null;
 
@@ -107,6 +109,23 @@ export default function TripShell() {
 								{i < trip.cities.length - 1 && <span className="mx-1 h-px w-7 bg-line" />}
 							</div>
 						))}
+						{/* The itinerary opens from the chain it edits. A trip starts with
+						    no cities and every section is scoped to one, so on a new trip
+						    this is the only thing on the page worth pressing. */}
+						{trip.role === 'organizer' &&
+							(trip.cities.length === 0 ? (
+								<button
+									type="button"
+									className="btn small primary"
+									onClick={() => setShowItinerary(true)}
+								>
+									Add a city
+								</button>
+							) : (
+								<button type="button" className="link ml-2" onClick={() => setShowItinerary(true)}>
+									Edit itinerary
+								</button>
+							))}
 					</div>
 
 					<nav className="mt-5 flex gap-1 overflow-x-auto">
@@ -131,9 +150,20 @@ export default function TripShell() {
 			</div>
 
 			{showEdit && <EditTrip trip={trip} onClose={() => setShowEdit(false)} onSaved={reload} />}
+			{showItinerary && (
+				<Itinerary trip={trip} onClose={() => setShowItinerary(false)} onChanged={reload} />
+			)}
 
 			<main className="container py-8">
-				<Outlet context={{ trip, reloadTrip: reload } satisfies Ctx} />
+				<Outlet
+					context={
+						{
+							trip,
+							reloadTrip: reload,
+							editItinerary: () => setShowItinerary(true)
+						} satisfies Ctx
+					}
+				/>
 			</main>
 		</>
 	);
