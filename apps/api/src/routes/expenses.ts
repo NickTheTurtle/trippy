@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { requireMember } from '../middleware';
-import { body, num, str, strList } from '../parse';
+import { body, int, num, record, str, strList } from '../parse';
+import { fail, okOr } from '../respond';
 import type { Env } from '../types';
 import {
 	addExpense,
@@ -43,7 +44,7 @@ expenses.post('/', async (c) => {
 	const b = await body(c);
 
 	const description = str(b.description);
-	if (!description) return c.json({ error: 'Add a description.' }, 400);
+	if (!description) return fail(c, 400, 'Add a description.');
 
 	const amount = num(b.amount);
 	// Income is the same record with the sign flipped: a negative amount means
@@ -52,20 +53,22 @@ expenses.post('/', async (c) => {
 	// is no separate "this is income" flag to get out of step with it. Zero is
 	// the one value that says nothing either way, so it is rejected.
 	if (amount === null || Math.round(amount * 100) === 0) {
-		return c.json({ error: 'Enter an amount.' }, 400);
+		return fail(c, 400, 'Enter an amount.');
 	}
 	const cents = Math.round(amount * 100);
 
 	const participantIds = strList(b.participantIds);
-	if (!participantIds.length) return c.json({ error: 'Pick who shares this.' }, 400);
+	if (!participantIds.length) return fail(c, 400, 'Pick who shares this.');
 
 	const rawMode = str(b.splitMode) || 'even';
 	const splitMode: SplitMode = isSplitMode(rawMode) ? rawMode : 'even';
 
 	// Per-participant weights, keyed by user id. The SvelteKit form flattened
 	// these into `w:<userId>` fields because FormData has no nested values; JSON
-	// does, so the map is the honest shape.
-	const weights = (b.weights ?? {}) as Record<string, unknown>;
+	// does, so the map is the honest shape. It is validated rather than asserted:
+	// an array or a string arriving here must not be indexed as though it were a
+	// map of weights.
+	const weights = record(b.weights);
 
 	const parts = participantIds.map((userId) => {
 		if (splitMode === 'even') return { userId, weight: 1 };
@@ -75,21 +78,21 @@ expenses.post('/', async (c) => {
 	});
 
 	if (splitMode !== 'even' && !parts.some((p) => p.weight > 0)) {
-		return c.json(
-			{ error: splitMode === 'exact' ? 'Enter at least one amount.' : 'Enter at least one share.' },
-			400
+		return fail(
+			c,
+			400,
+			splitMode === 'exact' ? 'Enter at least one amount.' : 'Enter at least one share.'
 		);
 	}
 	if (splitMode === 'exact') {
 		const sum = parts.reduce((a, p) => a + Math.max(0, p.weight), 0);
 		if (sum !== Math.abs(cents)) {
-			return c.json(
-				{
-					error: `Amounts add up to ${(sum / 100).toFixed(2)}, but the total is ${Math.abs(
-						cents / 100
-					).toFixed(2)}.`
-				},
-				400
+			return fail(
+				c,
+				400,
+				`Amounts add up to ${(sum / 100).toFixed(2)}, but the total is ${Math.abs(
+					cents / 100
+				).toFixed(2)}.`
 			);
 		}
 	}
@@ -104,7 +107,7 @@ expenses.post('/', async (c) => {
 		parts,
 		splitMode
 	);
-	if (!id) return c.json({ error: 'Could not add expense.' }, 400);
+	if (!id) return fail(c, 400, 'Could not add expense.');
 	return c.json({ id }, 201);
 });
 
@@ -115,28 +118,33 @@ expenses.post('/', async (c) => {
  * gets written is the number the member was looking at when they pressed the
  * button. A stale figure is caught by the balances simply not clearing, which is
  * visible on the same screen.
+ *
+ * `amountCents` is the field to send: settlement is computed in whole cents, so
+ * a transfer quoted straight back in cents clears a balance exactly, while a
+ * major-unit `amount` has to be multiplied and rounded on the way in. `amount`
+ * is still accepted, and used only when `amountCents` is absent, so the current
+ * web client keeps working.
  */
 expenses.post('/settle', async (c) => {
 	const trip = c.get('trip');
 	const b = await body(c);
 
-	const amount = num(b.amount);
-	if (amount === null || Math.round(amount * 100) <= 0) {
-		return c.json({ error: 'Enter an amount.' }, 400);
-	}
+	const cents = b.amountCents === undefined ? null : int(b.amountCents);
+	const major = num(b.amount);
+	const amountCents =
+		b.amountCents !== undefined ? cents : major === null ? null : Math.round(major * 100);
+	if (amountCents === null || amountCents <= 0) return fail(c, 400, 'Enter an amount.');
 
-	const id = recordSettlement(
-		trip.id,
-		c.get('user').id,
-		str(b.fromId),
-		str(b.toId),
-		Math.round(amount * 100)
-	);
-	if (!id) return c.json({ error: 'Could not record that payment.' }, 400);
+	const id = recordSettlement(trip.id, c.get('user').id, str(b.fromId), str(b.toId), amountCents);
+	if (!id) return fail(c, 400, 'Could not record that payment.');
 	return c.json({ id }, 201);
 });
 
-expenses.delete('/:expenseId', (c) => {
-	deleteExpense(c.get('trip').id, c.get('user').id, c.req.param('expenseId'));
-	return c.json({ ok: true });
-});
+expenses.delete('/:expenseId', (c) =>
+	okOr(
+		c,
+		deleteExpense(c.get('trip').id, c.get('user').id, c.req.param('expenseId')),
+		404,
+		'Could not delete that expense.'
+	)
+);

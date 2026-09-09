@@ -1,8 +1,10 @@
 import { Hono } from 'hono';
 import { requireMember } from '../middleware';
-import { body, num, optStr, str, strList } from '../parse';
+import { body, isoDay, num, optStr, str, strList } from '../parse';
+import { fail, ok, okOr } from '../respond';
 import type { Env, Trip } from '../types';
 import { env } from '@trippy/server/env';
+import { isItemType } from '@trippy/core/types';
 import {
 	createItem,
 	createTrack,
@@ -10,6 +12,7 @@ import {
 	deleteItem,
 	editItem,
 	estimateCityTravel,
+	itemTrip,
 	moveItem,
 	removeTrack,
 	resizeItem,
@@ -40,7 +43,25 @@ calendar.use('*', requireMember);
 const VIEWS = ['day', '3day', 'people', 'agenda'] as const;
 type ViewMode = (typeof VIEWS)[number];
 
-const ITEM_TYPES = ['poi', 'food', 'transport', 'travel', 'lodging', 'freetime'];
+/**
+ * The 404 an item mutation answers with when the item is not this trip's.
+ *
+ * The mutations enforce this themselves now (they take the trip id and refuse a
+ * foreign item), so this is not the security boundary; it only decides which
+ * refusal the caller is told about. Without it a cross-trip id would come back
+ * as the generic 403 "Not allowed", which is the wrong story: the item is not
+ * missing permission in this trip, it is not in this trip at all. `itemTrip`
+ * also returns null for an id that exists nowhere, and that is the same 404,
+ * which is deliberate: it keeps a stranger from probing for real item ids.
+ */
+function foreignItem(tripId: string, itemId: string): boolean {
+	return itemTrip(itemId) !== tripId;
+}
+
+/** Whether a crew belongs to this trip. Guards ids that arrive in a body. */
+function partyInTrip(tripId: string, partyId: string): boolean {
+	return partiesForTrip(tripId).some((p) => p.id === partyId);
+}
 
 /** Shift an ISO date (YYYY-MM-DD) by a number of days, staying in UTC. */
 function shiftDay(iso: string, delta: number): string {
@@ -59,8 +80,13 @@ calendar.get('/', async (c) => {
 	const trip = c.get('trip');
 
 	const days = scheduleDays(trip.id);
-	const fallback = trip.cities[0]?.arrive ?? new Date().toISOString().slice(0, 10);
-	const day = c.req.query('day') ?? days[0] ?? fallback;
+	// `day` is fed to shiftDay() and compared against city ranges, so a malformed
+	// one would build an Invalid Date and throw inside toISOString(), turning a
+	// mistyped url into a 500. Anything that is not a real calendar day falls
+	// back to the first scheduled day, which is what a bare /calendar shows.
+	const fallback =
+		isoDay(days[0]) ?? isoDay(trip.cities[0]?.arrive) ?? new Date().toISOString().slice(0, 10);
+	const day = isoDay(c.req.query('day')) ?? fallback;
 	const viewRaw = c.req.query('view') ?? 'day';
 	const view: ViewMode = VIEWS.includes(viewRaw as ViewMode) ? (viewRaw as ViewMode) : 'day';
 
@@ -129,27 +155,33 @@ calendar.get('/', async (c) => {
 // --- Tracks and items -------------------------------------------------------
 
 calendar.post('/tracks', async (c) => {
+	const trip = c.get('trip');
 	const b = await body(c);
-	const day = str(b.day);
-	if (!day) return c.json({ error: 'Missing day' }, 400);
+	const day = isoDay(b.day);
+	if (!day) return fail(c, 400, 'Missing or malformed day');
 
-	const id = createTrack(
-		c.get('trip').id,
-		day,
-		str(b.name) || 'New track',
-		optStr(b.partyId) ?? undefined
-	);
+	// A crew id from the body is a cross-trip reference waiting to happen: the
+	// column has no trip of its own, and the board joins the crew's name and
+	// colour by id, so an id borrowed from another trip would show that trip's
+	// crew here. Nothing but this trip's own crews is accepted.
+	const partyId = optStr(b.partyId);
+	if (partyId && !partyInTrip(trip.id, partyId)) return fail(c, 400, 'Unknown crew');
+
+	const id = createTrack(trip.id, day, str(b.name) || 'New track', partyId ?? undefined);
 	return c.json({ id }, 201);
 });
 
 // Deleting a track takes its scheduled items with it, by cascade. That is the
 // point rather than a side effect: a track is the thing the items belong to,
 // and there is nowhere else to put them.
-calendar.delete('/tracks/:trackId', (c) => {
-	const okay = removeTrack(c.req.param('trackId'), c.get('trip').id, c.get('user').id);
-	if (!okay) return c.json({ error: 'Track not found.' }, 404);
-	return c.json({ ok: true });
-});
+calendar.delete('/tracks/:trackId', (c) =>
+	okOr(
+		c,
+		removeTrack(c.req.param('trackId'), c.get('trip').id, c.get('user').id),
+		404,
+		'Track not found.'
+	)
+);
 
 calendar.post('/items', async (c) => {
 	const trip = c.get('trip');
@@ -157,10 +189,12 @@ calendar.post('/items', async (c) => {
 
 	const trackId = str(b.trackId);
 	const start = num(b.start);
-	if (!trackId || start === null) return c.json({ error: 'Missing track or start time' }, 400);
+	if (!trackId || start === null) return fail(c, 400, 'Missing track or start time');
 
 	const typeRaw = str(b.type) || 'poi';
-	const type = ITEM_TYPES.includes(typeRaw) ? typeRaw : 'poi';
+	// The vocabulary is core's, so the API, the server and the calendar all agree
+	// on the same six literals without three copies of the list.
+	const type = isItemType(typeRaw) ? typeRaw : 'poi';
 	const travelRaw = num(b.travelBefore);
 
 	let title = str(b.title);
@@ -181,7 +215,7 @@ calendar.post('/items', async (c) => {
 
 	// Sensible default titles for placeholder activities.
 	if (!title) title = type === 'travel' ? 'Travel' : type === 'freetime' ? 'Free time' : '';
-	if (!title) return c.json({ error: 'Give the item a title.' }, 400);
+	if (!title) return fail(c, 400, 'Give the item a title.');
 
 	const id = createItem(trackId, trip.id, c.get('user').id, {
 		title,
@@ -194,19 +228,23 @@ calendar.post('/items', async (c) => {
 		travelBefore: travelRaw !== null && travelRaw > 0 ? travelRaw : null,
 		assignees: strList(b.assignees)
 	});
-	if (!id) return c.json({ error: 'Could not add that item.' }, 403);
+	if (!id) return fail(c, 403, 'Could not add that item.');
 	return c.json({ id }, 201);
 });
 
 calendar.put('/items/:itemId/assignees', async (c) => {
-	const ok = setAssignees(
-		c.req.param('itemId'),
-		c.get('trip').id,
-		c.get('user').id,
-		strList((await body(c)).assignees)
+	const trip = c.get('trip');
+	const itemId = c.req.param('itemId');
+	// `setAssignees` refuses a foreign item on its own; this only keeps the
+	// answer a 404 rather than a 403.
+	if (foreignItem(trip.id, itemId)) return fail(c, 404, 'Item not found.');
+
+	return okOr(
+		c,
+		setAssignees(itemId, trip.id, c.get('user').id, strList((await body(c)).assignees)),
+		403,
+		'Not allowed'
 	);
-	if (!ok) return c.json({ error: 'Not allowed' }, 403);
-	return c.json({ ok: true });
 });
 
 /**
@@ -218,86 +256,114 @@ calendar.put('/items/:itemId/assignees', async (c) => {
  * across five places for no gain.
  */
 calendar.post('/items/:itemId/op', async (c) => {
+	const trip = c.get('trip');
 	const itemId = c.req.param('itemId');
 	const userId = c.get('user').id;
 	const b = await body(c);
 
-	let ok = false;
+	// Every mutation below is passed the trip and refuses an item belonging to
+	// another one, so this is about the status, not the check: a cross-trip id is
+	// a 404, not the 403 that a real permission failure inside this trip earns.
+	if (foreignItem(trip.id, itemId)) return fail(c, 404, 'Item not found.');
+
+	let okay = false;
 	switch (str(b.op)) {
 		case 'move':
-			ok = moveItem(itemId, userId, num(b.startMin) ?? NaN);
+			okay = moveItem(itemId, userId, num(b.startMin) ?? NaN, trip.id);
 			break;
 		case 'resize':
-			ok = resizeItem(itemId, userId, num(b.endMin) ?? NaN);
+			okay = resizeItem(itemId, userId, num(b.endMin) ?? NaN, trip.id);
 			break;
 		case 'edit':
-			ok = editItem(itemId, userId, {
-				title: b.title != null ? String(b.title) : undefined,
-				type: b.type != null ? String(b.type) : undefined,
-				// Three cases, not two: absent means leave it alone, null or empty
-				// means clear it, a number means set it.
-				travelBefore:
-					b.travelBefore === undefined
-						? undefined
-						: b.travelBefore === null || b.travelBefore === ''
-							? null
-							: num(b.travelBefore)
-			});
+			okay = editItem(
+				itemId,
+				userId,
+				{
+					title: b.title != null ? String(b.title) : undefined,
+					type: b.type != null ? String(b.type) : undefined,
+					// Three cases, not two: absent means leave it alone, null or empty
+					// means clear it, a number means set it.
+					travelBefore:
+						b.travelBefore === undefined
+							? undefined
+							: b.travelBefore === null || b.travelBefore === ''
+								? null
+								: num(b.travelBefore)
+				},
+				trip.id
+			);
 			break;
 		case 'cycle':
-			ok = cycleBooking(itemId, userId);
+			okay = cycleBooking(itemId, userId, trip.id);
 			break;
 		case 'delete':
-			ok = deleteItem(itemId, userId);
+			okay = deleteItem(itemId, userId, trip.id);
 			break;
 		default:
-			return c.json({ error: 'Unknown op' }, 400);
+			return fail(c, 400, 'Unknown op');
 	}
 
-	if (!ok) return c.json({ error: 'Not allowed' }, 403);
-	return c.json({ ok: true });
+	return okOr(c, okay, 403, 'Not allowed');
 });
 
 // --- Crews ------------------------------------------------------------------
 
 calendar.post('/crews', async (c) => {
 	const name = str((await body(c)).name);
-	if (!name) return c.json({ error: 'Name the crew.' }, 400);
+	if (!name) return fail(c, 400, 'Name the crew.');
 	const id = createParty(c.get('trip').id, c.get('user').id, name);
-	if (!id) return c.json({ error: 'Could not create that crew.' }, 400);
+	if (!id) return fail(c, 403, 'Could not create that crew.');
 	return c.json({ id }, 201);
 });
 
 calendar.patch('/crews/:partyId', async (c) => {
 	const b = await body(c);
-	editParty(
-		c.get('trip').id,
-		c.get('user').id,
-		c.req.param('partyId'),
-		optStr(b.name) ?? undefined,
-		optStr(b.color) ?? undefined
+	// False here means the crew is not this trip's, or it is the Everyone party,
+	// or neither field was usable. All three are refusals, not successes.
+	return okOr(
+		c,
+		editParty(
+			c.get('trip').id,
+			c.get('user').id,
+			c.req.param('partyId'),
+			optStr(b.name) ?? undefined,
+			optStr(b.color) ?? undefined
+		),
+		400,
+		'Could not save that crew.'
 	);
-	return c.json({ ok: true });
 });
 
-calendar.delete('/crews/:partyId', (c) => {
-	deleteParty(c.get('trip').id, c.get('user').id, c.req.param('partyId'));
-	return c.json({ ok: true });
-});
+calendar.delete('/crews/:partyId', (c) =>
+	okOr(
+		c,
+		deleteParty(c.get('trip').id, c.get('user').id, c.req.param('partyId')),
+		400,
+		'Could not delete that crew.'
+	)
+);
 
 calendar.put('/crews/:partyId/day', async (c) => {
 	const b = await body(c);
-	const day = str(b.day);
-	if (!day) return c.json({ error: 'Missing day' }, 400);
-	setPartyDay(
-		c.get('trip').id,
-		c.get('user').id,
-		c.req.param('partyId'),
-		day,
-		optStr(b.cityId),
-		optStr(b.lodgingOptionId)
+	const day = isoDay(b.day);
+	if (!day) return fail(c, 400, 'Missing or malformed day');
+
+	// `setPartyDay` returns false for a city or a stay that is not this trip's,
+	// and for a stay that is not in the chosen city. Those are bad references in
+	// the request, so 400, not a server fault and not a silent success.
+	return okOr(
+		c,
+		setPartyDay(
+			c.get('trip').id,
+			c.get('user').id,
+			c.req.param('partyId'),
+			day,
+			optStr(b.cityId),
+			optStr(b.lodgingOptionId)
+		),
+		400,
+		'Could not set that crew’s day. Check the city and the stay.'
 	);
-	return c.json({ ok: true });
 });
 
 /**
@@ -310,9 +376,16 @@ calendar.post('/crews/split', async (c) => {
 	const userId = c.get('user').id;
 	const b = await body(c);
 
-	const day = str(b.day);
+	const day = isoDay(b.day);
 	const userIds = strList(b.userIds);
-	if (!day || !userIds.length) return c.json({ error: 'Pick a day and at least one person.' }, 400);
+	if (!day || !userIds.length) return fail(c, 400, 'Pick a day and at least one person.');
+
+	// Everyone named has to be on this trip. Checked before anything is written,
+	// so a bad id cannot leave half the group moved and half not.
+	const memberIds = new Set(trip.memberList.map((m) => m.id));
+	if (userIds.some((uid) => !memberIds.has(uid))) {
+		return fail(c, 400, 'That person is not on this trip.');
+	}
 
 	const fromRaw = num(b.fromMin);
 	const fromMin = fromRaw === null ? 0 : Math.max(0, Math.min(fromRaw, 24 * 60));
@@ -320,10 +393,16 @@ calendar.post('/crews/split', async (c) => {
 	let targetPartyId = str(b.partyId);
 	const newName = str(b.newName);
 	if (!targetPartyId && newName) targetPartyId = createParty(trip.id, userId, newName) ?? '';
-	if (!targetPartyId) return c.json({ error: 'Pick or name a crew.' }, 400);
+	if (!targetPartyId) return fail(c, 400, 'Pick or name a crew.');
+	// A crew id from the body, like a track's, has to be this trip's own.
+	if (!partyInTrip(trip.id, targetPartyId)) return fail(c, 400, 'Unknown crew');
 
 	for (const uid of userIds) {
-		assignMembership(trip.id, userId, targetPartyId, uid, day, fromMin, 24 * 60);
+		// Everything it validates has been validated above, so a false here is a
+		// state change we did not expect rather than a normal refusal.
+		if (!assignMembership(trip.id, userId, targetPartyId, uid, day, fromMin, 24 * 60)) {
+			return fail(c, 400, 'Could not move everyone into that crew.');
+		}
 	}
 
 	// Auto-travel bridge: only when splitting mid-day and the target crew has a
@@ -364,16 +443,23 @@ calendar.post('/crews/rejoin', async (c) => {
 	const userId = c.get('user').id;
 	const b = await body(c);
 
-	const day = str(b.day);
+	const day = isoDay(b.day);
 	const userIds = strList(b.userIds);
-	if (!day || !userIds.length) return c.json({ error: 'Pick a day and at least one person.' }, 400);
+	if (!day || !userIds.length) return fail(c, 400, 'Pick a day and at least one person.');
+
+	const memberIds = new Set(trip.memberList.map((m) => m.id));
+	if (userIds.some((uid) => !memberIds.has(uid))) {
+		return fail(c, 400, 'That person is not on this trip.');
+	}
 
 	const fromRaw = num(b.fromMin);
 	const fromMin = fromRaw === null ? 0 : Math.max(0, Math.min(fromRaw, 24 * 60));
 
 	const everyone = defaultPartyId(trip.id);
 	for (const uid of userIds) {
-		assignMembership(trip.id, userId, everyone, uid, day, fromMin, 24 * 60);
+		if (!assignMembership(trip.id, userId, everyone, uid, day, fromMin, 24 * 60)) {
+			return fail(c, 400, 'Could not bring everyone back.');
+		}
 	}
-	return c.json({ ok: true });
+	return ok(c);
 });

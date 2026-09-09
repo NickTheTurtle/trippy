@@ -1,5 +1,6 @@
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import { createMiddleware } from 'hono/factory';
+import { fail } from './respond';
 import { getSessionUser, type SessionUser } from '@trippy/server/auth';
 import { getTripForUser } from '@trippy/server/trips';
 
@@ -34,7 +35,7 @@ export const session = createMiddleware<{ Variables: Vars }>(async (c, next) => 
 });
 
 export const requireUser = createMiddleware<{ Variables: Vars }>(async (c, next) => {
-	if (!c.get('user')) return c.json({ error: 'Not signed in' }, 401);
+	if (!c.get('user')) return fail(c, 401, 'Not signed in');
 	await next();
 });
 
@@ -48,10 +49,10 @@ export const requireUser = createMiddleware<{ Variables: Vars }>(async (c, next)
  */
 export const requireMember = createMiddleware<{ Variables: Vars }>(async (c, next) => {
 	const user = c.get('user');
-	if (!user) return c.json({ error: 'Not signed in' }, 401);
+	if (!user) return fail(c, 401, 'Not signed in');
 
 	const trip = getTripForUser(c.req.param('tripId')!, user.id);
-	if (!trip) return c.json({ error: 'Not found' }, 404);
+	if (!trip) return fail(c, 404, 'Not found');
 
 	c.set('trip', trip);
 	await next();

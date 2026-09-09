@@ -149,7 +149,27 @@ function partyInTrip(tripId: string, partyId: string): boolean {
 	return !!db.prepare(`SELECT 1 FROM parties WHERE id = ? AND trip_id = ?`).get(partyId, tripId);
 }
 
-/** Set (or clear) a crew's city and lodging for a day. Any member may edit. */
+function cityInTrip(tripId: string, cityId: string): boolean {
+	return !!db.prepare(`SELECT 1 FROM cities WHERE id = ? AND trip_id = ?`).get(cityId, tripId);
+}
+
+/** The city a lodging option belongs to, but only if the option is this trip's. */
+function lodgingCityInTrip(tripId: string, optionId: string): string | null {
+	const row = db
+		.prepare(`SELECT city_id FROM lodging_options WHERE id = ? AND trip_id = ?`)
+		.get(optionId, tripId) as { city_id: string } | undefined;
+	return row?.city_id ?? null;
+}
+
+/**
+ * Set (or clear) a crew's city and lodging for a day. Any member may edit.
+ *
+ * The foreign keys only prove the referenced rows exist, not that they belong
+ * to this trip, so a caller who knows an id from another trip could otherwise
+ * pin a crew to someone else's city or hotel. Both references are checked
+ * against the trip here (and the stay against the chosen city), and a mismatch
+ * is a plain `false` like every other rejection on this module.
+ */
 export function setPartyDay(
 	tripId: string,
 	actorId: string,
@@ -163,6 +183,12 @@ export function setPartyDay(
 	if (cityId === null && lodgingOptionId === null) {
 		db.prepare(`DELETE FROM party_day WHERE party_id = ? AND day = ?`).run(partyId, day);
 		return true;
+	}
+	if (cityId !== null && !cityInTrip(tripId, cityId)) return false;
+	if (lodgingOptionId !== null) {
+		const stayCity = lodgingCityInTrip(tripId, lodgingOptionId);
+		if (!stayCity) return false;
+		if (cityId !== null && stayCity !== cityId) return false;
 	}
 	db.prepare(
 		`INSERT INTO party_day (party_id, day, city_id, lodging_option_id) VALUES (?, ?, ?, ?)

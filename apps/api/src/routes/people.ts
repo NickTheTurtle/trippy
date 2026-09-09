@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { requireMember } from '../middleware';
 import { body, str } from '../parse';
+import { fail, ok } from '../respond';
 import type { Env } from '../types';
 import { inviteToTrip, isOrganizer, listPeople, removeMember } from '@trippy/server/members';
 
@@ -32,15 +33,17 @@ people.post('/invites', async (c) => {
 		case 'invited':
 			return c.json({ message: `Invite sent to ${email}. They'll join when they register.` });
 		case 'exists':
-			return c.json({ error: 'That person is already a member or invited.' }, 400);
+			return fail(c, 409, 'That person is already a member or invited.');
 		default:
-			return c.json({ error: 'Enter a valid email address. Only the organizer can invite.' }, 400);
+			// One message for a malformed address and for a member who is not the
+			// organizer, so the two are not told apart by trying.
+			return fail(c, 400, 'Enter a valid email address. Only the organizer can invite.');
 	}
 });
 
 people.delete('/:userId', (c) => {
 	if (!removeMember(c.get('trip').id, c.get('user').id, c.req.param('userId'))) {
-		return c.json({ error: 'Could not remove that member.' }, 400);
+		return fail(c, 403, 'Could not remove that member.');
 	}
-	return c.json({ ok: true });
+	return ok(c);
 });

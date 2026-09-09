@@ -100,24 +100,35 @@ export function inviteToTrip(tripId: string, actorId: string, email: string): In
 	// The placeholder has a synthetic address (the real email is UNIQUE and must stay
 	// free for when they register); its hash is prefixed "placeholder:" so it cannot
 	// log in and is easy to detect. consumeInvites() relinks it on registration.
+	//
+	// The three writes are one unit: a failure partway through would otherwise
+	// leave a placeholder user with no invite (a ghost member nobody can revoke)
+	// or an invite pointing at a member that was never created.
 	const placeholderId = randomUUID();
-	db.prepare(
-		`INSERT INTO users (id, name, email, password_hash, created_at) VALUES (?, ?, ?, ?, ?)`
-	).run(
-		placeholderId,
-		nameFromEmail(clean),
-		`placeholder-${placeholderId}@waypoint.invalid`,
-		`placeholder:${clean}`,
-		Date.now()
-	);
-	db.prepare(`INSERT INTO memberships (trip_id, user_id, role) VALUES (?, ?, 'member')`).run(
-		tripId,
-		placeholderId
-	);
-	db.prepare(
-		`INSERT INTO trip_invites (id, trip_id, email, invited_by, placeholder_id, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?)`
-	).run(randomUUID(), tripId, clean, actorId, placeholderId, Date.now());
+	db.exec('BEGIN');
+	try {
+		db.prepare(
+			`INSERT INTO users (id, name, email, password_hash, created_at) VALUES (?, ?, ?, ?, ?)`
+		).run(
+			placeholderId,
+			nameFromEmail(clean),
+			`placeholder-${placeholderId}@waypoint.invalid`,
+			`placeholder:${clean}`,
+			Date.now()
+		);
+		db.prepare(`INSERT INTO memberships (trip_id, user_id, role) VALUES (?, ?, 'member')`).run(
+			tripId,
+			placeholderId
+		);
+		db.prepare(
+			`INSERT INTO trip_invites (id, trip_id, email, invited_by, placeholder_id, created_at)
+			 VALUES (?, ?, ?, ?, ?, ?)`
+		).run(randomUUID(), tripId, clean, actorId, placeholderId, Date.now());
+		db.exec('COMMIT');
+	} catch (err) {
+		db.exec('ROLLBACK');
+		throw err;
+	}
 	return 'invited';
 }
 
@@ -158,7 +169,15 @@ export function removeMember(tripId: string, actorId: string, userId: string): b
 	return res.changes > 0;
 }
 
-/** When a user registers, turn any pending invites for their email into memberships. */
+/**
+ * When a user registers, turn any pending invites for their email into
+ * memberships.
+ *
+ * Handing a placeholder's data over and then deleting it is a multi-table
+ * rewrite, so it runs in one transaction: a failure partway through would leave
+ * expenses or votes split between the placeholder and the real account, or an
+ * invite whose placeholder is already gone.
+ */
 export function consumeInvites(userId: string, email: string): void {
 	const clean = email.trim().toLowerCase();
 	const invites = db
@@ -176,15 +195,23 @@ export function consumeInvites(userId: string, email: string): void {
 		`UPDATE OR IGNORE poi_votes SET user_id = ? WHERE user_id = ?`,
 		`UPDATE OR IGNORE lodging_votes SET user_id = ? WHERE user_id = ?`
 	].map((sql) => db.prepare(sql));
-	for (const inv of invites) {
-		if (inv.placeholder_id) {
-			const exists = db.prepare(`SELECT 1 FROM users WHERE id = ?`).get(inv.placeholder_id);
-			if (exists) {
-				for (const stmt of relinks) stmt.run(userId, inv.placeholder_id);
-				db.prepare(`DELETE FROM users WHERE id = ?`).run(inv.placeholder_id);
+	if (invites.length === 0) return;
+	db.exec('BEGIN');
+	try {
+		for (const inv of invites) {
+			if (inv.placeholder_id) {
+				const exists = db.prepare(`SELECT 1 FROM users WHERE id = ?`).get(inv.placeholder_id);
+				if (exists) {
+					for (const stmt of relinks) stmt.run(userId, inv.placeholder_id);
+					db.prepare(`DELETE FROM users WHERE id = ?`).run(inv.placeholder_id);
+				}
 			}
+			addMember.run(inv.trip_id, userId);
+			drop.run(inv.id);
 		}
-		addMember.run(inv.trip_id, userId);
-		drop.run(inv.id);
+		db.exec('COMMIT');
+	} catch (err) {
+		db.exec('ROLLBACK');
+		throw err;
 	}
 }

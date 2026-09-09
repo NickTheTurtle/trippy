@@ -32,7 +32,14 @@ export interface SplitPart {
 export interface BalanceRow {
 	id: string;
 	name: string;
-	net: number; // home-currency units, paid - owed
+	/** Home-currency minor units, paid - owed. The exact figure; nets to zero. */
+	netCents: number;
+	/**
+	 * The same balance in home-currency major units, kept for the existing API
+	 * and UI contract. Derived from `netCents`, never accumulated, so it cannot
+	 * drift; new consumers should read `netCents`.
+	 */
+	net: number;
 }
 
 export interface SettlementRow {
@@ -40,6 +47,9 @@ export interface SettlementRow {
 	toId: string;
 	from: string; // name
 	to: string; // name
+	/** Transfer amount in home-currency minor units. Always positive. */
+	amountCents: number;
+	/** The same amount in major units, for the existing API and UI contract. */
 	amount: number;
 }
 
@@ -129,7 +139,7 @@ export function deleteExpense(tripId: string, actorId: string, expenseId: string
 	return res.changes > 0;
 }
 
-/** Net balance per member in home-currency units (positive = is owed money). */
+/** Net balance per member, in home-currency cents (positive = is owed money). */
 export function balances(tripId: string): BalanceRow[] {
 	const members = tripMembers(tripId);
 	const net = new Map<string, number>(members.map((m) => [m.id, 0]));
@@ -160,36 +170,38 @@ export function balances(tripId: string): BalanceRow[] {
 
 		// Convert first, then split. Splitting the converted total keeps the
 		// shares summing to it exactly, so every balance set nets to zero.
+		// Everything stays in whole cents: no division into major units happens
+		// while the running totals are being accumulated.
 		const totalCents = convertCents(e.amount_cents, e.currency ?? home, home);
 		const shares = splitByWeight(
 			totalCents,
 			parts.map((p) => p.weight ?? 1)
 		);
 
-		net.set(e.payer_id, (net.get(e.payer_id) ?? 0) + totalCents / 100);
+		net.set(e.payer_id, (net.get(e.payer_id) ?? 0) + totalCents);
 		parts.forEach((p, i) => {
-			net.set(p.user_id, (net.get(p.user_id) ?? 0) - shares[i] / 100);
+			net.set(p.user_id, (net.get(p.user_id) ?? 0) - shares[i]);
 		});
 	}
 
-	return members.map((m) => ({
-		id: m.id,
-		name: m.name,
-		net: Math.round((net.get(m.id) ?? 0) * 100) / 100
-	}));
+	return members.map((m) => {
+		const netCents = net.get(m.id) ?? 0;
+		return { id: m.id, name: m.name, netCents, net: netCents / 100 };
+	});
 }
 
 /** Minimal transfers to clear all balances, with names resolved for display. */
 export function settlement(tripId: string): SettlementRow[] {
 	const bals = balances(tripId);
 	const nameById = new Map(bals.map((b) => [b.id, b.name]));
-	const input: Balance[] = bals.map((b) => ({ userId: b.id, net: b.net }));
+	const input: Balance[] = bals.map((b) => ({ userId: b.id, netCents: b.netCents }));
 	return settle(input).map((t: Transaction) => ({
 		fromId: t.from,
 		toId: t.to,
 		from: nameById.get(t.from) ?? t.from,
 		to: nameById.get(t.to) ?? t.to,
-		amount: t.amount
+		amountCents: t.amountCents,
+		amount: t.amountCents / 100
 	}));
 }
 

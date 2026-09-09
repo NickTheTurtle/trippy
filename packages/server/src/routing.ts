@@ -1,24 +1,6 @@
 import type { TrackWithItems } from './schedule';
-
-/** Great-circle distance in km. */
-function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
-	const R = 6371;
-	const toRad = (d: number) => (d * Math.PI) / 180;
-	const dLat = toRad(lat2 - lat1);
-	const dLng = toRad(lng2 - lng1);
-	const a =
-		Math.sin(dLat / 2) ** 2 +
-		Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
-	return 2 * R * Math.asin(Math.sqrt(a));
-}
-
-/** Straight-line fallback estimate, matching schedule.ts. */
-function estimate(km: number): { mode: string; mins: number } {
-	const dist = km * 1.3;
-	if (dist < 1.1) return { mode: 'walk', mins: Math.max(3, Math.round((dist / 4.8) * 60)) };
-	if (dist < 8) return { mode: 'transit', mins: Math.max(8, Math.round((dist / 16) * 60) + 6) };
-	return { mode: 'drive', mins: Math.max(10, Math.round((dist / 30) * 60) + 5) };
-}
+import { estimateTravel, haversineKm } from '@trippy/core/geo';
+import { createCache } from './cache';
 
 interface Leg {
 	mode: string;
@@ -28,7 +10,15 @@ interface Leg {
 
 const OSRM = 'https://router.project-osrm.org/route/v1/driving';
 const TIMEOUT_MS = 2500;
-const cache = new Map<string, Leg>();
+
+/**
+ * Routed legs are cached like every other paid lookup: a board load repeats the
+ * same coordinate pair across days and crews, and several members open the same
+ * day at once. A plain Map gave no TTL, no bound and no in-flight sharing, so
+ * duplicate legs in one load could each hit the provider. Road times barely
+ * move within a day, hence the long TTL.
+ */
+const legCache = createCache<Leg>(6 * 60 * 60 * 1000, 2000);
 
 function key(a: { lat: number; lng: number }, b: { lat: number; lng: number }): string {
 	const r = (n: number) => n.toFixed(4);
@@ -57,31 +47,19 @@ async function osrmMinutes(
 }
 
 /** Resolve a single leg: real road time when possible, otherwise a straight-line estimate. */
-async function routeLeg(
+function routeLeg(
 	a: { lat: number; lng: number },
 	b: { lat: number; lng: number }
 ): Promise<Leg> {
-	const k = key(a, b);
-	const hit = cache.get(k);
-	if (hit) return hit;
-
-	const km = haversineKm(a.lat, a.lng, b.lat, b.lng);
-	let leg: Leg;
-	// Short hops are walked; OSRM's public server is driving-only, so estimate those.
-	if (km * 1.3 < 1.1) {
-		leg = { ...estimate(km), routed: false };
-	} else {
+	return legCache.take(key(a, b), async () => {
+		const km = haversineKm(a.lat, a.lng, b.lat, b.lng);
+		// Short hops are walked; OSRM's public server is driving-only, so estimate those.
+		if (km * 1.3 < 1.1) return { ...estimateTravel(km), routed: false };
 		const mins = await osrmMinutes(a, b);
-		if (mins != null) {
-			// Keep the human-friendly mode label, but use the real network duration.
-			const mode = km * 1.3 < 8 ? 'transit' : 'drive';
-			leg = { mode, mins, routed: true };
-		} else {
-			leg = { ...estimate(km), routed: false };
-		}
-	}
-	cache.set(k, leg);
-	return leg;
+		if (mins == null) return { ...estimateTravel(km), routed: false };
+		// Keep the human-friendly mode label, but use the real network duration.
+		return { mode: km * 1.3 < 8 ? 'transit' : 'drive', mins, routed: true };
+	});
 }
 
 /**

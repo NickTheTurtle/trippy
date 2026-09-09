@@ -43,6 +43,14 @@ function cityInTrip(tripId: string, cityId: string): boolean {
 	return !!db.prepare(`SELECT 1 FROM cities WHERE id = ? AND trip_id = ?`).get(cityId, tripId);
 }
 
+/** The trip's home currency, used when a price arrives without one. */
+function homeCurrency(tripId: string): string {
+	const row = db.prepare(`SELECT home_currency FROM trips WHERE id = ?`).get(tripId) as
+		| { home_currency: string }
+		| undefined;
+	return row?.home_currency ?? 'USD';
+}
+
 /** Cities of a trip with their lodging options, vote counts, and the viewer's pick. */
 export function cityLodging(tripId: string, userId: string): CityLodging[] {
 	const cities = db
@@ -74,21 +82,38 @@ export function cityLodging(tripId: string, userId: string): CityLodging[] {
 	});
 }
 
+/**
+ * Add a candidate stay for a city.
+ *
+ * A stay is worth proposing with nothing but a name and what it costs per
+ * night, so everything after the name is optional: `tag`, `url`, the night
+ * range and the photo all default to empty, and an empty `currency` falls back
+ * to the trip's home currency, which is what a price typed on the Discover page
+ * is denominated in anyway. `priceCents` is the per-night price (the `price_cents`
+ * column); it stays nullable because "we have not priced it yet" is a real state.
+ *
+ * Check-in / check-out are set later from the stay's own editor (`setDates`);
+ * a stay with no range applies to the whole city stay.
+ */
 export function addOption(
 	tripId: string,
 	actorId: string,
 	cityId: string,
 	name: string,
-	tag: string,
-	priceCents: number | null,
-	currency: string,
-	url: string | null,
+	tag = '',
+	priceCents: number | null = null,
+	currency = '',
+	url: string | null = null,
 	checkIn: string | null = null,
 	checkOut: string | null = null,
 	photo: string | null = null
 ): string | null {
 	if (!isMember(tripId, actorId)) return null;
 	if (!cityInTrip(tripId, cityId)) return null;
+	const clean = name.trim();
+	if (!clean) return null;
+	const price =
+		priceCents == null || !Number.isFinite(priceCents) ? null : Math.round(priceCents);
 	const id = randomUUID();
 	db.prepare(
 		`INSERT INTO lodging_options (id, trip_id, city_id, name, tag, price_cents, currency, url, locked, check_in, check_out, photo, created_at)
@@ -97,10 +122,10 @@ export function addOption(
 		id,
 		tripId,
 		cityId,
-		name,
+		clean,
 		tag,
-		priceCents,
-		currency,
+		price,
+		currency.trim().toUpperCase() || homeCurrency(tripId),
 		url,
 		checkIn,
 		checkOut,
@@ -122,15 +147,19 @@ export interface LodgingNeedingPhoto {
  * Stays in a trip that have never had a photo looked up. As with places,
  * `photo IS NULL` means "never asked" and the miss sentinel means "asked, and
  * Google had nothing", so each stay costs at most one lookup ever.
+ *
+ * Capped like the places query: each row costs a billed provider call, so the
+ * caller decides how much of the backlog one request is allowed to pay for.
  */
-export function lodgingNeedingPhotos(tripId: string): LodgingNeedingPhoto[] {
+export function lodgingNeedingPhotos(tripId: string, limit = 24): LodgingNeedingPhoto[] {
 	return db
 		.prepare(
 			`SELECT o.id, o.name, c.name AS city, c.country
 			 FROM lodging_options o JOIN cities c ON c.id = o.city_id
-			 WHERE o.trip_id = ? AND o.photo IS NULL`
+			 WHERE o.trip_id = ? AND o.photo IS NULL
+			 ORDER BY o.created_at LIMIT ?`
 		)
-		.all(tripId) as unknown as LodgingNeedingPhoto[];
+		.all(tripId, limit) as unknown as LodgingNeedingPhoto[];
 }
 
 /** Records the result of a photo lookup (a resource name, or the miss sentinel). */
@@ -142,6 +171,10 @@ export function setLodgingPhoto(optionId: string, photo: string): void {
  * Lodging that applies to a given day: the locked pick first, otherwise the
  * top-voted option, restricted to stays whose night range covers `day` (or
  * that have no range set, meaning they apply to the whole city stay).
+ *
+ * `tripId` narrows the query as well as the city: the city id alone is enough
+ * to identify the stays, but scoping to the trip means a mismatched pair can
+ * never return another trip's hotel.
  */
 export interface DayLodging {
 	name: string;
@@ -154,10 +187,10 @@ export function lodgingForDay(tripId: string, cityId: string, day: string): DayL
 		.prepare(
 			`SELECT name, tag, locked, url, check_in, check_out,
 			        (SELECT COUNT(*) FROM lodging_votes v WHERE v.option_id = o.id) AS votes
-			 FROM lodging_options o WHERE o.city_id = ?
+			 FROM lodging_options o WHERE o.city_id = ? AND o.trip_id = ?
 			 ORDER BY o.locked DESC, votes DESC, o.created_at`
 		)
-		.all(cityId) as unknown as {
+		.all(cityId, tripId) as unknown as {
 		name: string;
 		tag: string;
 		locked: number;

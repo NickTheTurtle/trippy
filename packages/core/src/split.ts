@@ -56,8 +56,3 @@ export function splitByWeight(totalCents: number, weights: number[]): number[] {
 	}
 	return out.map((v) => v * sign);
 }
-
-/** Even-split preview for the form: what each of `count` people pays. */
-export function evenShare(totalCents: number, count: number): number {
-	return count > 0 ? splitByWeight(totalCents, new Array(count).fill(1))[0] : 0;
-}

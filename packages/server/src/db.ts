@@ -3,6 +3,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
+import { poiKindFromCategory } from '@trippy/core/types';
 
 /**
  * Local persistence via Node's built-in SQLite (no native build step).
@@ -158,6 +159,7 @@ db.exec(`
 		price_level  INTEGER,
 		hours        TEXT,
 		saved      INTEGER NOT NULL DEFAULT 0,
+		kind       TEXT NOT NULL DEFAULT 'attraction' CHECK (kind IN ('attraction', 'food')),
 		created_at INTEGER NOT NULL
 	);
 
@@ -253,7 +255,8 @@ addColumn('expenses', 'settlement', 'INTEGER');
 // null means never looked up, the sentinel means looked up and nothing found.
 addColumn('cities', 'photo', 'TEXT');
 
-// Trip dates were originally a free-text label. Keep the label (it is what the// header renders) but store the real endpoints so the edit form can round-trip
+// Trip dates were originally a free-text label. Keep the label (it is what the
+// header renders) but store the real endpoints so the edit form can round-trip
 // date pickers instead of asking people to retype a formatted string.
 addColumn('trips', 'start_date', 'TEXT');
 addColumn('trips', 'end_date', 'TEXT');
@@ -405,3 +408,63 @@ function backfillParties(): void {
 	}
 }
 backfillParties();
+
+/**
+ * Item-type vocabulary reconciliation.
+ *
+ * Two spellings of the same idea were in the tree at once: the shared type
+ * declared `meal`, while the server's validator, the API and the calendar's
+ * type picker all used `food`. Only seeded rows ever carried `meal`, and no
+ * client can produce it or render a label for it, so `food` wins and the stray
+ * rows are renamed to it. Additive and idempotent: after the first run nothing
+ * matches, and it never touches a row that is already canonical.
+ *
+ * Canonical set: poi | food | transport | travel | lodging | freetime
+ * (exported as ITEM_TYPES from @trippy/core).
+ */
+db.exec(`UPDATE schedule_items SET type = 'food' WHERE type = 'meal'`);
+
+/**
+ * Discover buckets: `pois.kind` is the user-facing filter (`attraction` |
+ * `food`), stored rather than derived.
+ *
+ * `pois.category` is whatever the provider called the venue, so filtering on it
+ * means re-classifying free text on every render and getting a different answer
+ * as providers change their vocabulary. The bucket is a decision, so it is
+ * stored once and can be corrected by hand later.
+ *
+ * Stays are not a kind: they live in `lodging_options`. The CHECK constraint
+ * pins the column to the two legal values at the database level, so no code
+ * path can invent a third.
+ *
+ * The classification backfill runs only on the migration that introduces the
+ * column. Re-running the file is safe, and, more importantly, a place someone
+ * has since re-bucketed by hand is never silently reclassified back on the next
+ * boot.
+ */
+const poiKindIsNew = !columnExists('pois', 'kind');
+addColumn(
+	'pois',
+	'kind',
+	`TEXT NOT NULL DEFAULT 'attraction' CHECK (kind IN ('attraction', 'food'))`
+);
+if (poiKindIsNew) {
+	const rows = db.prepare(`SELECT id, category FROM pois`).all() as unknown as {
+		id: string;
+		category: string | null;
+	}[];
+	const setKind = db.prepare(`UPDATE pois SET kind = ? WHERE id = ?`);
+	db.exec('BEGIN');
+	try {
+		// The same classifier the write path uses, so a backfilled row and a newly
+		// added one are bucketed identically. Existing rows already default to
+		// 'attraction', so only the food ones need writing.
+		for (const r of rows) {
+			if (poiKindFromCategory(r.category) === 'food') setKind.run('food', r.id);
+		}
+		db.exec('COMMIT');
+	} catch (err) {
+		db.exec('ROLLBACK');
+		throw err;
+	}
+}

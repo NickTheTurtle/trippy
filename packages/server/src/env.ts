@@ -1,11 +1,10 @@
 /**
  * Server configuration, read from `process.env`.
  *
- * This exists because these modules used to import `$env/dynamic/private`,
- * which only resolves inside SvelteKit. The standalone API and the SvelteKit
- * app both populate `process.env` (the API via `--env-file`, SvelteKit via
- * Vite's own .env loading), so reading it directly is the one form that works
- * in both.
+ * The API server loads the repo's `.env` with `--env-file`, so these keys are
+ * on `process.env` by the time a request is served. Reading it directly (rather
+ * than through a framework's env module) keeps this package usable from any
+ * Node entry point.
  *
  * Access is deliberately lazy via a getter rather than captured into a const at
  * module load, because the module graph is evaluated before the API server has

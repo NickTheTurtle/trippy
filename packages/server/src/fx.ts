@@ -74,8 +74,3 @@ export function convertCents(cents: number, from: string, to: string): number {
 	const usd = cents / perUsd(from);
 	return Math.round(usd * perUsd(to));
 }
-
-/** Whether the live rates have been fetched at least once this run. */
-export function ratesLive(): boolean {
-	return fetchedAt > 0;
-}

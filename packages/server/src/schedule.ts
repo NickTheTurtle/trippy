@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { db } from './db';
+import { estimateTravel, estimateTravelBetween, haversineKm } from '@trippy/core/geo';
+import { isItemType } from '@trippy/core/types';
 import { defaultPartyId, partyMemberIdsForDay } from './parties';
 
 export interface ItemRow {
@@ -34,27 +36,6 @@ const TRACK_COLORS = ['#2f6d5e', '#b4682a', '#4a6d8c', '#8c5a86'];
 /** Drag/resize snap granularity, in minutes. */
 const SNAP = 5;
 
-/** Great-circle distance in km. */
-function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
-	const R = 6371;
-	const toRad = (d: number) => (d * Math.PI) / 180;
-	const dLat = toRad(lat2 - lat1);
-	const dLng = toRad(lng2 - lng1);
-	const a =
-		Math.sin(dLat / 2) ** 2 +
-		Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
-	return 2 * R * Math.asin(Math.sqrt(a));
-}
-
-/** Rough door-to-door estimate from a straight-line distance. */
-function estimateTravel(km: number): { mode: string; mins: number } {
-	// Real roads are longer than straight lines; pad the distance a little.
-	const dist = km * 1.3;
-	if (dist < 1.1) return { mode: 'walk', mins: Math.max(3, Math.round((dist / 4.8) * 60)) };
-	if (dist < 8) return { mode: 'transit', mins: Math.max(8, Math.round((dist / 16) * 60) + 6) };
-	return { mode: 'drive', mins: Math.max(10, Math.round((dist / 30) * 60) + 5) };
-}
-
 /** Estimated travel between two coordinates (used for cross-crew split bridges). */
 export function estimateCityTravel(
 	lat1: number,
@@ -62,7 +43,7 @@ export function estimateCityTravel(
 	lat2: number,
 	lng2: number
 ): { mode: string; mins: number } {
-	return estimateTravel(haversineKm(lat1, lng1, lat2, lng2));
+	return estimateTravelBetween(lat1, lng1, lat2, lng2);
 }
 
 /** Distinct days that have any track, ordered. */
@@ -176,16 +157,46 @@ export function removeTrack(trackId: string, tripId: string, userId: string): bo
 	return true;
 }
 
-/** True when the user is a member of the trip that owns the item. */
-function userOwnsItem(itemId: string, userId: string): boolean {
+/**
+ * The trip that owns a schedule item, or null if there is no such item.
+ *
+ * Exported because callers above this layer need to prove an item id from a
+ * request body belongs to the trip in the url before acting on it, and the only
+ * way to do that without this was to walk every day and every track of the trip
+ * looking for the id. That is a lot of queries to answer a one-row question.
+ */
+export function itemTrip(itemId: string): string | null {
+	if (!itemId) return null;
 	const row = db
 		.prepare(
-			`SELECT 1 FROM schedule_items i
+			`SELECT t.trip_id FROM schedule_items i
 			 JOIN tracks t ON t.id = i.track_id
-			 JOIN memberships m ON m.trip_id = t.trip_id
-			 WHERE i.id = ? AND m.user_id = ?`
+			 WHERE i.id = ?`
 		)
-		.get(itemId, userId);
+		.get(itemId) as { trip_id: string } | undefined;
+	return row?.trip_id ?? null;
+}
+
+/**
+ * True when the user may mutate this item.
+ *
+ * Two things have to hold, and they are not the same thing. The item must be
+ * owned by `tripId`, the trip the caller is acting in (normally the one in the
+ * url), and the user must be a member of the trip that actually OWNS the item.
+ * Membership is never checked against a trip the caller named, only against the
+ * owner, which is looked up here.
+ *
+ * `tripId` is required, and that is the point: someone who belongs to trips A
+ * and B is a member of both, so a membership test alone lets a B item be reached
+ * through an A request. Making the scope impossible to omit means a call site
+ * cannot reintroduce that by forgetting it.
+ */
+function userOwnsItem(itemId: string, userId: string, tripId: string): boolean {
+	const owner = itemTrip(itemId);
+	if (!owner || owner !== tripId) return false;
+	const row = db
+		.prepare(`SELECT 1 FROM memberships WHERE trip_id = ? AND user_id = ?`)
+		.get(owner, userId);
 	return !!row;
 }
 
@@ -267,27 +278,41 @@ export function createItem(
 	return id;
 }
 
-/** Replace the members assigned to an item. Any trip member may edit. */
+/**
+ * Replace the members assigned to an item. Any trip member may edit.
+ *
+ * `tripId` must be the trip that owns the item, and the assignee list is
+ * validated against that owning trip's roster rather than against the passed id.
+ * Previously the ownership test ignored `tripId` entirely and the roster came
+ * from it, so a member of trips A and B could write A's members onto a B item.
+ */
 export function setAssignees(
 	itemId: string,
 	tripId: string,
 	userId: string,
 	assignees: string[]
 ): boolean {
-	if (!userOwnsItem(itemId, userId)) return false;
-	writeAssignees(itemId, tripId, assignees);
+	const owner = itemTrip(itemId);
+	if (owner == null || owner !== tripId) return false;
+	if (!userOwnsItem(itemId, userId, owner)) return false;
+	writeAssignees(itemId, owner, assignees);
 	return true;
 }
 
-export function deleteItem(itemId: string, userId: string): boolean {
-	if (!userOwnsItem(itemId, userId)) return false;
+export function deleteItem(itemId: string, userId: string, tripId: string): boolean {
+	if (!userOwnsItem(itemId, userId, tripId)) return false;
 	const res = db.prepare(`DELETE FROM schedule_items WHERE id = ?`).run(itemId);
 	return res.changes > 0;
 }
 
 /** Move an item to a new start, preserving its duration. Snaps and clamps to the day. */
-export function moveItem(itemId: string, userId: string, startMin: number): boolean {
-	if (!userOwnsItem(itemId, userId)) return false;
+export function moveItem(
+	itemId: string,
+	userId: string,
+	startMin: number,
+	tripId: string
+): boolean {
+	if (!userOwnsItem(itemId, userId, tripId)) return false;
 	const item = db
 		.prepare(`SELECT start_min, end_min FROM schedule_items WHERE id = ?`)
 		.get(itemId) as { start_min: number; end_min: number } | undefined;
@@ -305,8 +330,13 @@ export function moveItem(itemId: string, userId: string, startMin: number): bool
 }
 
 /** Resize an item by moving its end, keeping the start. Snaps and clamps to the day. */
-export function resizeItem(itemId: string, userId: string, endMin: number): boolean {
-	if (!userOwnsItem(itemId, userId)) return false;
+export function resizeItem(
+	itemId: string,
+	userId: string,
+	endMin: number,
+	tripId: string
+): boolean {
+	if (!userOwnsItem(itemId, userId, tripId)) return false;
 	const item = db
 		.prepare(`SELECT start_min FROM schedule_items WHERE id = ?`)
 		.get(itemId) as { start_min: number } | undefined;
@@ -318,8 +348,6 @@ export function resizeItem(itemId: string, userId: string, endMin: number): bool
 	return true;
 }
 
-const ITEM_TYPES = ['poi', 'food', 'transport', 'travel', 'lodging', 'freetime'];
-
 export interface ItemEdit {
 	title?: string;
 	type?: string;
@@ -327,8 +355,13 @@ export interface ItemEdit {
 }
 
 /** Rename an item and/or change its type. Empty/invalid fields are ignored. */
-export function editItem(itemId: string, userId: string, edit: ItemEdit): boolean {
-	if (!userOwnsItem(itemId, userId)) return false;
+export function editItem(
+	itemId: string,
+	userId: string,
+	edit: ItemEdit,
+	tripId: string
+): boolean {
+	if (!userOwnsItem(itemId, userId, tripId)) return false;
 	const sets: string[] = [];
 	const args: (string | number | null)[] = [];
 
@@ -337,7 +370,9 @@ export function editItem(itemId: string, userId: string, edit: ItemEdit): boolea
 		sets.push('title = ?');
 		args.push(title);
 	}
-	if (edit.type && ITEM_TYPES.includes(edit.type)) {
+	// The vocabulary lives in @trippy/core so the server, the API and the
+	// calendar all validate and render the same set of literals.
+	if (edit.type && isItemType(edit.type)) {
 		sets.push('type = ?');
 		args.push(edit.type);
 		// Free time has no booking, place, or travel; everything else defaults to
@@ -372,8 +407,8 @@ export function editItem(itemId: string, userId: string, edit: ItemEdit): boolea
 const BOOKING_CYCLE = ['unbooked', 'tentative', 'booked'];
 
 /** Advance booking status: unbooked -> tentative -> booked -> unbooked. */
-export function cycleBooking(itemId: string, userId: string): boolean {
-	if (!userOwnsItem(itemId, userId)) return false;
+export function cycleBooking(itemId: string, userId: string, tripId: string): boolean {
+	if (!userOwnsItem(itemId, userId, tripId)) return false;
 	const row = db.prepare(`SELECT booking FROM schedule_items WHERE id = ?`).get(itemId) as
 		| { booking: string | null }
 		| undefined;

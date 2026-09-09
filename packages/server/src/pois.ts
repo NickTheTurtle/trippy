@@ -1,10 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { db } from './db';
+import { poiKindFromCategory, toPoiKind, type PoiKind } from '@trippy/core/types';
 
 export interface PoiRow {
 	id: string;
 	name: string;
 	category: string;
+	/** Discover bucket: 'attraction' or 'food'. Stored, not derived from category. */
+	kind: PoiKind;
 	notes: string | null;
 	url: string | null;
 	lat: number | null;
@@ -72,7 +75,7 @@ export function cityPois(tripId: string, userId: string): CityPois[] {
 		pois: (
 			db
 				.prepare(
-					`SELECT p.id, p.name, p.category, p.notes, p.url, p.lat, p.lng,
+					`SELECT p.id, p.name, p.category, p.kind, p.notes, p.url, p.lat, p.lng,
 				        p.rating, p.rating_count, p.price_level, p.hours, p.saved, p.photo,
 				        (SELECT COUNT(*) FROM poi_votes v WHERE v.poi_id = p.id) AS votes,
 				        (SELECT COUNT(*) FROM poi_votes v WHERE v.poi_id = p.id AND v.user_id = ?) AS you_voted,
@@ -128,6 +131,16 @@ export function poiTitleExists(tripId: string, cityId: string, name: string): bo
 	return !!row;
 }
 
+/**
+ * Add a discovered place.
+ *
+ * `kind` is the Discover bucket and is never trusted from the caller: anything
+ * that is not one of the two legal values is ignored. When it is omitted
+ * entirely the place is bucketed from its provider `category`, which yields
+ * `attraction` for anything unknown or ambiguous, so a food venue added through
+ * a client that does not send `kind` yet still lands in the right bucket
+ * instead of silently piling into Attractions.
+ */
 export function addPoi(
 	tripId: string,
 	actorId: string,
@@ -138,22 +151,26 @@ export function addPoi(
 	url: string | null,
 	lat: number | null,
 	lng: number | null,
-	details: PoiDetails = {}
+	details: PoiDetails = {},
+	kind?: string | null
 ): string | null {
 	if (!isMember(tripId, actorId)) return null;
 	if (!cityInTrip(tripId, cityId)) return null;
 	const id = randomUUID();
 	const hours = details.hours && details.hours.length ? JSON.stringify(details.hours) : null;
+	const bucket: PoiKind =
+		kind == null || kind === '' ? poiKindFromCategory(category) : toPoiKind(kind);
 	db.prepare(
 		`INSERT INTO pois
-		 (id, trip_id, city_id, name, category, notes, url, lat, lng, rating, rating_count, price_level, hours, photo, saved, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`
+		 (id, trip_id, city_id, name, category, kind, notes, url, lat, lng, rating, rating_count, price_level, hours, photo, saved, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`
 	).run(
 		id,
 		tripId,
 		cityId,
 		name,
 		category,
+		bucket,
 		notes,
 		url,
 		lat,
@@ -228,19 +245,34 @@ export function removePoi(tripId: string, actorId: string, poiId: string): boole
 	}
 }
 
-/** Edits the traveller-authored fields of a place. Provider-derived data
-    (rating, hours, photo, coordinates) is not editable, because it belongs to the
-    provider and is refreshed from it, not typed by hand. */
+/**
+ * Edits the traveller-authored fields of a place. Provider-derived data
+ * (rating, hours, photo, coordinates) is not editable, because it belongs to the
+ * provider and is refreshed from it, not typed by hand.
+ *
+ * `kind` is optional and follows patch semantics: omitting it leaves the
+ * existing bucket alone. It has to work that way, because a client that only
+ * sends a renamed title would otherwise reclassify every food place it touched
+ * back to `attraction`. When it is present but not a legal value it falls back
+ * to `attraction` rather than being written through.
+ */
 export function updatePoi(
 	tripId: string,
 	actorId: string,
 	poiId: string,
-	fields: { name: string; notes: string | null; url: string | null }
+	fields: { name: string; notes: string | null; url: string | null; kind?: string | null }
 ): boolean {
 	if (!isMember(tripId, actorId)) return false;
+	const sets = ['name = ?', 'notes = ?', 'url = ?'];
+	const args: (string | number | null)[] = [fields.name, fields.notes, fields.url];
+	if (fields.kind != null && fields.kind !== '') {
+		sets.push('kind = ?');
+		args.push(toPoiKind(fields.kind));
+	}
+	args.push(poiId, tripId);
 	const res = db
-		.prepare(`UPDATE pois SET name = ?, notes = ?, url = ? WHERE id = ? AND trip_id = ?`)
-		.run(fields.name, fields.notes, fields.url, poiId, tripId);
+		.prepare(`UPDATE pois SET ${sets.join(', ')} WHERE id = ? AND trip_id = ?`)
+		.run(...args);
 	return Number(res.changes) > 0;
 }
 

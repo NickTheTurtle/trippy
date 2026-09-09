@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
+import { poiKindFromCategory, type ItemType } from '@trippy/core/types';
 
 /**
  * A 20-person escape-room trip to Athens.
@@ -64,7 +65,7 @@ const COORDS: Record<string, [number, number]> = {
 	airport: [37.9364, 23.9445]
 };
 
-type Kind = 'poi' | 'meal' | 'travel' | 'freetime';
+type Kind = ItemType;
 
 interface Ev {
 	title: string;
@@ -90,7 +91,7 @@ const DAYS: { day: string; events: Ev[] }[] = [
 		day: '2026-04-16',
 		events: [
 			{ title: 'Airport → Plaka apartments', type: 'travel', start: hm(10), end: hm(11, 15), track: 'city', place: 'hotel', booking: 'booked', who: ALL },
-			{ title: 'Welcome brunch, Psyrri', type: 'meal', start: hm(11, 30), end: hm(13), track: 'city', place: 'psyrri', booking: 'booked', who: ALL },
+			{ title: 'Welcome brunch, Psyrri', type: 'food', start: hm(11, 30), end: hm(13), track: 'city', place: 'psyrri', booking: 'booked', who: ALL },
 
 			{ title: "Warm-up: The Alchemist's Study", type: 'poi', start: hm(13, 30), end: hm(15), track: 'great', place: 'great', booking: 'booked', travelBefore: 15, who: range(0, 3) },
 			{ title: "Warm-up: Pharaoh's Tomb", type: 'poi', start: hm(13, 30), end: hm(15), track: 'locked', place: 'locked', booking: 'booked', travelBefore: 15, who: range(4, 7) },
@@ -122,14 +123,14 @@ const DAYS: { day: string; events: Ev[] }[] = [
 			{ title: 'Round 2: Prison Break', type: 'poi', start: hm(11, 30), end: hm(13), track: 'paradox', place: 'paradox', booking: 'booked', travelBefore: 15, who: [11, 12, 13, 14] },
 			{ title: "Round 2: Sherlock's Study", type: 'poi', start: hm(11, 30), end: hm(13), track: 'vault', place: 'vault', booking: 'booked', travelBefore: 15, who: [15, 16, 17, 18] },
 
-			{ title: 'Lunch, Karamanlidika', type: 'meal', start: hm(13, 15), end: hm(14, 15), track: 'city', place: 'psyrri', booking: 'booked', travelBefore: 15, who: ALL },
+			{ title: 'Lunch, Karamanlidika', type: 'food', start: hm(13, 15), end: hm(14, 15), track: 'city', place: 'psyrri', booking: 'booked', travelBefore: 15, who: ALL },
 
 			{ title: 'Room: Nautilus', type: 'poi', start: hm(14, 30), end: hm(16), track: 'mystery', place: 'mystery', booking: 'booked', travelBefore: 15, who: [0, 1, 4, 5] },
 			{ title: 'Room: The Vault', type: 'poi', start: hm(14, 30), end: hm(16), track: 'vault', place: 'vault', booking: 'booked', travelBefore: 15, who: [8, 9, 12, 13] },
 			{ title: 'Acropolis & Parthenon', type: 'poi', start: hm(14, 30), end: hm(16), track: 'city', place: 'acropolis', booking: 'tentative', travelBefore: 20, who: [2, 3, 6, 7, 10, 11] },
 			{ title: 'Plaka & Anafiotika food walk', type: 'poi', start: hm(14, 30), end: hm(16), track: 'city', place: 'plaka', booking: 'tentative', travelBefore: 10, who: [14, 15, 16, 17, 18, 19] },
 
-			{ title: 'Rooftop debrief, A for Athens', type: 'meal', start: hm(16, 30), end: hm(17, 45), track: 'city', place: 'monastiraki', booking: 'tentative', travelBefore: 20, who: ALL }
+			{ title: 'Rooftop debrief, A for Athens', type: 'food', start: hm(16, 30), end: hm(17, 45), track: 'city', place: 'monastiraki', booking: 'tentative', travelBefore: 20, who: ALL }
 		]
 	},
 
@@ -146,14 +147,14 @@ const DAYS: { day: string; events: Ev[] }[] = [
 
 			{ title: 'Semifinal: The Oracle at Delphi', type: 'poi', start: hm(11), end: hm(12, 30), track: 'locked', place: 'locked', booking: 'booked', travelBefore: 15, who: [0, 4, 8, 12] },
 			{ title: 'Semifinal: Space Station Redux', type: 'poi', start: hm(11), end: hm(12, 30), track: 'mystery', place: 'mystery', booking: 'booked', travelBefore: 15, who: [2, 6, 10, 14] },
-			{ title: 'Recovery brunch, Kolonaki', type: 'meal', start: hm(11), end: hm(12, 30), track: 'city', place: 'kolonaki', booking: 'tentative', travelBefore: 15, who: [1, 3, 5, 7, 9, 11, 13, 15, 16, 17, 18, 19] },
+			{ title: 'Recovery brunch, Kolonaki', type: 'food', start: hm(11), end: hm(12, 30), track: 'city', place: 'kolonaki', booking: 'tentative', travelBefore: 15, who: [1, 3, 5, 7, 9, 11, 13, 15, 16, 17, 18, 19] },
 
 			{ title: 'Ancient Agora walk', type: 'poi', start: hm(13), end: hm(14, 30), track: 'city', place: 'agora', booking: 'booked', travelBefore: 20, who: ALL },
 
 			{ title: 'Grand final: Bank Heist', type: 'poi', start: hm(15), end: hm(16, 30), track: 'paradox', place: 'paradox', booking: 'booked', travelBefore: 20, who: [0, 4, 10, 14] },
 			{ title: 'Beach afternoon, Vouliagmeni', type: 'freetime', start: hm(15), end: hm(16, 30), track: 'city', place: 'vouliagmeni', travelBefore: 45, who: except(0, 4, 10, 14) },
 
-			{ title: 'Awards dinner, Psyrri taverna', type: 'meal', start: hm(17, 15), end: hm(18), track: 'city', place: 'psyrri', booking: 'booked', travelBefore: 45, who: ALL }
+			{ title: 'Awards dinner, Psyrri taverna', type: 'food', start: hm(17, 15), end: hm(18), track: 'city', place: 'psyrri', booking: 'booked', travelBefore: 45, who: ALL }
 		]
 	},
 
@@ -167,7 +168,7 @@ const DAYS: { day: string; events: Ev[] }[] = [
 			{ title: 'Last room: Nautilus', type: 'poi', start: hm(11, 15), end: hm(12, 45), track: 'mystery', place: 'mystery', booking: 'booked', travelBefore: 20, who: [4, 5, 6, 7] },
 			{ title: 'Coffee & board games, Exarchia', type: 'freetime', start: hm(11, 15), end: hm(12, 45), track: 'city', place: 'exarchia', travelBefore: 15, who: range(8, 19) },
 
-			{ title: 'Farewell lunch, Plaka', type: 'meal', start: hm(13, 15), end: hm(14, 45), track: 'city', place: 'plaka', booking: 'booked', travelBefore: 15, who: ALL },
+			{ title: 'Farewell lunch, Plaka', type: 'food', start: hm(13, 15), end: hm(14, 45), track: 'city', place: 'plaka', booking: 'booked', travelBefore: 15, who: ALL },
 			{ title: 'Depart for ATH airport', type: 'travel', start: hm(15, 15), end: hm(16, 45), track: 'city', place: 'airport', booking: 'booked', travelBefore: 30, who: ALL }
 		]
 	}
@@ -281,15 +282,17 @@ export function seedAthensTrip(db: DatabaseSync, userId: string): string {
 
 function seedPois(db: DatabaseSync, tripId: string, cityId: string, roster: string[]): void {
 	const insertPoi = db.prepare(
-		`INSERT INTO pois (id, trip_id, city_id, name, category, notes, url, lat, lng, saved, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)`
+		`INSERT INTO pois (id, trip_id, city_id, name, category, kind, notes, url, lat, lng, saved, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)`
 	);
 	const insertVote = db.prepare(`INSERT INTO poi_votes (poi_id, user_id) VALUES (?, ?)`);
 	const base = Date.now();
 	POIS.forEach((p, i) => {
 		const id = randomUUID();
 		const co = COORDS[p.place];
-		insertPoi.run(id, tripId, cityId, p.name, p.category, p.notes, co[0], co[1], p.saved, base - i * 100);
+		// Bucketed the same way the migration backfilled real rows, so a fresh
+		// demo database and an existing one classify identically.
+		insertPoi.run(id, tripId, cityId, p.name, p.category, poiKindFromCategory(p.category), p.notes, co[0], co[1], p.saved, base - i * 100);
 		for (let v = 0; v < Math.min(p.votes, roster.length); v++) insertVote.run(id, roster[v]);
 	});
 }

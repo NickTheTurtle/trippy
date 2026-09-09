@@ -1,5 +1,8 @@
-// Sample data so the UI is explorable before the backend exists.
-// Modeled on a real multi-city itinerary.
+// Sample itinerary data, modeled on a real multi-city trip. The demo account is
+// seeded from it (see packages/server/src/seed-example.ts) so a fresh install
+// has something to click around in.
+
+import type { ItemType } from './types';
 
 export interface City {
 	id: string;
@@ -60,7 +63,7 @@ export interface Block {
 	start: string;
 	end: string;
 	title: string;
-	type: 'poi' | 'meal' | 'travel' | 'freetime';
+	type: ItemType;
 	booking?: 'booked' | 'tentative' | 'unbooked';
 	travelToNext?: { mode: string; mins: number };
 }
@@ -83,7 +86,7 @@ export const sampleDay = {
 			blocks: [
 				{ start: '08:30', end: '11:00', title: 'Forbidden City', type: 'poi', booking: 'booked', travelToNext: { mode: 'transit', mins: 20 } },
 				{ start: '11:20', end: '12:00', title: 'Tiananmen Square', type: 'poi', booking: 'booked', travelToNext: { mode: 'walk', mins: 10 } },
-				{ start: '12:10', end: '13:10', title: 'Lunch, Wangfujing', type: 'meal', booking: 'tentative', travelToNext: { mode: 'drive', mins: 25 } },
+				{ start: '12:10', end: '13:10', title: 'Lunch, Wangfujing', type: 'food', booking: 'tentative', travelToNext: { mode: 'drive', mins: 25 } },
 				{ start: '14:30', end: '16:00', title: 'Temple of Heaven', type: 'poi', booking: 'unbooked' }
 			]
 		},
@@ -93,8 +96,8 @@ export const sampleDay = {
 			color: '#b4682a',
 			blocks: [
 				{ start: '09:00', end: '10:30', title: 'Hutong food walk', type: 'poi', booking: 'booked', travelToNext: { mode: 'transit', mins: 15 } },
-				{ start: '10:45', end: '11:30', title: 'Boba, 1点点', type: 'meal', booking: 'booked', travelToNext: { mode: 'walk', mins: 12 } },
-				{ start: '12:00', end: '13:30', title: 'Lunch, Guijie', type: 'meal', booking: 'tentative' },
+				{ start: '10:45', end: '11:30', title: 'Boba, 1点点', type: 'food', booking: 'booked', travelToNext: { mode: 'walk', mins: 12 } },
+				{ start: '12:00', end: '13:30', title: 'Lunch, Guijie', type: 'food', booking: 'tentative' },
 				{ start: '14:00', end: '17:00', title: 'Free time', type: 'freetime' }
 			]
 		}

@@ -1,6 +1,7 @@
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { session, requireUser } from './middleware';
+import { fail } from './respond';
 import { auth } from './routes/auth';
 import { account } from './routes/account';
 import { trips } from './routes/trips';
@@ -36,7 +37,7 @@ app.get('/api/citysearch', requireUser, async (c) =>
 	c.json({ results: await searchCities(c.req.query('q') ?? '') })
 );
 
-app.notFound((c) => c.json({ error: 'Not found' }, 404));
+app.notFound((c) => fail(c, 404, 'Not found'));
 
 app.onError((err, c) => {
 	// Log the real error, return a generic one: stack traces and SQL text in a

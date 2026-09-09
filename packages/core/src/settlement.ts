@@ -1,30 +1,39 @@
 /**
  * Minimal-transaction settlement (Splitwise-style).
- * Input: net balance per user in the trip's home currency
- *        (positive = is owed money, negative = owes money).
- * Output: a minimal set of transactions to bring everyone to zero.
+ *
+ * Input: net balance per user in the trip's home currency, in whole minor units
+ *        (cents; positive = is owed money, negative = owes money).
+ * Output: a minimal set of transfers, also in whole cents, that brings everyone
+ *        to zero.
+ *
+ * All arithmetic here is integer. Money is carried as minor units everywhere
+ * and only formatted into a major-unit string at the edge, so nothing can drift
+ * and there is no epsilon: a one-cent imbalance is a real debt and gets a real
+ * transfer instead of being rounded out of existence. Given balances that sum
+ * to zero, the transfers reconcile them to zero exactly.
  */
 
 export interface Balance {
 	userId: string;
-	net: number; // home-currency, paid - owed
+	netCents: number; // home currency minor units, paid - owed
 }
 
 export interface Transaction {
 	from: string; // debtor
 	to: string; // creditor
-	amount: number;
+	amountCents: number; // always positive
 }
 
-export function settle(balances: Balance[], epsilon = 0.01): Transaction[] {
-	const creditors = balances
-		.filter((b) => b.net > epsilon)
-		.map((b) => ({ ...b }))
-		.sort((a, b) => b.net - a.net);
-	const debtors = balances
-		.filter((b) => b.net < -epsilon)
-		.map((b) => ({ ...b }))
-		.sort((a, b) => a.net - b.net);
+export function settle(balances: Balance[]): Transaction[] {
+	const whole = balances.map((b) => ({ userId: b.userId, netCents: Math.round(b.netCents) }));
+	// Ties broken by user id so the suggested transfers are stable between
+	// requests rather than following whatever order the rows arrived in.
+	const creditors = whole
+		.filter((b) => b.netCents > 0)
+		.sort((a, b) => b.netCents - a.netCents || (a.userId < b.userId ? -1 : 1));
+	const debtors = whole
+		.filter((b) => b.netCents < 0)
+		.sort((a, b) => a.netCents - b.netCents || (a.userId < b.userId ? -1 : 1));
 
 	const txns: Transaction[] = [];
 	let i = 0;
@@ -32,18 +41,14 @@ export function settle(balances: Balance[], epsilon = 0.01): Transaction[] {
 	while (i < debtors.length && j < creditors.length) {
 		const debtor = debtors[i];
 		const creditor = creditors[j];
-		const amount = Math.min(-debtor.net, creditor.net);
-		if (amount > epsilon) {
-			txns.push({
-				from: debtor.userId,
-				to: creditor.userId,
-				amount: Math.round(amount * 100) / 100
-			});
-			debtor.net += amount;
-			creditor.net -= amount;
+		const amountCents = Math.min(-debtor.netCents, creditor.netCents);
+		if (amountCents > 0) {
+			txns.push({ from: debtor.userId, to: creditor.userId, amountCents });
+			debtor.netCents += amountCents;
+			creditor.netCents -= amountCents;
 		}
-		if (Math.abs(debtor.net) <= epsilon) i++;
-		if (Math.abs(creditor.net) <= epsilon) j++;
+		if (debtor.netCents === 0) i++;
+		if (creditor.netCents === 0) j++;
 	}
 	return txns;
 }

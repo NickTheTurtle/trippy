@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { requireMember } from '../middleware';
 import { body, num, optStr, str, strList } from '../parse';
+import { fail, okOr } from '../respond';
 import type { Env } from '../types';
 import { addTask, listTasks, removeTask, toggleTask } from '@trippy/server/tasks';
 import {
@@ -35,11 +36,11 @@ pretrip.get('/', (c) => {
 pretrip.post('/tasks', async (c) => {
 	const b = await body(c);
 	const label = str(b.label);
-	if (!label) return c.json({ error: 'Describe the task.' }, 400);
+	if (!label) return fail(c, 400, 'Describe the task.');
 
 	const kind = str(b.kind) === 'packing' ? 'packing' : 'task';
 	const id = addTask(c.get('trip').id, c.get('user').id, kind, label, strList(b.assignees), null);
-	if (!id) return c.json({ error: 'Could not add that task.' }, 400);
+	if (!id) return fail(c, 400, 'Could not add that task.');
 	return c.json({ id }, 201);
 });
 
@@ -49,15 +50,22 @@ pretrip.post('/tasks', async (c) => {
  */
 pretrip.post('/tasks/:taskId/toggle', async (c) => {
 	const userId = optStr((await body(c)).userId) ?? undefined;
-	const ok = toggleTask(c.get('trip').id, c.get('user').id, c.req.param('taskId'), userId);
-	if (!ok) return c.json({ error: 'You can only tick your own box.' }, 403);
-	return c.json({ ok: true });
+	return okOr(
+		c,
+		toggleTask(c.get('trip').id, c.get('user').id, c.req.param('taskId'), userId),
+		403,
+		'You can only tick your own box.'
+	);
 });
 
-pretrip.delete('/tasks/:taskId', (c) => {
-	removeTask(c.get('trip').id, c.get('user').id, c.req.param('taskId'));
-	return c.json({ ok: true });
-});
+pretrip.delete('/tasks/:taskId', (c) =>
+	okOr(
+		c,
+		removeTask(c.get('trip').id, c.get('user').id, c.req.param('taskId')),
+		404,
+		'Could not remove that task.'
+	)
+);
 
 // --- Estimated costs --------------------------------------------------------
 
@@ -74,25 +82,32 @@ function readItem(b: Record<string, unknown>) {
 
 pretrip.post('/costs', async (c) => {
 	const item = readItem(await body(c));
-	if (item.cents === null) return c.json({ error: 'Enter a valid amount.' }, 400);
+	if (item.cents === null) return fail(c, 400, 'Enter a valid amount.');
 	if (!addCostItem(c.get('trip').id, c.get('user').id, { ...item, cents: item.cents })) {
-		return c.json({ error: 'Could not add that item.' }, 400);
+		return fail(c, 400, 'Could not add that item.');
 	}
 	return c.json({ ok: true }, 201);
 });
 
 pretrip.put('/costs/:itemId', async (c) => {
 	const item = readItem(await body(c));
-	if (item.cents === null) return c.json({ error: 'Enter a valid amount.' }, 400);
-	const ok = updateCostItem(c.get('trip').id, c.get('user').id, c.req.param('itemId'), {
-		...item,
-		cents: item.cents
-	});
-	if (!ok) return c.json({ error: 'Could not save that item.' }, 400);
-	return c.json({ ok: true });
+	if (item.cents === null) return fail(c, 400, 'Enter a valid amount.');
+	return okOr(
+		c,
+		updateCostItem(c.get('trip').id, c.get('user').id, c.req.param('itemId'), {
+			...item,
+			cents: item.cents
+		}),
+		400,
+		'Could not save that item.'
+	);
 });
 
-pretrip.delete('/costs/:itemId', (c) => {
-	removeCostItem(c.get('trip').id, c.get('user').id, c.req.param('itemId'));
-	return c.json({ ok: true });
-});
+pretrip.delete('/costs/:itemId', (c) =>
+	okOr(
+		c,
+		removeCostItem(c.get('trip').id, c.get('user').id, c.req.param('itemId')),
+		404,
+		'Could not remove that item.'
+	)
+);

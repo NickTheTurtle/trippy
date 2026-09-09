@@ -84,6 +84,74 @@ export function localDayMinutes(tz: string, at: Date = new Date()): { day: strin
 	}
 }
 
+/* --- Calendar days -------------------------------------------------------- */
+
+/*
+ * A "day string" is `YYYY-MM-DD` with no zone and no time attached: the unit the
+ * whole app dates things in (city arrive/depart, trip endpoints, schedule days).
+ * It lives here because it is the boundary between zoned instants and plain
+ * calendar days, and because every layer needs the same answer to "is this a
+ * real date" and "how do I show this range".
+ */
+
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * True when `value` is a `YYYY-MM-DD` day that actually exists.
+ *
+ * The regex alone accepts month 13 and the 31st of February, so the parts are
+ * round-tripped through `Date.UTC`: anything the calendar silently rolls over
+ * into the next month comes back different and is rejected.
+ */
+export function isDayString(value: string): boolean {
+	if (!DAY_RE.test(value)) return false;
+	const [y, m, d] = value.split('-').map(Number);
+	return new Date(Date.UTC(y, m - 1, d)).toISOString().slice(0, 10) === value;
+}
+
+/** A real day string, or null for empty / malformed / impossible input. */
+export function normalizeDay(value: string | null | undefined): string | null {
+	const s = (value ?? '').trim();
+	if (!s) return null;
+	return isDayString(s) ? s : null;
+}
+
+/** Days from `start` to `end` inclusive, or [] if either end is not a real day. */
+export function eachDay(start: string, end: string): string[] {
+	if (!isDayString(start) || !isDayString(end) || start > end) return [];
+	const out: string[] = [];
+	for (let t = Date.parse(`${start}T00:00:00Z`); t <= Date.parse(`${end}T00:00:00Z`); t += 86400000) {
+		out.push(new Date(t).toISOString().slice(0, 10));
+	}
+	return out;
+}
+
+/**
+ * Human label for a day range, e.g. "Apr 16 – 20, 2026" when the month and year
+ * match, "Apr 28 – May 3, 2026" across months, "Dec 30, 2026 – Jan 2, 2027"
+ * across years. Formatted from UTC parts so it never shifts by the reader's zone.
+ */
+export function formatDayRange(start: string | null, end: string | null): string {
+	if (!start && !end) return 'Dates to be set';
+	if (!start || !end) return niceDay((start ?? end)!, true);
+	const [sy, sm] = start.split('-');
+	const [ey, em] = end.split('-');
+	if (sy !== ey) return `${niceDay(start, true)} – ${niceDay(end, true)}`;
+	if (sm !== em) return `${niceDay(start, false)} – ${niceDay(end, true)}`;
+	return `${niceDay(start, false)} – ${Number(end.slice(8, 10))}, ${ey}`;
+}
+
+function niceDay(day: string, withYear: boolean): string {
+	const d = new Date(`${day}T00:00:00Z`);
+	if (Number.isNaN(d.getTime())) return day;
+	return d.toLocaleDateString('en-US', {
+		month: 'short',
+		day: 'numeric',
+		...(withYear ? { year: 'numeric' } : {}),
+		timeZone: 'UTC'
+	});
+}
+
 /**
  * Human offset of `tz` relative to `homeTz`, e.g. "12h ahead", "3h behind",
  * or "same time". Returns an empty string when the zones match exactly.
