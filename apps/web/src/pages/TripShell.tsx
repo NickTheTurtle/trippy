@@ -1,12 +1,13 @@
-import { useState } from 'react';
-import { Link, NavLink, Outlet, useOutletContext, useParams } from 'react-router';
-import { api, ApiError } from '../api';
+import { useEffect, useState } from 'react';
+import { Link, NavLink, Outlet, useLocation, useOutletContext, useParams } from 'react-router';
+import { api } from '../api';
 import { useApi } from '../useApi';
+import { useTripEvents, TripEventsProvider } from '../useTripEvents';
 import { TABS } from '../nav';
-import Modal from '../components/Modal';
-import Select from '../components/Select';
 import Itinerary from '../components/Itinerary';
-import { Field, FieldShell } from '../components/Field';
+import TripFormDialog from '../components/TripFormDialog';
+import { LinkButton } from '../components/buttons';
+import LiveOff from '../components/LiveOff';
 
 export type TripCity = {
 	id: string;
@@ -30,7 +31,6 @@ export type Trip = {
 	role: string;
 	cities: TripCity[];
 	members: string[];
-	memberList: { id: string; name: string }[];
 };
 
 type Ctx = { trip: Trip; reloadTrip: () => void; editItinerary: () => void };
@@ -42,13 +42,28 @@ export function useTrip(): Ctx {
 
 export default function TripShell() {
 	const { tripId } = useParams();
-	const { data, error, loading, reload } = useApi<{ trip: Trip }>(`/trips/${tripId}`);
+	const { pathname } = useLocation();
+	const { data, error, reload } = useApi<{ trip: Trip }>(`/trips/${tripId}`);
 	const [showEdit, setShowEdit] = useState(false);
 	const [showItinerary, setShowItinerary] = useState(false);
 
-	if (loading && !data) return null;
+	// One live stream per open trip, owned here rather than by each section, so
+	// moving between the tabs of a trip does not churn connections and switching
+	// trips closes the old one before opening the new one.
+	const events = useTripEvents(tripId ?? null);
+	// The header carries the name, the dates, the member avatars and the city
+	// strip, so it follows all three of those topics.
+	useEffect(() => events.subscribe(['trip', 'members', 'schedule'], reload), [events, reload]);
 
-	if (error || !data) {
+	// `useApi` deliberately keeps the previous response while the next one is in
+	// flight, which is what stops a reload blanking the page. Switching trips
+	// goes through the same state, though, so the loaded trip has to be checked
+	// against the one in the URL: without this the header, the tabs and every
+	// section below render the trip you just left for as long as the fetch takes.
+	const trip = data && data.trip.id === tripId ? data.trip : null;
+
+	if (!trip) {
+		if (!error) return null;
 		return (
 			<main className="container py-8">
 				<p>
@@ -61,12 +76,13 @@ export default function TripShell() {
 		);
 	}
 
-	const trip = data.trip;
 	const base = `/trips/${trip.id}`;
 	const extra = trip.members.length - 8;
+	// Discover carries its own "Add a city" in its empty state; see below.
+	const onDiscover = pathname === base || pathname.startsWith(`${base}/discover`);
 
 	return (
-		<>
+		<TripEventsProvider value={events}>
 			<div className="border-b border-line bg-surface">
 				<div className="container">
 					<Link
@@ -90,11 +106,7 @@ export default function TripShell() {
 								<Avatar title={trip.members.slice(8).join(', ')} label={`+${extra}`} rest />
 							)}
 							{trip.role === 'organizer' && (
-								<button
-									type="button"
-									className="btn ml-3 px-3 py-1.5 text-[0.85rem]"
-									onClick={() => setShowEdit(true)}
-								>
+								<button type="button" className="btn small ml-3" onClick={() => setShowEdit(true)}>
 									Edit trip
 								</button>
 							)}
@@ -111,20 +123,31 @@ export default function TripShell() {
 						))}
 						{/* The itinerary opens from the chain it edits. A trip starts with
 						    no cities and every section is scoped to one, so on a new trip
-						    this is the only thing on the page worth pressing. */}
+						    this is the only thing on the page worth pressing.
+
+						    Except on Discover, which renders its own empty state with the
+						    same "Add a city" button in it. Two primary buttons for one
+						    intent, three feet apart, is one too many, and the empty state
+						    is the better of the two: it sits where the missing content
+						    would be and says why the page is blank. So this one stands
+						    down while that one is on screen. Every other tab keeps it,
+						    because Discover's empty state is the *only* other way in and
+						    a cityless Calendar would otherwise be a dead end. */}
 						{trip.role === 'organizer' &&
 							(trip.cities.length === 0 ? (
-								<button
-									type="button"
-									className="btn small primary"
-									onClick={() => setShowItinerary(true)}
-								>
-									Add a city
-								</button>
+								onDiscover ? null : (
+									<button
+										type="button"
+										className="btn small primary"
+										onClick={() => setShowItinerary(true)}
+									>
+										Add a city
+									</button>
+								)
 							) : (
-								<button type="button" className="link ml-2" onClick={() => setShowItinerary(true)}>
+								<LinkButton className="ml-2" onClick={() => setShowItinerary(true)}>
 									Edit itinerary
-								</button>
+								</LinkButton>
 							))}
 					</div>
 
@@ -155,6 +178,7 @@ export default function TripShell() {
 			)}
 
 			<main className="container py-8">
+				<LiveOff />
 				<Outlet
 					context={
 						{
@@ -165,7 +189,7 @@ export default function TripShell() {
 					}
 				/>
 			</main>
-		</>
+		</TripEventsProvider>
 	);
 }
 
@@ -185,24 +209,11 @@ function Avatar({ title, label, rest }: { title: string; label: string; rest?: b
 	);
 }
 
-const CURRENCIES = [
-	'USD',
-	'EUR',
-	'GBP',
-	'JPY',
-	'CAD',
-	'AUD',
-	'CHF',
-	'CNY',
-	'INR',
-	'MXN',
-	'SEK',
-	'NZD',
-	'SGD',
-	'ZAR',
-	'BRL'
-];
-
+/**
+ * Edit. Same form as creating one, with the trip's own values in it; what is
+ * local here is the PATCH, the `currency` spelling that endpoint takes, and
+ * closing rather than navigating.
+ */
 function EditTrip({
 	trip,
 	onClose,
@@ -212,86 +223,28 @@ function EditTrip({
 	onClose: () => void;
 	onSaved: () => void;
 }) {
-	const [name, setName] = useState(trip.name);
-	const [startDate, setStartDate] = useState(trip.start_date ?? '');
-	const [endDate, setEndDate] = useState(trip.end_date ?? '');
-	const [currency, setCurrency] = useState(trip.home_currency);
-	const [error, setError] = useState('');
-	const [saving, setSaving] = useState(false);
-
-	async function submit(e: React.FormEvent) {
-		e.preventDefault();
-		setSaving(true);
-		setError('');
-		try {
-			await api(`/trips/${trip.id}`, {
-				method: 'PATCH',
-				body: { name, startDate, endDate, currency }
-			});
-			onSaved();
-			onClose();
-		} catch (err) {
-			setError(err instanceof ApiError ? err.message : 'Could not save.');
-			setSaving(false);
-		}
-	}
-
 	return (
-		<Modal open title="Edit trip" size="sm" onClose={onClose}>
-			<form className="mform" onSubmit={submit}>
-				<div className="mbody flex flex-col gap-3">
-					{error && (
-						<p role="alert" className="m-0 text-[0.88rem] text-warn">
-							{error}
-						</p>
-					)}
-					<Field
-						label="Trip name"
-						// The dialog opens with nothing focused otherwise, so Escape
-						// works but typing does not go anywhere useful.
-						autoFocus
-						required
-						value={name}
-						onChange={(e) => setName(e.target.value)}
-					/>
-					<div className="flex flex-wrap gap-2.5">
-						<Field
-							label="Start"
-							className="flex-[1_1_130px]"
-							type="date"
-							value={startDate}
-							onChange={(e) => setStartDate(e.target.value)}
-						/>
-						<Field
-							label="End"
-							className="flex-[1_1_130px]"
-							type="date"
-							value={endDate}
-							onChange={(e) => setEndDate(e.target.value)}
-						/>
-						<FieldShell label="Currency" className="flex-[0_1_130px]">
-							<Select
-								ariaLabel="Home currency"
-								value={currency}
-								onChange={setCurrency}
-								options={CURRENCIES.map((c) => ({ value: c, label: c }))}
-							/>
-						</FieldShell>
-					</div>
-					<p className="muted m-0 text-[0.78rem] leading-relaxed">
-						The header label is generated from these dates. Currency is what totals and estimates
-						are shown in.
-					</p>
-				</div>
-				<div className="mfoot">
-					<button className="btn" type="button" onClick={onClose}>
-						Cancel
-					</button>
-					<button className="btn primary" type="submit" disabled={saving}>
-						{saving ? 'Saving...' : 'Save changes'}
-					</button>
-				</div>
-			</form>
-		</Modal>
+		<TripFormDialog
+			title="Edit trip"
+			submitLabel="Save changes"
+			busyLabel="Saving..."
+			note="The header label is generated from these dates. Currency is what totals and estimates are shown in."
+			fallback="Could not save."
+			initial={{
+				name: trip.name,
+				startDate: trip.start_date ?? '',
+				endDate: trip.end_date ?? '',
+				currency: trip.home_currency
+			}}
+			onClose={onClose}
+			onSubmit={async (v) => {
+				await api(`/trips/${trip.id}`, {
+					method: 'PATCH',
+					body: { name: v.name, startDate: v.startDate, endDate: v.endDate, currency: v.currency }
+				});
+				onSaved();
+				onClose();
+			}}
+		/>
 	);
 }

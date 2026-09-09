@@ -1,8 +1,14 @@
 import { useState } from 'react';
-import { api, ApiError } from '../api';
+import { api } from '../api';
 import { useApi } from '../useApi';
+import { useLiveSection } from '../useTripEvents';
+import { useMutation } from '../useMutation';
 import { useTrip } from './TripShell';
+import type { RemovalImpact } from '../api-types';
 import { Field } from '../components/Field';
+import FormError from '../components/FormError';
+import ConfirmDialog from '../components/ConfirmDialog';
+import { LinkButton } from '../components/buttons';
 
 type Person = {
 	id: string;
@@ -18,10 +24,9 @@ type Data = { me: string; organizer: boolean; people: Person[] };
 export default function People() {
 	const { trip, reloadTrip } = useTrip();
 	const { data, error, reload } = useApi<Data>(`/trips/${trip.id}/people`);
-	const [notice, setNotice] = useState<{
-		kind: 'ok' | 'error';
-		text: string;
-	} | null>(null);
+	useLiveSection(['members'], reload);
+	const [notice, setNotice] = useState('');
+	const [pendingRemove, setPendingRemove] = useState<Person | null>(null);
 
 	// The header shows the member avatars, so anything that changes the roster
 	// has to refresh the shell too, not just this page.
@@ -30,7 +35,7 @@ export default function People() {
 		reloadTrip();
 	}
 
-	if (!data) return error ? <p className="text-warn">{error}</p> : null;
+	if (!data) return error ? <FormError message={error} variant="banner" /> : null;
 
 	return (
 		<>
@@ -38,19 +43,9 @@ export default function People() {
 				<p className="muted m-0">Who is coming, and who still needs an invite.</p>
 			</div>
 
-			{notice && (
-				<p
-					role="status"
-					className={[
-						'mb-4 rounded-lg px-3.5 py-2.5 text-[0.9rem]',
-						notice.kind === 'error'
-							? 'bg-danger-soft text-danger-ink'
-							: 'bg-accent-soft text-accent-ink'
-					].join(' ')}
-				>
-					{notice.text}
-				</p>
-			)}
+			{/* Only ever a success line: an invite that is refused reports inside the
+			    form that was refused, not at the top of the page. */}
+			<FormError message={notice} tone="success" variant="banner" />
 
 			<div
 				className={
@@ -73,9 +68,7 @@ export default function People() {
 								person={p}
 								me={data.me}
 								organizer={data.organizer}
-								tripId={trip.id}
-								onRemoved={refresh}
-								onError={(text) => setNotice({ kind: 'error', text })}
+								onRemove={() => setPendingRemove(p)}
 							/>
 						))}
 					</ul>
@@ -85,45 +78,161 @@ export default function People() {
 					<Invite
 						tripId={trip.id}
 						onDone={(text) => {
-							setNotice({ kind: 'ok', text });
+							setNotice(text);
 							refresh();
 						}}
-						onError={(text) => setNotice({ kind: 'error', text })}
 					/>
 				)}
 			</div>
+
+			<ConfirmDialog
+				open={!!pendingRemove}
+				title={pendingRemove ? `Remove ${pendingRemove.name}?` : ''}
+				confirmLabel="Remove"
+				busyLabel="Removing..."
+				body={pendingRemove && <RemoveBody tripId={trip.id} person={pendingRemove} />}
+				onCancel={() => setPendingRemove(null)}
+				onConfirm={async () => {
+					if (!pendingRemove) return;
+					// No `useMutation` here: `ConfirmDialog` already owns the busy flag
+					// and shows a throw in its own footer, so a second state machine
+					// would only decide twice where the message goes.
+					await api(`/trips/${trip.id}/people/${pendingRemove.id}`, { method: 'DELETE' });
+					setPendingRemove(null);
+					setNotice('');
+					refresh();
+				}}
+			/>
 		</>
 	);
+}
+
+/**
+ * What removing a member actually does, which is two different things, said
+ * with the numbers rather than in general terms.
+ *
+ *  - a placeholder (invited, never registered) exists only for this trip, so
+ *    its user row goes and everything keyed to it cascades: the expenses it
+ *    paid, its share of everyone else's, and its votes;
+ *  - a real account, or a seeded sample companion, keeps its user row. Only the
+ *    membership goes, so the expenses they paid stay in the ledger while they
+ *    drop out of the balances.
+ *
+ * The counts come from the server, which derives them from the same cascade
+ * that the delete will actually follow. Working them out here from the roster
+ * payload would be a second, guessed answer to a question the database can
+ * answer exactly, and the guess would be the one on screen when someone decides
+ * whether to click.
+ *
+ * The dialog opens before the counts arrive, so the general sentence is what is
+ * shown until they land, and stays if the request fails. It never blocks the
+ * dialog on a fetch: a confirmation that renders empty for half a second is
+ * worse than one that gets more specific.
+ */
+function RemoveBody({ tripId, person }: { tripId: string; person: Person }) {
+	const { data } = useApi<RemovalImpact>(`/trips/${tripId}/people/${person.id}/removal-impact`);
+
+	return (
+		<>
+			<p className="m-0 mb-2 font-semibold [overflow-wrap:anywhere]">{person.name}</p>
+			{person.placeholder ? (
+				<>
+					<p className="m-0 text-[0.9rem]">
+						They were invited at {person.email} but have not joined, so the invite is withdrawn and
+						their user record is deleted. The address can be invited again afterwards.
+					</p>
+					{data && <Destroys impact={data} />}
+				</>
+			) : (
+				<>
+					<p className="m-0 text-[0.9rem]">
+						They lose access to this trip. Their account and any other trip they are on are
+						untouched.
+					</p>
+					{data && <Keeps impact={data} />}
+				</>
+			)}
+			{data?.affectsSettlement && (
+				/* The part that silently costs people money, so it is its own
+				   sentence and not a clause at the end of a longer one. */
+				<p className="m-0 mt-2 text-[0.9rem] font-medium">
+					Balances on this trip will change, so who owes whom will not be what it was.
+				</p>
+			)}
+		</>
+	);
+}
+
+/** The placeholder case: everything below is actually deleted. */
+function Destroys({ impact }: { impact: RemovalImpact }) {
+	const d = impact.destroyed;
+	const gone = phrases([
+		[d.expensesPaid, 'expense they paid', 'expenses they paid'],
+		[d.expenseShares, 'share they owe', 'shares they owe'],
+		[d.poiVotes, 'place vote', 'place votes'],
+		[d.lodgingVotes, 'stay vote', 'stay votes'],
+		[d.itemAssignments, 'calendar assignment', 'calendar assignments'],
+		[d.taskAssignments, 'task assignment', 'task assignments'],
+		[d.taskCompletions, 'ticked-off task', 'ticked-off tasks'],
+		[d.partySegments, 'crew membership', 'crew memberships']
+	]);
+
+	if (!gone && !d.otherPeopleSharesLost) return null;
+
+	return (
+		<>
+			{gone && <p className="m-0 mt-2 text-[0.9rem]">Permanently deleted: {gone}.</p>}
+			{d.otherPeopleSharesLost > 0 && (
+				/* The surprise: deleting an expense THIS person paid takes everyone
+				   else's shares on it with it. Nobody expects that from "remove a
+				   member", so it gets said separately rather than folded into the
+				   list above. */
+				<p className="m-0 mt-2 text-[0.9rem]">
+					That also deletes {count(d.otherPeopleSharesLost, 'share', 'shares')} other people had on
+					those expenses.
+				</p>
+			)}
+		</>
+	);
+}
+
+/** The registered case: nothing is deleted, so say what survives. */
+function Keeps({ impact }: { impact: RemovalImpact }) {
+	const r = impact.retained;
+	const kept = phrases([
+		[r.expensesPaid, 'expense they paid', 'expenses they paid'],
+		[r.expenseShares, 'share they owe', 'shares they owe'],
+		[r.poiVotes, 'place vote', 'place votes'],
+		[r.lodgingVotes, 'stay vote', 'stay votes'],
+		[r.taskAssignments, 'task assignment', 'task assignments']
+	]);
+	if (!kept) return null;
+	return <p className="m-0 mt-2 text-[0.9rem]">Kept, with their name on it: {kept}.</p>;
+}
+
+function count(n: number, one: string, many: string): string {
+	return `${n} ${n === 1 ? one : many}`;
+}
+
+/** "3 expenses they paid, 7 shares they owe and 4 place votes". Zeroes are dropped. */
+function phrases(items: [number, string, string][]): string {
+	const parts = items.filter(([n]) => n > 0).map(([n, one, many]) => count(n, one, many));
+	if (parts.length === 0) return '';
+	if (parts.length === 1) return parts[0];
+	return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
 }
 
 function Row({
 	person,
 	me,
 	organizer,
-	tripId,
-	onRemoved,
-	onError
+	onRemove
 }: {
 	person: Person;
 	me: string;
 	organizer: boolean;
-	tripId: string;
-	onRemoved: () => void;
-	onError: (text: string) => void;
+	onRemove: () => void;
 }) {
-	const [busy, setBusy] = useState(false);
-
-	async function remove() {
-		setBusy(true);
-		try {
-			await api(`/trips/${tripId}/people/${person.id}`, { method: 'DELETE' });
-			onRemoved();
-		} catch (err) {
-			onError(err instanceof ApiError ? err.message : 'Could not remove that member.');
-			setBusy(false);
-		}
-	}
-
 	const sub = person.placeholder
 		? `${person.email} (not joined yet)`
 		: person.seeded
@@ -151,15 +260,17 @@ function Row({
 				<span className="muted truncate text-[0.82rem]">{sub}</span>
 			</span>
 			{organizer && person.role !== 'organizer' && (
-				<button
-					type="button"
-					disabled={busy}
-					onClick={remove}
+				/* A text control rather than a bordered button: on every row of a
+				   two-column roster a button would read as the row's main action,
+				   which it is not. The weight belongs in the confirmation. */
+				<LinkButton
+					danger
+					className="flex-none"
+					onClick={onRemove}
 					aria-label={`Remove ${person.name}`}
-					className="cursor-pointer border-none bg-transparent px-1 py-0.5 text-[0.82rem] text-ink-faint hover:text-danger-ink disabled:cursor-default"
 				>
 					Remove
-				</button>
+				</LinkButton>
 			)}
 		</li>
 	);
@@ -181,38 +292,28 @@ function Tag({ kind, children }: { kind: 'you' | 'org' | 'seed' | 'invited'; chi
 	);
 }
 
-function Invite({
-	tripId,
-	onDone,
-	onError
-}: {
-	tripId: string;
-	onDone: (text: string) => void;
-	onError: (text: string) => void;
-}) {
+function Invite({ tripId, onDone }: { tripId: string; onDone: (text: string) => void }) {
 	const [email, setEmail] = useState('');
-	const [busy, setBusy] = useState(false);
 
-	async function submit(e: React.FormEvent) {
-		e.preventDefault();
-		setBusy(true);
-		try {
+	const invite = useMutation(
+		async () => {
 			const { message } = await api<{ message: string }>(`/trips/${tripId}/people/invites`, {
 				method: 'POST',
 				body: { email }
 			});
 			setEmail('');
 			onDone(message);
-		} catch (err) {
-			onError(err instanceof ApiError ? err.message : 'Could not send that invite.');
-		}
-		setBusy(false);
-	}
+		},
+		{ fallback: 'Could not send that invite.' }
+	);
 
 	return (
 		<section className="card sticky top-4 px-5 py-5">
 			<h3 className="mb-3.5 text-[1.05rem]">Invite someone</h3>
-			<form className="flex flex-col gap-2" onSubmit={submit}>
+			{/* Beside the box that was refused, not at the top of the page: the
+			    message is almost always about the address that was just typed. */}
+			<FormError message={invite.error} variant="banner" />
+			<form className="flex flex-col gap-2" onSubmit={invite.submit}>
 				<Field
 					label="Email address"
 					type="email"
@@ -221,8 +322,8 @@ function Invite({
 					value={email}
 					onChange={(e) => setEmail(e.target.value)}
 				/>
-				<button className="btn primary justify-center" type="submit" disabled={busy}>
-					{busy ? 'Sending...' : 'Send invite'}
+				<button className="btn primary" type="submit" disabled={invite.busy}>
+					{invite.busy ? 'Sending...' : 'Send invite'}
 				</button>
 			</form>
 			<p className="muted mt-2.5 text-[0.82rem]">

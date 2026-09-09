@@ -1,12 +1,20 @@
 import { useState } from 'react';
 import { splitByWeight, type SplitMode } from '@trippy/core/split';
-import { api, ApiError } from '../api';
+import { api } from '../api';
 import { useApi } from '../useApi';
+import { useLiveSection } from '../useTripEvents';
+import { useMutation } from '../useMutation';
+import { formatMoney, formatTimestamp } from '../format';
+import { currencyOptions } from '../currencies';
 import { useTrip } from './TripShell';
 import Modal from '../components/Modal';
 import Select from '../components/Select';
 import SectionNav, { type SectionItem } from '../components/SectionNav';
 import { FieldShell } from '../components/Field';
+import FormError from '../components/FormError';
+import EmptyState from '../components/EmptyState';
+import ConfirmDialog from '../components/ConfirmDialog';
+import { IconButton, LinkButton } from '../components/buttons';
 
 type Member = { id: string; name: string };
 type Expense = {
@@ -27,14 +35,12 @@ type Data = {
 	currencies: string[];
 	members: Member[];
 	expenses: Expense[];
-	balances: { id: string; name: string; net: number }[];
+	/** `netCents` is the exact figure; the major-unit `net` beside it is a shim. */
+	balances: { id: string; name: string; netCents: number }[];
 	settlement: Transfer[];
 	me: string;
 };
-type Transfer = { fromId: string; toId: string; from: string; to: string; amount: number };
-
-const money = (value: number, currency: string) =>
-	new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(value);
+type Transfer = { fromId: string; toId: string; from: string; to: string; amountCents: number };
 
 function splitLabel(mode: SplitMode, n: number): string {
 	const people = `${n} ${n === 1 ? 'way' : 'ways'}`;
@@ -43,36 +49,23 @@ function splitLabel(mode: SplitMode, n: number): string {
 	return `split ${people}`;
 }
 
-/**
- * When an expense was logged, in the reader's own zone.
- *
- * The list is ordered newest first and nothing else on the row says when, so
- * two similar dinners are otherwise impossible to tell apart. The year only
- * appears when it is not the current one, since a trip's expenses are almost
- * always from this year and the year would be noise on every row.
- */
-function logged(ms: number): string {
-	const d = new Date(ms);
-	const sameYear = d.getFullYear() === new Date().getFullYear();
-	return d.toLocaleDateString(undefined, {
-		month: 'short',
-		day: 'numeric',
-		year: sameYear ? undefined : 'numeric'
-	});
-}
-
 export default function Expenses() {
 	const { trip } = useTrip();
 	const { data, error, reload } = useApi<Data>(`/trips/${trip.id}/expenses`);
+	// Balances move when the roster does, not only when an expense changes.
+	useLiveSection(['expenses', 'members', 'trip'], reload);
 	const [section, setSection] = useState('expenses');
 	const [showAdd, setShowAdd] = useState(false);
+	const [pendingDelete, setPendingDelete] = useState<Expense | null>(null);
 
-	if (!data) return error ? <p className="text-warn">{error}</p> : null;
+	if (!data) return error ? <FormError message={error} variant="banner" /> : null;
 
-	const owed = data.balances.filter((b) => b.net > 0.01);
-	const owes = data.balances.filter((b) => b.net < -0.01);
+	// Compared in whole cents, so a balance is either zero or it is not; the old
+	// 0.01 epsilon existed only because the figure arrived as a float.
+	const owed = data.balances.filter((b) => b.netCents > 0);
+	const owes = data.balances.filter((b) => b.netCents < 0);
 	const unsettled = owed.length + owes.length;
-	const fmt = (units: number) => money(units, data.currency);
+	const fmt = (cents: number) => formatMoney(cents, data.currency);
 
 	const sections: SectionItem[] = [
 		{ id: 'expenses', label: 'Expenses', badge: data.expenses.length },
@@ -84,20 +77,19 @@ export default function Expenses() {
 		{ id: 'settle', label: 'Settle up', badge: data.settlement.length || '✓' }
 	];
 
-	async function remove(id: string) {
-		await api(`/trips/${trip.id}/expenses/${id}`, { method: 'DELETE' });
-		reload();
-	}
-
 	/**
 	 * Records a suggested transfer as paid. It lands in the ledger as an ordinary
 	 * expense, so the list of remaining transfers is recomputed from the same
 	 * numbers and this row disappears from it.
+	 *
+	 * Sent as `amountCents`, which is the figure settlement is computed in: a
+	 * major-unit amount has to be multiplied and rounded again on the way in, and
+	 * a cent lost there leaves a balance that will not clear.
 	 */
-	async function settleUp(fromId: string, toId: string, amount: number) {
+	async function settleUp(fromId: string, toId: string, amountCents: number) {
 		await api(`/trips/${trip.id}/expenses/settle`, {
 			method: 'POST',
-			body: { fromId, toId, amount }
+			body: { fromId, toId, amountCents }
 		});
 		reload();
 	}
@@ -121,7 +113,15 @@ export default function Expenses() {
 						</Head>
 						<div className="card px-5 py-5">
 							{data.expenses.length === 0 ? (
-								<p className="muted m-0 text-[0.9rem]">No expenses yet. Add the first one.</p>
+								<EmptyState
+									message="No expenses yet."
+									hint="Log the first one and the balances follow from it."
+									action={
+										<button className="btn" type="button" onClick={() => setShowAdd(true)}>
+											Add expense
+										</button>
+									}
+								/>
 							) : (
 								<ul className="m-0 flex list-none flex-col gap-3 p-0">
 									{data.expenses.map((e) => (
@@ -129,7 +129,7 @@ export default function Expenses() {
 											key={e.id}
 											expense={e}
 											home={data.currency}
-											onRemove={() => remove(e.id)}
+											onRemove={() => setPendingDelete(e)}
 										/>
 									))}
 								</ul>
@@ -150,7 +150,7 @@ export default function Expenses() {
 									    this for is "who am I paying", and a mixed list makes
 									    that harder to scan than two blocks does. */}
 									{[...owed, ...owes].map((b) => (
-										<li key={b.name} className="flex justify-between gap-2.5 text-[0.9rem]">
+										<li key={b.id} className="flex justify-between gap-2.5 text-[0.9rem]">
 											<span className="truncate" title={b.name}>
 												{b.name}
 												{/* The reader's own number is the one they came for, and
@@ -160,10 +160,10 @@ export default function Expenses() {
 												)}
 											</span>
 											<span
-												className={`shrink-0 font-semibold ${b.net > 0 ? 'text-accent-ink' : 'text-danger-ink'}`}
+												className={`shrink-0 font-semibold ${b.netCents > 0 ? 'text-accent-ink' : 'text-danger-ink'}`}
 											>
-												{b.net > 0 ? '+' : ''}
-												{fmt(b.net)}
+												{b.netCents > 0 ? '+' : ''}
+												{fmt(b.netCents)}
 											</span>
 										</li>
 									))}
@@ -186,7 +186,7 @@ export default function Expenses() {
 											key={t.fromId + t.toId}
 											t={t}
 											fmt={fmt}
-											onSettle={() => settleUp(t.fromId, t.toId, t.amount)}
+											onSettle={() => settleUp(t.fromId, t.toId, t.amountCents)}
 										/>
 									))}
 								</ul>
@@ -206,7 +206,46 @@ export default function Expenses() {
 					onSaved={reload}
 				/>
 			)}
+
+			{/* Deleting used to happen on the first click and, worse, threw into
+			    nothing when the server refused: the row stayed put with no message.
+			    The dialog both asks and is where the refusal lands. */}
+			<ConfirmDialog
+				open={!!pendingDelete}
+				title={pendingDelete?.settlement === 1 ? 'Delete this payment?' : 'Delete this expense?'}
+				confirmLabel="Delete"
+				busyLabel="Deleting..."
+				body={pendingDelete && <DeleteBody expense={pendingDelete} home={data.currency} />}
+				onCancel={() => setPendingDelete(null)}
+				onConfirm={async () => {
+					if (!pendingDelete) return;
+					await api(`/trips/${trip.id}/expenses/${pendingDelete.id}`, { method: 'DELETE' });
+					setPendingDelete(null);
+					reload();
+				}}
+			/>
 		</div>
+	);
+}
+
+/**
+ * What deleting one row takes with it. Its participant rows cascade and the
+ * balances are recomputed from what is left, so the honest consequence is that
+ * everyone's balance moves; nothing else in the trip refers to an expense.
+ */
+function DeleteBody({ expense: e, home }: { expense: Expense; home: string }) {
+	return (
+		<>
+			<p className="m-0 mb-2 font-semibold [overflow-wrap:anywhere]">{e.description}</p>
+			<p className="m-0 text-[0.9rem]">
+				{formatMoney(e.amount_cents, e.currency)}
+				{e.converted ? ` (≈ ${formatMoney(e.home_cents, home)})` : ''}, {e.payer_name}
+				{e.amount_cents < 0 ? ' received' : ' paid'}, {formatTimestamp(e.created_at)}.{' '}
+				{e.settlement === 1
+					? 'Deleting it puts the balance it cleared back.'
+					: 'Everyone on it has their balance recalculated without it.'}
+			</p>
+		</>
 	);
 }
 
@@ -233,22 +272,10 @@ function SettleRow({
 	onSettle
 }: {
 	t: Transfer;
-	fmt: (units: number) => string;
+	fmt: (cents: number) => string;
 	onSettle: () => Promise<void>;
 }) {
-	const [busy, setBusy] = useState(false);
-	const [err, setErr] = useState('');
-
-	async function go() {
-		setBusy(true);
-		setErr('');
-		try {
-			await onSettle();
-		} catch (e) {
-			setErr(e instanceof ApiError ? e.message : 'Could not record that payment.');
-			setBusy(false);
-		}
-	}
+	const mark = useMutation(onSettle, { fallback: 'Could not record that payment.' });
 
 	return (
 		<li className="flex flex-col gap-1 rounded-[10px] bg-surface-2 px-2.5 py-2 text-[0.92rem]">
@@ -260,17 +287,17 @@ function SettleRow({
 				<span className="truncate" title={t.to}>
 					{t.to}
 				</span>
-				<span className="ml-auto font-semibold">{fmt(t.amount)}</span>
+				<span className="ml-auto font-semibold">{fmt(t.amountCents)}</span>
 				<button
 					className="btn small flex-none"
-					disabled={busy}
-					onClick={go}
-					aria-label={`Record that ${t.from} paid ${t.to} ${fmt(t.amount)}`}
+					disabled={mark.busy}
+					onClick={() => void mark.run()}
+					aria-label={`Record that ${t.from} paid ${t.to} ${fmt(t.amountCents)}`}
 				>
-					{busy ? 'Saving' : 'Mark paid'}
+					{mark.busy ? 'Saving' : 'Mark paid'}
 				</button>
 			</div>
-			{err && <p className="m-0 text-[0.8rem] text-warn">{err}</p>}
+			<FormError message={mark.error} className="text-[0.8rem]" />
 		</li>
 	);
 }
@@ -310,11 +337,11 @@ function ExpenseRow({
 					{/* The description of a settlement already names both sides, so
 					    repeating the payer and calling it a one-way split is noise. */}
 					{settled ? (
-						logged(e.created_at)
+						formatTimestamp(e.created_at)
 					) : (
 						<>
 							{e.payer_name} {credit ? 'received' : 'paid'} ·{' '}
-							{splitLabel(e.split_mode, e.participants)} · {logged(e.created_at)}
+							{splitLabel(e.split_mode, e.participants)} · {formatTimestamp(e.created_at)}
 						</>
 					)}
 				</span>
@@ -322,22 +349,16 @@ function ExpenseRow({
 			<span
 				className={`ml-auto flex flex-col items-end text-right font-semibold ${credit ? 'text-accent-ink' : ''}`}
 			>
-				{money(e.amount_cents / 100, e.currency)}
+				{formatMoney(e.amount_cents, e.currency)}
 				{e.converted && (
 					<span className="muted text-[0.75rem] font-medium">
-						≈ {money(e.home_cents / 100, home)}
+						≈ {formatMoney(e.home_cents, home)}
 					</span>
 				)}
 			</span>
-			<button
-				type="button"
-				onClick={onRemove}
-				title="Delete"
-				aria-label={`Delete ${e.description}`}
-				className="cursor-pointer border-none bg-transparent px-1 text-[1.1rem] leading-none text-ink-faint hover:text-danger-ink"
-			>
+			<IconButton label={`Delete ${e.description}`} danger className="flex-none" onClick={onRemove}>
 				×
-			</button>
+			</IconButton>
 		</li>
 	);
 }
@@ -376,8 +397,6 @@ function AddExpense({
 	const [picked, setPicked] = useState<Set<string>>(new Set(members.map((m) => m.id)));
 	/** Per-person share count (`shares` mode) or amount (`exact` mode), as typed. */
 	const [weights, setWeights] = useState<Record<string, string>>({});
-	const [error, setError] = useState('');
-	const [saving, setSaving] = useState(false);
 
 	const totalCents = Math.round((Number(amount) || 0) * 100);
 	/** A negative amount is money coming back to the group: a refund or payout. */
@@ -448,11 +467,8 @@ function AddExpense({
 		});
 	}
 
-	async function submit(e: React.FormEvent) {
-		e.preventDefault();
-		setSaving(true);
-		setError('');
-		try {
+	const save = useMutation(
+		async () => {
 			await api(`/trips/${tripId}/expenses`, {
 				method: 'POST',
 				body: {
@@ -469,15 +485,13 @@ function AddExpense({
 			});
 			onSaved();
 			onClose();
-		} catch (err) {
-			setError(err instanceof ApiError ? err.message : 'Could not save that expense.');
-			setSaving(false);
-		}
-	}
+		},
+		{ fallback: 'Could not save that expense.' }
+	);
 
 	return (
 		<Modal open title={income ? 'Add income' : 'Add expense'} onClose={onClose}>
-			<form className="mform" onSubmit={submit}>
+			<form className="mform" onSubmit={save.submit}>
 				<div className="mbody flex flex-col gap-4">
 					{/* A 12-column grid, so the four top fields keep their proportions
 					    instead of wrapping at hard pixel widths as the modal narrows. */}
@@ -504,7 +518,7 @@ function AddExpense({
 						</FieldShell>
 						<FieldShell className="col-span-3" label="Currency">
 							<Select
-								options={currencies.map((c) => ({ value: c, label: c }))}
+								options={currencyOptions(currencies)}
 								value={currency}
 								onChange={setCurrency}
 								ariaLabel="Currency"
@@ -563,12 +577,16 @@ function AddExpense({
 									totalCents !== 0 &&
 									(exactOff === 0
 										? ' · fully allocated'
-										: ` · ${money(Math.abs(exactOff) / 100, currency)} ${exactOff > 0 ? 'left' : 'over'}`)}
+										: ` · ${formatMoney(Math.abs(exactOff), currency)} ${exactOff > 0 ? 'left' : 'over'}`)}
 							</span>
 							<span className="flex flex-none gap-3">
-								{splitMode === 'exact' && <LinkBtn onClick={autofillExact}>Split the rest</LinkBtn>}
-								<LinkBtn onClick={() => setPicked(new Set(members.map((m) => m.id)))}>All</LinkBtn>
-								<LinkBtn onClick={() => setPicked(new Set())}>None</LinkBtn>
+								{splitMode === 'exact' && (
+									<LinkButton onClick={autofillExact}>Split the rest</LinkButton>
+								)}
+								<LinkButton onClick={() => setPicked(new Set(members.map((m) => m.id)))}>
+									All
+								</LinkButton>
+								<LinkButton onClick={() => setPicked(new Set())}>None</LinkButton>
 							</span>
 						</div>
 
@@ -614,7 +632,7 @@ function AddExpense({
 											<span
 												className={`flex-none text-[0.78rem] tabular-nums ${income ? 'text-accent-ink' : 'text-ink-faint'}`}
 											>
-												{money((preview.get(m.id) ?? 0) / 100, currency)}
+												{formatMoney(preview.get(m.id) ?? 0, currency)}
 											</span>
 										)}
 									</li>
@@ -625,34 +643,15 @@ function AddExpense({
 				</div>
 
 				<div className="mfoot">
-					{error && (
-						<p
-							role="alert"
-							className="mfoot-note m-0 rounded-sm bg-danger-soft px-2.5 py-2 text-[0.86rem] text-danger-ink"
-						>
-							{error}
-						</p>
-					)}
+					<FormError message={save.error} />
 					<button className="btn" type="button" onClick={onClose}>
 						Cancel
 					</button>
-					<button className="btn primary" type="submit" disabled={!canSave || saving}>
-						{saving ? 'Saving...' : income ? 'Save income' : 'Save expense'}
+					<button className="btn primary" type="submit" disabled={!canSave || save.busy}>
+						{save.busy ? 'Saving...' : income ? 'Save income' : 'Save expense'}
 					</button>
 				</div>
 			</form>
 		</Modal>
-	);
-}
-
-function LinkBtn({ onClick, children }: { onClick: () => void; children: string }) {
-	return (
-		<button
-			type="button"
-			onClick={onClick}
-			className="cursor-pointer border-none bg-transparent p-0 text-[0.8rem] text-accent-ink"
-		>
-			{children}
-		</button>
 	);
 }

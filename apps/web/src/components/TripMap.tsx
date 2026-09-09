@@ -28,14 +28,36 @@ export default function TripMap({ tracks }: { tracks: MapTrack[] }) {
 		overlays.current = [];
 		const pts: [number, number][] = [];
 
-		const pin = (color: string, n: number) =>
-			L.divIcon({
+		// Built as DOM rather than as an HTML string. Track colours come back from
+		// the API as member-editable text, so interpolating one into markup would
+		// let a crew name a colour that closes the attribute and injects tags.
+		const pin = (color: string, n: number) => {
+			const wrap = document.createElement('span');
+			wrap.style.setProperty('--pin', color);
+			const b = document.createElement('b');
+			b.textContent = String(n);
+			wrap.appendChild(b);
+			return L.divIcon({
 				className: 'wp-pin',
-				html: `<span style="--pin:${color}"><b>${n}</b></span>`,
+				html: wrap,
 				iconSize: [24, 24],
 				iconAnchor: [12, 24],
 				popupAnchor: [0, -22]
 			});
+		};
+
+		// Same reasoning as `pin`: the title and the track name are typed by trip
+		// members, so they are set as text and never parsed as HTML.
+		const popup = (title: string, track: string) => {
+			const wrap = document.createElement('div');
+			const strong = document.createElement('strong');
+			strong.textContent = title;
+			const name = document.createElement('span');
+			name.style.color = '#4a5551';
+			name.textContent = track;
+			wrap.append(strong, document.createElement('br'), name);
+			return wrap;
+		};
 
 		for (const t of tracksRef.current) {
 			const located = t.items.filter((i) => i.lat != null && i.lng != null);
@@ -44,9 +66,7 @@ export default function TripMap({ tracks }: { tracks: MapTrack[] }) {
 				const ll: [number, number] = [i.lat as number, i.lng as number];
 				line.push(ll);
 				pts.push(ll);
-				const m = L.marker(ll, { icon: pin(t.color, idx + 1) }).bindPopup(
-					`<strong>${i.title}</strong><br><span style="color:#4a5551">${t.name}</span>`
-				);
+				const m = L.marker(ll, { icon: pin(t.color, idx + 1) }).bindPopup(popup(i.title, t.name));
 				m.addTo(map);
 				overlays.current.push(m);
 			});

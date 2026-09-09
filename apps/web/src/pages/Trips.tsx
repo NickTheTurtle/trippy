@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
-import { api, ApiError } from '../api';
+import { api } from '../api';
 import { useApi } from '../useApi';
-import { Field } from '../components/Field';
 import Cover from '../components/Cover';
+import EmptyState from '../components/EmptyState';
+import FormError from '../components/FormError';
+import TripFormDialog from '../components/TripFormDialog';
 
 type City = { id: string; name: string; photo: string | null };
 type Trip = {
@@ -27,19 +29,13 @@ export default function Trips() {
 					<h1 className="text-[2rem]">My trips</h1>
 					<p className="muted">Trips you organize or belong to.</p>
 				</div>
-				<button className="btn primary" onClick={() => setShowNew((v) => !v)}>
+				<button className="btn primary" onClick={() => setShowNew(true)}>
 					New trip
 				</button>
 			</section>
 
-			{showNew && (
-				<section className="container">
-					<NewTrip onCancel={() => setShowNew(false)} onCreated={reload} />
-				</section>
-			)}
-
 			<section className="container grid grid-cols-1 gap-5 md:grid-cols-2">
-				{error && <p className="col-span-full text-warn">{error}</p>}
+				{error && <FormError message={error} variant="banner" className="col-span-full" />}
 
 				{data?.trips.map((t) => (
 					<TripCard key={t.id} trip={t} />
@@ -48,11 +44,22 @@ export default function Trips() {
 				{/* Only after a successful load, so an empty grid mid-fetch does not
 				    briefly claim the user has no trips. */}
 				{!loading && !error && data?.trips.length === 0 && (
-					<p className="muted col-span-full py-8">
-						No trips yet. Create your first one to get started.
-					</p>
+					<EmptyState
+						className="col-span-full"
+						message="No trips yet."
+						hint="Create your first one to get started."
+						action={
+							<button className="btn" type="button" onClick={() => setShowNew(true)}>
+								New trip
+							</button>
+						}
+					/>
 				)}
 			</section>
+
+			{/* Mounted only while open, so each visit to the dialog starts from a
+			    blank form rather than from whatever the last attempt left behind. */}
+			{showNew && <NewTrip onClose={() => setShowNew(false)} onCreated={reload} />}
 		</>
 	);
 }
@@ -94,66 +101,37 @@ function TripCard({ trip }: { trip: Trip }) {
 	);
 }
 
-function NewTrip({ onCancel, onCreated }: { onCancel: () => void; onCreated: () => void }) {
+/**
+ * Create. The form itself is `TripFormDialog`, shared with the edit dialog in
+ * `TripShell`; what is local to creating is the endpoint, the `homeCurrency`
+ * spelling it takes, and going to the new trip afterwards.
+ */
+function NewTrip({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
 	const navigate = useNavigate();
-	const [name, setName] = useState('');
-	const [dates, setDates] = useState('');
-	const [currency, setCurrency] = useState('USD');
-	const [error, setError] = useState<string | null>(null);
-	const [saving, setSaving] = useState(false);
-
-	async function submit(e: React.FormEvent) {
-		e.preventDefault();
-		if (!name.trim()) {
-			setError('Give your trip a name.');
-			return;
-		}
-		setSaving(true);
-		setError(null);
-		try {
-			const { trip } = await api<{ trip: { id: string } }>('/trips', {
-				method: 'POST',
-				body: {
-					name,
-					dates: dates.trim() || 'Dates to be set',
-					homeCurrency: currency
-				}
-			});
-			onCreated();
-			navigate(`/trips/${trip.id}`);
-		} catch (err) {
-			setError(err instanceof ApiError ? err.message : 'Could not create the trip.');
-			setSaving(false);
-		}
-	}
-
 	return (
-		<form className="card mb-6 p-6" onSubmit={submit}>
-			{error && (
-				<p role="alert" className="mb-3 text-[0.85rem] text-warn">
-					{error}
-				</p>
-			)}
-			<div className="grid grid-cols-1 gap-3.5 sm:grid-cols-[2fr_1.5fr_1fr]">
-				<Field label="Trip name" value={name} onChange={(e) => setName(e.target.value)} />
-				{/* The field takes free text, so the accepted shape has to stay
-				    readable while you type it, which a placeholder does not. */}
-				<Field
-					label="Dates"
-					value={dates}
-					onChange={(e) => setDates(e.target.value)}
-					hint="e.g. Jul 3 – Jul 15, 2027"
-				/>
-				<Field label="Currency" value={currency} onChange={(e) => setCurrency(e.target.value)} />
-			</div>
-			<div className="mt-4 flex justify-end gap-2.5">
-				<button className="btn" type="button" onClick={onCancel}>
-					Cancel
-				</button>
-				<button className="btn primary" type="submit" disabled={saving}>
-					{saving ? 'Creating...' : 'Create trip'}
-				</button>
-			</div>
-		</form>
+		<TripFormDialog
+			title="New trip"
+			submitLabel="Create trip"
+			busyLabel="Creating..."
+			note="Dates can be left blank and filled in later. Currency is what totals and estimates are shown in."
+			fallback="Could not create the trip."
+			onClose={onClose}
+			onSubmit={async (v) => {
+				// No `dates`: the label on the card is derived by the server from the
+				// two endpoints on every write, so sending one would be inventing a
+				// second source of truth that could then disagree with them.
+				const { trip } = await api<{ trip: { id: string } }>('/trips', {
+					method: 'POST',
+					body: {
+						name: v.name,
+						startDate: v.startDate,
+						endDate: v.endDate,
+						homeCurrency: v.currency
+					}
+				});
+				onCreated();
+				navigate(`/trips/${trip.id}`);
+			}}
+		/>
 	);
 }

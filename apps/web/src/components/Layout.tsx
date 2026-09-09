@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, Outlet, useNavigate } from 'react-router';
 import { useAuth } from '../auth';
 
@@ -24,6 +24,8 @@ function TopBar() {
 	const { status, user, logOut } = useAuth();
 	const navigate = useNavigate();
 	const [menuOpen, setMenuOpen] = useState(false);
+	const menuWrapRef = useRef<HTMLDivElement>(null);
+	const triggerRef = useRef<HTMLButtonElement>(null);
 
 	// Any click that is not on the trigger closes the menu. Registered on the
 	// window rather than a backdrop element so the click that dismisses the menu
@@ -48,9 +50,29 @@ function TopBar() {
 
 				<nav className="flex items-center gap-6 text-[0.92rem] font-medium">
 					{status === 'authenticated' ? (
-						<div className="relative">
+						<div
+							className="relative"
+							ref={menuWrapRef}
+							onKeyDown={(e) => {
+								if (e.key === 'Escape' && menuOpen) {
+									e.stopPropagation();
+									setMenuOpen(false);
+									triggerRef.current?.focus();
+								}
+							}}
+							// Tabbing out of the menu has to dismiss it as well, otherwise it
+							// stays open over a page the user has already moved on to. Focus
+							// moving between the trigger and its items is not leaving.
+							onBlur={(e) => {
+								if (!menuOpen) return;
+								const next = e.relatedTarget as Node | null;
+								if (next && menuWrapRef.current?.contains(next)) return;
+								setMenuOpen(false);
+							}}
+						>
 							<button
 								type="button"
+								ref={triggerRef}
 								aria-haspopup="menu"
 								aria-expanded={menuOpen}
 								onClick={(e) => {
@@ -59,12 +81,11 @@ function TopBar() {
 									e.stopPropagation();
 									setMenuOpen((v) => !v);
 								}}
-								className={[
-									'inline-flex items-center gap-2 rounded-full border py-1 pr-2 pl-1.5 font-medium text-ink',
-									menuOpen
-										? 'border-line bg-surface'
-										: 'border-transparent hover:border-line hover:bg-surface'
-								].join(' ')}
+								// A `.btn`, so the pill is the same height as every other
+								// control in the app rather than the 38px its own padding
+								// happened to give it. `pill` rounds it around the avatar and
+								// `quiet` drops the border until it is hovered or open.
+								className={menuOpen ? 'btn pill' : 'btn pill quiet'}
 							>
 								<span className="grid size-7 place-items-center rounded-full bg-accent text-[0.8rem] font-semibold text-white">
 									{user.name.slice(0, 1).toUpperCase()}

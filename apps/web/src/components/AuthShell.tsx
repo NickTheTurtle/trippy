@@ -49,7 +49,7 @@ export function AuthShell({
 					<button
 						type="submit"
 						disabled={submitting}
-						className="mt-1 w-full rounded bg-accent px-4 py-2.5 font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+						className="btn primary mt-1 w-full justify-center"
 					>
 						{submitting ? 'Working...' : submitLabel}
 					</button>

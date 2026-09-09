@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { api, ApiError } from '../api';
 import Modal from './Modal';
 import { Field, FieldShell } from './Field';
+import { LinkButton } from './buttons';
 import type { Trip, TripCity } from '../pages/TripShell';
 
 type Suggestion = { name: string; country: string; lat: number; lng: number; tz: string };
@@ -41,7 +42,16 @@ export default function Itinerary({
 	}
 
 	return (
-		<Modal open title="Itinerary" subtitle={trip.name} onClose={onClose}>
+		<Modal
+			open
+			title="Itinerary"
+			subtitle={trip.name}
+			// A list editor over rows that already exist: its first field is a
+			// saved arrival date, so autofocusing it would put a stray keystroke on
+			// real data. Focus stays on the close button, as it did before.
+			autoFocusField={false}
+			onClose={onClose}
+		>
 			<div className="mbody flex flex-col gap-4">
 				{error && (
 					<p role="alert" className="m-0 text-[0.88rem] text-warn">
@@ -144,18 +154,18 @@ function CityRow({
 				onChange={(e) => setDepart(e.target.value)}
 				onBlur={() => commit({ arrive, depart })}
 			/>
-			<button
-				type="button"
+			<LinkButton
+				danger
 				onClick={onRemove}
 				disabled={!canRemove || busy}
 				aria-label={`Remove ${city.name}`}
 				// Disabled rather than hidden on the last city: the button vanishing
 				// as you delete down to one looks like a bug, and the title says why.
 				title={canRemove ? undefined : 'A trip needs at least one city'}
-				className="link danger mb-1.5 disabled:cursor-not-allowed disabled:opacity-50"
+				className="mb-1.5 disabled:cursor-not-allowed disabled:opacity-50"
 			>
 				Remove
-			</button>
+			</LinkButton>
 		</li>
 	);
 }
@@ -166,8 +176,11 @@ function CityRow({
  * The search is the geocoder behind `/citysearch`, which returns the country,
  * the coordinates and the IANA zone with the name, so the organizer never types
  * a time zone. That endpoint existed and had no caller before this.
+ *
+ * Exported so Discover's own "Add city" popup is the same control rather than a
+ * second copy of it. (Additive: nothing else about this component changed.)
  */
-function AddCity({
+export function AddCity({
 	trip,
 	onAdd
 }: {
@@ -184,7 +197,16 @@ function AddCity({
 	const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
 	const inflight = useRef<AbortController>(undefined);
 
-	useEffect(() => () => clearTimeout(timer.current), []);
+	// Closing the dialog mid-search must not leave a request that resolves into
+	// a component that is no longer mounted.
+	useEffect(
+		() => () => {
+			clearTimeout(timer.current);
+			inflight.current?.abort();
+			inflight.current = undefined;
+		},
+		[]
+	);
 
 	function run(q: string) {
 		if (q.length < MIN_QUERY) {

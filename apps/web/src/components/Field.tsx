@@ -14,12 +14,15 @@ import type React from 'react';
 
 export function FieldShell({
 	label,
+	optional = false,
 	hint,
 	htmlFor,
 	className = '',
 	children
 }: {
-	label: string;
+	label: React.ReactNode;
+	/** Appends the house "(optional)" suffix. Never say it in a placeholder. */
+	optional?: boolean;
 	hint?: string;
 	/** Set when the control is not a descendant, so the label still targets it. */
 	htmlFor?: string;
@@ -28,7 +31,10 @@ export function FieldShell({
 }) {
 	return (
 		<label htmlFor={htmlFor} className={`field ${className}`}>
-			<span>{label}</span>
+			<span>
+				{label}
+				{optional && <span className="foptional"> (optional)</span>}
+			</span>
 			{children}
 			{/* A hint is for a rule the value has to keep satisfying, which is
 			    exactly when a placeholder would already be gone. */}
@@ -40,22 +46,28 @@ export function FieldShell({
 /**
  * `value`/`onChange` are passed straight through as input props rather than as
  * a `(v: string) => void`, so an uncontrolled input, a checkbox or a `ref` all
- * still work without a second component.
+ * still work without a second component. `ComponentPropsWithRef` rather than
+ * `InputHTMLAttributes` is what makes that last one true for the type checker
+ * as well: React 19 passes `ref` through as an ordinary prop, so the spread
+ * below already forwarded it at runtime.
  */
 export function Field({
 	label,
+	optional = false,
 	hint,
 	className = '',
 	inputClassName = '',
 	...input
 }: {
-	label: string;
+	label: React.ReactNode;
+	/** Appends the house "(optional)" suffix. Never say it in a placeholder. */
+	optional?: boolean;
 	hint?: string;
 	className?: string;
 	inputClassName?: string;
-} & React.InputHTMLAttributes<HTMLInputElement>) {
+} & React.ComponentPropsWithRef<'input'>) {
 	return (
-		<FieldShell label={label} hint={hint} className={className}>
+		<FieldShell label={label} optional={optional} hint={hint} className={className}>
 			<input {...input} className={`input ${inputClassName}`} />
 		</FieldShell>
 	);

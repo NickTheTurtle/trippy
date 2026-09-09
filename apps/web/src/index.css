@@ -44,6 +44,29 @@
 }
 
 /*
+ * The height of an interactive control, and the one number this app has for it.
+ *
+ * Buttons had the same problem inputs do: a control was as tall as its own
+ * content happened to make it, so a row containing a text box, two date boxes
+ * and a dropdown showed four heights with no CSS bug visible anywhere. Native
+ * controls make it worse rather than causing it: `input[type=date]` carries
+ * user-agent metrics and a picker affordance and does not size like a text
+ * input under identical CSS.
+ *
+ * So the height is stated once here and every control adopts it, with
+ * `box-sizing: border-box` so padding and border are inside that number instead
+ * of being added to it. Two values, deliberately: the default, and the compact
+ * one used by toolbars and dense rows.
+ *
+ * Kept in `:root` rather than `@theme` because these are read by the plain-CSS
+ * rules below, not by generated utilities.
+ */
+:root {
+	--control-h: 2.625rem;
+	--control-h-sm: 2rem;
+}
+
+/*
  * Always reserve the scrollbar gutter. Without it, navigating between a page
  * taller than the viewport and one shorter than it adds or removes the
  * scrollbar and the centred layout jumps sideways by its width.
@@ -114,10 +137,26 @@ h6 {
 	color: var(--color-ink-soft);
 }
 
+/*
+ * Buttons.
+ *
+ * The height of a button used to be whatever its own text line box happened to
+ * be, so an icon-only button, which has no text line box, collapsed: 26px next
+ * to a 32px sibling doing the same job. `--btn-h` is the variant's height and
+ * `min-height` applies it, which is a floor rather than a fixed size: padding
+ * still wins for anything taller than the floor (a wrapped label), so nothing
+ * here fights the padding, it only stops a button falling below it. The
+ * line-height is pinned for the same reason: `body`'s 1.55 made the natural
+ * height a function of the inherited font size.
+ */
 .btn {
+	--btn-h: var(--control-h);
+	box-sizing: border-box;
 	display: inline-flex;
 	align-items: center;
+	justify-content: center;
 	gap: 0.4rem;
+	min-height: var(--btn-h);
 	padding: 0.55rem 1rem;
 	border: 1px solid var(--color-line);
 	border-radius: var(--radius-md);
@@ -126,6 +165,7 @@ h6 {
 	font: inherit;
 	font-size: 0.92rem;
 	font-weight: 500;
+	line-height: 1.4;
 	cursor: pointer;
 	white-space: nowrap;
 }
@@ -168,8 +208,15 @@ h6 {
  * app. Deliberately sets no width, because callers legitimately need full
  * width, a fixed width for a number box, or an intrinsic width in a toolbar;
  * an unlayered rule here would beat the Tailwind width utility that says so.
+ *
+ * Height is not left to padding plus whatever font size is inherited. `.field`
+ * sets 0.82rem for its label, and `font: inherit` handed that size to the input
+ * inside it, so the same box measured differently depending on its wrapper and
+ * sat next to a `.seltrigger` rendering its own text a size larger. Size and
+ * line-height are stated here for the single-line controls instead.
  */
 .input {
+	box-sizing: border-box;
 	min-width: 0;
 	padding: 0.5rem 0.625rem;
 	border: 1px solid var(--color-line);
@@ -178,6 +225,41 @@ h6 {
 	color: var(--color-ink);
 	font: inherit;
 	outline: none;
+}
+/*
+ * Every single-line control is exactly one control tall. `height`, not
+ * `min-height`: a one-line box has nothing to grow for, and a fixed height is
+ * what stops a date box being taller than the text box beside it.
+ */
+input.input,
+select.input {
+	height: var(--control-h);
+	font-size: 0.92rem;
+	line-height: 1.4;
+}
+/*
+ * `input[type=date]` needs saying explicitly. It is laid out from user-agent
+ * metrics (its own line-height and the internal field/picker boxes), which the
+ * generic rule above does not reach, so without `appearance: none` it comes out
+ * a couple of pixels off its text-input sibling in the same row and its text
+ * sits high. `time` behaves identically and is included for when one appears.
+ */
+input[type='date'].input,
+input[type='time'].input {
+	appearance: none;
+	-webkit-appearance: none;
+	min-height: var(--control-h);
+	line-height: 1.4;
+}
+input[type='date'].input.compact,
+input[type='time'].input.compact {
+	min-height: var(--control-h-sm);
+}
+/* A textarea is the one control that must grow, so `rows` still decides its
+   height and the control height is only a floor. */
+textarea.input {
+	min-height: var(--control-h);
+	font-size: 0.92rem;
 }
 .input:focus {
 	border-color: var(--color-accent);
@@ -194,6 +276,10 @@ h6 {
 	padding: 0.25rem 0.4rem;
 	border-radius: var(--radius-sm);
 	font-size: 0.85rem;
+}
+input.input.compact,
+select.input.compact {
+	height: var(--control-h-sm);
 }
 
 /*
@@ -212,6 +298,12 @@ h6 {
 .field > .fhint {
 	font-size: 0.75rem;
 	color: var(--color-ink-faint);
+}
+/* The "(optional)" suffix on a label. A suffix, never a placeholder: the one
+   place it can be read is the one place it stays put once the box is filled. */
+.foptional {
+	color: var(--color-ink-faint);
+	font-weight: 400;
 }
 
 /* --- Dialog ------------------------------------------------------------- */
@@ -354,24 +446,37 @@ h6 {
 .sel.compact {
 	min-width: min(7.5rem, 100%);
 }
+/*
+ * The trigger takes the same height as a `.btn`, so a Select and a button in
+ * the same row line up. It was inheriting its font size from wherever it
+ * happened to sit, which is why the same control measured 34px in one place,
+ * 38px in another and 43px in a third; both size and line-height are stated
+ * here instead. `height`, not `min-height`: the label is a single ellipsised
+ * line by design, so there is nothing to grow for.
+ */
 .seltrigger {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
 	gap: 0.5rem;
 	width: 100%;
+	height: var(--control-h);
 	padding: 0.5rem 0.6rem;
 	border: 1px solid var(--color-line);
 	border-radius: var(--radius-sm);
 	background: var(--color-surface);
 	font: inherit;
+	font-size: 0.92rem;
+	line-height: 1.4;
 	color: var(--color-ink);
 	cursor: pointer;
 	text-align: left;
 }
+/* The compact variant matches `.btn.small` the same way. */
 .sel.compact .seltrigger {
+	height: var(--control-h-sm);
 	padding: 0.35rem 0.5rem;
-	font-size: 0.85rem;
+	font-size: 0.82rem;
 }
 .seltrigger:hover {
 	border-color: var(--color-accent);
@@ -432,6 +537,11 @@ h6 {
 	flex: 0 0 auto;
 }
 .selopt:hover {
+	background: var(--color-accent-soft);
+}
+/* The keyboard highlight. Same weight as hover, since only one of the two is
+   ever showing: the pointer takes the active row with it as it moves. */
+.selopt.active {
 	background: var(--color-accent-soft);
 }
 .selopt.on {
@@ -512,8 +622,23 @@ h6 {
 /* --- Button variants used by cards ------------------------------------- */
 
 .btn.small {
+	--btn-h: var(--control-h-sm);
 	padding: 0.32rem 0.65rem;
 	font-size: 0.82rem;
+}
+/*
+ * Icon-only. Square by construction: the width is the variant's own height, so
+ * a `.btn.icon` is exactly as tall as the `.btn` beside it and a
+ * `.btn.small.icon` matches a `.btn.small`, whatever glyph or SVG is inside.
+ * The horizontal padding goes, since there is no label to pad away from.
+ */
+.btn.icon {
+	width: var(--btn-h);
+	padding-inline: 0;
+}
+.btn.icon svg {
+	width: 1em;
+	height: 1em;
 }
 .btn.danger {
 	border-color: var(--color-danger-ink);
@@ -526,6 +651,42 @@ h6 {
 }
 .btn.danger.solid:hover {
 	opacity: 0.92;
+}
+/*
+ * Borderless until hovered, for an icon button inside a list row or a table
+ * cell where a permanent box on every row would out-shout the content it sits
+ * beside. Still a `.btn`, so it keeps the variant's height. Declared after
+ * `.danger` so a quiet danger button is quiet at rest and only reddens on
+ * hover, rather than carrying a red border on every row.
+ */
+.btn.quiet {
+	border-color: transparent;
+	background: transparent;
+	color: var(--color-ink-faint);
+}
+.btn.quiet:hover {
+	background: var(--color-surface);
+	border-color: var(--color-line);
+	color: var(--color-ink);
+}
+.btn.quiet.danger {
+	border-color: transparent;
+	color: var(--color-ink-faint);
+}
+.btn.quiet.danger:hover {
+	background: var(--color-danger-soft);
+	border-color: transparent;
+	color: var(--color-danger-ink);
+}
+/* Round-ended, for the account pill in the top bar: it wraps an avatar, so its
+   leading edge is tighter than a text button's, and the block padding is
+   reduced so the 28px avatar fits inside the standard height instead of
+   pushing the button past it. */
+.btn.pill {
+	border-radius: 999px;
+	padding-block: 0.25rem;
+	padding-inline: 0.3rem 0.75rem;
+	color: var(--color-ink);
 }
 
 /* Underlined text control. Not a .btn: these sit in a card footer where a
@@ -602,30 +763,6 @@ h6 {
 		opacity: 0.6;
 	}
 }
-/* --- The city dropdown on Discover -------------------------------------- */
-
-/* Solid accent, as the selected city pill used to be: this is the control that
-   says which city everything below belongs to, so it should read as the page's
-   current state rather than as one more neutral input in the row. It must also
-   be exactly as tall as the search input beside it, or the header row height
-   changes with it and the cards below move. */
-.cityselect .seltrigger {
-	padding: 0.4rem 0.85rem;
-	border-radius: 999px;
-	font-size: 0.88rem;
-	background: var(--color-accent);
-	border-color: var(--color-accent);
-	color: #fff;
-	font-weight: 500;
-}
-.cityselect .seltrigger:hover {
-	background: var(--color-accent-ink);
-	border-color: var(--color-accent-ink);
-}
-/* The caret defaults to a faint grey that disappears on the green. */
-.cityselect .selcaret {
-	color: rgba(255, 255, 255, 0.75);
-}
 /* --- MultiSelect -------------------------------------------------------- */
 
 .msel {
@@ -699,6 +836,9 @@ h6 {
 	color: var(--color-ink);
 }
 .mopt:hover {
+	background: var(--color-accent-soft);
+}
+.mopt.active {
 	background: var(--color-accent-soft);
 }
 .mopttext {

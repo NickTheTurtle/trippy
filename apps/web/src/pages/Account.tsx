@@ -1,8 +1,10 @@
 import { useState } from 'react';
-import { api, ApiError } from '../api';
+import { api } from '../api';
 import { useApi } from '../useApi';
+import { useMutation } from '../useMutation';
 import { useAuth } from '../auth';
 import Select from '../components/Select';
+import FormError from '../components/FormError';
 import { Field, FieldShell } from '../components/Field';
 
 type AccountData = {
@@ -26,11 +28,7 @@ export default function Account() {
 				<p className="muted mt-1">Manage how you sign in and how times are shown to you.</p>
 			</header>
 
-			{error && (
-				<p role="alert" className="text-warn">
-					{error}
-				</p>
-			)}
+			{error && <FormError message={error} variant="banner" />}
 			{loading && !data && <p className="muted">Loading...</p>}
 
 			{data && (
@@ -50,43 +48,40 @@ function Profile({ data, onSaved }: { data: AccountData; onSaved: () => void }) 
 	const [name, setName] = useState(data.profile.name);
 	const [email, setEmail] = useState(data.profile.email);
 	const [homeTz, setHomeTz] = useState(data.profile.homeTz);
-	const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
-	const [saving, setSaving] = useState(false);
+	/** Only the success line lives here; the failure is the mutation's own. */
+	const [saved, setSaved] = useState(false);
 
 	const zones = data.timeZones.map((tz) => ({
 		value: tz,
 		label: tz.replace(/_/g, ' ')
 	}));
 
-	async function submit(e: React.FormEvent) {
-		e.preventDefault();
-		setSaving(true);
-		setMsg(null);
-		try {
+	const save = useMutation(
+		async () => {
+			setSaved(false);
 			await api('/account/profile', {
 				method: 'PATCH',
 				body: { name, email, homeTz }
 			});
-			setMsg({ ok: true, text: 'Profile saved.' });
+			setSaved(true);
 			// The top bar renders the session user, not this form, so it has to be
 			// told the name it is showing has changed.
 			await refresh();
 			onSaved();
-		} catch (err) {
-			setMsg({
-				ok: false,
-				text: err instanceof ApiError ? err.message : 'Could not save your profile.'
-			});
-		} finally {
-			setSaving(false);
-		}
-	}
+		},
+		{ fallback: 'Could not save your profile.' }
+	);
 
 	return (
 		<section className="card p-6">
 			<h2 className="mb-4 text-[1.15rem]">Profile</h2>
-			<Message msg={msg} />
-			<form className="flex flex-col gap-3.5" onSubmit={submit}>
+			<FormError message={save.error} variant="banner" />
+			<FormError
+				message={saved && !save.error ? 'Profile saved.' : ''}
+				tone="success"
+				variant="banner"
+			/>
+			<form className="flex flex-col gap-3.5" onSubmit={save.submit}>
 				<Field
 					label="Name"
 					type="text"
@@ -106,8 +101,8 @@ function Profile({ data, onSaved }: { data: AccountData; onSaved: () => void }) 
 				<FieldShell label="Home time zone">
 					<Select value={homeTz} onChange={setHomeTz} options={zones} ariaLabel="Home time zone" />
 				</FieldShell>
-				<button className="btn primary mt-1 self-start" type="submit" disabled={saving}>
-					{saving ? 'Saving...' : 'Save profile'}
+				<button className="btn primary mt-1 self-start" type="submit" disabled={save.busy}>
+					{save.busy ? 'Saving...' : 'Save profile'}
 				</button>
 			</form>
 		</section>
@@ -118,39 +113,35 @@ function Password() {
 	const [current, setCurrent] = useState('');
 	const [next, setNext] = useState('');
 	const [confirm, setConfirm] = useState('');
-	const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
-	const [saving, setSaving] = useState(false);
+	const [changed, setChanged] = useState(false);
 
-	async function submit(e: React.FormEvent) {
-		e.preventDefault();
-		setSaving(true);
-		setMsg(null);
-		try {
+	const save = useMutation(
+		async () => {
+			setChanged(false);
 			await api('/account/password', {
 				method: 'POST',
 				body: { current, next, confirm }
 			});
-			setMsg({ ok: true, text: 'Password updated.' });
+			setChanged(true);
 			// Clearing on success matters more here than elsewhere: these are live
 			// credentials sitting in a form the next person at the desk can read.
 			setCurrent('');
 			setNext('');
 			setConfirm('');
-		} catch (err) {
-			setMsg({
-				ok: false,
-				text: err instanceof ApiError ? err.message : 'Could not change your password.'
-			});
-		} finally {
-			setSaving(false);
-		}
-	}
+		},
+		{ fallback: 'Could not change your password.' }
+	);
 
 	return (
 		<section className="card p-6">
 			<h2 className="mb-4 text-[1.15rem]">Password</h2>
-			<Message msg={msg} />
-			<form className="flex flex-col gap-3.5" onSubmit={submit}>
+			<FormError message={save.error} variant="banner" />
+			<FormError
+				message={changed && !save.error ? 'Password updated.' : ''}
+				tone="success"
+				variant="banner"
+			/>
+			<form className="flex flex-col gap-3.5" onSubmit={save.submit}>
 				<Field
 					label="Current password"
 					type="password"
@@ -176,27 +167,10 @@ function Password() {
 					value={confirm}
 					onChange={(e) => setConfirm(e.target.value)}
 				/>
-				<button className="btn primary mt-1 self-start" type="submit" disabled={saving}>
-					{saving ? 'Working...' : 'Change password'}
+				<button className="btn primary mt-1 self-start" type="submit" disabled={save.busy}>
+					{save.busy ? 'Working...' : 'Change password'}
 				</button>
 			</form>
 		</section>
-	);
-}
-
-/** Success is polite and failure is assertive, so a screen reader interrupts
- *  only for the one the user has to act on. */
-function Message({ msg }: { msg: { ok: boolean; text: string } | null }) {
-	if (!msg) return null;
-	return (
-		<p
-			role={msg.ok ? 'status' : 'alert'}
-			className={[
-				'mb-4 rounded px-3 py-2 text-sm',
-				msg.ok ? 'bg-accent-soft text-accent-ink' : 'bg-warn-soft text-warn'
-			].join(' ')}
-		>
-			{msg.text}
-		</p>
 	);
 }

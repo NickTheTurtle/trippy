@@ -1,10 +1,17 @@
 import { useState } from 'react';
-import { api, ApiError } from '../api';
+import { api } from '../api';
 import { useApi } from '../useApi';
+import { useLiveSection } from '../useTripEvents';
+import { useMutation } from '../useMutation';
+import { formatMoney } from '../format';
 import { useTrip } from './TripShell';
 import Modal from '../components/Modal';
 import Select from '../components/Select';
 import SectionNav from '../components/SectionNav';
+import FormError from '../components/FormError';
+import EmptyState from '../components/EmptyState';
+import ConfirmDialog from '../components/ConfirmDialog';
+import { IconButton, LinkButton } from '../components/buttons';
 
 type Person = { id: string; name: string; done: boolean };
 type Task = {
@@ -53,13 +60,28 @@ const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
 export default function Pretrip() {
 	const { trip } = useTrip();
 	const { data, error, reload } = useApi<Data>(`/trips/${trip.id}/pretrip`);
+	// One payload holds the tasks, the packing list and the cost estimates, and
+	// the per-person figure depends on the roster.
+	useLiveSection(['tasks', 'costs', 'members', 'trip'], reload);
 	const [section, setSection] = useState('tasks');
 	const [adding, setAdding] = useState<'task' | 'packing' | null>(null);
 	/** Add and edit share one modal; `id` is null when adding. */
 	const [editing, setEditing] = useState<Draft | null>(null);
-	const [notice, setNotice] = useState('');
+	/** The row a confirmation is open for, and which list it came from. */
+	const [pendingTask, setPendingTask] = useState<{ kind: 'task' | 'packing'; task: Task } | null>(
+		null
+	);
+	const [pendingCost, setPendingCost] = useState<CostItem | null>(null);
 
-	if (!data) return error ? <p className="text-warn">{error}</p> : null;
+	// One state machine for the small in-place writes this page makes (ticking a
+	// box, and the deletes the dialogs below confirm), so a refusal lands in the
+	// banner instead of being thrown into nothing.
+	const act = useMutation<[() => Promise<unknown>]>((fn) => fn(), {
+		onSuccess: reload,
+		fallback: 'Something went wrong.'
+	});
+
+	if (!data) return error ? <FormError message={error} variant="banner" /> : null;
 
 	const doneCount = data.tasks.filter((t) => t.done).length;
 	const packedCount = data.packing.filter((t) => t.done).length;
@@ -79,25 +101,12 @@ export default function Pretrip() {
 		{ id: 'costs', label: 'Estimated costs', badge: null }
 	];
 
-	const fmt = (cents: number) =>
-		new Intl.NumberFormat(undefined, {
-			style: 'currency',
-			currency: data.currency,
-			maximumFractionDigits: 0
-		}).format(cents / 100);
+	// Whole units: these are estimates, and the cents on a guessed number are
+	// noise. The rounding is the formatter's, not a second division here.
+	const fmt = (cents: number) => formatMoney(cents, data.currency, { whole: true });
 
 	const grand = data.budget.grandTotal;
 	const perPerson = data.memberCount ? grand / data.memberCount : grand;
-
-	async function act(fn: () => Promise<unknown>) {
-		setNotice('');
-		try {
-			await fn();
-			reload();
-		} catch (err) {
-			setNotice(err instanceof ApiError ? err.message : 'Something went wrong.');
-		}
-	}
 
 	return (
 		<div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[190px_minmax(0,1fr)]">
@@ -109,14 +118,7 @@ export default function Pretrip() {
 			/>
 
 			<div className="min-w-0">
-				{notice && (
-					<p
-						role="alert"
-						className="mb-4 rounded-sm bg-danger-soft px-3.5 py-2.5 text-[0.9rem] text-danger-ink"
-					>
-						{notice}
-					</p>
-				)}
+				<FormError message={act.error} variant="banner" />
 
 				{/* The row keeps its height across sections, so switching never shifts
 				    the card below it up or down. */}
@@ -157,20 +159,20 @@ export default function Pretrip() {
 							me={data.me}
 							empty={section === 'tasks' ? 'No tasks yet.' : 'Nothing packed yet.'}
 							onToggle={(taskId, userId) =>
-								act(() =>
+								void act.run(() =>
 									api(`/trips/${trip.id}/pretrip/tasks/${taskId}/toggle`, {
 										method: 'POST',
 										body: userId ? { userId } : {}
 									})
 								)
 							}
-							onRemove={(taskId) =>
-								act(() =>
-									api(`/trips/${trip.id}/pretrip/tasks/${taskId}`, {
-										method: 'DELETE'
-									})
-								)
+							onRemove={(task) =>
+								setPendingTask({
+									kind: section === 'tasks' ? 'task' : 'packing',
+									task
+								})
 							}
+							onAdd={() => setAdding(section === 'tasks' ? 'task' : 'packing')}
 						/>
 					</div>
 				) : (
@@ -207,13 +209,7 @@ export default function Pretrip() {
 									cityId: it.cityId ?? ''
 								})
 							}
-							onRemove={(id) =>
-								act(() =>
-									api(`/trips/${trip.id}/pretrip/costs/${id}`, {
-										method: 'DELETE'
-									})
-								)
-							}
+							onRemove={(it) => setPendingCost(it)}
 						/>
 					</>
 				)}
@@ -241,7 +237,67 @@ export default function Pretrip() {
 					onSaved={reload}
 				/>
 			)}
+
+			{/* Deleting a task takes the whole row, including everyone else's ticks
+			    on it, which is the part that is not obvious from the row itself. */}
+			<ConfirmDialog
+				open={!!pendingTask}
+				title={pendingTask?.kind === 'packing' ? 'Delete this packing item?' : 'Delete this task?'}
+				busyLabel="Deleting..."
+				body={pendingTask && <DeleteTaskBody task={pendingTask.task} />}
+				onCancel={() => setPendingTask(null)}
+				onConfirm={async () => {
+					if (!pendingTask) return;
+					await api(`/trips/${trip.id}/pretrip/tasks/${pendingTask.task.id}`, {
+						method: 'DELETE'
+					});
+					setPendingTask(null);
+					reload();
+				}}
+			/>
+
+			<ConfirmDialog
+				open={!!pendingCost}
+				title="Delete this estimate?"
+				busyLabel="Deleting..."
+				body={
+					pendingCost && (
+						<>
+							<p className="m-0 mb-2 font-semibold [overflow-wrap:anywhere]">{pendingCost.label}</p>
+							<p className="m-0 text-[0.9rem]">
+								{fmt(pendingCost.amountCents)} under {cap(pendingCost.category)}
+								{pendingCost.cityName ? ` in ${pendingCost.cityName}` : ''}. The trip total and the
+								per-person figure drop by it. Nothing anyone has actually spent is affected:
+								estimates and the expense ledger are separate.
+							</p>
+						</>
+					)
+				}
+				onCancel={() => setPendingCost(null)}
+				onConfirm={async () => {
+					if (!pendingCost) return;
+					await api(`/trips/${trip.id}/pretrip/costs/${pendingCost.id}`, { method: 'DELETE' });
+					setPendingCost(null);
+					reload();
+				}}
+			/>
 		</div>
+	);
+}
+
+/** Who a task delete takes down with it, stated in terms of what is on the row. */
+function DeleteTaskBody({ task }: { task: Task }) {
+	return (
+		<>
+			<p className="m-0 mb-2 font-semibold [overflow-wrap:anywhere]">{task.label}</p>
+			<p className="m-0 text-[0.9rem]">
+				{task.people.length > 0
+					? `Assigned to ${task.people.length} ${
+							task.people.length === 1 ? 'person' : 'people'
+						}, ${task.doneCount} of whom have ticked it off. The row and everyone's ticks on it go.`
+					: 'The row goes, along with whether it was ticked off.'}
+			</p>
+		</>
 	);
 }
 
@@ -260,20 +316,37 @@ function TaskList({
 	me,
 	empty,
 	onToggle,
-	onRemove
+	onRemove,
+	onAdd
 }: {
 	items: Task[];
 	kind: 'task' | 'packing';
 	me: string;
 	empty: string;
 	onToggle: (taskId: string, userId?: string) => void;
-	onRemove: (taskId: string) => void;
+	onRemove: (task: Task) => void;
+	onAdd: () => void;
 }) {
 	/** Which task's roster is expanded. Only one at a time, because these lists are long. */
 	const [openRoster, setOpenRoster] = useState<string | null>(null);
 
 	if (items.length === 0) {
-		return <p className="m-0 px-1.5 py-2 text-[0.9rem] text-ink-faint">{empty}</p>;
+		return (
+			<EmptyState
+				className="py-2"
+				message={empty}
+				hint={
+					kind === 'task'
+						? 'Add the first one and assign whoever has to do it.'
+						: 'Add what everyone needs to bring.'
+				}
+				action={
+					<button type="button" className="btn small" onClick={onAdd}>
+						{kind === 'task' ? 'Add task' : 'Add item'}
+					</button>
+				}
+			/>
+		);
 	}
 
 	return (
@@ -369,14 +442,14 @@ function TaskList({
 								</div>
 							)}
 
-							<button
-								type="button"
-								onClick={() => onRemove(it.id)}
-								aria-label={`Remove ${kind}: ${it.label}`}
-								className="flex-none cursor-pointer border-none bg-transparent px-1 text-[1.05rem] leading-none text-ink-faint opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:text-danger-ink"
+							<IconButton
+								label={`Remove ${kind}: ${it.label}`}
+								danger
+								className="flex-none opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+								onClick={() => onRemove(it)}
 							>
 								×
-							</button>
+							</IconButton>
 						</div>
 
 						{openRoster === it.id && (
@@ -455,7 +528,7 @@ function CostTable({
 	total: number;
 	fmt: (cents: number) => string;
 	onEdit: (it: CostItem) => void;
-	onRemove: (id: string) => void;
+	onRemove: (it: CostItem) => void;
 }) {
 	const CELL = 'border-b border-line px-4 py-2.5 text-left text-[0.92rem]';
 	const TH =
@@ -489,12 +562,14 @@ function CostTable({
 								{fmt(it.amountCents)}
 							</td>
 							<td className={`${CELL} text-right`}>
-								<IconBtn label={`Edit ${it.label}`} onClick={() => onEdit(it)}>
-									✎
-								</IconBtn>
-								<IconBtn label={`Remove ${it.label}`} onClick={() => onRemove(it.id)}>
-									✕
-								</IconBtn>
+								<span className="inline-flex justify-end gap-1">
+									<IconButton label={`Edit ${it.label}`} onClick={() => onEdit(it)}>
+										✎
+									</IconButton>
+									<IconButton label={`Remove ${it.label}`} danger onClick={() => onRemove(it)}>
+										✕
+									</IconButton>
+								</span>
 							</td>
 						</tr>
 					))}
@@ -522,27 +597,6 @@ function CostTable({
 	);
 }
 
-function IconBtn({
-	label,
-	onClick,
-	children
-}: {
-	label: string;
-	onClick: () => void;
-	children: string;
-}) {
-	return (
-		<button
-			type="button"
-			aria-label={label}
-			onClick={onClick}
-			className="cursor-pointer border-none bg-transparent px-1 text-[0.9rem] text-ink-faint hover:text-accent-ink"
-		>
-			{children}
-		</button>
-	);
-}
-
 function AddTask({
 	kind,
 	members,
@@ -560,25 +614,18 @@ function AddTask({
 }) {
 	const [label, setLabel] = useState('');
 	const [assignees, setAssignees] = useState<Set<string>>(new Set());
-	const [error, setError] = useState('');
-	const [saving, setSaving] = useState(false);
 
-	async function submit(e: React.FormEvent) {
-		e.preventDefault();
-		setSaving(true);
-		setError('');
-		try {
+	const save = useMutation(
+		async () => {
 			await api(`/trips/${tripId}/pretrip/tasks`, {
 				method: 'POST',
 				body: { kind, label, assignees: [...assignees] }
 			});
 			onSaved();
 			onClose();
-		} catch (err) {
-			setError(err instanceof ApiError ? err.message : 'Could not add that.');
-			setSaving(false);
-		}
-	}
+		},
+		{ fallback: 'Could not add that.' }
+	);
 
 	return (
 		<Modal
@@ -587,7 +634,7 @@ function AddTask({
 			title={kind === 'task' ? 'Add a task' : 'Add a packing item'}
 			onClose={onClose}
 		>
-			<form className="mform" onSubmit={submit}>
+			<form className="mform" onSubmit={save.submit}>
 				<div className="mbody flex flex-col gap-3">
 					<label className="field">
 						<span>What needs doing?</span>
@@ -635,26 +682,22 @@ function AddTask({
 						</div>
 						{members.length > 2 && (
 							<div className="flex gap-3 px-1 pt-2">
-								<LinkBtn onClick={() => setAssignees(new Set(members.map((m) => m.id)))}>
+								<LinkButton onClick={() => setAssignees(new Set(members.map((m) => m.id)))}>
 									Select everyone
-								</LinkBtn>
-								<LinkBtn onClick={() => setAssignees(new Set())}>Clear</LinkBtn>
+								</LinkButton>
+								<LinkButton onClick={() => setAssignees(new Set())}>Clear</LinkButton>
 							</div>
 						)}
 					</fieldset>
 				</div>
 
 				<div className="mfoot">
-					{error && (
-						<p role="alert" className="mfoot-note m-0 text-[0.86rem] text-danger-ink">
-							{error}
-						</p>
-					)}
+					<FormError message={save.error} />
 					<button className="btn" type="button" onClick={onClose}>
 						Cancel
 					</button>
-					<button className="btn primary" type="submit" disabled={saving}>
-						{saving ? 'Adding...' : 'Add'}
+					<button className="btn primary" type="submit" disabled={save.busy}>
+						{save.busy ? 'Adding...' : 'Add'}
 					</button>
 				</div>
 			</form>
@@ -683,14 +726,9 @@ function EditCost({
 	const [amount, setAmount] = useState(draft.amount);
 	const [category, setCategory] = useState(draft.category);
 	const [cityId, setCityId] = useState(draft.cityId);
-	const [error, setError] = useState('');
-	const [saving, setSaving] = useState(false);
 
-	async function submit(e: React.FormEvent) {
-		e.preventDefault();
-		setSaving(true);
-		setError('');
-		try {
+	const save = useMutation(
+		async () => {
 			await api(
 				draft.id ? `/trips/${tripId}/pretrip/costs/${draft.id}` : `/trips/${tripId}/pretrip/costs`,
 				{
@@ -700,15 +738,13 @@ function EditCost({
 			);
 			onSaved();
 			onClose();
-		} catch (err) {
-			setError(err instanceof ApiError ? err.message : 'Could not save that item.');
-			setSaving(false);
-		}
-	}
+		},
+		{ fallback: 'Could not save that item.' }
+	);
 
 	return (
 		<Modal open size="sm" title={draft.id ? 'Edit cost' : 'Add cost'} onClose={onClose}>
-			<form className="mform" onSubmit={submit}>
+			<form className="mform" onSubmit={save.submit}>
 				<div className="mbody flex flex-col gap-3">
 					<label className="field">
 						<span>What is it?</span>
@@ -758,31 +794,15 @@ function EditCost({
 				</div>
 
 				<div className="mfoot">
-					{error && (
-						<p role="alert" className="mfoot-note m-0 text-[0.86rem] text-danger-ink">
-							{error}
-						</p>
-					)}
+					<FormError message={save.error} />
 					<button className="btn" type="button" onClick={onClose}>
 						Cancel
 					</button>
-					<button className="btn primary" type="submit" disabled={saving}>
-						{saving ? 'Saving...' : draft.id ? 'Save changes' : 'Add cost'}
+					<button className="btn primary" type="submit" disabled={save.busy}>
+						{save.busy ? 'Saving...' : draft.id ? 'Save changes' : 'Add cost'}
 					</button>
 				</div>
 			</form>
 		</Modal>
-	);
-}
-
-function LinkBtn({ onClick, children }: { onClick: () => void; children: string }) {
-	return (
-		<button
-			type="button"
-			onClick={onClick}
-			className="cursor-pointer border-none bg-transparent p-0 text-[0.78rem] text-accent underline"
-		>
-			{children}
-		</button>
 	);
 }

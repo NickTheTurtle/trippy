@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { api, ApiError } from '../api';
 import { useApi } from '../useApi';
+import { useLiveSection } from '../useTripEvents';
 import { useTrip } from './TripShell';
 import Modal from '../components/Modal';
 import Select, { type Option } from '../components/Select';
@@ -274,6 +275,9 @@ export default function Calendar() {
 	if (viewParam) query.set('view', viewParam);
 	const qs = query.toString();
 	const { data, error, reload } = useApi<Data>(qs ? `${base}?${qs}` : base);
+	// The calendar payload carries the schedule, the crews that ride on it, the
+	// stays that back it and the people it is filtered by.
+	useLiveSection(['schedule', 'lodging', 'members', 'trip'], reload);
 
 	const [notice, setNotice] = useState('');
 	const [viewAs, setViewAs] = useState('');
