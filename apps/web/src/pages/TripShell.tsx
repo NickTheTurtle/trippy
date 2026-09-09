@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, Outlet, useOutletContext, useParams } from 'react-router';
 import { api } from '../api';
 import { useApi } from '../useApi';
@@ -6,7 +6,6 @@ import { useTripEvents, TripEventsProvider } from '../useTripEvents';
 import { TABS } from '../nav';
 import Itinerary from '../components/Itinerary';
 import TripFormDialog from '../components/TripFormDialog';
-import { LinkButton } from '../components/buttons';
 import LiveOff from '../components/LiveOff';
 
 export type TripCity = {
@@ -45,7 +44,20 @@ export type Trip = {
 	members: string[];
 };
 
-type Ctx = { trip: Trip; reloadTrip: () => void; editItinerary: () => void };
+type Ctx = {
+	trip: Trip;
+	reloadTrip: () => void;
+	/**
+	 * Opens the itinerary dialog. The header no longer offers this: editing the
+	 * itinerary is Discover's job, since that is the page cities are the axis of.
+	 * The dialog still lives here because it edits the trip the shell owns and
+	 * reloading it is the shell's call, but Discover is the only way in.
+	 *
+	 * The optional callback fires after each successful change, for a section
+	 * holding its own copy of the cities that has to refetch alongside the trip.
+	 */
+	editItinerary: (onChanged?: () => void) => void;
+};
 
 /** Lets a section page read the trip the shell already loaded, rather than refetch it. */
 export function useTrip(): Ctx {
@@ -57,6 +69,8 @@ export default function TripShell() {
 	const { data, error, reload } = useApi<{ trip: Trip }>(`/trips/${tripId}`);
 	const [showEdit, setShowEdit] = useState(false);
 	const [showItinerary, setShowItinerary] = useState(false);
+	/** Set by whoever opened the itinerary dialog; see `Ctx.editItinerary`. */
+	const onItineraryChanged = useRef<(() => void) | undefined>(undefined);
 
 	// One live stream per open trip, owned here rather than by each section, so
 	// moving between the tabs of a trip does not churn connections and switching
@@ -122,21 +136,6 @@ export default function TripShell() {
 						</div>
 					</div>
 
-					{/* The header used to list every city with an "Add a city" or "Edit
-					    itinerary" control beside them. The chain is gone: it grew long
-					    enough to wrap on a real trip, and it implied a single shared
-					    route when tracks mean different people are in different places.
-					    Cities belong to the pages scoped to them, not to the chrome.
-
-					    The way into the itinerary stays, and stays even at zero cities,
-					    because Discover's empty state is otherwise the only entrance and
-					    a cityless Calendar would be a dead end. */}
-					{trip.role === 'organizer' && (
-						<div className="mt-5 mb-1.5 flex flex-wrap items-center gap-1.5">
-							<LinkButton onClick={() => setShowItinerary(true)}>Edit itinerary</LinkButton>
-						</div>
-					)}
-
 					<nav className="mt-5 flex gap-1 overflow-x-auto">
 						{TABS.map((t) => (
 							<NavLink
@@ -160,7 +159,22 @@ export default function TripShell() {
 
 			{showEdit && <EditTrip trip={trip} onClose={() => setShowEdit(false)} onSaved={reload} />}
 			{showItinerary && (
-				<Itinerary trip={trip} onClose={() => setShowItinerary(false)} onChanged={reload} />
+				<Itinerary
+					trip={trip}
+					onClose={() => {
+						setShowItinerary(false);
+						onItineraryChanged.current = undefined;
+					}}
+					onChanged={() => {
+						reload();
+						// The section that opened the dialog usually has its own copy of
+						// the cities. It is subscribed to the live `trip` event too, but
+						// this must not be the only thing that refreshes it: the stream
+						// drops, and an added city that appears in no list until a manual
+						// reload reads as a failed add.
+						onItineraryChanged.current?.();
+					}}
+				/>
 			)}
 
 			<main className="container py-8">
@@ -170,7 +184,10 @@ export default function TripShell() {
 						{
 							trip,
 							reloadTrip: reload,
-							editItinerary: () => setShowItinerary(true)
+							editItinerary: (onChanged) => {
+								onItineraryChanged.current = onChanged;
+								setShowItinerary(true);
+							}
 						} satisfies Ctx
 					}
 				/>

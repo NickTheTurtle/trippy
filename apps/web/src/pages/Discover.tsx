@@ -94,7 +94,9 @@ export default function Discover() {
 		// A whole blank page, so it gets a panel rather than the in-card
 		// `EmptyState` line, which was written to sit inside a box and read as a
 		// stray sentence when it was the only thing here.
-		return <NoCities isOrganizer={trip.role === 'organizer'} onAddCity={editItinerary} />;
+		return (
+			<NoCities isOrganizer={trip.role === 'organizer'} onAddCity={() => editItinerary(reload)} />
+		);
 	}
 
 	const stay = isStayView(view);
@@ -147,6 +149,7 @@ export default function Discover() {
 				value={current.id}
 				onChange={setActiveCity}
 				isOrganizer={data.isOrganizer}
+				onEditItinerary={() => editItinerary(reload)}
 				onChanged={() => {
 					// The itinerary lives on the trip and the pools live here, so both
 					// have to come back after a city is added or deleted.

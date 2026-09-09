@@ -1,10 +1,6 @@
 import { useState } from 'react';
 import { api } from '../../api';
-import { useMutation } from '../../useMutation';
-import Modal from '../../components/Modal';
-import FormError from '../../components/FormError';
 import ConfirmDialog from '../../components/ConfirmDialog';
-import { AddCity } from '../../components/Itinerary';
 import type { Trip } from '../TripShell';
 import { PlusIcon, RemoveCardButton } from './card-controls';
 
@@ -38,8 +34,8 @@ export type CityRow = {
  * header dropdown.
  *
  * Alphabetical, not itinerary order: this is a lookup ("where is Kyoto?"), and
- * the itinerary's own order is already shown in the trip header, in the
- * itinerary editor, and on the calendar.
+ * the itinerary's own order is already shown in the itinerary editor and on the
+ * calendar.
  *
  * Adding and deleting a city are organizer-only *on the server*, so the
  * controls are hidden from everyone else rather than shown and refused.
@@ -50,6 +46,7 @@ export default function CityList({
 	value,
 	onChange,
 	isOrganizer,
+	onEditItinerary,
 	onChanged
 }: {
 	trip: Trip;
@@ -57,10 +54,17 @@ export default function CityList({
 	value: string;
 	onChange: (cityId: string) => void;
 	isOrganizer: boolean;
+	/**
+	 * Opens the itinerary dialog, which is now the only place cities are added.
+	 * This used to open a popup holding just `AddCity`, but that was the
+	 * itinerary editor with its list cut off: same search, same defaults, same
+	 * number of clicks to reach the field, minus the dates and the removals. One
+	 * dialog does the whole job.
+	 */
+	onEditItinerary: () => void;
 	/** Reloads the trip and the page data after the itinerary changes. */
 	onChanged: () => void;
 }) {
-	const [adding, setAdding] = useState(false);
 	const [pendingDelete, setPendingDelete] = useState<CityRow | null>(null);
 
 	// The server refuses to remove the last city, because a trip without one is
@@ -108,13 +112,11 @@ export default function CityList({
 			</nav>
 
 			{isOrganizer && (
-				<button type="button" className="btn small justify-center" onClick={() => setAdding(true)}>
+				<button type="button" className="btn small justify-center" onClick={onEditItinerary}>
 					<PlusIcon />
-					Add city
+					Add or edit cities
 				</button>
 			)}
-
-			{adding && <AddCityDialog trip={trip} onClose={() => setAdding(false)} onAdded={onChanged} />}
 
 			<ConfirmDialog
 				open={!!pendingDelete}
@@ -182,42 +184,5 @@ function DeleteBody({ city }: { city: CityRow }) {
 				</p>
 			)}
 		</>
-	);
-}
-
-/**
- * The add-a-city popup. The control inside it is the itinerary editor's own
- * `AddCity`, so the search, the zone lookup and the arrive / depart defaults
- * behave identically in both places.
- */
-function AddCityDialog({
-	trip,
-	onClose,
-	onAdded
-}: {
-	trip: Trip;
-	onClose: () => void;
-	onAdded: () => void;
-}) {
-	const add = useMutation<[Record<string, unknown>]>(
-		(city) => api(`/trips/${trip.id}/cities`, { method: 'POST', body: city }),
-		{ fallback: 'Could not add that city.', onSuccess: onAdded }
-	);
-
-	return (
-		<Modal open title="Add a city" subtitle={trip.name} size="md" onClose={onClose}>
-			<div className="mbody flex flex-col gap-3">
-				<FormError message={add.error} variant="banner" className="mb-0" />
-				<AddCity trip={trip} onAdd={(v) => add.run(v)} />
-			</div>
-			<div className="mfoot">
-				{/* Stays open after an add: a trip usually gains stops in twos and
-				    threes, and reopening the popup for each one is the friction the
-				    itinerary editor already avoids. */}
-				<button className="btn" type="button" onClick={onClose}>
-					Done
-				</button>
-			</div>
-		</Modal>
 	);
 }
