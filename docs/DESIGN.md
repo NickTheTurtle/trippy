@@ -842,6 +842,20 @@ meaning looked up and missing, a backfill on the page that displays it, and the
 value carried straight over when the record came from a search that already had
 one. `pois`, `lodging_options` and `cities` all follow it.
 
+### 5.0.11 The signed-out front page
+
+**It was still the port's smoke test.** `/` rendered a card headed "Port smoke
+test" showing `settle()` output for three made-up people and the current time in
+three zones. That was deliberate on day one, to prove `@trippy/core` resolved
+through the workspace link and the Tailwind theme had picked up the ported
+tokens, and both have been proven a thousand times since by the app itself. It
+was the first thing a stranger saw. It is now a real page: what the tool does,
+in six lines that each describe something it does today, and the same two actions
+the header offers rather than a third phrasing of them. The primary action is
+registering, because anyone with a session is redirected to `/trips` before this
+page renders, so a link into the app would only ever be followed by someone who
+cannot use it.
+
 ## Shared UI conventions
 
 These exist so five pages don't each invent their own version. Reach for them
