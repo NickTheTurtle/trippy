@@ -60,7 +60,10 @@ export default function People() {
 				}
 			>
 				<section className="card px-5 py-5">
-					<h3 className="mb-3.5 text-[1.05rem]">Members</h3>
+					<h3 className="mb-3.5 flex items-baseline gap-2 text-[1.05rem]">
+						Members
+						<span className="muted text-[0.82rem] font-normal">{data.people.length}</span>
+					</h3>
 					{/* Auto-fill columns rather than one long list: at 20 members a
 					    single column is mostly empty space on a wide screen. */}
 					<ul className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-x-6 gap-y-0.5 p-0">

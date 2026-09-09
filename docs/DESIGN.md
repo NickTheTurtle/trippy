@@ -581,6 +581,13 @@ label is noise that also disappears the moment you type. This follows the
 convention already used in People: labels always, placeholders only where
 the *format* is not obvious.
 
+**A task done by other people has to look done.** The tick box shows *your*
+state, and the title is struck through when the task is done overall, so a task
+assigned only to someone else who finished it rendered as struck through next to
+an empty box: a contradiction that read as a bug. The not-yours marker is not a
+control and stays a dashed outline, but it now carries the task's own state, a
+faint tick when everyone assigned has finished.
+
 ### 5.0.5 Discover: places, stays and the search
 
 **Search is split in two, and the split is the whole design.** Typing hits
@@ -622,6 +629,13 @@ made the click target far smaller than the thing it acted on.
 **Deleting a place is confirmed, deleting a stay is not.** A place can have
 calendar events pointing at it, and those go with it; the dialog says how many.
 A stay carries only votes.
+
+**Remove on a place card waits for hover.** It was a red link under a divider on
+every card, so a 14 place city put fourteen red links on the page for the action
+almost nobody takes, while the card's real affordance (click it to edit) is
+silent. The link keeps its space so the grid never shifts, comes back on hover,
+on keyboard focus anywhere in the card, and unconditionally where the device has
+no hover.
 
 ### 5.0.6 Calendar: the board, crews and the port's one plain stylesheet
 
@@ -786,6 +800,16 @@ the trip actually holds rather than keeping a number that was never stored.
 disabled with a `title` saying why). Removing it would put the trip back into
 exactly the dead-end state this feature exists to get out of. Disabled rather
 than hidden: a button that vanishes as you delete down to one looks like a bug.
+
+### 5.0.9 The expense ledger
+
+**Each row shows when it was logged.** The list is ordered newest first and the
+rest of the row is a payer, a split and an amount, so two similar dinners were
+impossible to tell apart and the ordering itself was unexplained. It is the
+`created_at` the row already carried, not a new field: nobody is asked to date an
+expense they are typing in now, and there is no schema change. The year is shown
+only when it is not the current one, since it would otherwise repeat on every row
+of the page.
 
 ## Shared UI conventions
 

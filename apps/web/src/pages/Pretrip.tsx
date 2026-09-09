@@ -298,11 +298,22 @@ function TaskList({
 									onClick={() => onToggle(it.id)}
 								/>
 							) : (
+								/* Not yours to tick, so it is not a control. It still has to show
+								   whether the task got done, or the row reads as struck through
+								   and unchecked at the same time. */
 								<span
-									title="Assigned to other people"
-									aria-label={`${it.label} is not assigned to you`}
-									className="size-[18px] flex-none rounded-[5px] border border-dashed border-line bg-surface-2"
-								/>
+									title={
+										it.done ? 'Done by the people it is assigned to' : 'Assigned to other people'
+									}
+									aria-label={`${it.label} is assigned to other people and is ${it.done ? 'done' : 'not done yet'}`}
+									className={`grid size-[18px] flex-none place-items-center rounded-[5px] border border-dashed text-[0.72rem] ${
+										it.done
+											? 'border-accent bg-accent-soft text-accent-ink'
+											: 'border-line bg-surface-2'
+									}`}
+								>
+									{it.done ? '✓' : ''}
+								</span>
 							)}
 
 							<span

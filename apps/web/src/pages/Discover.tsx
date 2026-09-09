@@ -677,7 +677,7 @@ function PlaceCard({
 }) {
 	const hrs = todayHours(parseHours(p.hours));
 	return (
-		<article className={CARD}>
+		<article className={`${CARD} group/card`}>
 			{/* The cover, title and meta are one control: clicking the place is how
 			    you edit it. Vote, Open and Remove stay outside it so the card never
 			    nests one interactive element inside another. */}
@@ -743,7 +743,12 @@ function PlaceCard({
 						</button>
 					</div>
 				</div>
-				<div className="mt-3 flex flex-wrap items-center gap-3.5 border-t border-line pt-3">
+				{/* Removing a place is the rarest thing anyone does here and there is
+				    one card per place, so a permanent red link on all fourteen was the
+				    loudest thing on the page. It keeps its space so the grid does not
+				    shift, stays reachable by keyboard, and is always shown where there
+				    is no hover to reveal it. */}
+				<div className="mt-3 flex flex-wrap items-center gap-3.5 border-t border-line pt-3 opacity-0 transition-opacity group-focus-within/card:opacity-100 group-hover/card:opacity-100 [@media(hover:none)]:opacity-100">
 					<button className="link danger" onClick={onRemove} aria-label={`Remove ${p.name}`}>
 						Remove
 					</button>

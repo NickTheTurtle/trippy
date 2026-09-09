@@ -17,6 +17,7 @@ type Expense = {
 	currency: string;
 	split_mode: SplitMode;
 	participants: number;
+	created_at: number;
 	home_cents: number;
 	converted: boolean;
 };
@@ -37,6 +38,24 @@ function splitLabel(mode: SplitMode, n: number): string {
 	if (mode === 'shares') return `split by shares, ${people}`;
 	if (mode === 'exact') return `split by amount, ${people}`;
 	return `split ${people}`;
+}
+
+/**
+ * When an expense was logged, in the reader's own zone.
+ *
+ * The list is ordered newest first and nothing else on the row says when, so
+ * two similar dinners are otherwise impossible to tell apart. The year only
+ * appears when it is not the current one, since a trip's expenses are almost
+ * always from this year and the year would be noise on every row.
+ */
+function logged(ms: number): string {
+	const d = new Date(ms);
+	const sameYear = d.getFullYear() === new Date().getFullYear();
+	return d.toLocaleDateString(undefined, {
+		month: 'short',
+		day: 'numeric',
+		year: sameYear ? undefined : 'numeric'
+	});
 }
 
 export default function Expenses() {
@@ -215,7 +234,8 @@ function ExpenseRow({
 					)}
 				</span>
 				<span className="muted truncate text-[0.8rem]">
-					{e.payer_name} {credit ? 'received' : 'paid'} · {splitLabel(e.split_mode, e.participants)}
+					{e.payer_name} {credit ? 'received' : 'paid'} · {splitLabel(e.split_mode, e.participants)}{' '}
+					· {logged(e.created_at)}
 				</span>
 			</div>
 			<span
