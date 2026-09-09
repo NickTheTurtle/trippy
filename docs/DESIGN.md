@@ -493,6 +493,44 @@ that the name worked.
 missing, so a footer error message would have sat to the right of the buttons
 instead of pushing them aside. Found by porting a page that actually uses it.
 
+### 5.0.4 Preparation: tasks, packing and estimated costs
+
+**One list component serves both tasks and packing.** They differ only in
+wording, so the difference is data: the section descriptor carries the kind, the
+empty-state sentence and the add-button label. Two near-identical components
+would have drifted the first time a row gained a feature.
+
+**A task's status is per person, and the row has to show three things at once.**
+Whether *you* are done, how far *everyone* is, and whether the task as a whole is
+finished. Cramming twenty names into a row is unreadable, so the roster collapses
+to a progress bar plus a `done/total` count, and only expands when clicked. One
+roster is open at a time, because these lists run to twenty people. Your own
+state is pulled out into a separate "You: done" / "You: to do" tag so you never
+have to expand a roster to find yourself.
+
+**Boxes you cannot tick look different rather than being hidden.** A task
+assigned to other people still shows a box, dashed and inert, because the row
+would otherwise look misaligned and it would not be obvious *why* you cannot tick
+it. The server enforces this independently: `POST /tasks/:id/toggle` returns 403
+for any `userId` that is not the caller, verified directly against the API rather
+than only through the UI.
+
+**Deleting is on hover, not always visible.** Every row carrying a permanent ×
+makes a long list feel hostile and invites misclicks. The button is revealed by
+the row's `group` hover and by keyboard focus, so it is still reachable without a
+mouse.
+
+**Add and Edit for a cost are the same dialog.** `id === null` means add. The
+fields, validation and layout are identical, and keeping them as one component is
+what stops the edit form from quietly falling behind the add form.
+
+**Example placeholders were dropped.** The Svelte fields carried "Apply for a
+visa", "Power adapter", "Museum tickets" and "0" as placeholder text. Each field
+already has a label saying the same thing, and a placeholder that repeats its
+label is noise that also disappears the moment you type. This follows the
+convention already used in People: labels always, placeholders only where
+the *format* is not obvious.
+
 ## Shared UI conventions
 
 These exist so five pages don't each invent their own version. Reach for them
