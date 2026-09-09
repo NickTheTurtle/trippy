@@ -192,6 +192,32 @@ const START_OPTIONS: Option[] = Array.from(
 	(_, i) => DAY_START + i * 15
 ).map((s) => ({ value: String(s), label: hhmm(s) }));
 
+/**
+ * Guarantees the picker can render the value it is holding.
+ *
+ * The option lists are round numbers, but the real values are not: dragging
+ * snaps to five minutes against a 15-minute start list, resizing produces
+ * lengths like 75m, and travel buffers are estimated from distance and come out
+ * at 9m. A `Select` given a value no option matches falls back to its
+ * placeholder, so the field read "Select..." on a perfectly valid event and
+ * looked unset. Same failure as the account time zone picker, same fix: offer
+ * the actual value too.
+ */
+function withCurrent(options: Option[], value: string, label: (v: number) => string): Option[] {
+	if (options.some((o) => o.value === value)) return options;
+	const n = Number(value);
+	if (!Number.isFinite(n)) return options;
+	return [...options, { value, label: label(n) }].sort((a, b) => Number(a.value) - Number(b.value));
+}
+
+/** "1h 15m", for a duration that is not one of the offered ones. */
+function lengthLabel(mins: number): string {
+	if (mins < 60) return `${mins}m`;
+	const h = Math.floor(mins / 60);
+	const m = mins % 60;
+	return m ? `${h}h ${m}m` : `${h}h`;
+}
+
 /** One-click standard slots: prefill title, type and length. */
 const TEMPLATES = [
 	{ label: 'Flight', type: 'transport', title: 'Flight', duration: '180' },
@@ -1531,12 +1557,17 @@ function AddEvent({
 					</div>
 
 					<div className="srow">
-						<label className="grow">
-							<span>Title</span>
-							<input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} />
-						</label>
-						<label className="grow">
-							<span>Place {type === 'freetime' ? '(n/a for free time)' : ''}</span>
+						<Field
+							label="Title"
+							className="grow"
+							autoFocus
+							value={title}
+							onChange={(e) => setTitle(e.target.value)}
+						/>
+						<FieldShell
+							label={`Place ${type === 'freetime' ? '(n/a for free time)' : ''}`.trim()}
+							className="grow"
+						>
 							<Select
 								value={poi}
 								onChange={setPoi}
@@ -1544,59 +1575,53 @@ function AddEvent({
 								placeholder="No place (custom)"
 								ariaLabel="Place"
 							/>
-						</label>
-						<label className="tf2">
-							<span>Type</span>
+						</FieldShell>
+						<FieldShell label="Type" className="tf2">
 							<Select
 								value={type}
 								onChange={setType}
 								options={ITEM_TYPES}
 								ariaLabel="Activity type"
 							/>
-						</label>
+						</FieldShell>
 					</div>
 
 					<div className="srow">
-						<label className="tftrack">
-							<span>Track</span>
+						<FieldShell label="Track" className="tftrack">
 							<Select value={trackId} onChange={setTrackId} options={tracks} ariaLabel="Track" />
-						</label>
-						<label className="tf2">
-							<span>Start</span>
+						</FieldShell>
+						<FieldShell label="Start" className="tf2">
 							<Select
 								value={start}
 								onChange={setStart}
 								options={START_OPTIONS}
 								ariaLabel="Start time"
 							/>
-						</label>
-						<label className="tf2">
-							<span>Length</span>
+						</FieldShell>
+						<FieldShell label="Length" className="tf2">
 							<Select
 								value={duration}
 								onChange={setDuration}
 								options={DURATION_OPTIONS}
 								ariaLabel="Length"
 							/>
-						</label>
-						<label className="tf2">
-							<span>Travel before</span>
+						</FieldShell>
+						<FieldShell label="Travel before" className="tf2">
 							<Select
 								value={travel}
 								onChange={setTravel}
 								options={TRAVEL_OPTIONS}
 								ariaLabel="Travel before"
 							/>
-						</label>
-						<label className="tf3">
-							<span>Assign to</span>
+						</FieldShell>
+						<FieldShell label="Assign to" className="tf3">
 							<MultiSelect
 								selected={assignees}
 								onChange={setAssignees}
 								options={memberOptions}
 								placeholder="Everyone"
 							/>
-						</label>
+						</FieldShell>
 					</div>
 
 					<div className="sactions">
@@ -1695,56 +1720,58 @@ function EventDetail({
 			<form className="mform schedule" onSubmit={submit}>
 				<div className="mbody">
 					<div className="srow">
-						<label className="grow">
-							<span>Title</span>
-							<input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} />
-						</label>
-						<label>
-							<span>Type</span>
+						<Field
+							label="Title"
+							className="grow"
+							autoFocus
+							value={title}
+							onChange={(e) => setTitle(e.target.value)}
+						/>
+						<FieldShell label="Type">
 							<Select value={type} onChange={setType} options={ITEM_TYPES} ariaLabel="Type" />
-						</label>
+						</FieldShell>
 					</div>
 
 					<div className="srow">
-						<label>
-							<span>Start</span>
+						<FieldShell label="Start">
 							<Select
 								value={start}
 								onChange={setStart}
-								options={START_OPTIONS}
+								options={withCurrent(START_OPTIONS, start, hhmm)}
 								ariaLabel="Start time"
 							/>
-						</label>
-						<label>
-							<span>Duration</span>
+						</FieldShell>
+						<FieldShell label="Duration">
 							<Select
 								value={duration}
 								onChange={setDuration}
-								options={DURATION_OPTIONS}
+								options={withCurrent(DURATION_OPTIONS, duration, lengthLabel)}
 								ariaLabel="Duration"
 							/>
-						</label>
-						<label>
-							<span>Travel before</span>
+						</FieldShell>
+						<FieldShell label="Travel before">
 							<Select
 								value={travelBefore}
 								onChange={setTravelBefore}
-								options={EDIT_TRAVEL_OPTIONS}
+								options={withCurrent(
+									EDIT_TRAVEL_OPTIONS,
+									travelBefore,
+									(n) => `+${lengthLabel(n)}`
+								)}
 								ariaLabel="Travel before"
 							/>
-						</label>
+						</FieldShell>
 					</div>
 
 					<div className="srow">
-						<label className="grow">
-							<span>Who's going</span>
+						<FieldShell label="Who's going" className="grow">
 							<MultiSelect
 								selected={assignees}
 								onChange={setAssignees}
 								options={memberOptions}
 								placeholder="Everyone on this track"
 							/>
-						</label>
+						</FieldShell>
 					</div>
 
 					<div className="dfacts">
@@ -1876,10 +1903,12 @@ function Crews({
 						setNewCrewName('');
 					}}
 				>
-					<input
+					<Field
+						label="New crew"
+						className="grow"
+						inputClassName="compact"
+						hint="e.g. Museum group"
 						autoFocus
-						aria-label="New crew name"
-						placeholder="New crew, e.g. Museum group"
 						value={newCrewName}
 						onChange={(e) => setNewCrewName(e.target.value)}
 					/>
@@ -1927,6 +1956,7 @@ function Crews({
 								>
 									<input
 										type="text"
+										className="input compact"
 										value={edit.name}
 										aria-label="Crew name"
 										onChange={(e) =>
@@ -2034,8 +2064,7 @@ function Crews({
 							<strong>Split people off</strong>
 						</div>
 						<div className="splitgrid">
-							<label>
-								<span className="muted small">People</span>
+							<FieldShell label="People">
 								<MultiSelect
 									selected={splitMembers}
 									onChange={setSplitMembers}
@@ -2043,9 +2072,8 @@ function Crews({
 									placeholder="Choose people"
 									ariaLabel="People to split off"
 								/>
-							</label>
-							<label>
-								<span className="muted small">Into crew</span>
+							</FieldShell>
+							<FieldShell label="Into crew">
 								<Select
 									value={splitParty}
 									onChange={setSplitParty}
@@ -2053,16 +2081,15 @@ function Crews({
 									placeholder="Choose a crew"
 									ariaLabel="Target crew"
 								/>
-							</label>
-							<label>
-								<span className="muted small">From</span>
+							</FieldShell>
+							<FieldShell label="From">
 								<Select
 									value={splitFrom}
 									onChange={setSplitFrom}
 									options={START_OPTIONS}
 									ariaLabel="Split start time"
 								/>
-							</label>
+							</FieldShell>
 						</div>
 						<button
 							className="btn primary"

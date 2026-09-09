@@ -185,13 +185,8 @@
 	gap: 0.7rem;
 	flex-wrap: wrap;
 }
-.cal .schedule label {
-	display: flex;
-	flex-direction: column;
-	gap: 0.3rem;
-	font-size: 0.8rem;
-	color: var(--color-ink-soft);
-}
+/* `.field` from index.css now supplies the label stack; only the widths that
+   are particular to this form belong here. */
 .cal .schedule .grow {
 	flex: 1 1 160px;
 }
@@ -207,14 +202,6 @@
 .cal .schedule .tf3 {
 	flex: 1 1 160px;
 	min-width: 140px;
-}
-.cal .schedule input {
-	padding: 0.45rem 0.55rem;
-	border: 1px solid var(--color-line);
-	border-radius: var(--radius-md);
-	font: inherit;
-	background: var(--color-surface);
-	color: var(--color-ink);
 }
 .cal .tlabel {
 	align-self: center;
@@ -1030,17 +1017,13 @@
 }
 .cal .crewnew {
 	display: flex;
+	align-items: flex-end;
 	gap: 0.5rem;
 	padding-bottom: 0.8rem;
 	border-bottom: 1px solid var(--color-line);
 }
-.cal .crewnew input {
+.cal .crewnew .grow {
 	flex: 1;
-	min-width: 0;
-	padding: 0.5rem 0.7rem;
-	border: 1px solid var(--color-line);
-	border-radius: var(--radius-sm);
-	font: inherit;
 }
 .cal .crewcard {
 	margin: 0;
@@ -1063,10 +1046,6 @@
 .cal .crewrename input[type='text'] {
 	flex: 1;
 	min-width: 6rem;
-	padding: 0.35rem 0.5rem;
-	border: 1px solid var(--color-line);
-	border-radius: var(--radius-sm);
-	font: inherit;
 }
 .cal .crewrename input[type='color'] {
 	width: 30px;
@@ -1131,11 +1110,7 @@
 	gap: 0.6rem;
 	margin-bottom: 0.7rem;
 }
-.cal .splitgrid label {
-	display: flex;
-	flex-direction: column;
-	gap: 0.25rem;
-}
+/* `.field` supplies the label stack now. */
 @media (max-width: 620px) {
 	.cal .splitgrid {
 		grid-template-columns: 1fr;

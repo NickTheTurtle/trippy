@@ -710,6 +710,22 @@ gives its `.sel` a flat width instead. Any other inline-flex or floated wrapper
 around a `Select` needs the same. A sweep of every page at 1440 and 1100 for
 controls painting outside their parent found no other instance.
 
+**Every picker offers the value it currently holds.** An event dragged on the
+board snaps to 5 minutes and a travel buffer is estimated from distance, so a
+saved event routinely sits off the option grid: 10:05, 75 minutes, a 9 minute
+hop. A `Select` whose value matches no option falls through to its placeholder,
+so the detail dialog read "Select..." for a field that was set, and the only way
+to see the real number was to save something else. `withCurrent(options, value,
+label)` unions the offered list with the held value and re-sorts, and the three
+affected pickers (Start, Duration, Travel before) go through it. The add form
+does not need this because it can only start from the option lists. This is the
+same failure as the account time zone picker and is now stated once as a rule
+under shared conventions.
+
+Both schedule forms, the crew add form and the split grid use the shared `Field`
+and `FieldShell` like the rest of the app; the hand-rolled label and input rules
+they used to carry are gone from `calendar.css`.
+
 ### 5.0.7 Account settings
 
 **Profile and password are two independent forms with their own messages.** They
@@ -869,7 +885,14 @@ via `aria-label={`Remove ${name}`}` (or a `.sr-only` span for links).
 
 **`min-width` on a shared control must be `min(Xrem, 100%)`.** A bare length is
 a hard floor flexbox cannot shrink below, so `Select`/`MultiSelect` silently
-overflowed narrow modal rows.
+overflowed narrow modal rows. A percentage cannot resolve inside a shrink-to-fit
+parent either, so a `Select` in an inline-flex wrapper needs a flat width.
+
+**A `Select` must always be given the value it holds as an option.** A value
+matching no option renders the placeholder, so a set field reads as unset while
+the state underneath is fine. Any list that can meet a value from outside it
+(zones the platform omits, times off the grid, estimated durations) unions the
+held value in before rendering.
 
 **Tabs own their titles; pages don't repeat them.** The workspace tab strip
 already names the current view, so no page renders an `<h2>` matching its tab.
