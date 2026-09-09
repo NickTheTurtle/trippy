@@ -8,7 +8,6 @@
 		"apps/*"
 	],
 	"scripts": {
-		"dev:svelte": "npm run dev -w @trippy/svelte",
 		"dev:api": "npm run dev -w @trippy/api",
 		"dev:web": "npm run dev -w @trippy/web",
 		"check": "npm run check --workspaces --if-present",

@@ -1,8 +1,7 @@
 /*
- * Copied verbatim from apps/svelte/src/lib/scroll-lock.ts. It is framework-free
- * DOM code, but it cannot live in packages/core, which is forbidden to touch the
- * DOM so it stays portable to React Native. The duplicate is temporary: the
- * Svelte copy goes when apps/svelte is retired.
+ * Framework-free DOM code. It cannot live in packages/core, which is forbidden
+ * to touch the DOM so it stays portable to React Native, so it sits here beside
+ * the only client that uses it.
  */
 /**
  * Page scroll lock for modals.

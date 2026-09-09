@@ -350,8 +350,19 @@ client can import.
 | `packages/core` | Types plus pure logic: settlement, split, tz, layout, cover | Yes, unchanged |
 | `apps/api` | JSON API over the `node:sqlite` modules; owns the Google keys | Yes, shared over HTTP |
 | `apps/web` | Vite + React + React Router + Tailwind | No, web only |
-| `apps/svelte` | The original app, kept runnable as a reference | Deleted at parity |
+| `apps/svelte` | The original app | **Deleted at parity** |
 | `apps/mobile` | Expo / React Native (not yet created) | n/a |
+
+**The SvelteKit app is gone.** It was kept runnable through the port so any
+behaviour could be compared against the original rather than against memory.
+Once the React app had passed a review of every page, keeping it stopped paying:
+it was stale by design, so every difference had to be argued about before it
+could be dismissed, its `svelte-check` warnings were the only noise in an
+otherwise clean `npm run check`, its seed script had been broken since the
+monorepo move, and it held the last em dash in the tree. It is one `git revert`
+away if it is ever wanted. The one thing worth keeping, `scroll-lock.ts`, was
+already copied into `apps/web`, and its `.env` was byte-identical to the root
+one.
 
 Choices worth the words:
 
