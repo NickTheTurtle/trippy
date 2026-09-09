@@ -106,7 +106,7 @@ export default function Expenses() {
 			<div className="min-w-0">
 				{section === 'expenses' && (
 					<>
-						<Head text="Log who paid. Enter a negative amount for a refund or payout.">
+						<Head text="Log who paid. Use a negative amount for a refund or payout.">
 							<button className="btn primary" onClick={() => setShowAdd(true)}>
 								+ Add expense
 							</button>
@@ -115,7 +115,7 @@ export default function Expenses() {
 							{data.expenses.length === 0 ? (
 								<EmptyState
 									message="No expenses yet."
-									hint="Log the first one and the balances follow from it."
+									hint="Log the first one."
 									action={
 										<button className="btn" type="button" onClick={() => setShowAdd(true)}>
 											Add expense
@@ -242,8 +242,8 @@ function DeleteBody({ expense: e, home }: { expense: Expense; home: string }) {
 				{e.converted ? ` (≈ ${formatMoney(e.home_cents, home)})` : ''}, {e.payer_name}
 				{e.amount_cents < 0 ? ' received' : ' paid'}, {formatTimestamp(e.created_at)}.{' '}
 				{e.settlement === 1
-					? 'Deleting it puts the balance it cleared back.'
-					: 'Everyone on it has their balance recalculated without it.'}
+					? 'The balance it cleared comes back.'
+					: 'Everyone on it has their balance recalculated.'}
 			</p>
 		</>
 	);
@@ -536,8 +536,8 @@ function AddExpense({
 
 					<p className={`-mt-2 text-[0.82rem] ${income ? 'text-accent-ink' : 'text-ink-faint'}`}>
 						{income
-							? 'Negative amount, saved as income. Everyone selected is credited instead of charged.'
-							: 'Use a negative amount for a refund or payout the group receives.'}
+							? 'Saved as income: everyone selected is credited instead of charged.'
+							: 'Use a negative amount for a refund or payout.'}
 					</p>
 
 					<div className="flex flex-col gap-1.5 rounded-[10px] border border-line bg-surface-2 px-3.5 py-3.5">

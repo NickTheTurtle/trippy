@@ -20,7 +20,7 @@ export default function LiveOff() {
 	return (
 		<p className="muted mb-4 flex flex-wrap items-center gap-2 text-[0.82rem]">
 			<span aria-hidden="true">•</span>
-			Live updates are off, so changes other people make will not appear on their own.
+			Live updates are off, so you will not see other people's changes.
 			<LinkButton onClick={events.retry}>Reconnect</LinkButton>
 		</p>
 	);

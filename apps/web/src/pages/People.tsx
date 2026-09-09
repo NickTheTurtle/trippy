@@ -138,16 +138,15 @@ function RemoveBody({ tripId, person }: { tripId: string; person: Person }) {
 			{person.placeholder ? (
 				<>
 					<p className="m-0 text-[0.9rem]">
-						They were invited at {person.email} but have not joined, so the invite is withdrawn and
-						their user record is deleted. The address can be invited again afterwards.
+						Invited at {person.email}, never joined. The invite is withdrawn and their record is
+						deleted. You can invite the address again.
 					</p>
 					{data && <Destroys impact={data} />}
 				</>
 			) : (
 				<>
 					<p className="m-0 text-[0.9rem]">
-						They lose access to this trip. Their account and any other trip they are on are
-						untouched.
+						They lose access to this trip. Their account and other trips are untouched.
 					</p>
 					{data && <Keeps impact={data} />}
 				</>
@@ -327,9 +326,8 @@ function Invite({ tripId, onDone }: { tripId: string; onDone: (text: string) => 
 				</button>
 			</form>
 			<p className="muted mt-2.5 text-[0.82rem]">
-				If they already have an account they join right away. Otherwise they appear as a placeholder
-				and take over the spot (and any expenses assigned to them) when they register with this
-				email.
+				If they have an account they join right away. Otherwise they hold a placeholder spot, and
+				take it over (with any expenses assigned to them) when they register with this email.
 			</p>
 		</section>
 	);

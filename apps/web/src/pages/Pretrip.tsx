@@ -78,7 +78,7 @@ export default function Pretrip() {
 	// banner instead of being thrown into nothing.
 	const act = useMutation<[() => Promise<unknown>]>((fn) => fn(), {
 		onSuccess: reload,
-		fallback: 'Something went wrong.'
+		fallback: 'Could not save that.'
 	});
 
 	if (!data) return error ? <FormError message={error} variant="banner" /> : null;
@@ -157,7 +157,7 @@ export default function Pretrip() {
 							items={section === 'tasks' ? data.tasks : data.packing}
 							kind={section === 'tasks' ? 'task' : 'packing'}
 							me={data.me}
-							empty={section === 'tasks' ? 'No tasks yet.' : 'Nothing packed yet.'}
+							empty={section === 'tasks' ? 'No tasks yet.' : 'No packing items yet.'}
 							onToggle={(taskId, userId) =>
 								void act.run(() =>
 									api(`/trips/${trip.id}/pretrip/tasks/${taskId}/toggle`, {
@@ -267,8 +267,7 @@ export default function Pretrip() {
 							<p className="m-0 text-[0.9rem]">
 								{fmt(pendingCost.amountCents)} under {cap(pendingCost.category)}
 								{pendingCost.cityName ? ` in ${pendingCost.cityName}` : ''}. The trip total and the
-								per-person figure drop by it. Nothing anyone has actually spent is affected:
-								estimates and the expense ledger are separate.
+								per-person figure drop by it. Logged expenses are not affected.
 							</p>
 						</>
 					)
@@ -294,7 +293,7 @@ function DeleteTaskBody({ task }: { task: Task }) {
 				{task.people.length > 0
 					? `Assigned to ${task.people.length} ${
 							task.people.length === 1 ? 'person' : 'people'
-						}, ${task.doneCount} of whom have ticked it off. The row and everyone's ticks on it go.`
+						}, ${task.doneCount} of whom have ticked it off. The row and everyone's ticks go.`
 					: 'The row goes, along with whether it was ticked off.'}
 			</p>
 		</>
@@ -337,7 +336,7 @@ function TaskList({
 				message={empty}
 				hint={
 					kind === 'task'
-						? 'Add the first one and assign whoever has to do it.'
+						? 'Add one and assign who has to do it.'
 						: 'Add what everyone needs to bring.'
 				}
 				action={
@@ -576,7 +575,7 @@ function CostTable({
 					{items.length === 0 && (
 						<tr>
 							<td colSpan={5} className={`${CELL} muted`}>
-								No costs yet. Add your first estimate above.
+								No estimates yet. Add one above.
 							</td>
 						</tr>
 					)}
@@ -650,8 +649,8 @@ function AddTask({
 					<fieldset className="m-0 min-w-0 rounded-[10px] border border-line px-3 py-3">
 						<legend className="px-1 text-[0.8rem] text-ink-soft">Who has to do it?</legend>
 						<p className="muted m-0 mb-2 text-[0.78rem] text-pretty">
-							Pick more than one and each person ticks their own box, so the task is not done until
-							everyone is. Leave empty for a one-off the group only needs once.
+							Pick more than one and each person ticks their own box. Leave it empty for a one-off
+							the group only needs once.
 						</p>
 						<div className="grid max-h-48 grid-cols-[repeat(auto-fill,minmax(min(9rem,100%),1fr))] gap-0.5 overflow-y-auto overscroll-contain">
 							{members.map((m) => (

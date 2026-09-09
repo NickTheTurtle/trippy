@@ -231,7 +231,7 @@ function EditTrip({
 			title="Edit trip"
 			submitLabel="Save changes"
 			busyLabel="Saving..."
-			note="The header label is generated from these dates. Currency is what totals and estimates are shown in."
+			note="The dates in the header come from these. Currency is what totals and estimates are shown in."
 			fallback="Could not save."
 			initial={{
 				name: trip.name,

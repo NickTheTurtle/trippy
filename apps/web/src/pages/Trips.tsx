@@ -47,7 +47,7 @@ export default function Trips() {
 					<EmptyState
 						className="col-span-full"
 						message="No trips yet."
-						hint="Create your first one to get started."
+						hint="Create your first one."
 						action={
 							<button className="btn" type="button" onClick={() => setShowNew(true)}>
 								New trip
@@ -113,7 +113,7 @@ function NewTrip({ onClose, onCreated }: { onClose: () => void; onCreated: () =>
 			title="New trip"
 			submitLabel="Create trip"
 			busyLabel="Creating..."
-			note="Dates can be left blank and filled in later. Currency is what totals and estimates are shown in."
+			note="Dates are optional and can be filled in later. Currency is what totals and estimates are shown in."
 			fallback="Could not create the trip."
 			onClose={onClose}
 			onSubmit={async (v) => {

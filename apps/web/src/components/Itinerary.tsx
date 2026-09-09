@@ -92,9 +92,7 @@ export default function Itinerary({
 				)}
 
 				{trip.cities.length === 0 ? (
-					<p className="muted m-0 text-[0.88rem]">
-						This trip has no cities yet. Everything else in the app hangs off one, so start here.
-					</p>
+					<p className="muted m-0 text-[0.88rem]">No cities yet. Add your first stop below.</p>
 				) : (
 					<ul className="m-0 flex list-none flex-col gap-2 p-0">
 						{trip.cities.map((city) => (

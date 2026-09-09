@@ -50,7 +50,7 @@ export async function api<T>(path: string, options: Options = {}): Promise<T> {
 			typeof payload === 'object' &&
 			typeof (payload as { error?: unknown }).error === 'string'
 				? (payload as { error: string }).error
-				: 'Something went wrong. Please try again.';
+				: 'Could not complete that. Try again.';
 		throw new ApiError(res.status, message);
 	}
 

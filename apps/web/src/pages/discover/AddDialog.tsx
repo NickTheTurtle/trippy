@@ -306,7 +306,7 @@ export default function AddDialog({
 						    scrolls when the window is too short for six. */}
 						<SearchDropdown
 							label="Name"
-							hint={`Type to search ${stay ? 'hotels and rentals' : 'places'} in ${city.name}, or just write the name.`}
+							hint={`Search ${stay ? 'hotels and rentals' : 'places'} in ${city.name}, or just type the name.`}
 							autoFocus
 							required
 							value={name}
@@ -331,7 +331,7 @@ export default function AddDialog({
 									: searching
 										? 'Searching...'
 										: searched
-											? `No ${stay ? 'stays' : 'matches'} for "${query}". Add it by hand instead.`
+											? `No matches for "${query}". Add it by hand instead.`
 											: 'Keep typing to search.'
 							}
 							footer={
@@ -358,7 +358,7 @@ export default function AddDialog({
 							<Field
 								label="Price / night"
 								optional
-								hint={`Per night, in ${currency}. Leave it blank if it is not priced yet.`}
+								hint={`Per night, in ${currency}.`}
 								type="number"
 								min="0"
 								step="1"
@@ -371,7 +371,7 @@ export default function AddDialog({
 								id={ACTIVITY_ID}
 								label="Activity"
 								optional
-								hint="Name the activity and it becomes the card title, so one place can appear once per thing you will do there."
+								hint="Becomes the card title, so one place can appear once per activity."
 								value={activity}
 								onChange={(e) => setActivity(e.target.value)}
 								inputClassName="w-full"

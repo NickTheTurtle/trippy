@@ -12,8 +12,9 @@
  * Both roles get an honest answer. Adding a city is organizer-only on the
  * server, so a member gets no button rather than a disabled one.
  *
- * The button is the page's single call to action, and now the only "Add a city"
- * anywhere: the trip header carries just an "Edit itinerary" link.
+ * The button is the page's single call to action. The trip header carries no
+ * itinerary link at all, so the only other way in is Discover's own sidebar
+ * button, "Add or edit cities".
  */
 export default function NoCities({
 	isOrganizer,

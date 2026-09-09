@@ -31,7 +31,7 @@ export default function Register() {
 	return (
 		<AuthShell
 			title="Create your account"
-			blurb="Start planning your first trip in minutes."
+			blurb="Start planning your first trip."
 			error={error}
 			onSubmit={submit}
 			submitting={submitting}

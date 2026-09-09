@@ -174,8 +174,8 @@ function DeleteBody({ city }: { city: CityRow }) {
 			</p>
 			<p className="m-0 mb-2 text-[0.9rem]">
 				{bits.length > 0
-					? `${bits.join(' and ')} in ${city.name} will be deleted, with every vote on them and the city's estimated costs.`
-					: `Nothing has been added to ${city.name} yet, so only the stop itself goes, along with its estimated costs.`}
+					? `Deletes ${bits.join(' and ')} in ${city.name}, every vote on them, and the city's estimated costs.`
+					: `Nothing has been added to ${city.name} yet. Only the stop and its estimated costs go.`}
 			</p>
 			{city.linked > 0 && (
 				<p className="muted m-0 text-[0.9rem]">

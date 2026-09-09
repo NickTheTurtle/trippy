@@ -208,8 +208,8 @@ export default function Discover() {
 							{stays.length === 0 && (
 								<EmptyState
 									className="col-span-full"
-									message={`No stays proposed for ${current.name} yet.`}
-									hint="Add one and let the group vote on it."
+									message={`No stays for ${current.name} yet.`}
+									hint="Add one for the group to vote on."
 									action={
 										<button type="button" className="btn" onClick={() => setAdding(true)}>
 											Add a stay
@@ -235,7 +235,7 @@ export default function Discover() {
 								<EmptyState
 									className="col-span-full"
 									message={`Nothing under ${VIEW_LABEL[view]} in ${current.name} yet.`}
-									hint="Add one to get started, or switch the type above."
+									hint="Add one, or switch the type above."
 									action={
 										<button type="button" className="btn" onClick={() => setAdding(true)}>
 											Add a place
@@ -293,9 +293,8 @@ export default function Discover() {
 							<p className="m-0 mb-2 font-semibold [overflow-wrap:anywhere]">{deletePoi.name}</p>
 							{deletePoi.linked > 0 ? (
 								<p className="m-0 text-[0.9rem] text-warn">
-									{deletePoi.linked} scheduled {deletePoi.linked === 1 ? 'event' : 'events'} on the
-									calendar {deletePoi.linked === 1 ? 'is' : 'are'} linked to this place and will be
-									deleted too.
+									{deletePoi.linked} scheduled {deletePoi.linked === 1 ? 'event' : 'events'} linked
+									to this place {deletePoi.linked === 1 ? 'is' : 'are'} deleted too.
 								</p>
 							) : (
 								<p className="muted m-0 text-[0.9rem]">Nothing on the calendar is linked to it.</p>
