@@ -231,7 +231,7 @@ function validateDates(
  */
 function tripLabel(start: string | null, end: string | null, fallback?: string): string {
 	if (start || end) return formatDayRange(start, end);
-	return (fallback ?? '').trim() || 'Dates to be set';
+	return (fallback ?? '').trim() || 'Dates TBD';
 }
 
 function isOrganizer(tripId: string, userId: string): boolean {

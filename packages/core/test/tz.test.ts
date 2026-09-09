@@ -63,7 +63,7 @@ describe('formatDayRange', () => {
 	it('formats one-sided and unset ranges', () => {
 		expect(formatDayRange('2026-04-16', null)).toBe('Apr 16, 2026');
 		expect(formatDayRange(null, '2026-04-20')).toBe('Apr 20, 2026');
-		expect(formatDayRange(null, null)).toBe('Dates to be set');
+		expect(formatDayRange(null, null)).toBe('Dates TBD');
 	});
 
 	it('collapses a same-day range to a single date', () => {

@@ -136,7 +136,7 @@ export function eachDay(start: string, end: string): string[] {
  * exactly like the one-sided cases already do.
  */
 export function formatDayRange(start: string | null, end: string | null): string {
-	if (!start && !end) return 'Dates to be set';
+	if (!start && !end) return 'Dates TBD';
 	if (!start || !end) return niceDay((start ?? end)!, true);
 	if (start === end) return niceDay(start, true);
 	const [sy, sm] = start.split('-');
