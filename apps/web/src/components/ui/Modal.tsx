@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, type ReactNode } from 'react';
-import { lockScroll } from '../scroll-lock';
+import { lockScroll } from '../../lib/scroll-lock';
 
 /**
  * The one dialog used across the app.

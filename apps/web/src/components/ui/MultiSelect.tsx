@@ -1,32 +1,37 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
-import { useAnchor } from '../anchor';
-
-export type Option = { value: string; label: string };
+import { useAnchor } from '../../lib/anchor';
+import type { Option } from './Select';
 
 /**
- * The app's dropdown. A custom control rather than a native <select> because the
- * menu has to be styled to match, and because a native select's popup cannot be
- * anchored the way `useAnchor` does inside a scrolling modal body.
+ * The multi-pick sibling of `Select`, used wherever a field means "these people"
+ * rather than "this one thing".
  *
- * Everything a native select gives away for free has to be put back by hand:
- * the roles below are what make it a listbox to a screen reader, focus stays on
- * the trigger throughout, and the highlighted row is published through
- * aria-activedescendant, which is the pattern a listbox is expected to follow.
+ * It stays open while you tick, because picking four people out of twenty is the
+ * normal case and a menu that closed on every choice would make that four
+ * round-trips through the trigger. Keyboard support mirrors `Select`: focus
+ * stays on the trigger and the highlighted row travels through
+ * aria-activedescendant.
  */
-export default function Select({
+export default function MultiSelect({
 	options,
-	value,
+	selected,
 	onChange,
-	placeholder = 'Select...',
-	ariaLabel = 'Select',
-	compact = false
+	placeholder = 'Anyone',
+	ariaLabel = 'Assign people',
+	compact = false,
+	summaryLabel = (count: number) => `${count} people`
 }: {
 	options: Option[];
-	value: string;
-	onChange: (value: string) => void;
+	selected: string[];
+	onChange: (next: string[]) => void;
 	placeholder?: string;
 	ariaLabel?: string;
 	compact?: boolean;
+	/**
+	 * How the trigger reads once the picks no longer fit as names. Defaults to
+	 * "N people", which is what every current call site means.
+	 */
+	summaryLabel?: (count: number) => string;
 }) {
 	const [open, setOpen] = useState(false);
 	const [active, setActive] = useState(0);
@@ -42,15 +47,15 @@ export default function Select({
 	const baseId = useId();
 	const optionId = (i: number) => `${baseId}-opt-${i}`;
 
-	const selected = options.find((o) => o.value === value) ?? null;
-	// Read by the open effect below. Callers commonly build `options` inline, so
-	// depending on it there would reset the highlight on every parent render and
-	// undo the arrow key the user just pressed.
-	const currentRef = useRef({ options, value });
-	currentRef.current = { options, value };
+	const chosen = options.filter((o) => selected.includes(o.value));
+	// Past two names the list is longer than the trigger, so switch to a count.
+	const summary =
+		chosen.length === 0
+			? placeholder
+			: chosen.length <= 2
+				? chosen.map((o) => o.label).join(', ')
+				: summaryLabel(chosen.length);
 
-	// A click anywhere outside closes. Registered on the window rather than a
-	// backdrop so the click still reaches whatever it landed on.
 	useEffect(() => {
 		if (!open) return;
 		const onClick = (e: MouseEvent) => {
@@ -60,17 +65,13 @@ export default function Select({
 		return () => window.removeEventListener('click', onClick);
 	}, [open]);
 
-	// Opening lands on the current value, so the first arrow press moves from
-	// where the user already is rather than from the top of the list.
+	// Each opening starts at the top; there is no single "current" pick here to
+	// start from the way there is in Select.
 	useEffect(() => {
-		if (!open) return;
-		const { options: opts, value: v } = currentRef.current;
-		const i = opts.findIndex((o) => o.value === v);
-		setActiveIndex(i < 0 ? 0 : i);
+		if (open) setActiveIndex(0);
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [open]);
 
-	// The highlighted row is not focused, so nothing scrolls it into view for us.
 	useEffect(() => {
 		if (!open) return;
 		const el = menuRef.current?.querySelector(`[data-index="${active}"]`);
@@ -78,12 +79,8 @@ export default function Select({
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [open, active]);
 
-	function choose(i: number) {
-		const o = options[i];
-		if (!o) return;
-		onChange(o.value);
-		setOpen(false);
-		triggerRef.current?.focus();
+	function toggle(v: string) {
+		onChange(selected.includes(v) ? selected.filter((x) => x !== v) : [...selected, v]);
 	}
 
 	function move(to: number) {
@@ -121,16 +118,17 @@ export default function Select({
 			move(options.length - 1);
 		} else if (e.key === 'Enter' || e.key === ' ') {
 			// The trigger is a <button>, so leaving these alone would also fire a
-			// click and toggle the menu shut underneath the choice.
+			// click and toggle the menu shut on every tick.
 			e.preventDefault();
-			choose(activeRef.current);
+			const o = options[activeRef.current];
+			if (o) toggle(o.value);
 		}
 	}
 
 	return (
 		<div
 			ref={rootRef}
-			className={compact ? 'sel compact' : 'sel'}
+			className={compact ? 'msel compact' : 'msel'}
 			onKeyDown={onKeyDown}
 			// Tabbing away has to close the menu too, otherwise it is left hanging
 			// over the page with no way back to it. Focus moving within the control
@@ -145,34 +143,32 @@ export default function Select({
 			<button
 				ref={triggerRef}
 				type="button"
-				className="seltrigger"
+				className="mtrigger"
 				aria-haspopup="listbox"
 				aria-expanded={open}
 				aria-label={ariaLabel}
 				aria-controls={open ? `${baseId}-menu` : undefined}
 				aria-activedescendant={open && options[active] ? optionId(active) : undefined}
 				onClick={(e) => {
-					// The window listener above would otherwise see this same click.
 					e.stopPropagation();
 					setOpen((v) => !v);
 				}}
 			>
-				<span className={selected ? 'sellabel' : 'sellabel placeholder'}>
-					{selected?.label ?? placeholder}
-				</span>
-				<span className="selcaret">▾</span>
+				<span className={chosen.length === 0 ? 'mlabel placeholder' : 'mlabel'}>{summary}</span>
+				<span className="mcaret">▾</span>
 			</button>
 
 			{open && (
 				<ul
 					ref={menuRef}
 					id={`${baseId}-menu`}
-					className="selmenu"
+					className="mmenu"
 					role="listbox"
+					aria-multiselectable
 					tabIndex={-1}
-					// Keeps the press from pulling focus off the trigger, which is what
-					// makes aria-activedescendant work and stops the blur handler above
-					// from firing on an ordinary pick.
+					// Keeps the press from pulling focus off the trigger, which is both
+					// what makes aria-activedescendant work and what lets the menu stay
+					// open across several ticks.
 					onMouseDown={(e) => e.preventDefault()}
 				>
 					{options.map((o, i) => (
@@ -181,24 +177,25 @@ export default function Select({
 							id={optionId(i)}
 							data-index={i}
 							role="option"
-							aria-selected={o.value === value}
-							className={['selopt', o.value === value ? 'on' : '', i === active ? 'active' : '']
-								.filter(Boolean)
-								.join(' ')}
+							aria-selected={selected.includes(o.value)}
+							className={i === active ? 'mopt active' : 'mopt'}
 							onMouseEnter={() => setActiveIndex(i)}
 							onClick={(e) => {
-								// These rows are not form controls, so a Select sitting inside a
-								// <label> would have the label forward this click on to its
-								// labelled control, which is the trigger, reopening the menu the
-								// pick just closed. Cancelling the default action stops that.
+								// These rows are not form controls, so a MultiSelect sitting
+								// inside a <label> would have the label forward this click on to
+								// its labelled control, which is the trigger, closing the menu on
+								// every tick. Cancelling the default action stops that.
 								e.preventDefault();
-								choose(i);
+								toggle(o.value);
 							}}
 						>
-							<span className="selopttext">{o.label}</span>
-							{o.value === value && <span className="selcheck">✓</span>}
+							<span className={selected.includes(o.value) ? 'mbox on' : 'mbox'}>
+								{selected.includes(o.value) ? '✓' : ''}
+							</span>
+							<span className="mopttext">{o.label}</span>
 						</li>
 					))}
+					{options.length === 0 && <li className="mempty">No members yet</li>}
 				</ul>
 			)}
 		</div>

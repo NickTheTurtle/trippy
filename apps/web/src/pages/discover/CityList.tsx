@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { api } from '../../api';
-import ConfirmDialog from '../../components/ConfirmDialog';
+import { api } from '../../lib/api';
+import ConfirmDialog from '../../components/ui/ConfirmDialog';
 import type { Trip } from '../TripShell';
 import { PlusIcon, RemoveCardButton } from './card-controls';
 

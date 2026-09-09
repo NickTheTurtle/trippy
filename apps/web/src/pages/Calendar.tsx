@@ -1,18 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
-import { api, ApiError } from '../api';
-import { useApi } from '../useApi';
-import { useLiveSection } from '../useTripEvents';
+import { api, ApiError } from '../lib/api';
+import { useApi } from '../hooks/useApi';
+import { useLiveSection } from '../hooks/useTripEvents';
 import { useTrip } from './TripShell';
-import Modal from '../components/Modal';
-import Select, { type Option } from '../components/Select';
-import MultiSelect from '../components/MultiSelect';
-import { Field, FieldShell } from '../components/Field';
+import Modal from '../components/ui/Modal';
+import Select, { type Option } from '../components/ui/Select';
+import MultiSelect from '../components/ui/MultiSelect';
+import { Field, FieldShell } from '../components/ui/Field';
 import GoogleMap, { type MapTrack } from '../components/GoogleMap';
 import TripMap from '../components/TripMap';
 import { localTime, zoneAbbr, localDayMinutes } from '@trippy/core/tz';
 import { layoutDay, personBands, type Layout } from '@trippy/core/layout';
-import '../calendar.css';
+import '../styles/calendar.css';
 
 // --- Types mirroring GET /trips/:id/calendar --------------------------------
 

@@ -1,5 +1,5 @@
-import { useLiveStatus } from '../useTripEvents';
-import { LinkButton } from './buttons';
+import { useLiveStatus } from '../hooks/useTripEvents';
+import { LinkButton } from './ui/buttons';
 
 /**
  * The only thing the live stream ever says out loud.

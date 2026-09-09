@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, Outlet, useOutletContext, useParams } from 'react-router';
-import { api } from '../api';
-import { useApi } from '../useApi';
-import { useTripEvents, TripEventsProvider } from '../useTripEvents';
+import { api } from '../lib/api';
+import { useApi } from '../hooks/useApi';
+import { useTripEvents, TripEventsProvider } from '../hooks/useTripEvents';
 import { TABS } from '../nav';
 import Itinerary from '../components/Itinerary';
 import TripFormDialog from '../components/TripFormDialog';

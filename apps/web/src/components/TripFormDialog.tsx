@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { useMutation } from '../useMutation';
-import { currencyOptions } from '../currencies';
-import Modal from './Modal';
-import Select from './Select';
-import FormError from './FormError';
-import { Field, FieldShell } from './Field';
+import { useMutation } from '../hooks/useMutation';
+import { currencyOptions } from '../lib/currencies';
+import Modal from './ui/Modal';
+import Select from './ui/Select';
+import FormError from './ui/FormError';
+import { Field, FieldShell } from './ui/Field';
 
 export type TripFormValues = {
 	name: string;

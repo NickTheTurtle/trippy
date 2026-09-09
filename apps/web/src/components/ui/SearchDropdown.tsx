@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
-import { useAnchor } from '../anchor';
+import { useAnchor } from '../../lib/anchor';
 import { FieldShell } from './Field';
 
 /**

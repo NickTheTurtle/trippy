@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { api, ApiError } from '../api';
-import Modal from './Modal';
-import { Field } from './Field';
-import { LinkButton } from './buttons';
-import SearchDropdown from './SearchDropdown';
+import { api, ApiError } from '../lib/api';
+import Modal from './ui/Modal';
+import { Field } from './ui/Field';
+import { LinkButton } from './ui/buttons';
+import SearchDropdown from './ui/SearchDropdown';
 import type { Trip, TripCity } from '../pages/TripShell';
 
 /**

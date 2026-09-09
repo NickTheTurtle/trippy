@@ -1,14 +1,14 @@
 import { useState } from 'react';
-import { api } from '../api';
-import { useApi } from '../useApi';
-import { useLiveSection } from '../useTripEvents';
-import { useMutation } from '../useMutation';
+import { api } from '../lib/api';
+import { useApi } from '../hooks/useApi';
+import { useLiveSection } from '../hooks/useTripEvents';
+import { useMutation } from '../hooks/useMutation';
 import { useTrip } from './TripShell';
-import type { RemovalImpact } from '../api-types';
-import { Field } from '../components/Field';
-import FormError from '../components/FormError';
-import ConfirmDialog from '../components/ConfirmDialog';
-import { LinkButton } from '../components/buttons';
+import type { RemovalImpact } from '../lib/api-types';
+import { Field } from '../components/ui/Field';
+import FormError from '../components/ui/FormError';
+import ConfirmDialog from '../components/ui/ConfirmDialog';
+import { LinkButton } from '../components/ui/buttons';
 
 type Person = {
 	id: string;

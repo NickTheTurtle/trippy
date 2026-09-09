@@ -1,4 +1,4 @@
-import type { Option } from './components/Select';
+import type { Option } from '../components/ui/Select';
 
 /**
  * The currency choices, in one place.

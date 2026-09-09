@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
-import { api } from '../api';
-import { useApi } from '../useApi';
+import { api } from '../lib/api';
+import { useApi } from '../hooks/useApi';
 import Cover from '../components/Cover';
-import EmptyState from '../components/EmptyState';
-import FormError from '../components/FormError';
+import EmptyState from '../components/ui/EmptyState';
+import FormError from '../components/ui/FormError';
 import TripFormDialog from '../components/TripFormDialog';
 
 type City = { id: string; name: string; photo: string | null };

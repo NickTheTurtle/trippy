@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api, ApiError } from './api';
+import { api, ApiError } from '../lib/api';
 
 /**
  * Loads one GET endpoint and re-loads on demand.

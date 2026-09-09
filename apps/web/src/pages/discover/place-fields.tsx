@@ -1,5 +1,5 @@
-import Select from '../../components/Select';
-import { Field, FieldShell } from '../../components/Field';
+import Select from '../../components/ui/Select';
+import { Field, FieldShell } from '../../components/ui/Field';
 
 /**
  * The field rows the add and the edit popup genuinely share.

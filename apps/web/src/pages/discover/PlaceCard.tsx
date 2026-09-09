@@ -1,5 +1,5 @@
 import Cover from '../../components/Cover';
-import type { Poi } from '../../api-types';
+import type { Poi } from '../../lib/api-types';
 import { CARD, OpenLink, RemoveCardButton, VotePill, VoteRule } from './card-controls';
 import { MetaBits, parseHours, todayHours } from './place-meta';
 

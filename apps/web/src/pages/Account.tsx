@@ -1,11 +1,11 @@
 import { useState } from 'react';
-import { api } from '../api';
-import { useApi } from '../useApi';
-import { useMutation } from '../useMutation';
+import { api } from '../lib/api';
+import { useApi } from '../hooks/useApi';
+import { useMutation } from '../hooks/useMutation';
 import { useAuth } from '../auth';
-import Select from '../components/Select';
-import FormError from '../components/FormError';
-import { Field, FieldShell } from '../components/Field';
+import Select from '../components/ui/Select';
+import FormError from '../components/ui/FormError';
+import { Field, FieldShell } from '../components/ui/Field';
 
 type AccountData = {
 	profile: { name: string; email: string; homeTz: string };

@@ -7,7 +7,7 @@ import {
 	useState,
 	type ReactNode
 } from 'react';
-import { api, ApiError, type User } from './api';
+import { api, ApiError, type User } from './lib/api';
 
 /**
  * Who is signed in, for the whole app.

@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import Cover from '../../components/Cover';
-import { Field } from '../../components/Field';
-import type { Stay } from '../../api-types';
-import { formatNights, formatPerNight } from '../../format';
-import { LinkButton } from '../../components/buttons';
+import { Field } from '../../components/ui/Field';
+import type { Stay } from '../../lib/api-types';
+import { formatNights, formatPerNight } from '../../lib/format';
+import { LinkButton } from '../../components/ui/buttons';
 import { CARD, OpenLink, RemoveCardButton, VotePill, VoteRule } from './card-controls';
 
 /**

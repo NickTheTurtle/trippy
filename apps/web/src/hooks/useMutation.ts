@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { ApiError } from './api';
+import { ApiError } from '../lib/api';
 
 /**
  * The one write-side state machine.

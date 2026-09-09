@@ -1,20 +1,20 @@
 import { useState } from 'react';
 import { splitByWeight, type SplitMode } from '@trippy/core/split';
-import { api } from '../api';
-import { useApi } from '../useApi';
-import { useLiveSection } from '../useTripEvents';
-import { useMutation } from '../useMutation';
-import { formatMoney, formatTimestamp } from '../format';
-import { currencyOptions } from '../currencies';
+import { api } from '../lib/api';
+import { useApi } from '../hooks/useApi';
+import { useLiveSection } from '../hooks/useTripEvents';
+import { useMutation } from '../hooks/useMutation';
+import { formatMoney, formatTimestamp } from '../lib/format';
+import { currencyOptions } from '../lib/currencies';
 import { useTrip } from './TripShell';
-import Modal from '../components/Modal';
-import Select from '../components/Select';
-import SectionNav, { type SectionItem } from '../components/SectionNav';
-import { FieldShell } from '../components/Field';
-import FormError from '../components/FormError';
-import EmptyState from '../components/EmptyState';
-import ConfirmDialog from '../components/ConfirmDialog';
-import { IconButton, LinkButton } from '../components/buttons';
+import Modal from '../components/ui/Modal';
+import Select from '../components/ui/Select';
+import SectionNav, { type SectionItem } from '../components/ui/SectionNav';
+import { FieldShell } from '../components/ui/Field';
+import FormError from '../components/ui/FormError';
+import EmptyState from '../components/ui/EmptyState';
+import ConfirmDialog from '../components/ui/ConfirmDialog';
+import { IconButton, LinkButton } from '../components/ui/buttons';
 
 type Member = { id: string; name: string };
 type Expense = {

@@ -1,5 +1,5 @@
 import { localDayMinutes } from '@trippy/core/tz';
-import type { PlaceHit } from '../../api-types';
+import type { PlaceHit } from '../../lib/api-types';
 
 /** Shortest query worth a billed request. Mirrors MIN_QUERY on the server. */
 export const MIN_QUERY = 3;

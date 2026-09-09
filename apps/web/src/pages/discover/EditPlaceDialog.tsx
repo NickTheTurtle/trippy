@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { POI_KINDS, type PoiKind } from '@trippy/core/types';
-import { api } from '../../api';
-import { useMutation } from '../../useMutation';
-import Modal from '../../components/Modal';
-import FormError from '../../components/FormError';
-import { Field } from '../../components/Field';
-import type { Poi } from '../../api-types';
+import { api } from '../../lib/api';
+import { useMutation } from '../../hooks/useMutation';
+import Modal from '../../components/ui/Modal';
+import FormError from '../../components/ui/FormError';
+import { Field } from '../../components/ui/Field';
+import type { Poi } from '../../lib/api-types';
 import { LinkField, NotesField, TypeField } from './place-fields';
 import { VIEW_LABEL } from './views';
 

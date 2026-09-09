@@ -1,17 +1,17 @@
 import { useState } from 'react';
-import { api } from '../api';
-import { useApi } from '../useApi';
-import { useLiveSection } from '../useTripEvents';
-import { useMutation } from '../useMutation';
-import { formatMoney } from '../format';
+import { api } from '../lib/api';
+import { useApi } from '../hooks/useApi';
+import { useLiveSection } from '../hooks/useTripEvents';
+import { useMutation } from '../hooks/useMutation';
+import { formatMoney } from '../lib/format';
 import { useTrip } from './TripShell';
-import Modal from '../components/Modal';
-import Select from '../components/Select';
-import SectionNav from '../components/SectionNav';
-import FormError from '../components/FormError';
-import EmptyState from '../components/EmptyState';
-import ConfirmDialog from '../components/ConfirmDialog';
-import { IconButton, LinkButton } from '../components/buttons';
+import Modal from '../components/ui/Modal';
+import Select from '../components/ui/Select';
+import SectionNav from '../components/ui/SectionNav';
+import FormError from '../components/ui/FormError';
+import EmptyState from '../components/ui/EmptyState';
+import ConfirmDialog from '../components/ui/ConfirmDialog';
+import { IconButton, LinkButton } from '../components/ui/buttons';
 
 type Person = { id: string; name: string; done: boolean };
 type Task = {
