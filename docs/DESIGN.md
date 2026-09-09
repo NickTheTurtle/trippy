@@ -26,7 +26,7 @@ Two real itinerary spreadsheets informed this design:
   car rental, and lodging check-in blocks.
 
 **Design consequences:**
-1. Schedule items are **typed** (poi / meal / travel / lodging / free-time / meetup).
+1. Schedule items are **typed** (poi / food / transport / travel / lodging / free-time).
 2. Items can be **booked / tentative / unbooked**.
 3. Some items have **hard reservation windows**; others are flexible.
 4. **Travel legs** live *between* POIs and need computed durations.
@@ -62,12 +62,73 @@ Trip 1───* Track
 Trip 1───* POI            (POI optionally tied to a Location)
 Location 1─* Lodging
 Track 1───* ScheduleItem
-ScheduleItem 0..1─ POI    (poi/meal items reference a POI)
+ScheduleItem 0..1─ POI    (poi/food items reference a POI)
 ScheduleItem 1─* TravelLeg (leg to the next item)
 Trip 1───* Expense
 Expense *─* User          (participants via ExpenseSplit)
 Lodging 1─* Vote ; POI 1─* Vote
 ```
+
+### 2.2 Item-type vocabulary (reconciled)
+
+The canonical set, exported as `ITEM_TYPES` from `@trippy/core` with `ItemType`
+derived from it:
+
+```
+poi | food | transport | travel | lodging | freetime
+```
+
+This document previously specified `poi | meal | travel | lodging | freetime |
+meetup`, and `packages/core/src/types.ts` matched it, but nothing imported that
+type. The literals that were actually **persisted, validated and rendered** were
+the other list: the server's edit validator, the API's item-type guard and the
+calendar's type picker all used `food` and `transport`, and no client could
+produce `meal` or `meetup` or render a label for either. A vocabulary that
+enforces nothing is worse than no vocabulary, so the implemented set won and the
+spec was corrected to it rather than the other way round.
+
+Only seeded demo rows ever carried `meal` (9 rows in the live database, from the
+sample day). An additive, idempotent migration in `db.ts` renames them:
+`UPDATE schedule_items SET type = 'food' WHERE type = 'meal'`. The seed sources
+(`packages/core/src/sample.ts`, `packages/server/src/seed-athens.ts`) now emit
+`food` directly, so the migration has nothing to do on a second run.
+
+`meetup` was dropped rather than implemented: it never existed in the schema, the
+API or the UI, and an assignee list already expresses "these people are meeting
+here". `transport` (a flight or long leg placed on the board as a block) and
+`travel` (the shorter hop between two stops) both stay, because the calendar's
+quick-add offers them as different things.
+
+### 2.3 Discover buckets (`pois.kind`)
+
+Discover filters places by one user-facing bucket, exported as `POI_KINDS` from
+`@trippy/core`:
+
+```
+attraction | food
+```
+
+This is a stored column (`pois.kind TEXT NOT NULL DEFAULT 'attraction' CHECK (kind
+IN ('attraction', 'food'))`), not something derived at render time. `pois.category`
+is whatever the provider said (Google place types, OSM tags, and for older rows a
+display label that `places.ts` had already normalized), so classifying it in the
+view would mean every client reimplementing the same string matching against a
+vocabulary neither of them controls, and would make a place impossible to
+re-bucket by hand. Storing it once, at write time, keeps the filter a plain
+indexed predicate and lets a traveller correct a mistake.
+
+Existing rows were backfilled once by the migration that added the column, using
+`poiKindFromCategory` from `@trippy/core` (the same classifier the seeds use, so a
+fresh demo database and a migrated one agree). The backfill is gated on the column
+having just been created, which is both what makes it idempotent and what stops it
+from silently undoing a later hand correction. Live data at migration time was 25
+places: 23 `attraction`, 2 `food` (categories `Food` and `Nightlife`). `Nightlife`
+counts as food because the bucket the UI shows is "Food & Drink".
+
+**Stays are not a kind.** The Discover dropdown offers Attractions / Food & Drink /
+Stays as three choices, but Stays is a view switch onto `lodging_options`, a
+different table with votes, a lock and a nightly price. `'stay'` is deliberately
+not a legal value of this column, and the CHECK constraint rejects it.
 
 ---
 
@@ -230,9 +291,10 @@ auto-travel bridge.
   (each option carries an optional check-in/check-out range); the calendar resolves the
   option in effect for each day.
 - **Approval or ranked** voting; live tally; organizer locks a winner.
-- **Surfaced inside Discover**, not as its own tab; a Places / Stays segmented control
-  switches the grid. The two share one card design (cover art, vote bar, tally, vote
-  toggle, remove); stays additionally show price/night, "Edit dates" and "Lock as choice".
+- **Surfaced inside Discover**, not as its own tab; the header type dropdown
+  (Attractions / Food & Drink / Stays) switches the grid. The two share one card
+  design (cover art, vote pill, open icon, remove, and the tally along the bottom
+  edge); stays additionally show price/night, "Edit dates" and "Lock as choice".
 - The **tables stay separate** even though the UI is merged. Place votes are multi-vote
   (`poi_votes` PK `(poi_id, user_id)`); stay votes are *exclusive per city*
   (`lodging_votes` PK `(city_id, user_id)`, so voting again replaces). Stays also carry
@@ -618,18 +680,20 @@ reopening it costs nothing. The merge is guarded by the result's key, because th
 user may have closed the popup or clicked another result while the request was in
 flight.
 
-**The dropdown opens on focus, not on results.** "Add manually" is the answer to
-"the place I want is not findable", and you often know that before you type. An
-empty query therefore shows the sticky footer alone, with no "type to search"
-line telling you to use the box you just clicked.
+**The search is the Name field of the add form.** There used to be a search box
+in the header whose dropdown carried an "Add manually" escape hatch, and that
+hatch opened a second, near identical form. Two forms for one intent made the
+manual path something you had to discover, and a found place and a typed place
+were filled in differently. There is now one popup: type in Name, results appear
+under it, pick one to fill in the provider data or ignore them and submit what
+you typed.
 
-**Adding a place does not close the results.** One place is often added several
-times, once per activity, so the count of adds is shown on the row ("Added ×2")
-rather than a tick that would understate it. The click-away and Escape handlers
-both ignore events while a modal is open, because a modal is a layer above the
-dropdown rather than a click elsewhere on the page.
+**Adding a place does not close the popup.** One place is often added several
+times, once per activity, so the count of adds is shown in the footer ("Added
+×2") rather than a tick that would understate it, and only the activity is
+cleared. A stay is added once, so adding one closes the popup.
 
-**Switching section clears the search.** Places and stays are different searches
+**Switching type clears the search.** Places and stays are different searches
 against different provider filters, and one's results never apply to the other.
 Leaving hotel results hanging over the places pool would let you add a hotel as a
 place with two clicks.
@@ -657,6 +721,41 @@ almost nobody takes, while the card's real affordance (click it to edit) is
 silent. The link keeps its space so the grid never shifts, comes back on hover,
 on keyboard focus anywhere in the card, and unconditionally where the device has
 no hover.
+
+**The page's two axes were swapped.** The sidebar used to switch between Places
+and Stays while a dropdown in the header chose the city, which put the rarely
+changed choice in the persistent control and the frequently changed one in a
+popup. Cities are what everything on the page is scoped to, so they are now the
+standing list, sorted alphabetically because this is a lookup ("where is
+Kyoto?") and the itinerary's own order is already shown in the trip header, in
+the itinerary editor and on the calendar. The header dropdown now chooses the
+type: Attractions, Food & Drink, Stays. There is no "All", because the first two
+filter `pois.kind` while Stays swaps the list for `lodging_options` and a
+different card (see 2.3).
+
+**Adding and deleting a city are organizer-only on the server, so those controls
+are hidden from everyone else** rather than shown and refused. Deleting is
+confirmed and the dialog names what goes: the city's places and stays with every
+vote on them, and its estimated costs. Scheduled calendar items are deliberately
+*not* named as deleted, because they are not: their FK is `ON DELETE SET NULL`,
+so a block keeps its title and slot and only loses the link back to the place.
+That is worth saying, because deleting a single place *does* take its calendar
+events, and the reader would reasonably assume the same here.
+
+**The card footer is two controls, left aligned.** It used to be four: a vote
+bar, the text "5 votes", an "Open" button and a "Vote" button, laid out with
+`justify-between` so the buttons sat against the right edge with a gap that grew
+with the card. Three of the four said the same thing (the bar, the count and the
+button's Voted state), so the count and the button collapsed into one vote pill,
+a caret plus the count, filled in accent when you have voted. "Open" became a
+compass icon keeping the same accessible name it had as text. The vote bar moved
+flush to the card's bottom edge, where it reads as an indicator on the card
+rather than a fourth thing competing in the row. Both card types share the
+treatment; a stay keeps its price, nights and the organizer's lock.
+
+**Icons are inline SVG with `currentColor`.** That is what the app already did
+for the one icon it had (`Modal`'s close button), so no icon dependency was
+added for four small glyphs.
 
 ### 5.0.6 Calendar: the board, crews and the port's one plain stylesheet
 
@@ -810,8 +909,7 @@ single field a human is most likely to get wrong.
 
 **Dates default forward.** A new city arrives the day after the previous one
 departs, because the common case is appending the next stop. The first city falls
-back to the trip's start date, or to today when the trip's dates are still the
-free-text string `createTrip` accepts.
+back to the trip's start date, or to today when the trip has no start date.
 
 **Dates save on blur, with no per-row Save button.** One button per city reads as
 one form per city. If the server refuses the edit, the row resets to the value
@@ -888,8 +986,8 @@ not obvious from its name (`https://` on a URL field, `mm/dd/yyyy` from the
 native date input). A placeholder is never used to restate the label, to give an
 example of the content, or to carry a rule the user must satisfy: a rule that
 disappears when you start typing is missing exactly when it is needed, so those
-go in a `.fhint` under the field (as on password fields and the free-text trip
-`Dates` field), which is what `Field`'s `hint` prop renders.
+go in a `.fhint` under the field (as on password fields), which is what
+`Field`'s `hint` prop renders.
 
 **Fields: `src/components/Field.tsx`, styled by `.field` and `.input`.** Four
 pages had each grown their own `Field` component and their own `INPUT` class
@@ -1057,6 +1155,17 @@ miss, so a place is looked up at most once ever rather than on every page load.
 Lookups run in `Promise.allSettled` and failures are swallowed: a missing picture
 must never stop the page rendering. Cost is one-off (~500ms for a fresh trip,
 ~40ms thereafter).
+
+**One home for the backlog: `packages/server/src/photos.ts`.** The same backfill
+had been written three times (trip cities, places, stays) with three different
+caps: two of them unbounded. How much billed Google traffic a page view
+triggered therefore depended on which table happened to have accumulated nulls,
+which is not a decision anyone made. `backfillTripPhotos(tripId, cap?)` and
+`backfillTripListPhotos(userId, cap?)` are now the only entry points; both cap a
+single request at `PHOTO_BACKLOG_CAP` (24) lookups and run at most 4 at a time,
+so a large backlog drains over several visits instead of being billed at once
+and opening dozens of sockets. The at-most-one-lookup-ever rule and the
+`NO_PHOTO` sentinel are unchanged.
 
 **Cover images: `src/lib/components/Cover.svelte`.** Cards for places and stays
 always show a cover. When a photo exists it is rendered; otherwise `coverArt()`
@@ -1312,11 +1421,16 @@ Two seeded trips, chosen to exercise opposite ends of the layout engine:
   hours. These show as compact badges on both the search results and the saved-place
   cards (with today's hours highlighted), and are persisted with the POI when added.
   The OpenStreetMap fallback simply omits the fields it can't supply.
-- Real routing (`src/lib/server/routing.ts`): the calendar refines each travel leg with
-  a real road duration from the public OSRM router instead of a straight-line estimate.
-  Results are cached per coordinate pair, each request has a short timeout, and any
-  failure falls back to the previous haversine estimate, so travel times always render.
-  Short hops keep the walking estimate (the public router is driving-only).
+- Real routing (`packages/server/src/routing.ts`): the calendar refines each travel leg
+  with a real road duration from the public OSRM router instead of a straight-line
+  estimate. Each request has a short timeout, and any failure falls back to the
+  haversine estimate, so travel times always render. Short hops keep the walking
+  estimate (the public router is driving-only). Legs go through the same
+  `createCache()` as the place lookups, keyed by the rounded coordinate pair: a plain
+  `Map` had no TTL, no bound and no in-flight sharing, so two duplicate legs in one
+  board load could each hit the provider. The haversine and the fallback estimate
+  themselves live in `@trippy/core/geo`, because the calendar and the router each had
+  their own copy and one of them carried a comment saying it matched the other.
 - Editable cities (`trips.ts` `addCity` / `updateCity` / `removeCity`, overview page):
   organizers can add, rename, re-zone, re-date, and remove cities inline on the trip
   overview. Validation covers the IANA time-zone shape, ISO dates, and arrive ≤ depart,
@@ -1527,8 +1641,8 @@ expenses(id, tripId, payerId, amount, currency, description, splitRule, createdA
 expense_splits(expenseId, userId, share)                // shares/exact/percent
 ```
 
-Enums: `role`, `item_type (poi|meal|travel|lodging|freetime|meetup)`,
-`booking_status (booked|tentative|unbooked)`, `travel_mode (walk|drive|transit|rail|flight)`.
+Enums: `role`, `item_type` (see 2.2), `booking_status (booked|tentative|unbooked)`,
+`travel_mode (walk|drive|transit|rail|flight)`.
 
 ---
 
@@ -1539,6 +1653,21 @@ Enums: `role`, `item_type (poi|meal|travel|lodging|freetime|meetup)`,
 2. Net balance per user = paid − owed.
 3. Greedy match largest creditor with largest debtor until all ≈ 0.
    Produces ≤ n−1 transactions.
+
+**Everything is integer minor units, end to end.** `settle()` in
+`@trippy/core/settlement` takes `Balance { userId, netCents }` and returns
+`Transaction { from, to, amountCents }`; `balances()` accumulates whole cents and
+never divides while summing. It previously worked in floating-point major units
+with an `epsilon = 0.01` guard, which silently discarded an exact one-cent
+imbalance: the smallest real debt the system can express was the one debt it
+refused to settle. With integers there is nothing to guard against, so there is
+no epsilon, and the transfers reconcile a zero-sum balance set to zero exactly.
+Formatting into a major-unit string happens only at the display edge.
+
+The server rows still carry a major-unit `net` / `amount` alongside `netCents` /
+`amountCents` for the existing API and UI contract, but those are derived from
+the cents figure rather than accumulated, so they cannot drift. New consumers
+should read the cents fields.
 
 **Recording a transfer writes an ordinary expense.** A settlement is exactly an
 expense one member covered on one other member's behalf: the payer is credited,
