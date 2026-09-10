@@ -760,14 +760,24 @@ common case; an always-open roster of names made it look as though a task
 grid was fine for three people and unreadable for twenty, and the dropdown is
 already how the row itself asks who has finished.
 
-**"Assigned to me" sits above the list, and keeps what you have ticked.** The
-list below is the whole trip's and is sorted by what is outstanding across
-everyone, so your own two jobs can be anywhere in it. The block answers the
-question most people open the tab for, and its box ticks *your* row rather than
-the whole task's. Ticked items stay in the block, checked and sorted last:
-dropping one the moment you tick it makes the row you just pressed vanish, and
-takes away the only place you could undo it. It is tasks only. Packing is
-already a list of your own things.
+**"Assigned to me" takes the whole row out of the list.** The full list is sorted
+by what is outstanding across everyone, so your own two jobs can be anywhere in
+it. The block answers the question most people open the tab for. It holds the
+real row, roster menu and pencil and bin included, and those rows leave the list
+below rather than being repeated in it: the same task in two places is two boxes
+to reason about, and one ticked while its twin sits unticked a few pixels down
+reads as a bug. It is the same `TaskList` in both places, given a `boxFor`, which
+is the one difference between them: your block's leading box ticks *your* row,
+where the full list's ticks the whole task's. Ticked items stay in the block,
+checked and sorted last: dropping one the moment you tick it makes the row you
+just pressed vanish, and takes away the only place you could undo it. The lists
+are titled only while the tab is actually split, and the lower card is not drawn
+at all when everything is yours. It is tasks only. Packing is already a list of
+your own things.
+
+**The empty box shows its tick on the row's hover, not its own.** An 18px target
+that only reveals what it does once the pointer is inside it tells you too late.
+Faint ink as soon as the row is hovered, accent once the pointer arrives.
 
 **Editing and deleting are on hover, not always visible.** Every row carrying a
 permanent pencil and bin makes a long list feel hostile and invites misclicks.

@@ -26,6 +26,7 @@ export default function TaskList({
 	items,
 	kind,
 	me,
+	boxFor,
 	onToggle,
 	onSetDone,
 	onEdit,
@@ -34,6 +35,11 @@ export default function TaskList({
 	items: Task[];
 	kind: 'task' | 'packing';
 	me: string;
+	/**
+	 * Whose box the row leads with. The full list leads with the whole task's,
+	 * so its box ticks the roster; the "assigned to me" block leads with yours.
+	 */
+	boxFor?: string;
 	/** Tick the shared box of a task that has nobody on it. */
 	onToggle: (taskId: string) => void;
 	/** Say exactly who has finished a task, in one press. */
@@ -52,25 +58,47 @@ export default function TaskList({
 		<ul className="m-0 flex list-none flex-col gap-0.5 p-0">
 			{items.map((it) => {
 				const assigned = it.people.length > 0;
+				const mine = boxFor ? it.people.find((p) => p.id === boxFor) : undefined;
 				return (
 					<li key={it.id}>
 						{/* `group` so the row's buttons can stay hidden until it is hovered
 						    without a hover-only stylesheet rule. */}
 						<div className="group flex min-w-0 items-center gap-3 rounded-[10px] px-1.5 py-2 text-[0.94rem] hover:bg-surface-2">
 							<Box
-								state={it.done ? 'on' : it.doneCount > 0 ? 'part' : 'off'}
+								state={
+									mine
+										? mine.done
+											? 'on'
+											: 'off'
+										: it.done
+											? 'on'
+											: it.doneCount > 0
+												? 'part'
+												: 'off'
+								}
 								label={
-									assigned ? c.allBoxLabel(it.done, it.label) : c.sharedBoxLabel(it.done, it.label)
+									mine
+										? copy.preparation.myTasks.boxLabel(mine.done, it.label)
+										: assigned
+											? c.allBoxLabel(it.done, it.label)
+											: c.sharedBoxLabel(it.done, it.label)
 								}
 								onClick={() =>
-									assigned
-										? onSetDone(it, it.done ? [] : it.people.map((p) => p.id))
-										: onToggle(it.id)
+									mine
+										? onSetDone(
+												it,
+												it.people
+													.filter((p) => (p.id === mine.id ? !p.done : p.done))
+													.map((p) => p.id)
+											)
+										: assigned
+											? onSetDone(it, it.done ? [] : it.people.map((p) => p.id))
+											: onToggle(it.id)
 								}
 							/>
 
 							<span
-								className={`min-w-0 flex-1 truncate ${it.done ? 'text-ink-faint line-through' : ''}`}
+								className={`min-w-0 flex-1 truncate ${(mine ? mine.done : it.done) ? 'text-ink-faint line-through' : ''}`}
 								title={it.label}
 							>
 								{it.label}
@@ -116,14 +144,27 @@ export default function TaskList({
 }
 
 /**
+ * The heading a list carries only when the tab is split in two, so a single
+ * undivided list is never labelled with what it obviously is.
+ */
+export function ListTitle({ children }: { children: string }) {
+	return (
+		<h3 className="m-0 mb-2 text-[0.8rem] font-semibold tracking-wide text-ink-soft uppercase">
+			{children}
+		</h3>
+	);
+}
+
+/**
  * The leading box. `part` is some but not all of the roster: without it a task
  * two people out of three have finished looks identical to one nobody has
  * started.
  *
- * An empty box holds a transparent tick that surfaces on hover, so the control
- * shows what pressing it will do rather than only that it can be pressed.
+ * An empty box holds a transparent tick that comes up faint as soon as the row
+ * is hovered, not only once the pointer is over the 18px box itself, so the
+ * control shows what pressing it will do while you are still on your way to it.
  */
-export function Box({
+function Box({
 	state,
 	label,
 	onClick
@@ -144,7 +185,7 @@ export function Box({
 					? 'border-accent bg-accent text-white'
 					: state === 'part'
 						? 'border-accent bg-accent-soft text-accent-ink'
-						: 'border-line bg-surface text-transparent hover:border-accent hover:text-accent'
+						: 'border-line bg-surface text-transparent group-hover:border-ink-faint group-hover:text-ink-faint hover:border-accent! hover:text-accent!'
 			}`}
 		>
 			{state === 'part' ? <MinusIcon /> : <CheckIcon />}

@@ -10,8 +10,8 @@ import FormError from '../components/ui/FormError';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 import type { Task, CostItem, PretripData, Draft, TaskDraft } from './pretrip/types';
 import { cap } from './pretrip/labels';
-import TaskList from './pretrip/TaskList';
-import MyTasks from './pretrip/MyTasks';
+import TaskList, { ListTitle } from './pretrip/TaskList';
+import MyTasks, { isMine } from './pretrip/MyTasks';
 import CostTable from './pretrip/CostTable';
 import EditTask from './pretrip/EditTask';
 import EditCost from './pretrip/EditCost';
@@ -76,6 +76,45 @@ export default function Pretrip() {
 	const grand = data.budget.grandTotal;
 	const perPerson = data.memberCount ? grand / data.memberCount : grand;
 
+	// Both task lists take the same handlers; they differ only in which rows
+	// they hold and whose box each row leads with.
+	const taskProps = {
+		kind: section === 'tasks' ? ('task' as const) : ('packing' as const),
+		me: data.me,
+		onToggle: (taskId: string) =>
+			void act.run(() =>
+				api(`/trips/${trip.id}/pretrip/tasks/${taskId}/toggle`, { method: 'POST', body: {} })
+			),
+		// The API ticks one box at a time, so a change to the menu walks the
+		// roster. Only the people whose state actually changed are touched, and it
+		// runs inside one mutation so a refusal halts the rest instead of leaving
+		// the row half ticked.
+		onSetDone: (task: Task, doneIds: string[]) =>
+			void act.run(async () => {
+				for (const p of task.people) {
+					if (p.done === doneIds.includes(p.id)) continue;
+					await api(`/trips/${trip.id}/pretrip/tasks/${task.id}/toggle`, {
+						method: 'POST',
+						body: { userId: p.id }
+					});
+				}
+			}),
+		onEdit: (task: Task) =>
+			setEditingTask({
+				id: task.id,
+				kind: section === 'tasks' ? 'task' : 'packing',
+				label: task.label,
+				assignees: task.people.map((p) => p.id)
+			}),
+		onRemove: (task: Task) =>
+			setPendingTask({ kind: section === 'tasks' ? 'task' : 'packing', task })
+	};
+
+	// Your own rows move out of the list rather than being copied out of it, so
+	// the list below is titled only while something has been lifted from it.
+	const rest = section === 'tasks' ? data.tasks.filter((t) => !isMine(t, data.me)) : data.packing;
+	const split = section === 'tasks' && rest.length < data.tasks.length;
+
 	return (
 		<div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[190px_minmax(0,1fr)]">
 			<SectionNav
@@ -117,64 +156,13 @@ export default function Pretrip() {
 
 				{section !== 'costs' ? (
 					<>
-						{section === 'tasks' && (
-							<MyTasks
-								items={data.tasks}
-								me={data.me}
-								onToggle={(taskId) =>
-									void act.run(() =>
-										api(`/trips/${trip.id}/pretrip/tasks/${taskId}/toggle`, {
-											method: 'POST',
-											body: { userId: data.me }
-										})
-									)
-								}
-							/>
+						{section === 'tasks' && <MyTasks {...taskProps} items={data.tasks} />}
+						{(rest.length > 0 || !split) && (
+							<div className="card min-w-0 px-5 py-5">
+								{split && <ListTitle>{cp.myTasks.othersTitle}</ListTitle>}
+								<TaskList {...taskProps} items={rest} />
+							</div>
 						)}
-						<div className="card min-w-0 px-5 py-5">
-							<TaskList
-								items={section === 'tasks' ? data.tasks : data.packing}
-								kind={section === 'tasks' ? 'task' : 'packing'}
-								me={data.me}
-								onToggle={(taskId) =>
-									void act.run(() =>
-										api(`/trips/${trip.id}/pretrip/tasks/${taskId}/toggle`, {
-											method: 'POST',
-											body: {}
-										})
-									)
-								}
-								// The API ticks one box at a time, so a change to the menu walks
-								// the roster. Only the people whose state actually changed are
-								// touched, and it runs inside one mutation so a refusal halts the
-								// rest instead of leaving the row half ticked.
-								onSetDone={(task, doneIds) =>
-									void act.run(async () => {
-										for (const p of task.people) {
-											if (p.done === doneIds.includes(p.id)) continue;
-											await api(`/trips/${trip.id}/pretrip/tasks/${task.id}/toggle`, {
-												method: 'POST',
-												body: { userId: p.id }
-											});
-										}
-									})
-								}
-								onEdit={(task) =>
-									setEditingTask({
-										id: task.id,
-										kind: section === 'tasks' ? 'task' : 'packing',
-										label: task.label,
-										assignees: task.people.map((p) => p.id)
-									})
-								}
-								onRemove={(task) =>
-									setPendingTask({
-										kind: section === 'tasks' ? 'task' : 'packing',
-										task
-									})
-								}
-							/>
-						</div>
 					</>
 				) : (
 					<>
