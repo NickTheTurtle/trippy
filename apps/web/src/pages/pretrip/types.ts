@@ -44,3 +44,11 @@ export type Draft = {
 	category: string;
 	cityId: string;
 };
+
+/** The same for a task or a packing item: `id` is null when adding. */
+export type TaskDraft = {
+	id: string | null;
+	kind: 'task' | 'packing';
+	label: string;
+	assignees: string[];
+};

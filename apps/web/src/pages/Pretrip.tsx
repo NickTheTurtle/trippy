@@ -8,11 +8,11 @@ import { useTrip } from './TripShell';
 import SectionNav from '../components/ui/SectionNav';
 import FormError from '../components/ui/FormError';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
-import type { Task, CostItem, PretripData, Draft } from './pretrip/types';
+import type { Task, CostItem, PretripData, Draft, TaskDraft } from './pretrip/types';
 import { cap } from './pretrip/labels';
 import TaskList from './pretrip/TaskList';
 import CostTable from './pretrip/CostTable';
-import AddTask from './pretrip/AddTask';
+import EditTask from './pretrip/EditTask';
 import EditCost from './pretrip/EditCost';
 import { copy } from '../copy';
 
@@ -31,8 +31,8 @@ export default function Pretrip() {
 	// the per-person figure depends on the roster.
 	useLiveSection(['tasks', 'costs', 'members', 'trip'], reload);
 	const [section, setSection] = useState('tasks');
-	const [adding, setAdding] = useState<'task' | 'packing' | null>(null);
 	/** Add and edit share one modal; `id` is null when adding. */
+	const [editingTask, setEditingTask] = useState<TaskDraft | null>(null);
 	const [editing, setEditing] = useState<Draft | null>(null);
 	/** The row a confirmation is open for, and which list it came from. */
 	const [pendingTask, setPendingTask] = useState<{ kind: 'task' | 'packing'; task: Task } | null>(
@@ -88,34 +88,30 @@ export default function Pretrip() {
 				<FormError message={act.error} variant="banner" />
 
 				{/* The row keeps its height across sections, so switching never shifts
-				    the card below it up or down. */}
+				    the card below it up or down. The section is named by the nav to the
+				    left, so the button only has to say what it does. */}
 				<div className="mb-4 flex min-h-phead flex-wrap items-center justify-end gap-4">
-					{section === 'tasks' && (
-						<button className="btn primary" onClick={() => setAdding('task')}>
-							{cp.addTask}
-						</button>
-					)}
-					{section === 'packing' && (
-						<button className="btn primary" onClick={() => setAdding('packing')}>
-							{cp.addPackingItem}
-						</button>
-					)}
-					{section === 'costs' && (
-						<button
-							className="btn primary"
-							onClick={() =>
-								setEditing({
-									id: null,
-									label: '',
-									amount: '',
-									category: data.categories[0] ?? '',
-									cityId: ''
-								})
-							}
-						>
-							{cp.addCost}
-						</button>
-					)}
+					<button
+						className="btn primary"
+						onClick={() =>
+							section === 'costs'
+								? setEditing({
+										id: null,
+										label: '',
+										amount: '',
+										category: data.categories[0] ?? '',
+										cityId: ''
+									})
+								: setEditingTask({
+										id: null,
+										kind: section === 'tasks' ? 'task' : 'packing',
+										label: '',
+										assignees: []
+									})
+						}
+					>
+						{cp.add}
+					</button>
 				</div>
 
 				{section !== 'costs' ? (
@@ -124,28 +120,35 @@ export default function Pretrip() {
 							items={section === 'tasks' ? data.tasks : data.packing}
 							kind={section === 'tasks' ? 'task' : 'packing'}
 							me={data.me}
-							onToggle={(taskId, userId) =>
+							onToggle={(taskId) =>
 								void act.run(() =>
 									api(`/trips/${trip.id}/pretrip/tasks/${taskId}/toggle`, {
 										method: 'POST',
-										body: userId ? { userId } : {}
+										body: {}
 									})
 								)
 							}
-							// The API ticks one box at a time, so the leading box walks the
-							// roster. Only the people who disagree with the target state are
+							// The API ticks one box at a time, so a change to the menu walks
+							// the roster. Only the people whose state actually changed are
 							// touched, and it runs inside one mutation so a refusal halts the
 							// rest instead of leaving the row half ticked.
-							onToggleAll={(task) =>
+							onSetDone={(task, doneIds) =>
 								void act.run(async () => {
-									const target = !task.done;
 									for (const p of task.people) {
-										if (p.done === target) continue;
+										if (p.done === doneIds.includes(p.id)) continue;
 										await api(`/trips/${trip.id}/pretrip/tasks/${task.id}/toggle`, {
 											method: 'POST',
 											body: { userId: p.id }
 										});
 									}
+								})
+							}
+							onEdit={(task) =>
+								setEditingTask({
+									id: task.id,
+									kind: section === 'tasks' ? 'task' : 'packing',
+									label: task.label,
+									assignees: task.people.map((p) => p.id)
 								})
 							}
 							onRemove={(task) =>
@@ -196,13 +199,13 @@ export default function Pretrip() {
 				)}
 			</div>
 
-			{adding && (
-				<AddTask
-					kind={adding}
+			{editingTask && (
+				<EditTask
+					draft={editingTask}
 					members={data.members}
 					me={data.me}
 					tripId={trip.id}
-					onClose={() => setAdding(null)}
+					onClose={() => setEditingTask(null)}
 					onSaved={reload}
 				/>
 			)}

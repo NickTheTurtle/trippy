@@ -247,6 +247,50 @@ describe('ticking a task box', () => {
 		expect(tasks.toggleTask(f.tripId, f.organizer, taskId, f.organizer)).toBe(false);
 		expect(row(f.tripId, taskId).doneCount).toBe(0);
 	});
+
+	// Editing is the alternative to deleting and re-adding, so the ticks of
+	// everyone still on the task have to survive it.
+	it('keeps the ticks of everyone still on an edited task', () => {
+		const { f, taskId } = assignedTask('edit-keeps');
+		tasks.toggleTask(f.tripId, f.member, taskId, f.member);
+
+		expect(
+			tasks.updateTask(f.tripId, f.organizer, taskId, 'Book the 9:40 ferry', [
+				f.member,
+				f.organizer
+			])
+		).toBe(true);
+
+		const r = row(f.tripId, taskId);
+		expect(r.label).toBe('Book the 9:40 ferry');
+		expect(r.people.map((p) => p.done)).toEqual([true, false]);
+		expect(r.done).toBe(false);
+	});
+
+	// A tick left behind by someone the task is no longer for would count
+	// towards a row they have nothing to do with.
+	it('drops the tick of someone taken off a task', () => {
+		const { f, taskId } = assignedTask('edit-drops');
+		tasks.toggleTask(f.tripId, f.member, taskId, f.member);
+		expect(row(f.tripId, taskId).doneCount).toBe(1);
+
+		expect(tasks.updateTask(f.tripId, f.organizer, taskId, 'Book the ferry', [f.organizer])).toBe(
+			true
+		);
+		expect(row(f.tripId, taskId).doneCount).toBe(0);
+
+		// Back on the task, and the old tick has not come back with them.
+		tasks.updateTask(f.tripId, f.organizer, taskId, 'Book the ferry', [f.member, f.organizer]);
+		expect(row(f.tripId, taskId).doneCount).toBe(0);
+	});
+
+	it('refuses to edit for a non-member, or a task in another trip', () => {
+		const { f, taskId } = assignedTask('edit-refuse');
+		const other = createTripFixture('edit-refuse-other');
+		expect(tasks.updateTask(f.tripId, f.outsider, taskId, 'Anything', [])).toBe(false);
+		expect(tasks.updateTask(other.tripId, other.organizer, taskId, 'Anything', [])).toBe(false);
+		expect(row(f.tripId, taskId).label).toBe('Book the ferry');
+	});
 });
 
 describe('member removal cascade', () => {

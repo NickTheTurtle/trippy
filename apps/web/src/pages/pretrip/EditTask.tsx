@@ -4,35 +4,50 @@ import { useMutation } from '../../hooks/useMutation';
 import Modal from '../../components/ui/Modal';
 import FormError from '../../components/ui/FormError';
 import { LinkButton } from '../../components/ui/buttons';
+import type { TaskDraft } from './types';
 import { copy } from '../../copy';
 
-const c = copy.preparation.addTaskDialog;
+const c = copy.preparation.taskDialog;
 
-/** Adds one task or one packing item, with who has to do it. */
-export default function AddTask({
-	kind,
+/**
+ * Adds or rewrites one task or one packing item, with who has to do it.
+ *
+ * Add and edit are the same form, the way they are for a cost estimate: the
+ * fields are identical, and a second component for them would be the first one
+ * with a different verb.
+ *
+ * Editing keeps the ticks of everyone who is still on the task. Rewriting a
+ * task used to mean deleting it and adding it again, which threw away what
+ * other people had already done.
+ */
+export default function EditTask({
+	draft,
 	members,
 	me,
 	tripId,
 	onClose,
 	onSaved
 }: {
-	kind: 'task' | 'packing';
+	draft: TaskDraft;
 	members: { id: string; name: string }[];
 	me: string;
 	tripId: string;
 	onClose: () => void;
 	onSaved: () => void;
 }) {
-	const [label, setLabel] = useState('');
-	const [assignees, setAssignees] = useState<Set<string>>(new Set());
+	const [label, setLabel] = useState(draft.label);
+	const [assignees, setAssignees] = useState<Set<string>>(new Set(draft.assignees));
+	const editing = draft.id !== null;
 
 	const save = useMutation(
 		async () => {
-			await api(`/trips/${tripId}/pretrip/tasks`, {
-				method: 'POST',
-				body: { kind, label, assignees: [...assignees] }
-			});
+			await api(
+				editing ? `/trips/${tripId}/pretrip/tasks/${draft.id}` : `/trips/${tripId}/pretrip/tasks`,
+				{
+					method: editing ? 'PUT' : 'POST',
+					body: { kind: draft.kind, label, assignees: [...assignees] }
+				}
+			);
 			onSaved();
 			onClose();
 		},
@@ -40,7 +55,7 @@ export default function AddTask({
 	);
 
 	return (
-		<Modal open size="sm" title={kind === 'task' ? c.taskTitle : c.packingTitle} onClose={onClose}>
+		<Modal open size="sm" title={c.title(draft.kind, editing)} onClose={onClose}>
 			<form className="mform" onSubmit={save.submit}>
 				<div className="mbody flex flex-col gap-3">
 					<label className="field">
@@ -100,7 +115,13 @@ export default function AddTask({
 						{copy.common.cancel}
 					</button>
 					<button className="btn primary" type="submit" disabled={save.busy}>
-						{save.busy ? copy.common.adding : c.submitLabel}
+						{save.busy
+							? editing
+								? copy.common.saving
+								: copy.common.adding
+							: editing
+								? c.saveLabel
+								: c.addLabel}
 					</button>
 				</div>
 			</form>

@@ -28,6 +28,21 @@ function isMember(tripId: string, userId: string): boolean {
 		.get(tripId, userId);
 }
 
+/**
+ * The names behind a set of ids, for the legacy `assignee` display column.
+ * The assignee rows are the source of truth for who owes what; this column is
+ * only still written so older readers of the table keep working.
+ */
+function memberNames(userIds: string[]): string {
+	if (userIds.length === 0) return '';
+	const rows = db
+		.prepare(
+			`SELECT name FROM users WHERE id IN (${userIds.map(() => '?').join(',')}) ORDER BY name`
+		)
+		.all(...userIds) as unknown as { name: string }[];
+	return rows.map((r) => r.name).join(', ');
+}
+
 interface TaskBase {
 	id: string;
 	kind: string;
@@ -115,19 +130,7 @@ export function addTask(
 		)?.n ?? 0;
 
 	const valid = assigneeIds.filter((uid) => isMember(tripId, uid));
-	// Names are still written for the legacy display column, but the assignee
-	// rows are the source of truth for who owes what.
-	const names = valid.length
-		? (
-				db
-					.prepare(
-						`SELECT name FROM users WHERE id IN (${valid.map(() => '?').join(',')}) ORDER BY name`
-					)
-					.all(...valid) as unknown as { name: string }[]
-			)
-				.map((r) => r.name)
-				.join(', ')
-		: '';
+	const names = memberNames(valid);
 
 	db.exec('BEGIN');
 	try {
@@ -144,6 +147,59 @@ export function addTask(
 	}
 	publish(tripId, 'tasks'); // after COMMIT
 	return id;
+}
+
+/**
+ * Rewrites a task's wording and its roster.
+ *
+ * A task is written before the trip is worked out, so both halves of it change:
+ * the wording because "book something" becomes "book the 9:40 ferry", and the
+ * roster because the person it was for drops out. Deleting and re-adding was
+ * the only way to do either, which threw away everyone else's ticks.
+ *
+ * Dropping someone also drops their tick. Keeping it would leave a row that
+ * counts as done by a person the task is no longer for.
+ */
+export function updateTask(
+	tripId: string,
+	actorId: string,
+	taskId: string,
+	label: string,
+	assigneeIds: string[]
+): boolean {
+	if (!isMember(tripId, actorId)) return false;
+	const exists = !!db
+		.prepare(`SELECT 1 FROM trip_tasks WHERE id = ? AND trip_id = ?`)
+		.get(taskId, tripId);
+	if (!exists) return false;
+
+	const valid = assigneeIds.filter((uid) => isMember(tripId, uid));
+	const names = memberNames(valid);
+	const holes = valid.map(() => '?').join(',');
+
+	db.exec('BEGIN');
+	try {
+		db.prepare(`UPDATE trip_tasks SET label = ?, assignee = ? WHERE id = ? AND trip_id = ?`).run(
+			label,
+			names,
+			taskId,
+			tripId
+		);
+		db.prepare(
+			`DELETE FROM task_assignees WHERE task_id = ?${valid.length ? ` AND user_id NOT IN (${holes})` : ''}`
+		).run(taskId, ...valid);
+		db.prepare(
+			`DELETE FROM task_done WHERE task_id = ?${valid.length ? ` AND user_id NOT IN (${holes})` : ''}`
+		).run(taskId, ...valid);
+		const ins = db.prepare(`INSERT OR IGNORE INTO task_assignees (task_id, user_id) VALUES (?, ?)`);
+		for (const uid of valid) ins.run(taskId, uid);
+		db.exec('COMMIT');
+	} catch (err) {
+		db.exec('ROLLBACK');
+		throw err;
+	}
+	publish(tripId, 'tasks'); // after COMMIT
+	return true;
 }
 
 /**

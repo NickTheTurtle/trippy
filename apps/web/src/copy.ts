@@ -258,9 +258,7 @@ export const copy = {
 	preparation: {
 		navAriaLabel: 'Preparation sections',
 		sections: { tasks: 'Tasks', packing: 'Packing', costs: 'Estimated costs' },
-		addTask: '+ Add task',
-		addPackingItem: '+ Add item',
-		addCost: '+ Add cost',
+		add: '+ Add',
 		tripTotal: 'Trip total',
 		perPerson: 'Per person',
 		youSuffix: ' (you)',
@@ -273,26 +271,26 @@ export const copy = {
 			title: (estimate: string) => `Delete ${estimate}?`
 		},
 		taskList: {
-			taskAction: 'Add task',
-			packingAction: 'Add item',
 			sharedBoxLabel: (done: boolean, label: string) =>
 				`${done ? 'Mark not done' : 'Mark done'}: ${label}`,
 			allBoxLabel: (done: boolean, label: string) =>
 				`${done ? 'Mark not done for everyone' : 'Mark done for everyone'}: ${label}`,
-			personBoxLabel: (done: boolean, name: string, label: string) =>
-				`${done ? 'Mark not done' : 'Mark done'} for ${name}: ${label}`,
+			doneSummary: (done: number, total: number) => `${done}/${total} done`,
+			doneMenuLabel: (label: string) => `Who has finished: ${label}`,
+			editLabel: (kind: string, label: string) => `Edit ${kind}: ${label}`,
 			removeLabel: (kind: string, label: string) => `Remove ${kind}: ${label}`
 		},
-		addTaskDialog: {
-			taskTitle: 'Add a task',
-			packingTitle: 'Add a packing item',
+		taskDialog: {
+			title: (kind: 'task' | 'packing', editing: boolean) =>
+				`${editing ? 'Edit' : 'Add'} ${kind === 'packing' ? 'a packing item' : 'a task'}`,
 			labelField: 'What needs doing?',
 			assigneesLegend: 'Who has to do it?',
 			noMembers: 'No members yet.',
 			selectEveryone: 'Select everyone',
 			clear: 'Clear',
-			submitLabel: 'Add',
-			fallback: 'Could not add that.'
+			addLabel: 'Add',
+			saveLabel: 'Save changes',
+			fallback: 'Could not save that.'
 		},
 		costTable: {
 			item: 'Item',
@@ -326,7 +324,7 @@ export const copy = {
 		navAriaLabel: 'Expense sections',
 		sections: { expenses: 'Expenses', balances: 'Balances', settle: 'Settle up' },
 		ledgerHead: 'Use a negative amount for a refund or payout.',
-		addExpense: '+ Add expense',
+		addExpense: '+ Add',
 		emptyMessage: 'No expenses yet.',
 		emptyAction: 'Add expense',
 		balancesHead: (currency: string) => `Net position per person, in ${currency}.`,

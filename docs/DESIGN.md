@@ -275,8 +275,11 @@ auto-travel bridge.
     any assignee of the task, from any member of the trip. The row records who the
     task is *for*, not who pressed the button. It still refuses a non-member, and a
     target the task is not assigned to.
-- Every assignee is a chip on the row, and every chip is the control that ticks that
-  person off.
+- Who has finished is a menu on the row, one entry per assignee, and each entry
+  is the control that ticks that person off.
+- **A task can be rewritten in place.** `updateTask` takes new wording and a new
+  roster together; the ticks of everyone still on the task survive it, and the
+  tick of anyone taken off is dropped with them.
 - **Estimated costs live here too** (see M5): planning what a trip will cost is the
   same job as preparing for it, and splitting them across two tabs meant bouncing
   between them. `/costs` 307-redirects here.
@@ -695,26 +698,27 @@ wording, so the difference is data: the section descriptor carries the kind, the
 empty-state sentence and the add-button label. Two near-identical components
 would have drifted the first time a row gained a feature.
 
-**A row is a box, a label, and a chip per person.** The earlier row carried four
-different things on its right, and which ones appeared depended on the task: a
-bare name for one assignee, or a progress bar that expanded a roster for several,
-plus a "You: to do" tag, plus a leading box that was a button, an inert dashed
-box or a shared tick depending on whether the task was yours. Five rows of that
-were five different layouts, and the answer to "who still has to do this" was
-behind a click.
+**A row is a box, a label, and a menu of who has finished.** The earlier row
+carried four different things on its right, and which ones appeared depended on
+the task: a bare name for one assignee, or a progress bar that expanded a roster
+for several, plus a "You: to do" tag, plus a leading box that was a button, an
+inert dashed box or a shared tick depending on whether the task was yours. Five
+rows of that were five different layouts, and the answer to "who still has to do
+this" was behind a click.
 
-The chips replaced all of it. They are always visible, so the roster and the
-progress count say nothing the row does not already show, and each one is the
-control that ticks that person off. Yours is marked "(you)", which is the whole
-of what the separate tag was for. Long rosters wrap onto a second line, which is
-the honest cost: a twenty-person task is a big row. That is better than hiding
-nineteen of them behind a bar.
+A chip per person replaced all of it and was right for a small trip, but it
+sized the row by the size of the group: a dozen names wrapped over three lines
+and pushed the label out of the way. The menu is the same control at a fixed
+width. Its trigger reads "1/3 done", which is the part that actually gets read
+at a glance, and opening it shows the names with the ticks. It reuses
+`MultiSelect`, with a `summary` override, because "who is finished" is not the
+same sentence as the list of names its ticks would otherwise spell out.
 
 **Anyone can tick anyone's box.** The old rule was that completion is personal
 and the server refused any target but the caller. It was wrong about how a group
 trip works: people say "I've done mine" out loud, and one person is holding the
 phone. Refusing the tick did not make the list more accurate, it just left it
-stale. The chip is a button for everyone.
+stale. Every entry in the menu is pressable by everyone.
 
 **The leading box is the whole task, including a third state.** On an unassigned
 task it toggles the shared flag. On an assigned one it brings the entire roster
@@ -723,14 +727,26 @@ call and inventing one for a button would put the same rule in two places. It
 shows a dash when some but not all are done: without that, two people out of
 three finished looks exactly like nobody having started.
 
-**Deleting is on hover, not always visible.** Every row carrying a permanent ×
-makes a long list feel hostile and invites misclicks. The button is revealed by
-the row's `group` hover and by keyboard focus, so it is still reachable without a
-mouse.
+**Editing a task is not deleting and re-adding it.** Both halves of a task
+change as a trip firms up: the wording, because "book something" becomes "book
+the 9:40 ferry", and the roster, because the person it was for drops out. The
+only way to do either was to delete the row, which threw away every tick on it.
+`PUT` takes both at once and keeps the ticks of everyone still on the task.
 
-**Add and Edit for a cost are the same dialog.** `id === null` means add. The
-fields, validation and layout are identical, and keeping them as one component is
-what stops the edit form from quietly falling behind the add form.
+**Editing and deleting are on hover, not always visible.** Every row carrying a
+permanent ✎ and × makes a long list feel hostile and invites misclicks. They are
+revealed by the row's `group` hover and by keyboard focus, so they are still
+reachable without a mouse.
+
+**Add and Edit are the same dialog, for a task and for a cost alike.**
+`id === null` means add. The fields, validation and layout are identical, and
+keeping them as one component is what stops the edit form from quietly falling
+behind the add form.
+
+**The add button says "+ Add" and nothing else.** It used to name what it added:
+"+ Add task", "+ Add item", "+ Add cost". The section nav sits immediately to its
+left with the current section highlighted, so the noun was the same word twice on
+one screen.
 
 **Example placeholders were dropped.** The Svelte fields carried "Apply for a
 visa", "Power adapter", "Museum tickets" and "0" as placeholder text. Each field
@@ -1666,7 +1682,8 @@ Two seeded trips, chosen to exercise opposite ends of the layout engine:
   through a modal. New China trips seed a starting budget per city.
 - Preparation checklist is persisted (`trip_tasks`, kind `task` or `packing`) with
   per-person completion in `task_assignees` / `task_done`. Members add, assign to any
-  subset of the trip, tick **their own** box, and remove items. Unassigned tasks keep a
+  subset of the trip, edit the wording and the roster, tick **anyone's** box, and
+  remove items. Unassigned tasks keep a
   single shared checkbox. New trips seed a starter checklist including multi-person
   items (visa, insurance) with partial progress.
 - Coordinate-based travel legs: when consecutive schedule items carry coordinates,

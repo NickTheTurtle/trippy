@@ -3,7 +3,7 @@ import { requireMember } from '../middleware';
 import { body, num, optStr, str, strList } from '../parse';
 import { fail, okOr } from '../respond';
 import type { Env } from '../types';
-import { addTask, listTasks, removeTask, toggleTask } from '@trippy/server/tasks';
+import { addTask, listTasks, removeTask, toggleTask, updateTask } from '@trippy/server/tasks';
 import {
 	COST_CATEGORIES,
 	addCostItem,
@@ -42,6 +42,25 @@ pretrip.post('/tasks', async (c) => {
 	const id = addTask(c.get('trip').id, c.get('user').id, kind, label, strList(b.assignees), null);
 	if (!id) return fail(c, 400, 'Could not add that task.');
 	return c.json({ id }, 201);
+});
+
+/** Rewrites the wording and the roster together; the ticks that survive stay. */
+pretrip.put('/tasks/:taskId', async (c) => {
+	const b = await body(c);
+	const label = str(b.label);
+	if (!label) return fail(c, 400, 'Describe the task.');
+	return okOr(
+		c,
+		updateTask(
+			c.get('trip').id,
+			c.get('user').id,
+			c.req.param('taskId'),
+			label,
+			strList(b.assignees)
+		),
+		404,
+		'Could not save that task.'
+	);
 });
 
 /**

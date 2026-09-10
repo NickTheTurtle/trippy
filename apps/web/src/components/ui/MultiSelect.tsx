@@ -20,6 +20,7 @@ export default function MultiSelect({
 	placeholder = copy.ui.multiSelect.placeholder,
 	ariaLabel = copy.ui.multiSelect.ariaLabel,
 	compact = false,
+	summary: summaryOverride,
 	summaryLabel = copy.ui.multiSelect.summaryLabel
 }: {
 	options: Option[];
@@ -28,6 +29,12 @@ export default function MultiSelect({
 	placeholder?: string;
 	ariaLabel?: string;
 	compact?: boolean;
+	/**
+	 * Fixed trigger text, for a menu whose ticks do not mean "these are the ones
+	 * I picked". The task list ticks people off a job, where a list of names
+	 * would read as the roster rather than as who is finished.
+	 */
+	summary?: string;
 	/**
 	 * How the trigger reads once the picks no longer fit as names. Defaults to
 	 * "N people", which is what every current call site means.
@@ -51,11 +58,12 @@ export default function MultiSelect({
 	const chosen = options.filter((o) => selected.includes(o.value));
 	// Past two names the list is longer than the trigger, so switch to a count.
 	const summary =
-		chosen.length === 0
+		summaryOverride ??
+		(chosen.length === 0
 			? placeholder
 			: chosen.length <= 2
 				? chosen.map((o) => o.label).join(', ')
-				: summaryLabel(chosen.length);
+				: summaryLabel(chosen.length));
 
 	useEffect(() => {
 		if (!open) return;
