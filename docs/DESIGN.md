@@ -1325,6 +1325,78 @@ header's own bottom edge.
 Calendar is deliberately an empty tab. A redesign is planned, and porting the
 board before that lands would be work done twice.
 
+### 5.0.13 Live location on mobile (design only, not built)
+
+A phone is the only client that can answer "where is everyone right now", and
+that question has a real use here: the calendar already splits a trip into
+tracks, and a track that has drifted is exactly what the organiser cannot see
+today. This section records the design so the feature can be built later
+without re-arguing it. **Nothing below is implemented.**
+
+**What it is for.** Showing trip members roughly where each other are, during
+the trip, on a map. It is _not_ a history feature and it is not attendance
+tracking. Auto check-in against scheduled stops falls out of the same signal
+and is worth having, but it is a consequence, not the goal.
+
+**Why it cannot be built on Expo Go.** Background location needs
+`expo-location`'s background permission and an `UIBackgroundModes` entry, so
+the app has to become a custom development build. That is the reason to keep
+every _other_ native dependency out of the app for as long as possible: the
+first feature that forces a custom build should be one that earns it.
+
+**Battery: never poll.** The whole design is that the app asks the OS to wake
+it on an event and otherwise runs not at all.
+
+- iOS: significant-location-change (roughly a cell-tower move, a few hundred
+  metres) plus a geofence per scheduled stop for the current day. Both wake a
+  suspended app, both are served from location the OS is already computing for
+  other apps, and neither turns on GPS on our account.
+- Android: the fused provider at balanced-power priority with a long interval,
+  plus the geofencing API, inside a foreground service with a persistent
+  notification (which Android requires and which is honest anyway).
+
+A trip member walking around a city produces on the order of tens of updates a
+day, not thousands. Continuous or high-accuracy tracking is explicitly
+rejected: it would cost battery all day to improve a number nobody reads to the
+metre.
+
+**Consent is per trip, and it expires by itself.** Sharing is off by default,
+turned on per trip rather than per account, and time-boxed to that trip's date
+range. It ends when the trip ends without anybody remembering to turn it off,
+because a sharing switch that outlives its reason is how this kind of feature
+becomes something people regret agreeing to. Turning it off deletes the stored
+position rather than freezing it.
+
+**Store one row per member, not a trail.**
+
+```
+trip_location_sharing(trip_id, user_id, enabled, expires_at)
+trip_locations(trip_id, user_id, lat, lng, accuracy_m, at, source)
+    -- primary key (trip_id, user_id): the row is upserted, never appended
+```
+
+Keeping only the latest fix means there is no history to leak, no retention
+policy to get wrong, and no growth to manage. `source` records whether the fix
+came from a significant-change wake or a geofence crossing, which is what makes
+auto check-in possible without a second table.
+
+**API sketch.**
+
+```
+PUT   /trips/:id/location            { lat, lng, accuracyM, at, source }
+GET   /trips/:id/locations           -> [{ userId, lat, lng, accuracyM, at }]
+POST  /trips/:id/location/sharing    { enabled }
+```
+
+`GET` returns only members who are currently sharing, and returns nothing at
+all to a caller who is not sharing themselves. Reciprocity is deliberate: a
+member who can see where everyone is while remaining invisible is the shape of
+this feature that people object to.
+
+**Web sees it read-only.** The web client can render the same map from the same
+`GET`, because a member on a laptop in the hotel still wants to know where the
+others are. It never writes.
+
 ## Shared UI conventions
 
 These exist so five pages don't each invent their own version. Reach for them
