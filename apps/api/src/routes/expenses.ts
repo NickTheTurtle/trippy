@@ -1,6 +1,6 @@
 import { Hono, type Context } from 'hono';
 import { requireMember } from '../middleware';
-import { body, int, num, record, str, strList } from '../parse';
+import { body, int, num, optStr, record, str, strList } from '../parse';
 import { fail, okOr } from '../respond';
 import type { Env } from '../types';
 import {
@@ -28,6 +28,8 @@ interface ParsedExpense {
 	payerId: string;
 	splitMode: SplitMode;
 	parts: { userId: string; weight: number }[];
+	/** The version the editor had on screen, or null when not tracking. */
+	version: number | null;
 }
 
 /**
@@ -94,7 +96,8 @@ async function parseExpense(
 		currency: str(b.currency) || home,
 		payerId: str(b.payerId),
 		splitMode,
-		parts
+		parts,
+		version: int(b.version)
 	};
 }
 
@@ -147,22 +150,24 @@ expenses.put('/:expenseId', async (c) => {
 	const parsed = await parseExpense(c, trip.home_currency);
 	if ('error' in parsed) return fail(c, 400, parsed.error);
 
-	return okOr(
-		c,
-		updateExpense(
-			trip.id,
-			c.get('user').id,
-			c.req.param('expenseId'),
-			parsed.payerId,
-			parsed.description,
-			parsed.cents,
-			parsed.currency,
-			parsed.parts,
-			parsed.splitMode
-		),
-		404,
-		'Could not save that expense.'
+	const result = updateExpense(
+		trip.id,
+		c.get('user').id,
+		c.req.param('expenseId'),
+		parsed.payerId,
+		parsed.description,
+		parsed.cents,
+		parsed.currency,
+		parsed.parts,
+		parsed.splitMode,
+		parsed.version
 	);
+	if (!result.ok) {
+		return result.reason === 'conflict'
+			? fail(c, 409, 'Someone else changed this expense. Reload to see their version.')
+			: fail(c, 404, 'Could not save that expense.');
+	}
+	return c.json({ ok: true, version: result.version });
 });
 
 /**
@@ -176,8 +181,14 @@ expenses.put('/:expenseId', async (c) => {
  * `amountCents` is the field to send: settlement is computed in whole cents, so
  * a transfer quoted straight back in cents clears a balance exactly, while a
  * major-unit `amount` has to be multiplied and rounded on the way in. `amount`
- * is still accepted, and used only when `amountCents` is absent, so the current
- * web client keeps working.
+ * is still accepted, and used only when `amountCents` is absent, so an older
+ * client keeps working.
+ *
+ * `token` is the one carried on the suggestion. Sending it makes the call
+ * idempotent, which is what stops a second press (or a second member pressing
+ * at the same moment) recording the same payment twice and inverting the debt.
+ * A repeat answers 200 with `duplicate: true` rather than 201, so the client
+ * can tell "already done" from "just done" without a refetch.
  */
 expenses.post('/settle', async (c) => {
 	const trip = c.get('trip');
@@ -189,9 +200,16 @@ expenses.post('/settle', async (c) => {
 		b.amountCents !== undefined ? cents : major === null ? null : Math.round(major * 100);
 	if (amountCents === null || amountCents <= 0) return fail(c, 400, 'Enter an amount.');
 
-	const id = recordSettlement(trip.id, c.get('user').id, str(b.fromId), str(b.toId), amountCents);
-	if (!id) return fail(c, 400, 'Could not record that payment.');
-	return c.json({ id }, 201);
+	const result = recordSettlement(
+		trip.id,
+		c.get('user').id,
+		str(b.fromId),
+		str(b.toId),
+		amountCents,
+		optStr(b.token)
+	);
+	if (!result) return fail(c, 400, 'Could not record that payment.');
+	return c.json({ id: result.id, duplicate: result.duplicate }, result.duplicate ? 200 : 201);
 });
 
 expenses.delete('/:expenseId', (c) =>

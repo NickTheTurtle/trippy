@@ -35,7 +35,7 @@ export default function TaskList({
 	kind: 'task' | 'packing';
 	me: string;
 	/** Tick the shared box of a task that has nobody on it. */
-	onToggle: (taskId: string) => void;
+	onToggle: (taskId: string, done: boolean) => void;
 	/** Say exactly who has finished a task, in one press. */
 	onSetDone: (task: Task, doneIds: string[]) => void;
 	onEdit: (task: Task) => void;
@@ -65,7 +65,7 @@ export default function TaskList({
 								onClick={() =>
 									assigned
 										? onSetDone(it, it.done ? [] : it.people.map((p) => p.id))
-										: onToggle(it.id)
+										: onToggle(it.id, !it.done)
 								}
 							/>
 

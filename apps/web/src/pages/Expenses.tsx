@@ -81,11 +81,22 @@ export default function Expenses() {
 	 * Sent as `amountCents`, which is the figure settlement is computed in: a
 	 * major-unit amount has to be multiplied and rounded again on the way in, and
 	 * a cent lost there leaves a balance that will not clear.
+	 *
+	 * The `token` carried on the suggestion makes the write idempotent. It is
+	 * derived from the balances the suggestion was computed from, so two members
+	 * looking at the same screen send the same one and their presses collapse
+	 * into a single payment; once it lands the balances move, so a genuinely
+	 * repeated payment later carries a different token and is recorded.
 	 */
-	async function settleUp(fromId: string, toId: string, amountCents: number) {
+	async function settleUp(
+		fromId: string,
+		toId: string,
+		amountCents: number,
+		token: string | undefined
+	) {
 		await api(`/trips/${trip.id}/expenses/settle`, {
 			method: 'POST',
-			body: { fromId, toId, amountCents }
+			body: { fromId, toId, amountCents, token }
 		});
 		reload();
 	}
@@ -166,6 +177,12 @@ export default function Expenses() {
 												{b.id === data.me && (
 													<span className="muted ml-1.5 text-[0.75rem]">{ce.youTag}</span>
 												)}
+												{/* Someone who has left but still has money in the trip.
+												    Shown, because a ledger that quietly stops summing to
+												    zero is the worse of the two failures. */}
+												{b.former && (
+													<span className="ml-1.5 text-[0.75rem] text-warn">{ce.formerTag}</span>
+												)}
 											</span>
 											<span
 												className={`shrink-0 font-semibold ${b.netCents > 0 ? 'text-accent-ink' : 'text-danger-ink'}`}
@@ -194,7 +211,7 @@ export default function Expenses() {
 											key={t.fromId + t.toId}
 											t={t}
 											fmt={fmt}
-											onSettle={() => settleUp(t.fromId, t.toId, t.amountCents)}
+											onSettle={() => settleUp(t.fromId, t.toId, t.amountCents, t.token)}
 										/>
 									))}
 								</ul>

@@ -26,6 +26,10 @@ export type Expense = {
 	converted: boolean;
 	shares: Record<string, number>;
 	parts: { userId: string; weight: number }[];
+	/** Bumped on every save; sent back on edit so a stale write is refused. */
+	version: number;
+	/** Somebody on this expense has left the trip and their share is unresolved. */
+	needsReview: boolean;
 };
 export type Transfer = {
 	fromId: string;
@@ -33,13 +37,16 @@ export type Transfer = {
 	from: string;
 	to: string;
 	amountCents: number;
+	/** Idempotency key for `POST /expenses/settle`. */
+	token: string;
 };
 export type ExpensesData = {
 	currency: string;
 	currencies: string[];
 	members: Member[];
 	expenses: Expense[];
-	balances: { id: string; name: string; netCents: number }[];
+	/** `former` marks a departed member who still has money in the trip. */
+	balances: { id: string; name: string; netCents: number; former: boolean }[];
 	settlement: Transfer[];
 	me: string;
 };
@@ -161,7 +168,11 @@ export function ExpenseSheet({
 				participantIds: chosen,
 				weights: Object.fromEntries(
 					chosen.map((id) => [id, Number(weights[id] ?? (mode === 'shares' ? 1 : 0))])
-				)
+				),
+				// The version this sheet opened on. The server refuses the write if
+				// somebody else has saved since, because a split is a set two people
+				// rewrote differently and "both applied" has no meaning for it.
+				version: expense?.version
 			};
 			if (expense) {
 				await api(`/trips/${tripId}/expenses/${expense.id}`, { method: 'PUT', body });

@@ -90,9 +90,12 @@ export default function Pretrip() {
 	const taskProps = {
 		kind: section === 'tasks' ? ('task' as const) : ('packing' as const),
 		me: data.me,
-		onToggle: (taskId: string) =>
+		// The box sends the state it wants, not "flip". Two people ticking the
+		// same row then agree instead of cancelling each other out, and a double
+		// tap is a no-op rather than an untick.
+		onToggle: (taskId: string, done: boolean) =>
 			void act.run(() =>
-				api(`/trips/${trip.id}/pretrip/tasks/${taskId}/toggle`, { method: 'POST', body: {} })
+				api(`/trips/${trip.id}/pretrip/tasks/${taskId}/toggle`, { method: 'POST', body: { done } })
 			),
 		// The API ticks one box at a time, so a change to the menu walks the
 		// roster. Only the people whose state actually changed are touched, and it
@@ -101,10 +104,11 @@ export default function Pretrip() {
 		onSetDone: (task: Task, doneIds: string[]) =>
 			void act.run(async () => {
 				for (const p of task.people) {
-					if (p.done === doneIds.includes(p.id)) continue;
+					const want = doneIds.includes(p.id);
+					if (p.done === want) continue;
 					await api(`/trips/${trip.id}/pretrip/tasks/${task.id}/toggle`, {
 						method: 'POST',
-						body: { userId: p.id }
+						body: { userId: p.id, done: want }
 					});
 				}
 			}),
@@ -113,7 +117,8 @@ export default function Pretrip() {
 				id: task.id,
 				kind: section === 'tasks' ? 'task' : 'packing',
 				label: task.label,
-				assignees: task.people.map((p) => p.id)
+				assignees: task.people.map((p) => p.id),
+				version: task.version
 			}),
 		onRemove: (task: Task) =>
 			setPendingTask({ kind: section === 'tasks' ? 'task' : 'packing', task })
@@ -169,7 +174,8 @@ export default function Pretrip() {
 										id: null,
 										kind: section === 'tasks' ? 'task' : 'packing',
 										label: '',
-										assignees: []
+										assignees: [],
+										version: null
 									})
 						}
 					>

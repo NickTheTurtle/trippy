@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { db } from '../db';
 import { publish, publishMany } from '../events';
+import { detachMemberFromLedger } from './expenses';
 
 export interface Person {
 	id: string;
@@ -226,7 +227,14 @@ export function removeMember(tripId: string, actorId: string, userId: string): b
 	const res = db
 		.prepare(`DELETE FROM memberships WHERE trip_id = ? AND user_id = ?`)
 		.run(tripId, userId);
-	if (res.changes > 0) publishMany(tripId, ['members', 'expenses', 'schedule']);
+	if (res.changes > 0) {
+		// Their money does not leave with them. Proportional splits are re-divided
+		// across whoever is left; stated ones, and anything they paid for, are
+		// flagged for a human instead of being guessed at. Done before the events
+		// so the refetch they trigger already sees the settled state.
+		detachMemberFromLedger(tripId, userId);
+		publishMany(tripId, ['members', 'expenses', 'schedule']);
+	}
 	return res.changes > 0;
 }
 

@@ -11,6 +11,8 @@ export type Task = {
 	shared: boolean;
 	done: boolean;
 	doneCount: number;
+	/** Bumped on every save; sent back on edit so a stale write is refused. */
+	version: number;
 };
 export type CostItem = {
 	id: string;
@@ -49,4 +51,6 @@ export type TaskDraft = {
 	kind: 'task' | 'packing';
 	label: string;
 	assignees: string[];
+	/** The version the dialog opened on. Null when adding. */
+	version: number | null;
 };

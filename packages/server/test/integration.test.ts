@@ -243,17 +243,17 @@ describe('ticking a task box', () => {
 	// gets planned out loud, and the phone is not always in the assignee's hand.
 	it('lets any member tick a box for someone else', () => {
 		const { f, taskId } = assignedTask('toggle-other');
-		expect(tasks.toggleTask(f.tripId, f.organizer, taskId, f.member)).toBe(true);
+		expect(tasks.toggleTask(f.tripId, f.organizer, taskId, f.member).ok).toBe(true);
 		expect(row(f.tripId, taskId).done).toBe(true);
 
-		expect(tasks.toggleTask(f.tripId, f.organizer, taskId, f.member)).toBe(true);
+		expect(tasks.toggleTask(f.tripId, f.organizer, taskId, f.member).ok).toBe(true);
 		expect(row(f.tripId, taskId).done).toBe(false);
 	});
 
 	it('refuses a non-member, and a target the task is not assigned to', () => {
 		const { f, taskId } = assignedTask('toggle-refuse');
-		expect(tasks.toggleTask(f.tripId, f.outsider, taskId, f.member)).toBe(false);
-		expect(tasks.toggleTask(f.tripId, f.organizer, taskId, f.organizer)).toBe(false);
+		expect(tasks.toggleTask(f.tripId, f.outsider, taskId, f.member).ok).toBe(false);
+		expect(tasks.toggleTask(f.tripId, f.organizer, taskId, f.organizer).ok).toBe(false);
 		expect(row(f.tripId, taskId).doneCount).toBe(0);
 	});
 
@@ -267,7 +267,7 @@ describe('ticking a task box', () => {
 			tasks.updateTask(f.tripId, f.organizer, taskId, 'Book the 9:40 ferry', [
 				f.member,
 				f.organizer
-			])
+			]).ok
 		).toBe(true);
 
 		const r = row(f.tripId, taskId);
@@ -283,9 +283,9 @@ describe('ticking a task box', () => {
 		tasks.toggleTask(f.tripId, f.member, taskId, f.member);
 		expect(row(f.tripId, taskId).doneCount).toBe(1);
 
-		expect(tasks.updateTask(f.tripId, f.organizer, taskId, 'Book the ferry', [f.organizer])).toBe(
-			true
-		);
+		expect(
+			tasks.updateTask(f.tripId, f.organizer, taskId, 'Book the ferry', [f.organizer]).ok
+		).toBe(true);
 		expect(row(f.tripId, taskId).doneCount).toBe(0);
 
 		// Back on the task, and the old tick has not come back with them.
@@ -296,8 +296,8 @@ describe('ticking a task box', () => {
 	it('refuses to edit for a non-member, or a task in another trip', () => {
 		const { f, taskId } = assignedTask('edit-refuse');
 		const other = createTripFixture('edit-refuse-other');
-		expect(tasks.updateTask(f.tripId, f.outsider, taskId, 'Anything', [])).toBe(false);
-		expect(tasks.updateTask(other.tripId, other.organizer, taskId, 'Anything', [])).toBe(false);
+		expect(tasks.updateTask(f.tripId, f.outsider, taskId, 'Anything', []).ok).toBe(false);
+		expect(tasks.updateTask(other.tripId, other.organizer, taskId, 'Anything', []).ok).toBe(false);
 		expect(row(f.tripId, taskId).label).toBe('Book the ferry');
 	});
 
@@ -310,11 +310,11 @@ describe('ticking a task box', () => {
 		const item = () => tasks.listTasks(f.tripId, 'packing').find((t) => t.id === id)!;
 		expect(item().people).toEqual([]);
 
-		expect(tasks.updateTask(f.tripId, f.organizer, id, 'Passport', [f.member])).toBe(true);
+		expect(tasks.updateTask(f.tripId, f.organizer, id, 'Passport', [f.member]).ok).toBe(true);
 		expect(item().people).toEqual([]);
 
 		// With nobody on it, the shared flag is what the box ticks.
-		expect(tasks.toggleTask(f.tripId, f.member, id)).toBe(true);
+		expect(tasks.toggleTask(f.tripId, f.member, id).ok).toBe(true);
 		expect(item().done).toBe(true);
 	});
 });
@@ -400,7 +400,7 @@ describe('member removal cascade', () => {
 		const itemId = createScheduleItem(f);
 		expect(schedule.setAssignees(itemId, f.tripId, f.organizer, [placeholder.id])).toBe(true);
 		const taskId = tasks.addTask(f.tripId, f.organizer, 'prep', 'Pack', [placeholder.id], null)!;
-		expect(tasks.toggleTask(f.tripId, placeholder.id, taskId)).toBe(true);
+		expect(tasks.toggleTask(f.tripId, placeholder.id, taskId).ok).toBe(true);
 		const crew = parties.createParty(f.tripId, f.organizer, 'Crew')!;
 		expect(
 			parties.assignMembership(f.tripId, f.organizer, crew, placeholder.id, '2026-10-01', 60, 120)
@@ -529,7 +529,7 @@ describe('invite consumption relinks placeholder history', () => {
 		const itemId = createScheduleItem(f);
 		expect(schedule.setAssignees(itemId, f.tripId, f.organizer, [id])).toBe(true);
 		const taskId = tasks.addTask(f.tripId, f.organizer, 'prep', 'Pack', [id], null)!;
-		expect(tasks.toggleTask(f.tripId, id, taskId)).toBe(true);
+		expect(tasks.toggleTask(f.tripId, id, taskId).ok).toBe(true);
 		const partyId = parties.createParty(f.tripId, f.organizer, 'Crew')!;
 		expect(
 			parties.assignMembership(f.tripId, f.organizer, partyId, id, '2026-10-01', 60, 120)
@@ -663,8 +663,8 @@ describe('invite consumption relinks placeholder history', () => {
 		const itemId = createScheduleItem(f);
 		expect(schedule.setAssignees(itemId, f.tripId, f.organizer, [real.id, phId])).toBe(true);
 		const taskId = tasks.addTask(f.tripId, f.organizer, 'prep', 'Visa', [real.id, phId], null)!;
-		expect(tasks.toggleTask(f.tripId, real.id, taskId)).toBe(true);
-		expect(tasks.toggleTask(f.tripId, phId, taskId)).toBe(true);
+		expect(tasks.toggleTask(f.tripId, real.id, taskId).ok).toBe(true);
+		expect(tasks.toggleTask(f.tripId, phId, taskId).ok).toBe(true);
 		const partyId = parties.createParty(f.tripId, f.organizer, 'Crew')!;
 		expect(
 			parties.assignMembership(f.tripId, f.organizer, partyId, real.id, '2026-10-01', 60, 120)
@@ -678,7 +678,7 @@ describe('invite consumption relinks placeholder history', () => {
 		const soloItem = createScheduleItem(f);
 		expect(schedule.setAssignees(soloItem, f.tripId, f.organizer, [phId])).toBe(true);
 		const soloTask = tasks.addTask(f.tripId, f.organizer, 'prep', 'Insurance', [phId], null)!;
-		expect(tasks.toggleTask(f.tripId, phId, soloTask)).toBe(true);
+		expect(tasks.toggleTask(f.tripId, phId, soloTask).ok).toBe(true);
 
 		// Distinguishable completion timestamps, so the surviving row can be
 		// attributed rather than guessed at.
@@ -783,9 +783,14 @@ describe('invite consumption relinks placeholder history', () => {
 	});
 });
 
-describe('known balance behavior', () => {
-	it('documents current behavior: balances stop summing to zero after a participant is removed (KNOWN BUG)', () => {
-		const f = createTripFixture('known-bug');
+describe('balances survive a departure', () => {
+	// This used to be a known bug: `balances()` reported only current members, so
+	// a removed participant's stake vanished from the total and the ledger stopped
+	// summing to zero without anybody being told. It is now covered properly in
+	// `concurrency.test.ts`; this case stays as the regression pin for the
+	// simplest shape of it.
+	it('still sums to zero after a participant is removed', () => {
+		const f = createTripFixture('removed-participant');
 		expenses.addExpense(f.tripId, f.organizer, f.member, 'Tickets', 1200, 'USD', [
 			{ userId: f.organizer, weight: 1 },
 			{ userId: f.member, weight: 1 }
@@ -794,9 +799,7 @@ describe('known balance behavior', () => {
 
 		expect(members.removeMember(f.tripId, f.organizer, f.member)).toBe(true);
 
-		// Decision pending: removed registered participants remain in expense rows, but balances()
-		// reports only current members, so the visible result no longer sums to zero.
-		expect(sumBalances(f.tripId)).not.toBe(0);
+		expect(sumBalances(f.tripId)).toBe(0);
 	});
 });
 

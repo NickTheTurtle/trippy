@@ -27,7 +27,8 @@
 		"./seed-athens": "./src/seeds/seed-athens.ts",
 		"./seed-example": "./src/seeds/seed-example.ts",
 		"./tasks": "./src/persistence/tasks.ts",
-		"./trips": "./src/persistence/trips.ts"
+		"./trips": "./src/persistence/trips.ts",
+		"./versioning": "./src/persistence/versioning.ts"
 	},
 	"scripts": {
 		"check": "tsc --noEmit",

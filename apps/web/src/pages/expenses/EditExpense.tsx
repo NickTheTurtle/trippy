@@ -179,7 +179,11 @@ export default function EditExpense({
 					participantIds: chosen.map((m) => m.id),
 					// The Svelte form flattened these into `w:<userId>` fields because
 					// FormData has no nested values. JSON does, so send the map.
-					weights: Object.fromEntries(chosen.map((m) => [m.id, Number(weights[m.id]) || 0]))
+					weights: Object.fromEntries(chosen.map((m) => [m.id, Number(weights[m.id]) || 0])),
+					// The version this form opened on. The server refuses the write if
+					// someone else has saved since, because a split is a set two people
+					// rewrote differently and "both applied" has no meaning for it.
+					version: expense?.version
 				}
 			});
 			onSaved();

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { db } from '../db';
 import { publish } from '../events';
+import { conflict, isStale, missing, written, type WriteResult } from './versioning';
 
 export interface TaskPerson {
 	id: string;
@@ -20,6 +21,8 @@ export interface TaskRow {
 	/** True when the task needs nothing further from anyone. */
 	done: boolean;
 	doneCount: number;
+	/** Bumped by every edit. Send it back with a PUT to detect a lost update. */
+	version: number;
 }
 
 function isMember(tripId: string, userId: string): boolean {
@@ -49,6 +52,7 @@ interface TaskBase {
 	label: string;
 	flag: string | null;
 	done: number;
+	version: number;
 }
 
 /**
@@ -59,7 +63,7 @@ interface TaskBase {
 export function listTasks(tripId: string, kind: string): TaskRow[] {
 	const rows = db
 		.prepare(
-			`SELECT id, kind, label, flag, done FROM trip_tasks
+			`SELECT id, kind, label, flag, done, version FROM trip_tasks
 			 WHERE trip_id = ? AND kind = ? ORDER BY sort, created_at`
 		)
 		.all(tripId, kind) as unknown as TaskBase[];
@@ -101,7 +105,8 @@ export function listTasks(tripId: string, kind: string): TaskRow[] {
 			people: assigned,
 			shared: !!r.done,
 			done: assigned.length > 0 ? doneCount === assigned.length : !!r.done,
-			doneCount
+			doneCount,
+			version: r.version
 		};
 	});
 
@@ -163,32 +168,37 @@ export function addTask(
  *
  * A packing item takes no roster whatever it is sent, so an older client, or
  * one editing an item from before the rule, cannot put one back on.
+ *
+ * `expectedVersion` is the version the editor was looking at. If the row has
+ * moved on since, the write is refused instead of applied: the caller's copy of
+ * the label and the roster is stale, and writing it would put back whatever the
+ * other editor just changed. Omitting it keeps the old unchecked behaviour.
  */
 export function updateTask(
 	tripId: string,
 	actorId: string,
 	taskId: string,
 	label: string,
-	assigneeIds: string[]
-): boolean {
-	if (!isMember(tripId, actorId)) return false;
+	assigneeIds: string[],
+	expectedVersion?: number | null
+): WriteResult {
+	if (!isMember(tripId, actorId)) return missing;
 	const row = db
-		.prepare(`SELECT kind FROM trip_tasks WHERE id = ? AND trip_id = ?`)
-		.get(taskId, tripId) as { kind: string } | undefined;
-	if (!row) return false;
+		.prepare(`SELECT kind, version FROM trip_tasks WHERE id = ? AND trip_id = ?`)
+		.get(taskId, tripId) as { kind: string; version: number } | undefined;
+	if (!row) return missing;
+	if (isStale(expectedVersion, row.version)) return conflict;
 
 	const valid = (row.kind === 'packing' ? [] : assigneeIds).filter((uid) => isMember(tripId, uid));
 	const names = memberNames(valid);
 	const holes = valid.map(() => '?').join(',');
+	const next = row.version + 1;
 
 	db.exec('BEGIN');
 	try {
-		db.prepare(`UPDATE trip_tasks SET label = ?, assignee = ? WHERE id = ? AND trip_id = ?`).run(
-			label,
-			names,
-			taskId,
-			tripId
-		);
+		db.prepare(
+			`UPDATE trip_tasks SET label = ?, assignee = ?, version = ? WHERE id = ? AND trip_id = ?`
+		).run(label, names, next, taskId, tripId);
 		db.prepare(
 			`DELETE FROM task_assignees WHERE task_id = ?${valid.length ? ` AND user_id NOT IN (${holes})` : ''}`
 		).run(taskId, ...valid);
@@ -203,11 +213,11 @@ export function updateTask(
 		throw err;
 	}
 	publish(tripId, 'tasks'); // after COMMIT
-	return true;
+	return written(next);
 }
 
 /**
- * Tick or untick one person's box.
+ * Set one person's box to a given state.
  *
  * `targetId` defaults to the actor, but any member may tick any assignee's box.
  * A trip is planned by people standing next to each other: whoever is holding
@@ -215,20 +225,33 @@ export function updateTask(
  * thing is done just leaves the list wrong. The row records who the task is
  * for, not who pressed the button.
  *
- * A task with no assignees has no per-person rows, so it toggles the shared
- * flag instead.
+ * `desired` is the state to end up in, not an instruction to flip. That
+ * distinction is the whole point of this signature. A flip applies the caller's
+ * *action*; a set applies the caller's *intent*, and only the second one is
+ * safe when the same box can be tapped from four phones. Two members who both
+ * mean "this is done" used to cancel each other out and leave it undone, and so
+ * did one member double-tapping because the first tap looked like it did
+ * nothing. Neither was reported as an error, because from the server's side
+ * both requests succeeded.
+ *
+ * Omitting `desired` still flips, so an older client keeps working.
+ *
+ * A task with no assignees has no per-person rows, so it sets the shared flag
+ * instead. Returns the state the box is now in, which lets a client correct
+ * itself when its optimistic guess disagreed.
  */
 export function toggleTask(
 	tripId: string,
 	actorId: string,
 	taskId: string,
-	targetId?: string
-): boolean {
-	if (!isMember(tripId, actorId)) return false;
+	targetId?: string,
+	desired?: boolean | null
+): { ok: false } | { ok: true; done: boolean } {
+	if (!isMember(tripId, actorId)) return { ok: false };
 	const task = db
 		.prepare(`SELECT id FROM trip_tasks WHERE id = ? AND trip_id = ?`)
 		.get(taskId, tripId) as { id: string } | undefined;
-	if (!task) return false;
+	if (!task) return { ok: false };
 
 	const who = targetId ?? actorId;
 	// Membership of the target is not checked separately: the assignee lookup
@@ -242,29 +265,43 @@ export function toggleTask(
 		// Fall back to the shared flag only when the task is unassigned entirely.
 		// Otherwise this is someone else's task and there is nothing to toggle.
 		const anyAssignee = !!db.prepare(`SELECT 1 FROM task_assignees WHERE task_id = ?`).get(taskId);
-		if (anyAssignee) return false;
-		db.prepare(`UPDATE trip_tasks SET done = 1 - done WHERE id = ? AND trip_id = ?`).run(
-			taskId,
-			tripId
-		);
-		publish(tripId, 'tasks');
-		return true;
+		if (anyAssignee) return { ok: false };
+		const current = !!(
+			db.prepare(`SELECT done FROM trip_tasks WHERE id = ? AND trip_id = ?`).get(taskId, tripId) as
+				{ done: number } | undefined
+		)?.done;
+		const next = desired ?? !current;
+		if (next !== current) {
+			db.prepare(`UPDATE trip_tasks SET done = ? WHERE id = ? AND trip_id = ?`).run(
+				next ? 1 : 0,
+				taskId,
+				tripId
+			);
+			publish(tripId, 'tasks');
+		}
+		return { ok: true, done: next };
 	}
 
 	const already = !!db
 		.prepare(`SELECT 1 FROM task_done WHERE task_id = ? AND user_id = ?`)
 		.get(taskId, who);
-	if (already) {
-		db.prepare(`DELETE FROM task_done WHERE task_id = ? AND user_id = ?`).run(taskId, who);
-	} else {
+	const next = desired ?? !already;
+	// A no-op write still publishes nothing: the second of two identical taps
+	// changes no rows, so sending an invalidation would make every other client
+	// refetch a section that did not move.
+	if (next === already) return { ok: true, done: next };
+
+	if (next) {
 		db.prepare(`INSERT OR IGNORE INTO task_done (task_id, user_id, done_at) VALUES (?, ?, ?)`).run(
 			taskId,
 			who,
 			Date.now()
 		);
+	} else {
+		db.prepare(`DELETE FROM task_done WHERE task_id = ? AND user_id = ?`).run(taskId, who);
 	}
 	publish(tripId, 'tasks');
-	return true;
+	return { ok: true, done: next };
 }
 
 export function removeTask(tripId: string, actorId: string, taskId: string): boolean {

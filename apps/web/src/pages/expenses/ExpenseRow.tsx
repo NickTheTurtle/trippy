@@ -49,6 +49,17 @@ export default function ExpenseRow({
 							{settled ? c.paymentTag : c.incomeTag}
 						</span>
 					)}
+					{/* Somebody on this row has left the trip and their share could not
+					    be re-divided. Marked rather than fixed: only the group can say
+					    who absorbs a stated amount. */}
+					{e.needsReview && (
+						<span
+							className="ml-1 rounded-full border border-warn px-1.5 py-px text-[0.66rem] font-semibold tracking-wider text-warn uppercase"
+							title={c.reviewTitle}
+						>
+							{c.reviewTag}
+						</span>
+					)}
 				</span>
 				<span className="muted truncate text-[0.8rem]">
 					{/* The description of a settlement already names both sides, so

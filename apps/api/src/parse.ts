@@ -53,6 +53,21 @@ export function int(v: unknown): number | null {
 	return n === null || !Number.isInteger(n) ? null : n;
 }
 
+/**
+ * A boolean, or null when absent or not a boolean.
+ *
+ * Null is a third state and callers rely on it: an absent `done` on a task
+ * means "flip whatever is there", which is not the same request as `false`.
+ * Coercing with `!!v` would silently turn the missing field into an untick.
+ * Accepts the strings "true" and "false" so a query parameter can carry one.
+ */
+export function bool(v: unknown): boolean | null {
+	if (typeof v === 'boolean') return v;
+	if (v === 'true') return true;
+	if (v === 'false') return false;
+	return null;
+}
+
 /** An ISO calendar day (YYYY-MM-DD) that is a real date, or null. */
 export function isoDay(v: unknown): string | null {
 	const s = str(v);
@@ -87,6 +102,8 @@ export function strList(v: unknown): string[] {
 }
 
 /** Reads a JSON body, returning an empty object rather than throwing on bad input. */
-export async function body(c: { req: { json: () => Promise<unknown> } }): Promise<Record<string, unknown>> {
+export async function body(c: {
+	req: { json: () => Promise<unknown> };
+}): Promise<Record<string, unknown>> {
 	return record(await c.req.json().catch(() => null));
 }

@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { requireMember } from '../middleware';
-import { body, num, optStr, str, strList } from '../parse';
+import { body, bool, int, num, optStr, str, strList } from '../parse';
 import { fail, okOr } from '../respond';
 import type { Env } from '../types';
 import { addTask, listTasks, removeTask, toggleTask, updateTask } from '@trippy/server/tasks';
@@ -43,37 +43,51 @@ pretrip.post('/tasks', async (c) => {
 	return c.json({ id }, 201);
 });
 
-/** Rewrites the wording and the roster together; the ticks that survive stay. */
+/**
+ * Rewrites the wording and the roster together; the ticks that survive stay.
+ *
+ * `version` is what the editor had on screen. A stale one means somebody else
+ * saved first, and is answered 409 rather than being applied over their work.
+ */
 pretrip.put('/tasks/:taskId', async (c) => {
 	const b = await body(c);
 	const label = str(b.label);
 	if (!label) return fail(c, 400, 'Describe the task.');
-	return okOr(
-		c,
-		updateTask(
-			c.get('trip').id,
-			c.get('user').id,
-			c.req.param('taskId'),
-			label,
-			strList(b.assignees)
-		),
-		404,
-		'Could not save that task.'
+	const result = updateTask(
+		c.get('trip').id,
+		c.get('user').id,
+		c.req.param('taskId'),
+		label,
+		strList(b.assignees),
+		int(b.version)
 	);
+	if (!result.ok) {
+		return result.reason === 'conflict'
+			? fail(c, 409, 'Someone else changed this task. Reload to see their version.')
+			: fail(c, 404, 'Could not save that task.');
+	}
+	return c.json({ ok: true, version: result.version });
 });
 
 /**
- * Ticks one person's box. `userId` is optional and defaults to the caller; any
- * member may tick any assignee's box.
+ * Sets one person's box.
+ *
+ * `userId` is optional and defaults to the caller; any member may tick any
+ * assignee's box. `done` is the state to end up in. Sending it makes the call
+ * idempotent, which is what stops two people (or one person tapping twice)
+ * cancelling each other out; omitting it flips, for older clients.
  */
 pretrip.post('/tasks/:taskId/toggle', async (c) => {
-	const userId = optStr((await body(c)).userId) ?? undefined;
-	return okOr(
-		c,
-		toggleTask(c.get('trip').id, c.get('user').id, c.req.param('taskId'), userId),
-		404,
-		'Could not tick that box.'
+	const b = await body(c);
+	const result = toggleTask(
+		c.get('trip').id,
+		c.get('user').id,
+		c.req.param('taskId'),
+		optStr(b.userId) ?? undefined,
+		bool(b.done)
 	);
+	if (!result.ok) return fail(c, 404, 'Could not tick that box.');
+	return c.json({ ok: true, done: result.done });
 });
 
 pretrip.delete('/tasks/:taskId', (c) =>

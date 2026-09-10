@@ -315,6 +315,7 @@ export const copy = {
 		perPerson: 'Per person',
 		allEven: 'Everyone is even.',
 		youTag: 'you',
+		formerTag: 'left the trip',
 		nothingToSettle: 'Nothing to settle.',
 		deletePaymentTitle: (payment: string) => `Delete ${payment}?`,
 		deleteExpenseTitle: (expense: string) => `Delete ${expense}?`,
@@ -331,7 +332,9 @@ export const copy = {
 				return `split ${people}`;
 			},
 			deleteLabel: (description: string) => `Delete ${description}`,
-			editLabel: (description: string) => `Edit ${description}`
+			editLabel: (description: string) => `Edit ${description}`,
+			reviewTag: 'check',
+			reviewTitle: 'Someone on this expense has left the trip. Edit it to reassign their share.'
 		},
 		settleRow: {
 			pays: 'pays',

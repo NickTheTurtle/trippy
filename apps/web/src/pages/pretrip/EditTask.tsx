@@ -49,7 +49,14 @@ export default function EditTask({
 				editing ? `/trips/${tripId}/pretrip/tasks/${draft.id}` : `/trips/${tripId}/pretrip/tasks`,
 				{
 					method: editing ? 'PUT' : 'POST',
-					body: { kind: draft.kind, label, assignees: [...assignees] }
+					body: {
+						kind: draft.kind,
+						label,
+						assignees: [...assignees],
+						// The version this dialog opened on, so a save that would
+						// silently overwrite somebody else's is refused instead.
+						version: draft.version ?? undefined
+					}
 				}
 			);
 			onSaved();

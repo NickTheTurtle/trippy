@@ -544,6 +544,51 @@ if (poiKindIsNew) {
 }
 
 /**
+ * Optimistic concurrency for the two records several people edit at once.
+ *
+ * A task and an expense are both replaced wholesale by a PUT built from
+ * whatever the client last read. With more than one person on a trip that is a
+ * lost update waiting to happen: two members open the same task, one retitles
+ * it, the other adds themselves to it, and whichever request lands second
+ * silently reinstates the first one's old field. Both got a 200.
+ *
+ * `version` starts at 1 and is bumped by every successful write. A client sends
+ * back the version it read, and a write whose version no longer matches is
+ * refused rather than applied. The alternative, merging per column, cannot work
+ * here: the roster of a task and the split of an expense are sets, and "both
+ * edits applied" is not defined for a set that two people rewrote differently.
+ * Refusing and telling the loser what happened is the honest outcome.
+ */
+addColumn('trip_tasks', 'version', 'INTEGER NOT NULL DEFAULT 1');
+addColumn('expenses', 'version', 'INTEGER NOT NULL DEFAULT 1');
+
+/**
+ * Idempotency for recording a payment.
+ *
+ * "Mark paid" used to write a row unconditionally, so pressing it twice, which
+ * is what people do when the first press looks like it did nothing, recorded
+ * the payment twice and inverted the debt it was clearing. The second press was
+ * indistinguishable from a genuine second payment of the same amount, because
+ * nothing about the request said which suggested transfer it was answering.
+ *
+ * The server now issues a token with each suggested transfer, derived from the
+ * ledger state that produced it, and the client sends it back. Two presses of
+ * the same suggestion carry the same token and collapse into one row; a real
+ * second payment is quoted against a ledger that now includes the first, so it
+ * gets a different token and is recorded normally.
+ *
+ * Unique per trip rather than globally: the token is only meaningful inside the
+ * trip whose ledger produced it. NULL for every ordinary expense, and SQLite
+ * treats NULLs as distinct in a unique index, so the constraint applies only to
+ * the settlements that carry one.
+ */
+addColumn('expenses', 'settle_token', 'TEXT');
+db.exec(
+	`CREATE UNIQUE INDEX IF NOT EXISTS idx_expenses_settle_token
+	   ON expenses(trip_id, settle_token) WHERE settle_token IS NOT NULL`
+);
+
+/**
  * Provider caches, on disk rather than in memory.
  *
  * Every provider call is billed, and the in-process cache these back is lost on

@@ -22,6 +22,8 @@ type Task = {
 	shared: boolean;
 	done: boolean;
 	doneCount: number;
+	/** Sent back on edit so a save over somebody else's is refused. */
+	version: number;
 };
 type CostPerson = { id: string; name: string };
 type CostItem = {
@@ -98,11 +100,14 @@ function Tasks({
 	const [editing, setEditing] = useState<Task | null>(null);
 	const [adding, setAdding] = useState(false);
 
+	// The box sends the state it wants rather than "flip", so two people ticking
+	// the same row agree instead of cancelling each other out, and a double tap
+	// on a slow connection is a no-op rather than an untick.
 	const toggle = useMutation(
-		(taskId: string, userId?: string) =>
+		(taskId: string, userId: string | undefined, done: boolean) =>
 			api(`/trips/${tripId}/pretrip/tasks/${taskId}/toggle`, {
 				method: 'POST',
-				body: userId ? { userId } : {}
+				body: userId ? { userId, done } : { done }
 			}),
 		{ fallback: copy.preparation.saveFallback, onSuccess: reload }
 	);
@@ -137,7 +142,7 @@ function Tasks({
 								key={t.id}
 								task={t}
 								me={data.me}
-								onToggle={(userId) => void toggle.run(t.id, userId)}
+								onToggle={(userId, done) => void toggle.run(t.id, userId, done)}
 								onEdit={() => setEditing(t)}
 							/>
 						))}
@@ -158,7 +163,7 @@ function Tasks({
 								key={t.id}
 								task={t}
 								me={data.me}
-								onToggle={(userId) => void toggle.run(t.id, userId)}
+								onToggle={(userId, done) => void toggle.run(t.id, userId, done)}
 								onEdit={() => setEditing(t)}
 							/>
 						))}
@@ -194,7 +199,7 @@ function TaskRow({
 }: {
 	task: Task;
 	me: string;
-	onToggle: (userId?: string) => void;
+	onToggle: (userId: string | undefined, done: boolean) => void;
 	onEdit: () => void;
 }) {
 	const mine = task.people.find((p) => p.id === me);
@@ -205,7 +210,7 @@ function TaskRow({
 				<CheckBox
 					checked={mine ? mine.done : task.done}
 					label={copy.preparation.taskList.sharedBoxLabel(task.done, task.label)}
-					onPress={() => onToggle(mine ? mine.id : undefined)}
+					onPress={() => onToggle(mine ? mine.id : undefined, !(mine ? mine.done : task.done))}
 				/>
 				<Pressable onPress={onEdit} style={{ flex: 1 }} hitSlop={6}>
 					<Text
@@ -236,7 +241,7 @@ function TaskRow({
 					}}
 				>
 					{task.people.map((p) => (
-						<Pressable key={p.id} onPress={() => onToggle(p.id)} hitSlop={4}>
+						<Pressable key={p.id} onPress={() => onToggle(p.id, !p.done)} hitSlop={4}>
 							<Text
 								style={{
 									...type.faint,

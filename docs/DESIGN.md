@@ -1420,6 +1420,71 @@ this feature that people object to.
 `GET`, because a member on a laptop in the hotel still wants to know where the
 others are. It never writes.
 
+### 5.0.14 What two people doing the same thing at once does
+
+A group trip is planned by several people at once, often on the same screen in
+the same room. Everything below was reproduced against a running server before
+it was fixed, and is pinned in `packages/server/test/concurrency.test.ts`.
+
+**None of it was SQLite.** The API is one process holding one synchronous
+connection, so writes cannot tear or interleave mid-statement. Every defect
+found was *logical*: two well-formed requests, each correct alone and wrong
+together. Most of them reproduce by calling the functions in sequence, which
+means concurrency did not cause them, it only made them easy to hit.
+
+**Intent, not action.** Ticking a box used to send "flip", which applies the
+caller's *action* rather than their *intent*. Two people ticking the same box
+left it unticked, and both were told it worked. A double tap did the same thing.
+`toggleTask` now takes the state the caller wants and writes that, skipping both
+the write and the event when it already matches. Omitting the state still flips,
+so a client that has not been updated keeps working.
+
+**Refuse a stale save; do not merge it.** `PUT` replaced the whole row from the
+client's copy, so whoever saved second silently erased the first edit and got a
+200 for it. Tasks and expenses now carry a `version`, and a save quoting an old
+one is refused with 409. Merging was rejected: the roster of a task and the
+split of an expense are *sets*, and "both edits applied" is undefined for a set
+that two people rewrote differently. `isStale` treats a missing version as "not
+tracking", so the protection is opt-in and no client can be locked out by
+sending nothing.
+
+**The settlement token is derived from the balances, not from the transfer.**
+Pressing "mark paid" twice wrote two payments and inverted the debt: `-50` and
+`+50` became `+50` and `-50`, and the app then suggested paying the money back.
+A key over `(from, to, amount)` cannot fix this, because it cannot tell a
+double press from two genuine identical payments. The token is instead a hash of
+the whole balance vector plus the transfer, so two people looking at the same
+screen derive the same one and their presses collapse; once a payment lands the
+balances move, so a later identical payment carries a different token and is
+recorded normally.
+
+**Money does not leave with the member.** Removing somebody deleted only their
+`memberships` row, and `balances()` iterated current members, so their share
+dropped out of the total and the ledger quietly stopped summing to zero. What
+should happen depends on how the expense was split, because only some modes
+carry enough information to answer:
+
+- `even` and `shares` are *proportional*: what each person owes is derived from
+  the weights of whoever is on the expense. The leaver's row is dropped and the
+  same total re-divides across the people who remain.
+- `exact` is *stated*: each person owes a number a human typed. There is no
+  honest way to reassign 40.00 of a 100.00 dinner without someone deciding who
+  absorbs it, so the expense is left alone and marked for review. Guessing here
+  moves real money between real people.
+
+An expense the leaver *paid* is untouched whatever its mode: the debt is owed to
+them, and only the group can write it off.
+
+`needsReview` is derived per request rather than stored, so it clears by itself
+when the expense is edited or the person is re-invited; a stored flag would go
+stale. Departed members with a non-zero stake are still shown in the balances,
+tagged as having left, because a row nobody can explain is a better failure than
+a total that is quietly wrong.
+
+**What already held up, and stays tested:** the SSE bus delivers correctly under
+concurrent writes, the duplicate-city and duplicate-invite guards hold, and a
+write into a trip being deleted returns a clean 404.
+
 ## Shared UI conventions
 
 These exist so five pages don't each invent their own version. Reach for them

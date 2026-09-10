@@ -22,14 +22,27 @@ export type Expense = {
 	shares: Record<string, number>;
 	/** The stored stakes, as typed, so the edit dialog can prefill them. */
 	parts: { userId: string; weight: number }[];
+	/** Bumped on every save; sent back on edit so a stale write is refused. */
+	version: number;
+	/**
+	 * The payer or one of the participants is no longer on the trip, and their
+	 * stake could not be re-divided automatically. Derived per request, so it
+	 * clears by itself once the expense is edited or the person re-invited.
+	 */
+	needsReview: boolean;
 };
 export type ExpensesData = {
 	currency: string;
 	currencies: string[];
 	members: Member[];
 	expenses: Expense[];
-	/** `netCents` is the exact figure; the major-unit `net` beside it is a shim. */
-	balances: { id: string; name: string; netCents: number }[];
+	/**
+	 * `netCents` is the exact figure; the major-unit `net` beside it is a shim.
+	 * `former` marks somebody who has left the trip but still has money in it:
+	 * shown rather than dropped, because a total that quietly stops summing to
+	 * zero is the worse failure.
+	 */
+	balances: { id: string; name: string; netCents: number; former: boolean }[];
 	settlement: Transfer[];
 	me: string;
 };
@@ -39,4 +52,6 @@ export type Transfer = {
 	from: string;
 	to: string;
 	amountCents: number;
+	/** Idempotency key for `POST /expenses/settle`; see `settlementToken`. */
+	token: string;
 };

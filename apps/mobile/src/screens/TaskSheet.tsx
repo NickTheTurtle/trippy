@@ -9,7 +9,7 @@ import { Sheet } from '../ui/Sheet';
 import { space, type } from '../theme';
 
 type Member = { id: string; name: string };
-type Task = { id: string; label: string; people: { id: string; name: string }[] };
+type Task = { id: string; label: string; version: number; people: { id: string; name: string }[] };
 
 /**
  * Adding or editing a task or a packing item.
@@ -49,7 +49,14 @@ export function TaskSheet({
 
 	const save = useMutation(
 		async () => {
-			const body = { label, kind, assignees: kind === 'packing' ? [] : assignees };
+			const body = {
+				label,
+				kind,
+				assignees: kind === 'packing' ? [] : assignees,
+				// The version this sheet opened on, so a save that would silently
+				// overwrite somebody else's is refused instead.
+				version: task?.version
+			};
 			if (task) {
 				await api(`/trips/${tripId}/pretrip/tasks/${task.id}`, { method: 'PUT', body });
 			} else {

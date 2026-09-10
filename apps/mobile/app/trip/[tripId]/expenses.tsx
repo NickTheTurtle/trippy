@@ -32,11 +32,14 @@ export default function Expenses() {
 		[data]
 	);
 
+	// The token carried on the suggestion makes this idempotent: a second press,
+	// or a second person pressing at the same moment, collapses into one payment
+	// instead of recording it twice and inverting the debt.
 	const settle = useMutation(
-		(fromId: string, toId: string, cents: number) =>
+		(fromId: string, toId: string, cents: number, token: string) =>
 			api(`/trips/${tripId}/expenses/settle`, {
 				method: 'POST',
-				body: { fromId, toId, amountCents: cents }
+				body: { fromId, toId, amountCents: cents, token }
 			}),
 		{ fallback: copy.expenses.settleRow.fallback, onSuccess: reload }
 	);
@@ -172,7 +175,7 @@ export default function Expenses() {
 											s.to,
 											formatMoney(s.amountCents, data.currency)
 										)}
-										onPress={() => void settle.run(s.fromId, s.toId, s.amountCents)}
+										onPress={() => void settle.run(s.fromId, s.toId, s.amountCents, s.token)}
 										hitSlop={6}
 									>
 										<Text style={{ ...type.small, color: color.accent, fontWeight: '600' }}>
