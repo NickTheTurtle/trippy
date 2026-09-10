@@ -4,7 +4,7 @@ import { api } from '../lib/api';
 import { useApi } from '../hooks/useApi';
 import { useTripEvents, TripEventsProvider } from '../hooks/useTripEvents';
 import { TABS } from '../nav';
-import Itinerary from '../components/Itinerary';
+import AddCityDialog from '../components/AddCityDialog';
 import TripFormDialog from '../components/TripFormDialog';
 import LiveOff from '../components/LiveOff';
 
@@ -40,15 +40,15 @@ type Ctx = {
 	trip: Trip;
 	reloadTrip: () => void;
 	/**
-	 * Opens the itinerary dialog. The header no longer offers this: editing the
-	 * itinerary is Discover's job, since that is the page cities are the axis of.
-	 * The dialog still lives here because it edits the trip the shell owns and
-	 * reloading it is the shell's call, but Discover is the only way in.
+	 * Opens the add-city dialog. The header does not offer this: cities are the
+	 * axis of Discover, so that is the page it is reached from. The dialog still
+	 * lives here because it changes the trip the shell owns and reloading it is
+	 * the shell's call, but Discover is the only way in.
 	 *
-	 * The optional callback fires after each successful change, for a section
+	 * The optional callback fires after each successful add, for a section
 	 * holding its own copy of the cities that has to refetch alongside the trip.
 	 */
-	editItinerary: (onChanged?: () => void) => void;
+	addCity: (onChanged?: () => void) => void;
 };
 
 /** Lets a section page read the trip the shell already loaded, rather than refetch it. */
@@ -60,9 +60,9 @@ export default function TripShell() {
 	const { tripId } = useParams();
 	const { data, error, reload } = useApi<{ trip: Trip }>(`/trips/${tripId}`);
 	const [showEdit, setShowEdit] = useState(false);
-	const [showItinerary, setShowItinerary] = useState(false);
-	/** Set by whoever opened the itinerary dialog; see `Ctx.editItinerary`. */
-	const onItineraryChanged = useRef<(() => void) | undefined>(undefined);
+	const [showAddCity, setShowAddCity] = useState(false);
+	/** Set by whoever opened the add-city dialog; see `Ctx.addCity`. */
+	const onCityAdded = useRef<(() => void) | undefined>(undefined);
 
 	// One live stream per open trip, owned here rather than by each section, so
 	// moving between the tabs of a trip does not churn connections and switching
@@ -150,12 +150,12 @@ export default function TripShell() {
 			</div>
 
 			{showEdit && <EditTrip trip={trip} onClose={() => setShowEdit(false)} onSaved={reload} />}
-			{showItinerary && (
-				<Itinerary
+			{showAddCity && (
+				<AddCityDialog
 					trip={trip}
 					onClose={() => {
-						setShowItinerary(false);
-						onItineraryChanged.current = undefined;
+						setShowAddCity(false);
+						onCityAdded.current = undefined;
 					}}
 					onChanged={() => {
 						reload();
@@ -164,7 +164,7 @@ export default function TripShell() {
 						// this must not be the only thing that refreshes it: the stream
 						// drops, and an added city that appears in no list until a manual
 						// reload reads as a failed add.
-						onItineraryChanged.current?.();
+						onCityAdded.current?.();
 					}}
 				/>
 			)}
@@ -176,9 +176,9 @@ export default function TripShell() {
 						{
 							trip,
 							reloadTrip: reload,
-							editItinerary: (onChanged) => {
-								onItineraryChanged.current = onChanged;
-								setShowItinerary(true);
+							addCity: (onChanged) => {
+								onCityAdded.current = onChanged;
+								setShowAddCity(true);
 							}
 						} satisfies Ctx
 					}

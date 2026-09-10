@@ -22,7 +22,7 @@ export default function NoCities({
 	onAddCity
 }: {
 	isOrganizer: boolean;
-	/** Opens the itinerary dialog, the one place cities are added. */
+	/** Opens the add-city dialog, the one place cities are added. */
 	onAddCity: () => void;
 }) {
 	return (

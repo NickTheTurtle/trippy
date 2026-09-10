@@ -33,11 +33,10 @@ import { lockScroll } from '../../lib/scroll-lock';
  * fields, so it keeps the native behaviour rather than opening with "Delete"
  * focused and one stray Enter away from happening.
  *
- * A dialog can opt out entirely with `autoFocusField={false}`, and one does:
- * the itinerary editor is a list of rows that already exist, so its first field
- * is a saved arrival date. Landing there means a stray keystroke edits real
- * data, which is a bad trade for saving one Tab. It keeps the native landing
- * spot, the close button.
+ * Every dialog in the app wants this, so there is no opt-out. There used to be
+ * one, for a dialog whose first field was a saved arrival date and where a
+ * stray keystroke would have edited real data. That dialog is now the add-city
+ * search, whose one field is blank and is the whole reason it opened.
  */
 function focusFirstField(dialog: HTMLDialogElement): void {
 	const explicit = dialog.querySelector<HTMLElement>('[autofocus], [data-autofocus]');
@@ -57,7 +56,6 @@ export default function Modal({
 	subtitle,
 	swatch,
 	size = 'md',
-	autoFocusField = true,
 	onClose,
 	children
 }: {
@@ -68,12 +66,6 @@ export default function Modal({
 	/** Small swatch before the title, for colour-coded things like tracks. */
 	swatch?: string;
 	size?: 'sm' | 'md' | 'lg';
-	/**
-	 * Off for a dialog that edits rows which already exist, where "the first
-	 * field" is a saved value rather than a blank one. See the comment on
-	 * `focusFirstField`.
-	 */
-	autoFocusField?: boolean;
 	onClose: () => void;
 	children: ReactNode;
 }) {
@@ -90,9 +82,9 @@ export default function Modal({
 		if (!d) return;
 		if (open && !d.open) {
 			d.showModal();
-			if (autoFocusField) focusFirstField(d);
+			focusFirstField(d);
 		} else if (!open && d.open) d.close();
-	}, [open, autoFocusField]);
+	}, [open]);
 
 	// The page behind must not scroll with the dialog; without this you get the
 	// dialog's scrollbar and the document's side by side.

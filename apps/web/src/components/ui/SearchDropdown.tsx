@@ -5,7 +5,7 @@ import { FieldShell } from './Field';
 /**
  * A labelled search box whose results hang off it as an overlay.
  *
- * Both searches in the app (the city geocoder in the itinerary editor and the
+ * Both searches in the app (the city geocoder in the add-city dialog and the
  * place/stay lookup in Discover's add popup) used to render their results as an
  * ordinary list in flow under the input, so every keystroke that returned hits
  * shoved the rest of the form down the dialog and the row you were reaching for

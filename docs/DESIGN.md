@@ -727,8 +727,8 @@ and Stays while a dropdown in the header chose the city, which put the rarely
 changed choice in the persistent control and the frequently changed one in a
 popup. Cities are what everything on the page is scoped to, so they are now the
 standing list, sorted alphabetically because this is a lookup ("where is
-Kyoto?") and the itinerary's own order is already shown in the trip header, in
-the itinerary editor and on the calendar. The header dropdown now chooses the
+Kyoto?") and the itinerary's own order is what the calendar reads from. The
+header dropdown now chooses the
 type: Attractions, Food & Drink, Stays. There is no "All", because the first two
 filter `pois.kind` while Stays swaps the list for `lodging_options` and a
 different card (see 2.3).
@@ -879,7 +879,7 @@ whatever went wrong.
 state seeded from props, so a refetch after saving would otherwise leave stale
 values in the boxes. Keying it remounts the form against the new server truth.
 
-### 5.0.8 The itinerary editor
+### 5.0.8 Adding and removing cities
 
 **Every section is scoped to a city, and until this existed nothing could create
 one.** `createTrip` inserts a trip, a membership and the default Everyone party,
@@ -888,12 +888,21 @@ collecting places." with no control anywhere in the app that added one. The thre
 server functions (`addCity`, `updateCity`, `removeCity`) had been written and
 were fully unreachable: no route, no UI. The app only worked on seeded data.
 
-**Cities are edited from the chain they are shown in, not from the Edit trip
-dialog.** The Edit trip form saves on submit; these controls take effect
+**Cities are added from the page they are the axis of, not from the Edit trip
+dialog.** The Edit trip form saves on submit; adding a city takes effect
 immediately. Sharing a dialog between the two would leave the user unable to tell
 which half of it was already saved, and Cancel would mean two different things in
-one box. The chain in the trip header gains "Edit itinerary" for an organizer, or
-a primary "Add a city" when there are none.
+one box. So the entry points are both on Discover: the city sidebar's "Add city"
+button, and the empty state's call to action when there are none.
+
+**The dialog adds; the sidebar deletes.** `AddCityDialog` used to list every city
+with its own Remove button, which was the sidebar's job done a second time: two
+views of one list, guaranteed to disagree the moment either changed. The dialog
+is now a single search field, and the sidebar is the one place a city is removed.
+The sidebar's delete button is overlaid on its row rather than laid out beside
+it, so a city button is exactly as wide as the Add city button under it; the
+trailing space is reserved whether or not the button is showing, so revealing it
+on hover never reflows the label.
 
 **Discover's empty state opens the same dialog.** That page is where a new
 organizer actually lands, and its copy pointed at something the app could not do.

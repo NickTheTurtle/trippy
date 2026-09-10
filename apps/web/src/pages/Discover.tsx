@@ -31,7 +31,7 @@ import { VIEW_LABEL, VIEW_OPTIONS, isStayView, type DiscoverView } from './disco
  * and the city sidebar each live in `pages/discover/`.
  */
 export default function Discover() {
-	const { trip, editItinerary, reloadTrip } = useTrip();
+	const { trip, addCity, reloadTrip } = useTrip();
 	const base = `/trips/${trip.id}/discover`;
 	const { data, error, reload } = useApi<DiscoverData>(base);
 	// Places, stays and their votes, plus the cities the sidebar lists.
@@ -94,9 +94,7 @@ export default function Discover() {
 		// A whole blank page, so it gets a panel rather than the in-card
 		// `EmptyState` line, which was written to sit inside a box and read as a
 		// stray sentence when it was the only thing here.
-		return (
-			<NoCities isOrganizer={trip.role === 'organizer'} onAddCity={() => editItinerary(reload)} />
-		);
+		return <NoCities isOrganizer={trip.role === 'organizer'} onAddCity={() => addCity(reload)} />;
 	}
 
 	const stay = isStayView(view);
@@ -149,7 +147,7 @@ export default function Discover() {
 				value={current.id}
 				onChange={setActiveCity}
 				isOrganizer={data.isOrganizer}
-				onAddCity={() => editItinerary(reload)}
+				onAddCity={() => addCity(reload)}
 				onChanged={() => {
 					// The itinerary lives on the trip and the pools live here, so both
 					// have to come back after a city is added or deleted.

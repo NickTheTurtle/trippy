@@ -53,7 +53,7 @@ function detail(...parts: (string | null | undefined)[]): string {
  * form saves on submit; putting both in one place makes it impossible to tell
  * which is which.
  */
-export default function Itinerary({
+export default function AddCityDialog({
 	trip,
 	onClose,
 	onChanged
@@ -77,15 +77,7 @@ export default function Itinerary({
 	}
 
 	return (
-		<Modal
-			open
-			title="Add city"
-			subtitle={trip.name}
-			// Focus stays on the close button so opening this never sends a stray
-			// keystroke into the city search box.
-			autoFocusField={false}
-			onClose={onClose}
-		>
+		<Modal open title="Add city" subtitle={trip.name} onClose={onClose}>
 			<div className="mbody flex flex-col gap-4">
 				{error && (
 					<p role="alert" className="m-0 text-[0.88rem] text-warn">
@@ -93,7 +85,7 @@ export default function Itinerary({
 					</p>
 				)}
 
-				<AddCity
+				<CitySearch
 					onAdd={(v) => call(`/trips/${trip.id}/cities`, 'POST', v, 'Could not add that city.')}
 				/>
 			</div>
@@ -113,7 +105,7 @@ export default function Itinerary({
  * the coordinates and the IANA zone with the name, so the organizer never types
  * a time zone.
  */
-function AddCity({ onAdd }: { onAdd: (v: Record<string, unknown>) => Promise<boolean> }) {
+function CitySearch({ onAdd }: { onAdd: (v: Record<string, unknown>) => Promise<boolean> }) {
 	const [query, setQuery] = useState('');
 	const [hits, setHits] = useState<Suggestion[]>([]);
 	const [searching, setSearching] = useState(false);
