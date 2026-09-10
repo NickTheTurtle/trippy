@@ -4,7 +4,7 @@ import ViewAsBar, { shareLabel } from '../../components/ui/ViewAsBar';
 import { IconButton } from '../../components/ui/buttons';
 import { ChevronIcon, PencilIcon, TrashIcon } from '../../components/ui/icons';
 import type { CostItem } from './types';
-import { amountFor, isFor, typedAmountFor } from './shares';
+import { amountFor, isFor } from './shares';
 import { formatMoney } from '../../lib/format';
 import { cap } from './labels';
 import { copy } from '../../copy';
@@ -64,10 +64,9 @@ export default function CostList({
 		});
 
 	const shown = viewAs ? items.filter((it) => isFor(it, viewAs)) : items;
+	/** Home-currency cents, which is what every subtotal is built from. */
 	const amount = (it: CostItem) => amountFor(it, viewAs, memberCount);
-	/** True once a figure has been through a rate, so it can be marked "≈". */
 	const converted = (it: CostItem) => !!it.currency && it.currency !== home;
-	const anyConverted = (rows: CostItem[]) => rows.some(converted);
 	return (
 		<div className="card overflow-hidden p-0">
 			{items.length > 0 && (
@@ -87,11 +86,11 @@ export default function CostList({
 							{/* An empty category has nothing to disclose, so it is a line of
 							    text rather than a control that opens onto nothing. */}
 							{rows.length === 0 ? (
-								<div className="flex items-center gap-2 px-4 py-2.5 text-[0.92rem] text-ink-faint">
+								<div className="flex items-center gap-3 px-5 py-2.5 text-[0.92rem] text-ink-faint">
 									<span className="size-3.5 flex-none" />
 									<span>{cap(cat)}</span>
-									<span className="ml-auto w-3 flex-none" />
-									<span className="tabular-nums">{fmt(0)}</span>
+									<span className="ml-auto tabular-nums">{fmt(0)}</span>
+									<ActionGutter />
 								</div>
 							) : (
 								<button
@@ -99,7 +98,7 @@ export default function CostList({
 									onClick={() => toggle(cat)}
 									aria-expanded={open}
 									aria-label={c.sectionLabel(cap(cat))}
-									className="flex w-full cursor-pointer items-center gap-2 border-0 bg-transparent px-4 py-2.5 text-left text-[0.92rem] hover:bg-surface-2"
+									className="flex w-full cursor-pointer items-center gap-3 border-0 bg-transparent px-5 py-2.5 text-left text-[0.92rem] hover:bg-surface-2"
 								>
 									<span
 										className={`flex-none text-ink-faint transition-transform ${open ? 'rotate-90' : ''}`}
@@ -107,45 +106,47 @@ export default function CostList({
 										<ChevronIcon />
 									</span>
 									<span className="font-medium">{cap(cat)}</span>
-									<span className="ml-auto w-3 flex-none text-center text-[0.78rem] text-ink-faint">
-										{anyConverted(rows) ? '≈' : ''}
-									</span>
-									<span className="font-semibold tabular-nums">{fmt(subtotal)}</span>
+									<span className="ml-auto font-semibold tabular-nums">{fmt(subtotal)}</span>
+									<ActionGutter />
 								</button>
 							)}
 
 							{open && (
-								<ul className="m-0 list-none p-0">
+								<ul className="m-0 flex list-none flex-col gap-3 border-t border-line px-5 py-4">
 									{rows.map((it) => (
-										<li
-											key={it.id}
-											className="group flex min-w-0 items-center gap-3 border-t border-line px-4 py-2 pl-10 hover:bg-surface-2"
-										>
-											<span className="min-w-0 flex-1 truncate text-[0.92rem]" title={it.label}>
-												{it.label}
-											</span>
-											<span
-												className="muted max-w-[34%] flex-none truncate text-[0.8rem]"
-												title={who(it)}
-											>
-												{who(it)}
-											</span>
-											{/* Typed in another currency: what was actually written down
-											    sits beside the converted figure rather than under it, so a
-											    foreign line is the same height as every other line. The "≈"
-											    gets a slot of its own, held open on every row, so the
-											    column that has to add up stays a clean stack of numbers. */}
-											<span className="muted flex-none text-[0.78rem] tabular-nums">
-												{converted(it) &&
-													formatMoney(typedAmountFor(it, viewAs, memberCount), it.currency, {
-														whole: true
-													})}
-											</span>
-											<span className="w-3 flex-none text-center text-[0.78rem] text-ink-faint">
-												{converted(it) ? '≈' : ''}
-											</span>
-											<span className="w-24 flex-none text-right font-semibold tabular-nums">
-												{fmt(amount(it))}
+										<li key={it.id} className="group flex items-center gap-3">
+											<div className="flex min-w-0 flex-col">
+												<span className="truncate text-[0.93rem] font-medium" title={it.label}>
+													{it.label}
+												</span>
+												<span className="muted truncate text-[0.8rem]" title={who(it)}>
+													{who(it)}
+												</span>
+											</div>
+											{/* The ledger's amount block, unchanged: the figure that answers
+											    the question the table is being read with takes the headline,
+											    and the one it was derived from goes underneath. The row is
+											    two lines tall either way, because the label already carries
+											    a second line, so a converted line is no taller than any
+											    other. */}
+											<span className="ml-auto flex flex-col items-end text-right font-semibold">
+												{viewAs ? (
+													<>
+														{fmt(amount(it))}
+														<span className="muted text-[0.75rem] font-medium">
+															{c.ofTotal(fmt(it.homeCents))}
+														</span>
+													</>
+												) : (
+													<>
+														{formatMoney(it.amountCents, it.currency || home, { whole: true })}
+														{converted(it) && (
+															<span className="muted text-[0.75rem] font-medium">
+																≈ {fmt(it.homeCents)}
+															</span>
+														)}
+													</>
+												)}
 											</span>
 											<span className="flex flex-none gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
 												<IconButton label={c.editLabel(it.label)} onClick={() => onEdit(it)}>
@@ -168,16 +169,26 @@ export default function CostList({
 				})
 			)}
 
-			<div className="flex items-center gap-4 border-t border-line bg-surface-2 px-4 py-2.5 text-[0.92rem] font-medium">
-				<span className="flex-1">{viewAs ? shareLabel(members, viewAs, me) : c.total}</span>
-				<span className="w-3 flex-none text-center text-[0.78rem] text-ink-faint">
-					{anyConverted(shown) ? '≈' : ''}
-				</span>
-				<span className="font-semibold tabular-nums">{fmt(total)}</span>
+			<div className="flex items-center gap-3 border-t border-line bg-surface-2 px-5 py-2.5 text-[0.92rem] font-medium">
+				<span>{viewAs ? shareLabel(members, viewAs, me) : c.total}</span>
+				<span className="ml-auto font-semibold tabular-nums">{fmt(total)}</span>
+				<ActionGutter />
 			</div>
 		</div>
 	);
 }
+
+/**
+ * The width a row's hover pencil and bin occupy, held open on the lines that
+ * have no actions of their own.
+ *
+ * Without it every subtotal and the grand total sit that much further right
+ * than the amounts they are the sum of, which reads as two columns rather than
+ * one.
+ */
+const ActionGutter = () => (
+	<span className="w-[calc(2*var(--control-h-sm)+0.25rem)] flex-none" aria-hidden />
+);
 
 const who = (it: CostItem) =>
 	it.people.length === 0 ? cv.everyone : it.people.map((p) => p.name).join(', ');

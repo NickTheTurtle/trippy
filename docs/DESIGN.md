@@ -886,14 +886,27 @@ them, and it keeps following the trip if the organizer later changes it, which
 is what someone who never picked a currency would expect. `lodging_options` has
 read its own currency column this way since it was added.
 
-**A converted figure is marked "≈", and the mark has a column of its own.** The
-row shows what was written down, muted, then the sign, then the home-currency
-figure the column adds up. All three sit on one line so a foreign line is
-exactly as tall as every other line, and the "≈" gets a fixed-width slot that is
-held open on every row, converted or not, so the numbers stay a clean stack
-instead of stepping left wherever a rate was involved. The subtotals, the grand
-total and the two header stats carry the same mark whenever any line beneath
-them went through a rate.
+**A converted figure is marked "≈", underneath the figure it came from.** The
+estimates row is the ledger's row: label above a muted line saying who it is
+for, and an amount block on the right that stacks the headline figure over the
+one it was derived from. That is the whole reason it holds its height, since the
+label already gives every row a second line for the converted amount to sit on,
+and it is why the two tables read the same way. Whole-trip view puts the amount
+as typed on top with "≈ home" beneath it; read as one person, the share takes
+the headline and "of <line total>" goes underneath, exactly as `ExpenseRow`
+does.
+
+An earlier attempt put the converted amount in extra columns of its own, with
+the "≈" in a fixed-width slot. It kept the heights equal but it did not read as
+one column, and the estimates stopped looking like the ledger they are a
+forecast of. The lesson is recorded because it is the obvious first move: a
+second currency belongs on a second line, not in a second column.
+
+**The subtotals reserve the row's hover gutter.** A row keeps the width of its
+pencil and bin to the right of its amount, so without a matching spacer every
+subtotal and the grand total sat that much further right than the numbers they
+are the sum of, which read as two columns. `ActionGutter` holds the space open
+on the lines that have no actions.
 
 **"View as" is one component, shared with the ledger.** `components/ui/ViewAsBar`
 and `components/ui/Stat` are used by both Preparation and Expenses, so the two

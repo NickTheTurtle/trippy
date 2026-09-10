@@ -299,6 +299,7 @@ export const copy = {
 			sectionLabel: (category: string) => `${category} estimates`,
 			editLabel: (label: string) => `Edit ${label}`,
 			removeLabel: (label: string) => `Remove ${label}`,
+			ofTotal: (total: string) => `of ${total}`,
 			total: 'Total'
 		},
 		costDialog: {

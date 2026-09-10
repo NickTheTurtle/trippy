@@ -305,7 +305,6 @@ function Costs({ tripId, data, reload }: { tripId: string; data: Data; reload: (
 
 			{byCategory.map(([category, items]) => {
 				const subtotal = items.reduce((sum, it) => sum + it.homeCents, 0);
-				const converted = items.some((it) => it.currency && it.currency !== data.currency);
 				const expanded = open[category] ?? items.length > 0;
 				return (
 					<Card key={category}>
@@ -315,10 +314,7 @@ function Costs({ tripId, data, reload }: { tripId: string; data: Data; reload: (
 						>
 							<Text style={{ ...type.faint, width: 14 }}>{expanded ? '▾' : '▸'}</Text>
 							<Text style={{ ...type.body, fontWeight: '600', flex: 1 }}>{cap(category)}</Text>
-							<Text style={type.small}>
-								{converted ? '≈ ' : ''}
-								{formatMoney(subtotal, data.currency)}
-							</Text>
+							<Text style={type.small}>{formatMoney(subtotal, data.currency)}</Text>
 						</Pressable>
 
 						{expanded ? (
@@ -346,13 +342,14 @@ function Costs({ tripId, data, reload }: { tripId: string; data: Data; reload: (
 												<Text style={type.faint}>{copy.preparation.costDialog.forEveryone}</Text>
 											)}
 										</View>
-										{it.currency && it.currency !== data.currency ? (
-											<Text style={type.faint}>{formatMoney(it.amountCents, it.currency)}</Text>
-										) : null}
-										<Text style={type.small}>
-											{it.currency && it.currency !== data.currency ? '≈ ' : ''}
-											{formatMoney(it.homeCents, data.currency)}
-										</Text>
+										<View style={{ alignItems: 'flex-end' }}>
+											<Text style={type.small}>
+												{formatMoney(it.amountCents, it.currency || data.currency)}
+											</Text>
+											{it.currency && it.currency !== data.currency ? (
+												<Text style={type.faint}>≈ {formatMoney(it.homeCents, data.currency)}</Text>
+											) : null}
+										</View>
 									</Pressable>
 								))
 							)

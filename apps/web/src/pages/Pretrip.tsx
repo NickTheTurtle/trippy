@@ -77,11 +77,6 @@ export default function Pretrip() {
 	// noise. The rounding is the formatter's, not a second division here.
 	const fmt = (cents: number) => formatMoney(cents, data.currency, { whole: true });
 
-	// An estimate typed in another currency reaches these figures through a
-	// rate, so the totals it feeds are marked as approximate.
-	const anyConverted = data.budget.items.some((it) => it.currency && it.currency !== data.currency);
-	const fmtTotal = (cents: number) => (anyConverted ? `≈ ${fmt(cents)}` : fmt(cents));
-
 	const grand = data.budget.grandTotal;
 	const perPerson = data.memberCount ? grand / data.memberCount : grand;
 	// Reading the estimates as one person answers "what does this cost me", so
@@ -156,10 +151,10 @@ export default function Pretrip() {
 					<div className="flex min-w-0 flex-wrap items-end gap-6">
 						{section === 'costs' && (
 							<>
-								<Stat label={cp.tripTotal} value={fmtTotal(grand)} />
+								<Stat label={cp.tripTotal} value={fmt(grand)} />
 								<Stat
 									label={viewAs ? shareLabel(data.members, viewAs, data.me) : cp.perPerson}
-									value={fmtTotal(viewAs ? shownTotal : perPerson)}
+									value={fmt(viewAs ? shownTotal : perPerson)}
 								/>
 							</>
 						)}

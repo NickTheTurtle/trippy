@@ -27,19 +27,10 @@ export function shareOf(item: CostItem, userId: string, memberCount: number): nu
  *
  * Always in the trip's home currency. An estimate may be typed in the currency
  * it was quoted in, and a euro added to a yen is not a number, so every figure
- * that gets summed or compared is the converted one. `typedAmountFor` gives the
- * same figure in the currency it was written in, for the row to show alongside.
+ * that gets summed or compared is the converted one.
  */
 export function amountFor(item: CostItem, viewAs: string, memberCount: number): number {
 	return viewAs ? shareOf(item, viewAs, memberCount) : item.homeCents;
-}
-
-/** The same figure as `amountFor`, in the currency the estimate was typed in. */
-export function typedAmountFor(item: CostItem, viewAs: string, memberCount: number): number {
-	if (!viewAs) return item.amountCents;
-	if (!isFor(item, viewAs)) return 0;
-	const heads = item.people.length || memberCount;
-	return heads > 0 ? Math.round(item.amountCents / heads) : 0;
 }
 
 export function totalFor(items: CostItem[], viewAs: string, memberCount: number): number {
