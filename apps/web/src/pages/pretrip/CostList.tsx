@@ -86,9 +86,9 @@ export default function CostList({
 							{/* An empty category has nothing to disclose, so it is a line of
 							    text rather than a control that opens onto nothing. */}
 							{rows.length === 0 ? (
-								<div className="flex items-center gap-3 px-5 py-2.5 text-[0.92rem] text-ink-faint">
+								<div className="flex items-center gap-3 bg-surface-2 px-5 py-2.5 text-[0.92rem] text-ink-faint">
 									<span className="size-3.5 flex-none" />
-									<span>{cap(cat)}</span>
+									<span className="font-semibold">{cap(cat)}</span>
 									<span className="ml-auto tabular-nums">{fmt(0)}</span>
 									<ActionGutter />
 								</div>
@@ -98,15 +98,15 @@ export default function CostList({
 									onClick={() => toggle(cat)}
 									aria-expanded={open}
 									aria-label={c.sectionLabel(cap(cat))}
-									className="flex w-full cursor-pointer items-center gap-3 border-0 bg-transparent px-5 py-2.5 text-left text-[0.92rem] hover:bg-surface-2"
+									className="flex w-full cursor-pointer items-center gap-3 border-0 bg-surface-2 px-5 py-2.5 text-left text-[0.92rem] font-semibold hover:bg-line"
 								>
 									<span
 										className={`flex-none text-ink-faint transition-transform ${open ? 'rotate-90' : ''}`}
 									>
 										<ChevronIcon />
 									</span>
-									<span className="font-medium">{cap(cat)}</span>
-									<span className="ml-auto font-semibold tabular-nums">{fmt(subtotal)}</span>
+									<span>{cap(cat)}</span>
+									<span className="ml-auto tabular-nums">{fmt(subtotal)}</span>
 									<ActionGutter />
 								</button>
 							)}
@@ -169,9 +169,12 @@ export default function CostList({
 				})
 			)}
 
-			<div className="flex items-center gap-3 border-t border-line bg-surface-2 px-5 py-2.5 text-[0.92rem] font-medium">
+			{/* The grand total shares the sections' tint, so it is set apart by
+			    weight and height instead: it is the one figure on the card that
+			    is not a part of something else. */}
+			<div className="flex items-center gap-3 border-t border-line bg-surface-2 px-5 py-3.5 text-[1rem] font-semibold">
 				<span>{viewAs ? shareLabel(members, viewAs, me) : c.total}</span>
-				<span className="ml-auto font-semibold tabular-nums">{fmt(total)}</span>
+				<span className="ml-auto text-[1.1rem] font-bold tabular-nums">{fmt(total)}</span>
 				<ActionGutter />
 			</div>
 		</div>

@@ -906,7 +906,11 @@ second currency belongs on a second line, not in a second column.
 pencil and bin to the right of its amount, so without a matching spacer every
 subtotal and the grand total sat that much further right than the numbers they
 are the sum of, which read as two columns. `ActionGutter` holds the space open
-on the lines that have no actions.
+on the lines that have no actions. The section headers and the grand total also
+take the tinted band the ledger's footer uses, which is what separates them from
+the rows: on a plain background a subtotal was just another number in the
+column. The grand total shares that tint, so it is set apart by weight and
+height instead.
 
 **"View as" is one component, shared with the ledger.** `components/ui/ViewAsBar`
 and `components/ui/Stat` are used by both Preparation and Expenses, so the two
