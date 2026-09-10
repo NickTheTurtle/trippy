@@ -1,0 +1,72 @@
+import { useState } from 'react';
+import { KeyboardAvoidingView, Platform, Pressable, Text, View } from 'react-native';
+import { Redirect, router } from 'expo-router';
+import { copy } from '@trippy/copy';
+import { useAuth } from '../src/auth';
+import { useMutation } from '../src/hooks/useMutation';
+import { Button, Field, FormError, Loading, Screen } from '../src/ui';
+import { color, space, type } from '../src/theme';
+
+export default function Login() {
+	const { user, loading, logIn } = useAuth();
+	const [email, setEmail] = useState('');
+	const [password, setPassword] = useState('');
+
+	const submit = useMutation(() => logIn(email, password), {
+		fallback: copy.auth.login.fallback,
+		onSuccess: () => router.replace('/trips')
+	});
+
+	if (loading) return <Loading />;
+	if (user) return <Redirect href="/trips" />;
+
+	return (
+		<KeyboardAvoidingView
+			style={{ flex: 1 }}
+			behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+		>
+			<Screen>
+				<View style={{ gap: space.xs }}>
+					<Text style={type.title}>{copy.auth.login.title}</Text>
+					<Text style={type.small}>{copy.auth.login.blurb}</Text>
+				</View>
+
+				<View style={{ gap: space.md }}>
+					<Field
+						label={copy.auth.login.emailLabel}
+						value={email}
+						onChangeText={setEmail}
+						autoCapitalize="none"
+						autoComplete="email"
+						keyboardType="email-address"
+						textContentType="emailAddress"
+					/>
+					<Field
+						label={copy.auth.login.passwordLabel}
+						value={password}
+						onChangeText={setPassword}
+						secureTextEntry
+						autoComplete="current-password"
+						textContentType="password"
+						onSubmitEditing={() => void submit.run()}
+					/>
+					<FormError message={submit.error} />
+					<Button
+						label={copy.auth.login.submitLabel}
+						onPress={() => void submit.run()}
+						busy={submit.busy}
+					/>
+				</View>
+
+				<View style={{ flexDirection: 'row', gap: space.xs, justifyContent: 'center' }}>
+					<Text style={type.small}>{copy.auth.login.footerPrompt}</Text>
+					<Pressable onPress={() => router.push('/register')}>
+						<Text style={{ ...type.small, color: color.accent, fontWeight: '600' }}>
+							{copy.auth.login.footerLink}
+						</Text>
+					</Pressable>
+				</View>
+			</Screen>
+		</KeyboardAvoidingView>
+	);
+}

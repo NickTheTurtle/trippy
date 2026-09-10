@@ -1,0 +1,38 @@
+import { Stack } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { AuthProvider } from '../src/auth';
+import { color, font } from '../src/theme';
+
+/**
+ * The root of the native app.
+ *
+ * Everything is inside one Stack so a screen pushed from a tab (an expense, a
+ * place, a person) slides in over the tab bar the way iOS users expect, rather
+ * than replacing the whole frame.
+ */
+export default function RootLayout() {
+	return (
+		<SafeAreaProvider>
+			<AuthProvider>
+				<StatusBar style="dark" />
+				<Stack
+					screenOptions={{
+						headerStyle: { backgroundColor: color.bg },
+						headerShadowVisible: false,
+						headerTintColor: color.ink,
+						headerTitleStyle: { ...font.heading, fontSize: 17 },
+						contentStyle: { backgroundColor: color.bg }
+					}}
+				>
+					<Stack.Screen name="index" options={{ headerShown: false }} />
+					<Stack.Screen name="login" options={{ title: '' }} />
+					<Stack.Screen name="register" options={{ title: '' }} />
+					<Stack.Screen name="trips" options={{ headerShown: false }} />
+					<Stack.Screen name="account" options={{ title: 'Account' }} />
+					<Stack.Screen name="trip/[tripId]" options={{ headerShown: false }} />
+				</Stack>
+			</AuthProvider>
+		</SafeAreaProvider>
+	);
+}

@@ -1,0 +1,13 @@
+{
+	"name": "@trippy/copy",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"exports": {
+		".": "./src/copy.ts",
+		"./format": "./src/format.ts"
+	},
+	"scripts": {
+		"check": "tsc --noEmit"
+	}
+}

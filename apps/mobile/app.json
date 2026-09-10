@@ -1,0 +1,24 @@
+{
+	"expo": {
+		"name": "Trippy",
+		"slug": "trippy",
+		"version": "0.0.1",
+		"orientation": "portrait",
+		"scheme": "trippy",
+		"userInterfaceStyle": "light",
+		"newArchEnabled": true,
+		"ios": {
+			"supportsTablet": false,
+			"bundleIdentifier": "com.trippy.app"
+		},
+		"android": {
+			"package": "com.trippy.app",
+			"edgeToEdgeEnabled": true
+		},
+		"web": {
+			"bundler": "metro",
+			"output": "single"
+		},
+		"plugins": ["expo-router", "expo-secure-store", "expo-status-bar", "expo-font"]
+	}
+}

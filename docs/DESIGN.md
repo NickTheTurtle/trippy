@@ -15,6 +15,7 @@ an **estimated cost** view, and a **Splitwise-style** expense settlement, all
 **time-zone aware** across multiple cities in one trip.
 
 ### Reference material (analyzed)
+
 Two real itinerary spreadsheets informed this design:
 
 - **Multi-city China trip** (Beijing → Chongqing → Guilin → Hangzhou → Shanghai,
@@ -26,10 +27,11 @@ Two real itinerary spreadsheets informed this design:
   car rental, and lodging check-in blocks.
 
 **Design consequences:**
+
 1. Schedule items are **typed** (poi / food / transport / travel / lodging / free-time).
 2. Items can be **booked / tentative / unbooked**.
 3. Some items have **hard reservation windows**; others are flexible.
-4. **Travel legs** live *between* POIs and need computed durations.
+4. **Travel legs** live _between_ POIs and need computed durations.
 5. A single trip spans **multiple cities → multiple time zones**.
 
 ---
@@ -135,19 +137,22 @@ not a legal value of this column, and the CHECK constraint rejects it.
 ## 3. Feature Modules (mapped to the workflow)
 
 ### M1: Accounts & Trips
+
 - Email + password (Lucia/Auth.js) and OAuth (Google/GitHub).
 - Roles per trip: **organizer** (full control) vs **member** (suggest, vote, expense).
 - Invite links / email invites; join request approval.
 
 ### M2: POI Discovery
+
 - Candidate places are **auto-saved** to the trip on add (no separate Save step).
 - All discovered places with coordinates are plotted on a map preview per city.
 - Search a Places provider (Google Places / Foursquare / OpenTripMap) scoped to a
   Location. Import geo, category, opening hours, price level, rating, photo, url.
 - Members suggest + upvote POIs into a shared **candidate pool** per Location
-  *before* scheduling. Manual POIs also allowed (for venues not in providers).
+  _before_ scheduling. Manual POIs also allowed (for venues not in providers).
 
 ### M3: Calendar (core)
+
 - Day / multi-day agenda grid mirroring the reference sheets (configurable slot size,
   default 30 min; drag snaps to 5-min increments).
 - **Derived column layout**: see M3.2. Columns are computed, not authored.
@@ -161,7 +166,7 @@ not a legal value of this column, and the CHECK constraint rejects it.
   duration, travel-before, attendees, booking status, delete). Dragging never opens it;
   a click only counts when the pointer didn't move.
 - **Live "now" line**: a red marker at the current time, drawn only on the day that is
-  actually today *in the destination city's zone* (`localDayMinutes` in `src/lib/tz.ts`).
+  actually today _in the destination city's zone_ (`localDayMinutes` in `src/lib/tz.ts`).
 - **"View as <user>"** filter: preview any member's personal schedule (their assigned items
   plus shared items); the schedule form's track picker stays unfiltered.
 - **Travel as a first-class activity type** (`type = 'travel'`) that can itself be assigned to
@@ -177,7 +182,7 @@ not a legal value of this column, and the CHECK constraint rejects it.
 
 ### M3.2: Layout engine & the People swimlane
 
-Earlier versions drew one calendar column per authored *track*, which meant "who is doing
+Earlier versions drew one calendar column per authored _track_, which meant "who is doing
 this" had three possible answers (the track's crew, the item's assignees, and the member's
 crew membership) that could disagree. **An event's attendee list is now the single source of
 truth**; tracks survive only as a colour/grouping detail. Layout is derived.
@@ -185,13 +190,13 @@ truth**; tracks survive only as a colour/grouping detail. Layout is derived.
 `src/lib/layout.ts` is a pure module (no DOM) that turns a day's events into a drawing:
 
 - **`buildFlows`**: each person's events in start order; every adjacent pair becomes a
-  *hop* (`from → to` at a time), aggregated so one arrow carries everyone making it.
+  _hop_ (`from → to` at a time), aggregated so one arrow carries everyone making it.
 - **`rankEvents`**: a global left-to-right rank per event, seeded by start time then
   relaxed with a weighted barycentre sweep over the hop graph. Events that exchange many
   people drift together, so arrows stay short and un-crossed. `countCrossings` scores an
   ordering, and on the sample day the sweep takes crossings from 1 → 0 vs. naive ordering.
 - **`layoutDay`**: packs each cluster of transitively-overlapping events into the fewest
-  columns *in rank order*, then lets each event expand rightwards into any column that
+  columns _in rank order_, then lets each event expand rightwards into any column that
   stays free for its whole span. **Width therefore tracks contention**: a solo morning
   activity spans the full board, an event overlapping one other takes ⅔, and a three-way
   afternoon split takes ⅓ each.
@@ -199,7 +204,7 @@ truth**; tracks survive only as a colour/grouping detail. Layout is derived.
   bands), which is what the swimlane renders.
 
 **Day view** draws the packed blocks plus dashed bezier **flow arrows** for hops where the
-travelling group differs from either end's full party *and* the two events sit in different
+travelling group differs from either end's full party _and_ the two events sit in different
 columns; a hop straight down one column is just "what happens next" and needs no arrow.
 
 **People view** (`view=people`) transposes the board: **rows are people, x is time**. Each
@@ -209,17 +214,18 @@ split / rejoin guide-lines and the "now" line across every row, so a change read
 moment rather than four separate events.
 
 **Switch moments** (`switchLines`) are likewise derived from the flow graph, not from crew
-membership: one event feeding several is a *split*, several feeding one is a *rejoin*,
-anything else is a *move*.
+membership: one event feeding several is a _split_, several feeding one is a _rejoin_,
+anything else is a _move_.
 
 ### M3.1: Crews (parties), how people get assigned
 
 Groups rarely move as one solid block: they split for a day, or even an afternoon,
 then re-merge. **Crews** are the authoring tool for that (the Crews dialog), and they
-supply the *default* attendee list for events that have no explicit assignees. They are no
+supply the _default_ attendee list for events that have no explicit assignees. They are no
 longer a layout concept; see M3.2.
 
 **Model**
+
 - `parties(id, trip_id, name, color, is_solo, created_at)`: a crew. A solo split
   auto-creates a party named after the person (`is_solo = 1`).
 - `party_membership(id, party_id, user_id, day, start_min, end_min)`: who is in which
@@ -237,10 +243,10 @@ behave exactly as before with zero setup.
 segment, pull the tracks of the party they're in during that window; stitch into one
 continuous timeline. Their city/lodging = the party they **end** the day with.
 
-**Split flow**: select person(s) + a time → *Split off* → target = existing crew or
-*New crew* (auto-solo if just them). System closes the current membership segment at the
+**Split flow**: select person(s) + a time → _Split off_ → target = existing crew or
+_New crew_ (auto-solo if just them). System closes the current membership segment at the
 split time and opens a new one in the target from that time. If the two crews differ in
-location at that moment, a `travel` activity is auto-inserted to bridge them. *Rejoin*
+location at that moment, a `travel` activity is auto-inserted to bridge them. _Rejoin_
 closes the temp segment and reopens membership in the original.
 
 > **Caveat: attendance is whole-event.** A person attends an event or doesn't; there are
@@ -251,7 +257,7 @@ closes the temp segment and reopens membership in the original.
 party's items (no duplication, items live on the party track); orphaned party (nobody in
 it for a segment) persists but renders collapsed; unassigned gap → Everyone fallback.
 
-**Backward-compat**: `item_assignees` stays as an optional finer filter *within* a party
+**Backward-compat**: `item_assignees` stays as an optional finer filter _within_ a party
 (e.g. one escape room, two people). Migration is additive.
 
 **Phasing**: **P1** tables + Everyone default + `tracks.party_id`; per-party lanes; view-as
@@ -260,6 +266,7 @@ per crew per day; calendar banner + map follow the viewer's crew. **P3** split/r
 auto-travel bridge.
 
 ### M4: Preparation View (`/pretrip`)
+
 - Consolidated checklist: flights, lodging confirmations, visas, packing.
 - "What must still be booked" derived from `bookingStatus = unbooked`.
 - **Per-person completion.** A task can be assigned to any subset of the trip.
@@ -273,7 +280,7 @@ auto-travel bridge.
     do not read it for logic.
   - **Anyone may tick anyone's box**: `toggleTask` takes a `targetId` and accepts
     any assignee of the task, from any member of the trip. The row records who the
-    task is *for*, not who pressed the button. It still refuses a non-member, and a
+    task is _for_, not who pressed the button. It still refuses a non-member, and a
     target the task is not assigned to.
 - Who has finished is a menu on the row, one entry per assignee, and each entry
   is the control that ticks that person off.
@@ -285,11 +292,13 @@ auto-travel bridge.
   between them. `/costs` 307-redirects here.
 
 ### M5: Estimated Costs (inside Preparation)
+
 - Roll up per-POI cost + travel + lodging share, grouped **per person** and **per day**,
   normalized to the trip's home currency (FX conversion).
 - Rendered as a section of `/pretrip`, not its own tab. Add/edit go through a modal.
 
 ### M6: Lodging Voting Portal
+
 - Per Location: candidate stays (photo, price/night, link, distance to POIs).
 - **Day-scoped options**: a city can have multiple lodging options for different nights
   (each option carries an optional check-in/check-out range); the calendar resolves the
@@ -300,13 +309,14 @@ auto-travel bridge.
   design (cover art, vote pill, open icon, remove, and the tally along the bottom
   edge); stays additionally show price/night, "Edit dates" and "Lock as choice".
 - The **tables stay separate** even though the UI is merged. Place votes are multi-vote
-  (`poi_votes` PK `(poi_id, user_id)`); stay votes are *exclusive per city*
+  (`poi_votes` PK `(poi_id, user_id)`); stay votes are _exclusive per city_
   (`lodging_votes` PK `(city_id, user_id)`, so voting again replaces). Stays also carry
   price/currency/check-in/check-out/locked, and `party_day.lodging_option_id` is a foreign
   key into them. Merging the storage would churn the calendar, crews and costs for no
   user-visible gain; merging only the presentation gets the whole benefit.
 
 ### M7: Expenses (Splitwise-style)
+
 - Log expense: payer, amount, currency, split rule (equal / shares / exact / % ).
 - Compute net balances; produce a **minimal-transaction settlement**.
 - Multi-currency: store original amount + currency, normalize at settlement time.
@@ -318,11 +328,11 @@ participant** (`expense_participants.weight`), and splitting is always "divide t
 proportion to the weights". The mode (`expenses.split_mode`) only says how the UI collected
 those weights:
 
-| Mode | Stored weight | UI |
-| --- | --- | --- |
-| `even` | `1` for everyone | checkbox only |
-| `shares` | the share count (a private room = 2) | share stepper |
-| `exact` | the person's amount **in cents** | amount input, must sum to the total |
+| Mode     | Stored weight                        | UI                                  |
+| -------- | ------------------------------------ | ----------------------------------- |
+| `even`   | `1` for everyone                     | checkbox only                       |
+| `shares` | the share count (a private room = 2) | share stepper                       |
+| `exact`  | the person's amount **in cents**     | amount input, must sum to the total |
 
 `splitByWeight()` in `src/lib/split.ts` does the apportionment: floor every share, then hand
 the leftover cents to the largest fractional parts (largest-remainder). Shares therefore sum
@@ -338,7 +348,7 @@ Two rules that are easy to get backwards:
   of charged. `splitByWeight` splits `abs(total)` and re-applies the sign, so negative
   amounts get the same exact-sum guarantee.
 
-**There is no "this is income" checkbox.** The sign of the amount *is* the flag. A separate
+**There is no "this is income" checkbox.** The sign of the amount _is_ the flag. A separate
 checkbox is a second source of truth that can disagree with the number next to it; a user
 who types `-120` with the box unticked means income either way. The form derives everything
 (modal title, "Paid by" vs "Received by", the per-person preview, the save button) from
@@ -354,26 +364,31 @@ server independently re-checks and fails the action.
 ## 4. Cross-cutting Technical Design
 
 ### 4.1 Time zones (first-class)
-- Store every timestamp as **UTC** *and* keep the Location's **IANA zone**
+
+- Store every timestamp as **UTC** _and_ keep the Location's **IANA zone**
   (e.g. `Asia/Shanghai`).
 - Render in the **place's local time**, with an optional "your local time" overlay.
 - Use **Luxon** (or `@date-fns/tz`) everywhere; never do naive `Date` math.
 - Travel legs that cross zones (e.g. flight) recompute local arrival correctly.
 
 ### 4.2 Travel time
+
 - Provider Directions API (Google/Mapbox) or self-hosted **OSRM** for driving/walking;
   flights/rail entered manually or via schedule lookups.
 - Cache results keyed by `(originPoiId, destPoiId, mode)`; recompute on reorder.
 - Render each leg as a **distinct block** on the grid; warn on overlap/insufficient gap.
 
 ### 4.3 Maps
+
 - **Mapbox GL JS** (or Google Maps JS). Day-scoped route + numbered pins.
 
 ### 4.4 Realtime collaboration
+
 - WebSockets via a small Node hub, or a managed backend (Supabase Realtime).
 - Optimistic UI + last-write-wins per ScheduleItem; presence indicators.
 
 ### 4.5 Currency
+
 - Daily FX snapshot cached in Redis (e.g. exchangerate.host). Store original
   currency + amount; convert only for display and settlement.
 
@@ -381,20 +396,20 @@ server independently re-checks and fails the action.
 
 ## 5. Architecture & Stack
 
-| Layer            | Choice |
-|------------------|--------|
-| Frontend         | **React** (Vite + React Router). See 5.0; SvelteKit is being retired |
-| Styling          | Tailwind CSS |
-| Server API       | Standalone JSON API (`apps/api`), consumed by web and native |
-| Validation       | Zod (shared client/server schemas) |
-| Auth             | Lucia (or Auth.js for SvelteKit) |
-| ORM              | Drizzle ORM (production target) |
-| Database         | Local dev: Node built-in `node:sqlite`. Production target: PostgreSQL + **PostGIS** (geo) |
-| Cache            | Redis (directions, FX) |
-| Maps / Places    | Mapbox GL + a Places provider |
-| Dates            | Luxon |
-| Realtime         | WebSocket hub / Supabase Realtime |
-| Testing          | Vitest (unit) + Playwright (e2e) |
+| Layer         | Choice                                                                                    |
+| ------------- | ----------------------------------------------------------------------------------------- |
+| Frontend      | **React** (Vite + React Router). See 5.0; SvelteKit is being retired                      |
+| Styling       | Tailwind CSS                                                                              |
+| Server API    | Standalone JSON API (`apps/api`), consumed by web and native                              |
+| Validation    | Zod (shared client/server schemas)                                                        |
+| Auth          | Lucia (or Auth.js for SvelteKit)                                                          |
+| ORM           | Drizzle ORM (production target)                                                           |
+| Database      | Local dev: Node built-in `node:sqlite`. Production target: PostgreSQL + **PostGIS** (geo) |
+| Cache         | Redis (directions, FX)                                                                    |
+| Maps / Places | Mapbox GL + a Places provider                                                             |
+| Dates         | Luxon                                                                                     |
+| Realtime      | WebSocket hub / Supabase Realtime                                                         |
+| Testing       | Vitest (unit) + Playwright (e2e)                                                          |
 
 > Note: local development uses `node:sqlite` so the app runs with no native build
 > step or external service. The query layer is intentionally small and plain, so
@@ -411,13 +426,13 @@ The driver is a planned React Native port. Everything that stayed inside a
 as much as possible out of the UI layer and into places both a web and a native
 client can import.
 
-| Workspace | Contains | Ported to native? |
-|-----------|----------|-------------------|
-| `packages/core` | Types plus pure logic: settlement, split, tz, layout, cover | Yes, unchanged |
-| `apps/api` | JSON API over the `node:sqlite` modules; owns the Google keys | Yes, shared over HTTP |
-| `apps/web` | Vite + React + React Router + Tailwind | No, web only |
-| `apps/svelte` | The original app | **Deleted at parity** |
-| `apps/mobile` | Expo / React Native (not yet created) | n/a |
+| Workspace       | Contains                                                      | Ported to native?     |
+| --------------- | ------------------------------------------------------------- | --------------------- |
+| `packages/core` | Types plus pure logic: settlement, split, tz, layout, cover   | Yes, unchanged        |
+| `apps/api`      | JSON API over the `node:sqlite` modules; owns the Google keys | Yes, shared over HTTP |
+| `apps/web`      | Vite + React + React Router + Tailwind                        | No, web only          |
+| `apps/svelte`   | The original app                                              | **Deleted at parity** |
+| `apps/mobile`   | Expo / React Native (not yet created)                         | n/a                   |
 
 **The SvelteKit app is gone.** It was kept runnable through the port so any
 behaviour could be compared against the original rather than against memory.
@@ -539,8 +554,8 @@ undone."** Each of the six delete flows used to explain its own blast radius,
 some of them with live counts. The result read as six different voices arguing
 for the same decision, and the longer bodies were the ones people skipped. The
 name of the thing being destroyed carries the specificity instead, so it moved
-into the title: *Delete Kyoto in Spring?*, *Remove Sam?*, *Delete Hotel
-deposit?*. `ConfirmDialog` therefore takes no `body` prop at all, which is what
+into the title: _Delete Kyoto in Spring?_, _Remove Sam?_, _Delete Hotel
+deposit?_. `ConfirmDialog` therefore takes no `body` prop at all, which is what
 stops the explanations growing back one page at a time.
 
 The cost is real and was accepted deliberately: removing an invited-but-never-
@@ -645,7 +660,7 @@ instead of pushing them aside. Found by porting a page that actually uses it.
 `photoSrc` turns a Google photo reference into `/api/place-photo?name=…`, and the
 proxy behind it existed only as a SvelteKit route. The React app therefore fell
 back to generated cover art on every place, silently: a missing photo is exactly
-what the fallback is *for*, so nothing looked broken, and a type-check cannot see
+what the fallback is _for_, so nothing looked broken, and a type-check cannot see
 a URL that has no route. Caught only by screenshotting both apps side by side.
 The proxy now lives on the API. It keeps the original's SSRF guard, a strict
 pattern match on the photo resource name before any outbound request, and is
@@ -662,7 +677,7 @@ the browser suite by reading the computed background colour rather than by eye.
 components closed their own menu on Escape and stopped there, so the key went on
 to the surrounding `<dialog>` and dismissed it, losing everything typed into the
 form. `stopPropagation` alone does not fix this: the browser closes a `<dialog>`
-as the *default action* of the Escape keydown, not by listening for the bubbled
+as the _default action_ of the Escape keydown, not by listening for the bubbled
 event, so `preventDefault` is the part that matters. The handler also moved from
 the trigger button to the component root, because once the menu is open focus
 sits on an option, which is not inside the trigger. Only reachable by keyboard,
@@ -754,7 +769,7 @@ as before, and draws the box and the tick itself.
 until somebody claims it, so the dialog's second field is one closed dropdown
 reading "Assign to...". Leaving it alone leaves the task shared, which is the
 common case; an always-open roster of names made it look as though a task
-*needed* an owner. It is a `MultiSelect` rather than a grid of checkboxes: the
+_needed_ an owner. It is a `MultiSelect` rather than a grid of checkboxes: the
 grid was fine for three people and unreadable for twenty, and the dropdown is
 already how the row itself asks who has finished.
 
@@ -805,7 +820,7 @@ visa", "Power adapter", "Museum tickets" and "0" as placeholder text. Each field
 already has a label saying the same thing, and a placeholder that repeats its
 label is noise that also disappears the moment you type. This follows the
 convention already used in People: labels always, placeholders only where
-the *format* is not obvious.
+the _format_ is not obvious.
 
 **The estimates are folded by category, not listed flat.** The question people
 open the section with is "what is the lodging going to run to", and a flat table
@@ -839,7 +854,7 @@ says, so it belongs where the change happens. Set to a person it drops the lines
 they are not on, swaps every amount for their share, and turns the second stat
 and the card's foot from "Per person" into "<name>'s share": the average is a
 useful number for the organizer and the wrong number for anybody asking what the
-trip will cost *them*. A departed member is dropped from a line by joining
+trip will cost _them_. A departed member is dropped from a line by joining
 `memberships` when the roster is read, so a removal cannot leave a phantom head
 dividing the amount.
 
@@ -858,7 +873,6 @@ and `components/ui/Stat` are used by both Preparation and Expenses, so the two
 money screens cannot drift into two different answers to the same question. The
 bar hides itself on a solo trip, where the only person to read a list as is you,
 and is not drawn above an empty list.
-
 
 ### 5.0.5 Discover: places, stays and the search
 
@@ -942,9 +956,9 @@ different card (see 2.3).
 are hidden from everyone else** rather than shown and refused. Deleting is
 confirmed and the dialog names what goes: the city's places and stays with every
 vote on them, and its estimated costs. Scheduled calendar items are deliberately
-*not* named as deleted, because they are not: their FK is `ON DELETE SET NULL`,
+_not_ named as deleted, because they are not: their FK is `ON DELETE SET NULL`,
 so a block keeps its title and slot and only loses the link back to the place.
-That is worth saying, because deleting a single place *does* take its calendar
+That is worth saying, because deleting a single place _does_ take its calendar
 events, and the reader would reasonably assume the same here.
 
 **The card footer is two controls, left aligned.** It used to be four: a vote
@@ -966,7 +980,7 @@ added for four small glyphs.
 
 **The calendar is the only page with its own stylesheet, and that is deliberate.**
 `calendar.css` is plain CSS rather than Tailwind utilities because the board is an
-absolutely positioned time grid whose geometry *is* the layout. A block's `top`
+absolutely positioned time grid whose geometry _is_ the layout. A block's `top`
 and `height` come from `(minutes - DAY_START) * PX_PER_MIN`, its `left` and
 `width` are percentages produced by `layoutDay`, its colour is `color-mix()` over
 a per-track `--c`, and how many lines of title and how many people chips fit come
@@ -1245,6 +1259,72 @@ registering, because anyone with a session is redirected to `/trips` before this
 page renders, so a link into the app would only ever be followed by someone who
 cannot use it.
 
+### 5.0.12 The mobile client
+
+`apps/mobile` is an Expo / React Native app that talks to the same `apps/api`
+the web client does. It is the port the whole monorepo restructure was for, so
+most of the decisions below are about _not_ re-deciding things the web app has
+already settled.
+
+**Expo SDK 56, and nothing that needs a custom build.** SDK 56 is the highest
+stable release (`latest` on npm is a 58 canary), and Expo Go on the App Store
+tracks recent SDKs. Every native module used is one Expo Go already bundles, so
+previewing the app is a QR scan rather than a signed development build. That
+constraint is worth keeping until there is a feature that genuinely needs a
+custom module.
+
+**`packages/copy` holds the strings and the formatters.** `copy.ts` and
+`lib/format.ts` moved out of `apps/web` verbatim, and the web app kept one-line
+re-export shims so no import there changed. The reason is not tidiness: both
+clients render the same money and the same dates, and a formatter that
+disagreed between them would be a visible bug that no type checker would catch.
+`cap()` followed the same way once the mobile cost list needed it.
+
+**Auth is the same session row presented two ways.** A browser gets an httpOnly
+cookie, which is the right answer there and the one thing script cannot read. A
+native app has no cookie jar worth relying on, so it gets a bearer token. The
+client opts in by sending `x-trippy-client: native`; only then does the response
+body carry `token`, and only then is the cookie skipped. `sessionId(c)` reads
+`bearer ?? cookie`, so logout, expiry and revocation are one code path rather
+than two. A web client that never sends the header cannot be made to leak a
+token it could store.
+
+The dev-only CORS block exists purely for Expo's _web_ preview, which is
+genuinely cross-origin on Metro's port. A native app sends no preflight.
+Credentials are deliberately not allowed, so the allowance cannot be used to
+ride a browser's cookie session.
+
+**The trip id comes from context, not from the route.** `useLocalSearchParams`
+reads the params of the _focused_ route, and a tab that has been navigated to
+but not yet focused reads them as `undefined`. That produced requests to
+`/trips/undefined/...` on every tab except the initial one. The `[tripId]`
+layout always sees the segment, so it reads the param once and provides it
+(`src/trip-id.tsx`).
+
+**Dialogs became bottom sheets.** That is what a phone user expects of a form
+that appears over the page, and a sheet anchored to the bottom keeps its fields
+next to the keyboard instead of behind it. The body scrolls under a height cap
+because the tallest form, the expense split, grows with the roster; without the
+cap the save button is pushed off the screen on a large trip.
+
+**Controls diverge from the web where the shape of the screen argues for it,
+and only there.** Assigning people is a dropdown of checkboxes on the web and a
+row of chips here, because a phone has the width to show the whole roster at
+once and chips cost no tap to open. A list too long for chips gets a searchable
+sheet instead (`ListPicker`, used for the several hundred IANA zones). The tab
+bar carries the same five destinations in the same order as `apps/web/src/nav.ts`
+so that knowing one client is knowing the other.
+
+**The header has room for one control, so the avatar owns all three
+destinations.** The web app puts All trips in the header and the rest in a
+dropdown; here All trips, Account settings and Log out share the avatar menu.
+The menu is a `Modal` rather than an absolutely positioned view because a native
+header clips its children and a popover drawn inside it would be cut off at the
+header's own bottom edge.
+
+Calendar is deliberately an empty tab. A redesign is planned, and porting the
+board before that lands would be work done twice.
+
 ## Shared UI conventions
 
 These exist so five pages don't each invent their own version. Reach for them
@@ -1307,7 +1387,7 @@ themselves in that label as a muted `(optional)`. Optionality is a property of
 the field, so it belongs with the field's name and must stay visible while you
 type; it was previously split between labels and placeholder text, which meant
 the same fact was written two ways and half of it vanished at the first
-keystroke. Placeholders are for *format* only, where the shape of the value is
+keystroke. Placeholders are for _format_ only, where the shape of the value is
 not obvious from its name (`https://` on a URL field, `mm/dd/yyyy` from the
 native date input). A placeholder is never used to restate the label, to give an
 example of the content, or to carry a rule the user must satisfy: a rule that
@@ -1356,21 +1436,21 @@ file they touched. `npm run format` and `npm run format:check` cover
 It wraps the native `<dialog>` element with `showModal()`, which gives focus
 trapping, Escape-to-close, focus restore, background inertness and top-layer
 rendering (immune to z-index and `transform` clipping) for free. The one thing
-`<dialog>` does *not* do is lock body scroll, so the component does that
+`<dialog>` does _not_ do is lock body scroll, so the component does that
 explicitly; that was the actual cause of the double-scrollbar bug.
 
 Layout contract for consumers:
 
-| Slot class   | Role |
-|--------------|------|
-| `.mform`     | Optional `<form>` wrapper spanning body + footer |
-| `.mbody`     | The **only** scrolling region. Never nest another `overflow: auto` inside it |
-| `.mfoot`     | Pinned action row, primary button last |
-| `.mfoot-note`| Left-aligned hint text in the footer |
+| Slot class    | Role                                                                         |
+| ------------- | ---------------------------------------------------------------------------- |
+| `.mform`      | Optional `<form>` wrapper spanning body + footer                             |
+| `.mbody`      | The **only** scrolling region. Never nest another `overflow: auto` inside it |
+| `.mfoot`      | Pinned action row, primary button last                                       |
+| `.mfoot-note` | Left-aligned hint text in the footer                                         |
 
 `.mform` is a **descendant-styling hook**, not a layout class; it wraps `.mbody`
 and `.mfoot`, so giving it `display: flex; gap` inserts a gap above the pinned
-footer. Stack fields with a `.fields` wrapper *inside* `.mbody` instead; `.mbody`
+footer. Stack fields with a `.fields` wrapper _inside_ `.mbody` instead; `.mbody`
 supplies padding and scrolling but deliberately no gap between its children.
 
 Sizes are `sm` / `md` / `lg` (460 / 620 / 860px). Use `focusOnMount` from
@@ -1443,10 +1523,10 @@ Beware specificity too: `.mform label` (0,1,1) beats `.wholine` (0,1,0).
 several related panels (Discover, Preparation, Expenses) switches between them
 with a vertical list on the left, not a second row of tabs or a segmented
 control. Tabs move you between features; this moves you within one. Items carry
-an optional badge counting what is *outstanding* (unfinished tasks, people not
+an optional badge counting what is _outstanding_ (unfinished tasks, people not
 square) or simply how many are there (places, stays). It collapses to a
 horizontal scroller under 860px. The page wraps it in a `.layout` grid
-(`190px minmax(0, 1fr)`) with a `.panel` column, and renders modals *outside*
+(`190px minmax(0, 1fr)`) with a `.panel` column, and renders modals _outside_
 `.layout` so they aren't constrained by the grid.
 
 The sidebar costs ~215px of row width, so a page that also has a right-hand rail
@@ -1466,14 +1546,14 @@ button alone, right-aligned, still reserving `--phead-h`.
 **Nothing may move when you switch view.** Two shifts were fixed and both are
 easy to reintroduce:
 
-- *Horizontal.* `app.css` sets `scrollbar-gutter: stable` on `html` (with an
+- _Horizontal._ `app.css` sets `scrollbar-gutter: stable` on `html` (with an
   `overflow-y: scroll` fallback). Without it, navigating from a page taller than
   the viewport to a shorter one removes the scrollbar and slides the whole
   centred layout sideways by ~15px.
-- *Vertical.* A section header (`.phead`) is a one-line hint plus an optional
+- _Vertical._ A section header (`.phead`) is a one-line hint plus an optional
   action button. Sections without a button would be ~12px shorter and the panel
   below would jump, so `.phead` sets `min-height: var(--phead-h)`, a token in
-  `:root` matching `.btn`'s height. Keep summary blocks and stat rows *out* of
+  `:root` matching `.btn`'s height. Keep summary blocks and stat rows _out_ of
   `.phead`; put them in the panel body, as Estimated costs does.
 
 Headless browsers use overlay scrollbars and report a scrollbar width of 0, so
@@ -1545,13 +1625,14 @@ measures `documentElement.clientWidth` immediately before and after applying
 a hard-coded ~15px because how much width is reclaimed varies: classic
 scrollbars free the whole track, overlay scrollbars (macOS, touch, and headless
 Chromium) free nothing, short pages free nothing, and `scrollbar-gutter: stable`
-keeps the gutter reserved, so a fixed constant would *create* a jump in three of
+keeps the gutter reserved, so a fixed constant would _create_ a jump in three of
 those four cases. The lock is reference-counted so overlapping dialogs can't
 unlock each other.
 
 ## Implementation status
 
 Built and verified:
+
 - Design system (`src/app.css`) and shared layout with auth-aware header.
 - Marketing landing, trips list, and the full trip workspace (discover with places and
   stays, calendar with parallel tracks and map, costs, expenses, pre-trip, people).
@@ -1576,8 +1657,8 @@ Two seeded trips, chosen to exercise opposite ends of the layout engine:
 - **China, autumn**: four people, five cities. Exercises multi-city timezone handling,
   per-city lodging and budgets.
 - **Athens escape marathon** (`src/lib/server/seed-athens.ts`): **twenty** people, one
-  city, four days. Escape rooms seat four, so twenty people means *five rooms running
-  simultaneously*, which is precisely the case the layout engine exists for. Teams are
+  city, four days. Escape rooms seat four, so twenty people means _five rooms running
+  simultaneously_, which is precisely the case the layout engine exists for. Teams are
   reshuffled between slots (a one-person cyclic rotation on day 2, a full redraft on day 3)
   and the group repeatedly collapses back into one full-width block for meals. On day 2 the
   board goes 5 columns → 5 columns → 1 → 4 → 1 in a single day, and the People swimlane
@@ -1585,6 +1666,7 @@ Two seeded trips, chosen to exercise opposite ends of the layout engine:
   carries an explicit assignee list.
 
   `node scripts/seed-athens.ts` re-seeds it into an existing dev database (idempotent).
+
 - Trips are real and per-user: list and create from the database, guarded by auth.
 - Minimal-transaction settlement runs from `$lib/settlement.ts`.
 - Calendar schedule is persisted: tracks and schedule items live in the database
@@ -1616,7 +1698,7 @@ Two seeded trips, chosen to exercise opposite ends of the layout engine:
   is where that detail belongs once the field sits inside a row already labelled by
   the city selector. The input and the city trigger are both 36px tall and the
   indeterminate progress
-  bar is *overlaid* on the input's lower edge, so the header row is exactly as tall on
+  bar is _overlaid_ on the input's lower edge, so the header row is exactly as tall on
   Places as on Stays and starting a search adds no height.
 
   Results render as an **anchored dropdown**, not an in-flow list; they are a
@@ -1624,7 +1706,7 @@ Two seeded trips, chosen to exercise opposite ends of the layout engine:
   have down the page. It opens **on focus**, not only once results exist: "add
   manually" is the answer to "the provider doesn't have my place", and you often know
   that before typing a character, so the footer is reachable from an empty field. With
-  the field empty the footer is the *only* content: a line telling you to search the
+  the field empty the footer is the _only_ content: a line telling you to search the
   box you just clicked is noise. Short queries say `Keep typing…` rather than sitting
   blank. It dismisses the way a popup should: click away, press
   Escape (deferred while a modal is open, since a `<dialog>` owns Escape), or clear the
@@ -1636,7 +1718,7 @@ Two seeded trips, chosen to exercise opposite ends of the layout engine:
   trimmed and case-insensitively, and both `addCity` and `updateCity` refuse a
   collision. The region has to be part of the test rather than the name alone, because
   a trip can legitimately visit Nashville, Tennessee and Nashville, Georgia, or both
-  Parises. Coordinates are deliberately *not* the test: they come from whichever
+  Parises. Coordinates are deliberately _not_ the test: they come from whichever
   geocoder row was picked, so the same city reached by two different searches can carry
   slightly different numbers and would slip through. The add-city search marks a city
   the trip already holds as `Added` and makes the row unpickable, so the rule is
@@ -1678,7 +1760,7 @@ Two seeded trips, chosen to exercise opposite ends of the layout engine:
   per-request Essentials rate instead of nothing. That is still the right trade: not
   making a call beats making one.
 
-- **What a place *is* comes from the place, not from the tab it was found under.**
+- **What a place _is_ comes from the place, not from the tab it was found under.**
   The add popup posted whatever type its dropdown held, and the dropdown only ever held
   the view the popup was opened from. A ramen bar found under "All" was therefore filed
   as an attraction, and nothing a member picked could change that. The popup now reads
@@ -1703,7 +1785,7 @@ Two seeded trips, chosen to exercise opposite ends of the layout engine:
   handful of development lookups.
 
 - **A search is scoped by the city's state, not just its name.** Google's Text Search
-  resolves the *text* it is given, so `museum Nashville United States` returns
+  resolves the _text_ it is given, so `museum Nashville United States` returns
   Tennessee however the request is biased: a `locationBias` circle over south Georgia
   was measured to change the results not at all. Naming the state is what picks out the
   right town, so `citySearchContext` carries `region`, `lat` and `lng` alongside the
@@ -1753,10 +1835,9 @@ Two seeded trips, chosen to exercise opposite ends of the layout engine:
   three-character minimum was already enforced on the server, where it is a cost guard
   rather than a UX choice.
 
-
   header search box and the same dropdown, with `kind=stay` restricting Google to
   `includedType: 'lodging'`, verified to cover hotels, hostels, resorts and the
-  apartment listings people actually book, and to return *nothing* for a landmark
+  apartment listings people actually book, and to return _nothing_ for a landmark
   query. This is a different search, not the place search filtered afterwards:
   "apartment" in a general search returns letting agents and furniture shops, and
   someone shopping for a bed should never be shown the Acropolis. The Photon fallback
@@ -1811,14 +1892,14 @@ Two seeded trips, chosen to exercise opposite ends of the layout engine:
   Notes are prefilled with the address, and everything else (link, coordinates, rating,
   price, hours, photo) rides along in
   hidden fields. Notes is a `textarea`, and the card's notes line is `white-space:
-  pre-line` so typed breaks survive to the card, still clamped to two lines so cards
+pre-line` so typed breaks survive to the card, still clamped to two lines so cards
   keep equal height.
 
   A saved place is **edited by clicking it**: the cover, name and meta are one
   `<button class="oinfo">` opening an edit modal for name, notes and link. Only those
   three: rating, hours and photo are the provider's answer, not the traveller's, and
   editing them would silently diverge from the source. The button deliberately wraps
-  *part* of the card rather than the whole `<article>`: Vote, Open and Remove live in
+  _part_ of the card rather than the whole `<article>`: Vote, Open and Remove live in
   the footer, and nesting them inside a button is invalid and unusable by keyboard.
   The same modal names **who voted** for the place, below the fields; it is read-only,
   and the editable thing you came for should not be pushed down by it. The card can
@@ -1836,6 +1917,7 @@ Two seeded trips, chosen to exercise opposite ends of the layout engine:
   it otherwise answers in the language of each result, which put Greek addresses in
   a field the user is expected to read and edit. Manual entry remains for venues not in
   the providers. New China trips seed several POIs per city, a few saved for scheduling.
+
 - Cost estimates are persisted (`cost_estimates`, keyed by trip/city/category over
   lodging, activities, food, travel). They render as a section of the **Preparation**
   tab: an editable per-city budget table with a per-person total; add and edit both go
@@ -1950,8 +2032,8 @@ Two seeded trips, chosen to exercise opposite ends of the layout engine:
   crew's city/lodging. `item_assignees` remains as a finer within-crew filter. Verified
   end-to-end (create crew → crew lane → set city → split → auto-travel → rejoin).
 
-
 ### 5.1 Proposed project structure
+
 ```
 trip-planner/
   src/
@@ -2083,6 +2165,7 @@ failing. FormData could only ever yield strings, so the old `String(f.get(k) ??
 the API mirrors the app that exists.
 
 ---
+
 ## 6. Data Model (Drizzle-style sketch)
 
 ```ts
@@ -2112,6 +2195,7 @@ Enums: `role`, `item_type` (see 2.2), `booking_status (booked|tentative|unbooked
 ## 7. Notable Algorithms
 
 ### 7.1 Minimal-transaction settlement
+
 1. Convert all expenses to home currency (FX at expense date).
 2. Net balance per user = paid − owed.
 3. Greedy match largest creditor with largest debtor until all ≈ 0.
@@ -2147,10 +2231,12 @@ visible on the same screen, and that is a better failure than silently paying a
 different number than the button said.
 
 ### 7.2 Travel-fit conflict check
+
 For consecutive items A→B on a track: required = A.end + leg(A,B).duration.
 If required > B.start → flag conflict (insufficient travel time).
 
 ### 7.3 Time-zone rendering
+
 Persist `startUtc` + item `tz`. Display = `DateTime.fromISO(startUtc,{zone:'utc'}).setZone(item.tz)`.
 Optional viewer overlay = `.setZone(user.homeTz)`.
 
@@ -2167,6 +2253,7 @@ Optional viewer overlay = `.setZone(user.homeTz)`.
 ---
 
 ## 9. Open Questions
+
 - Places/Directions provider choice (Google vs Mapbox vs OSM); affects cost & ToS.
 - Self-host vs managed backend (Supabase) for realtime + auth.
 - Offline/mobile support scope for on-trip use.

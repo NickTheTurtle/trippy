@@ -7,6 +7,29 @@ import { getTripForUser } from '@trippy/server/trips';
 export const COOKIE = 'session';
 
 /**
+ * Native clients have no cookie jar worth relying on, so they present the same
+ * session id as a bearer token instead. It is the same row in `sessions` and
+ * carries the same authority; only the way it travels differs.
+ *
+ * A client asks for that treatment by sending this header on login or register.
+ * Making it opt-in keeps the browser's session id out of any JSON body, so the
+ * cookie stays httpOnly and unreadable to script, which is the whole point of
+ * it.
+ */
+export const CLIENT_HEADER = 'x-trippy-client';
+
+export function wantsToken(c: { req: { header: (name: string) => string | undefined } }) {
+	return c.req.header(CLIENT_HEADER) === 'native';
+}
+
+function bearer(c: { req: { header: (name: string) => string | undefined } }) {
+	const header = c.req.header('authorization');
+	if (!header) return null;
+	const [scheme, value] = header.split(' ');
+	return scheme?.toLowerCase() === 'bearer' && value ? value : null;
+}
+
+/**
  * Cookie name and options are kept identical to the SvelteKit app's, so both
  * front ends can run against one API during the port and a session created in
  * either is valid in the other.
@@ -29,10 +52,15 @@ type Vars = { user: SessionUser | null; trip: NonNullable<ReturnType<typeof getT
 
 /** Resolves the session on every request. Does not reject; that is `requireUser`'s job. */
 export const session = createMiddleware<{ Variables: Vars }>(async (c, next) => {
-	const id = getCookie(c, COOKIE);
+	const id = bearer(c) ?? getCookie(c, COOKIE);
 	c.set('user', id ? getSessionUser(id) : null);
 	await next();
 });
+
+/** The session id this request authenticated with, whichever way it arrived. */
+export function sessionId(c: Parameters<typeof getCookie>[0]) {
+	return bearer(c) ?? getCookie(c, COOKIE) ?? null;
+}
 
 export const requireUser = createMiddleware<{ Variables: Vars }>(async (c, next) => {
 	if (!c.get('user')) return fail(c, 401, 'Not signed in');

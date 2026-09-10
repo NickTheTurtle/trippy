@@ -1,5 +1,6 @@
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
+import { cors } from 'hono/cors';
 import { session, requireUser } from './middleware';
 import { fail } from './respond';
 import { auth } from './routes/auth';
@@ -21,9 +22,34 @@ import { searchCities } from '@trippy/server/geocode';
  */
 const app = new Hono();
 
+/**
+ * CORS, for development only.
+ *
+ * The native client is not a browser and never sends a preflight, and the web
+ * client is proxied onto one origin, so neither needs this in production. What
+ * does need it is Expo's own web preview, which serves the React Native bundle
+ * from Metro's port and so is genuinely cross-origin. Credentials are not
+ * enabled: a cross-origin caller authenticates with a bearer token, and leaving
+ * the cookie out of the allowance means this cannot be used to ride a browser
+ * session.
+ */
+if (process.env.NODE_ENV !== 'production') {
+	app.use(
+		'/api/*',
+		cors({
+			origin: (origin) =>
+				/^http:\/\/(localhost|127\.0\.0\.1|\d+\.\d+\.\d+\.\d+):\d+$/.test(origin) ? origin : null,
+			allowHeaders: ['content-type', 'authorization', 'x-trippy-client'],
+			allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
+		})
+	);
+}
+
 app.use('*', session);
 
-app.get('/api/health', (c) => c.json({ ok: true, provider: process.env.GOOGLE_PLACES_KEY ? 'google' : 'osm' }));
+app.get('/api/health', (c) =>
+	c.json({ ok: true, provider: process.env.GOOGLE_PLACES_KEY ? 'google' : 'osm' })
+);
 app.route('/api/auth', auth);
 app.route('/api/account', account);
 app.route('/api/trips', trips);

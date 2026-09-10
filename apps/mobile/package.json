@@ -1,0 +1,32 @@
+{
+	"name": "@trippy/mobile",
+	"private": true,
+	"version": "0.0.1",
+	"main": "expo-router/entry",
+	"scripts": {
+		"start": "expo start",
+		"check": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@expo/metro-runtime": "~56.0.21",
+		"@trippy/copy": "*",
+		"@trippy/core": "*",
+		"expo": "~56.0.21",
+		"expo-constants": "~56.0.25",
+		"expo-font": "~56.0.7",
+		"expo-linking": "~56.0.17",
+		"expo-router": "~56.2.20",
+		"expo-secure-store": "~56.0.4",
+		"expo-status-bar": "~56.0.4",
+		"expo-system-ui": "~56.0.5",
+		"react": "19.2.3",
+		"react-dom": "19.2.3",
+		"react-native": "0.85.3",
+		"react-native-gesture-handler": "~2.31.1",
+		"react-native-reanimated": "4.3.1",
+		"react-native-safe-area-context": "~5.7.0",
+		"react-native-screens": "~4.26.0",
+		"react-native-web": "^0.21.2",
+		"react-native-webview": "13.16.1"
+	}
+}

@@ -1,6 +1,5 @@
 import { Hono } from 'hono';
-import { issueSession, clearSession, requireUser, COOKIE } from '../middleware';
-import { getCookie } from 'hono/cookie';
+import { issueSession, clearSession, requireUser, sessionId, wantsToken } from '../middleware';
 import { body, rawStr, str } from '../parse';
 import { fail, ok } from '../respond';
 import {
@@ -15,6 +14,18 @@ import {
 type Env = { Variables: { user: SessionUser | null } };
 
 export const auth = new Hono<Env>();
+
+/**
+ * Hands the caller its session however it asked for it: a cookie for the
+ * browser, a token in the body for a native client. Never both, so a browser
+ * session id is never exposed to script.
+ */
+function grant(c: Parameters<typeof issueSession>[0], userId: string) {
+	const id = createSession(userId);
+	if (wantsToken(c)) return { token: id };
+	issueSession(c, id);
+	return {};
+}
 
 /**
  * Passwords are read with `rawStr`, not `str`.
@@ -39,10 +50,11 @@ auth.post('/login', async (c) => {
 		return fail(c, 401, 'Wrong email or password');
 	}
 
-	issueSession(c, createSession(user.id));
-	return c.json({ user: { id: user.id, name: user.name, email: user.email } });
+	return c.json({
+		user: { id: user.id, name: user.name, email: user.email },
+		...grant(c, user.id)
+	});
 });
-
 auth.post('/register', async (c) => {
 	const b = await body(c);
 	const email = str(b.email).toLowerCase();
@@ -54,12 +66,11 @@ auth.post('/register', async (c) => {
 	if (findUserByEmail(email)) return fail(c, 409, 'That email is already registered');
 
 	const user = createUser(email, name, password);
-	issueSession(c, createSession(user.id));
-	return c.json({ user }, 201);
+	return c.json({ user, ...grant(c, user.id) }, 201);
 });
 
 auth.post('/logout', (c) => {
-	const id = getCookie(c, COOKIE);
+	const id = sessionId(c);
 	if (id) deleteSession(id);
 	clearSession(c);
 	return ok(c);
