@@ -736,9 +736,7 @@ only way to do either was to delete the row, which threw away every tick on it.
 **The menu is quiet until it is wanted.** A bordered trigger on every row drew a
 column of boxes down the card that out-shouted the rows themselves, so at rest
 the trigger is just the count; the border and the caret arrive on hover, focus
-or opening. The empty leading box works the same way, holding a transparent tick
-that surfaces on hover: the control shows what pressing it will do, not merely
-that it can be pressed.
+or opening.
 
 **Glyphs are drawn, not typed.** The row's marks were text characters (✎, ×, ✓,
 –). Those are rendered by whatever font the platform has for them, so their
@@ -759,6 +757,14 @@ common case; an always-open roster of names made it look as though a task
 *needed* an owner. It is a `MultiSelect` rather than a grid of checkboxes: the
 grid was fine for three people and unreadable for twenty, and the dropdown is
 already how the row itself asks who has finished.
+
+**Packing takes no roster at all.** A task is work handed out; a packing item is
+your own bag, so asking who it is for is a question with one answer. The dialog
+for one is a single field, the row carries no menu, and the item keeps the one
+shared tick. The rule is enforced in `addTask` and `updateTask` rather than in
+the form, so no client can put a roster back on, and a migration folds any rows
+an earlier version left behind into the shared flag: an item everyone had ticked
+stays ticked.
 
 **"Assigned to me" takes the whole row out of the list.** The full list is sorted
 by what is outstanding across everyone, so your own two jobs can be anywhere in

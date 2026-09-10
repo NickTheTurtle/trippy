@@ -129,7 +129,8 @@ export function addTask(
 				.get(tripId, kind) as { n: number } | undefined
 		)?.n ?? 0;
 
-	const valid = assigneeIds.filter((uid) => isMember(tripId, uid));
+	// A packing item is a list you tick, not work to hand out.
+	const valid = (kind === 'packing' ? [] : assigneeIds).filter((uid) => isMember(tripId, uid));
 	const names = memberNames(valid);
 
 	db.exec('BEGIN');
@@ -159,6 +160,9 @@ export function addTask(
  *
  * Dropping someone also drops their tick. Keeping it would leave a row that
  * counts as done by a person the task is no longer for.
+ *
+ * A packing item takes no roster whatever it is sent, so an older client, or
+ * one editing an item from before the rule, cannot put one back on.
  */
 export function updateTask(
 	tripId: string,
@@ -168,12 +172,12 @@ export function updateTask(
 	assigneeIds: string[]
 ): boolean {
 	if (!isMember(tripId, actorId)) return false;
-	const exists = !!db
-		.prepare(`SELECT 1 FROM trip_tasks WHERE id = ? AND trip_id = ?`)
-		.get(taskId, tripId);
-	if (!exists) return false;
+	const row = db
+		.prepare(`SELECT kind FROM trip_tasks WHERE id = ? AND trip_id = ?`)
+		.get(taskId, tripId) as { kind: string } | undefined;
+	if (!row) return false;
 
-	const valid = assigneeIds.filter((uid) => isMember(tripId, uid));
+	const valid = (row.kind === 'packing' ? [] : assigneeIds).filter((uid) => isMember(tripId, uid));
 	const names = memberNames(valid);
 	const holes = valid.map(() => '?').join(',');
 

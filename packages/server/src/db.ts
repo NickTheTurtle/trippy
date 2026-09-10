@@ -380,6 +380,25 @@ db.exec(`
 	WHERE t.done = 1
 `);
 
+// A packing item is one person's own bag, so it carries no roster: it is a
+// list you tick, not work to hand out. Rows an earlier version wrote (or the
+// backfill above matched out of the display column) collapse back into the
+// shared flag, and an item everyone had ticked stays ticked. Clearing
+// `assignee` is what stops the backfill from writing them again on next boot.
+db.exec(`
+	UPDATE trip_tasks SET done = 1
+	 WHERE kind = 'packing' AND done = 0
+	   AND EXISTS (SELECT 1 FROM task_assignees a WHERE a.task_id = trip_tasks.id)
+	   AND NOT EXISTS (
+	     SELECT 1 FROM task_assignees a
+	      WHERE a.task_id = trip_tasks.id
+	        AND NOT EXISTS (
+	          SELECT 1 FROM task_done d WHERE d.task_id = a.task_id AND d.user_id = a.user_id));
+	DELETE FROM task_done WHERE task_id IN (SELECT id FROM trip_tasks WHERE kind = 'packing');
+	DELETE FROM task_assignees WHERE task_id IN (SELECT id FROM trip_tasks WHERE kind = 'packing');
+	UPDATE trip_tasks SET assignee = '' WHERE kind = 'packing' AND assignee <> '';
+`);
+
 /**
  * Parties ("crews"): the multi-schedule model. A party groups tracks; its
  * membership is time-segmented so a person can split off (and re-merge) within a

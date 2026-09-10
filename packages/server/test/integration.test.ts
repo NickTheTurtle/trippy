@@ -291,6 +291,23 @@ describe('ticking a task box', () => {
 		expect(tasks.updateTask(other.tripId, other.organizer, taskId, 'Anything', [])).toBe(false);
 		expect(row(f.tripId, taskId).label).toBe('Book the ferry');
 	});
+
+	// A packing item is your own bag, so it takes one shared tick and never a
+	// roster. The rule lives here rather than in the form so an older client
+	// cannot put one back on.
+	it('drops the roster sent with a packing item, on add and on edit', () => {
+		const f = createTripFixture('packing-unassigned');
+		const id = tasks.addTask(f.tripId, f.organizer, 'packing', 'Passport', [f.member], null)!;
+		const item = () => tasks.listTasks(f.tripId, 'packing').find((t) => t.id === id)!;
+		expect(item().people).toEqual([]);
+
+		expect(tasks.updateTask(f.tripId, f.organizer, id, 'Passport', [f.member])).toBe(true);
+		expect(item().people).toEqual([]);
+
+		// With nobody on it, the shared flag is what the box ticks.
+		expect(tasks.toggleTask(f.tripId, f.member, id)).toBe(true);
+		expect(item().done).toBe(true);
+	});
 });
 
 describe('member removal cascade', () => {

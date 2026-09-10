@@ -10,7 +10,11 @@ import { copy } from '../../copy';
 const c = copy.preparation.taskDialog;
 
 /**
- * Adds or rewrites one task or one packing item, with who has to do it.
+ * Adds or rewrites one task or one packing item.
+ *
+ * Only a task carries a roster. A packing item is your own bag, so asking who
+ * it is for is a question with one answer, and the server drops any roster sent
+ * with one whatever the client does.
  *
  * Add and edit are the same form, the way they are for a cost estimate: the
  * fields are identical, and a second component for them would be the first one
@@ -69,26 +73,28 @@ export default function EditTask({
 						/>
 					</label>
 
-					<div className="flex flex-col gap-2">
-						<MultiSelect
-							options={members.map((m) => ({
-								value: m.id,
-								label: m.name + (m.id === me ? copy.preparation.youSuffix : '')
-							}))}
-							selected={[...assignees]}
-							onChange={(next) => setAssignees(new Set(next))}
-							ariaLabel={c.assignPlaceholder}
-							placeholder={members.length === 0 ? c.noMembers : c.assignPlaceholder}
-						/>
-						{members.length > 2 && (
-							<div className="flex gap-3 px-1">
-								<LinkButton onClick={() => setAssignees(new Set(members.map((m) => m.id)))}>
-									{c.selectEveryone}
-								</LinkButton>
-								<LinkButton onClick={() => setAssignees(new Set())}>{c.clear}</LinkButton>
-							</div>
-						)}
-					</div>
+					{draft.kind === 'task' && (
+						<div className="flex flex-col gap-2">
+							<MultiSelect
+								options={members.map((m) => ({
+									value: m.id,
+									label: m.name + (m.id === me ? copy.preparation.youSuffix : '')
+								}))}
+								selected={[...assignees]}
+								onChange={(next) => setAssignees(new Set(next))}
+								ariaLabel={c.assignPlaceholder}
+								placeholder={members.length === 0 ? c.noMembers : c.assignPlaceholder}
+							/>
+							{members.length > 2 && (
+								<div className="flex gap-3 px-1">
+									<LinkButton onClick={() => setAssignees(new Set(members.map((m) => m.id)))}>
+										{c.selectEveryone}
+									</LinkButton>
+									<LinkButton onClick={() => setAssignees(new Set())}>{c.clear}</LinkButton>
+								</div>
+							)}
+						</div>
+					)}
 				</div>
 
 				<ModalFooter
