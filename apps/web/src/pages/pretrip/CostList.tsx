@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import EmptyState from '../../components/ui/EmptyState';
-import Select from '../../components/ui/Select';
+import ViewAsBar, { nameOf } from '../../components/ui/ViewAsBar';
 import { IconButton } from '../../components/ui/buttons';
 import { ChevronIcon, PencilIcon, TrashIcon } from '../../components/ui/icons';
 import type { CostItem } from './types';
@@ -9,6 +9,7 @@ import { cap } from './labels';
 import { copy } from '../../copy';
 
 const c = copy.preparation.costTable;
+const cv = copy.viewAs;
 
 /**
  * The estimates, one collapsible section per category.
@@ -63,24 +64,9 @@ export default function CostList({
 
 	return (
 		<div className="card overflow-hidden p-0">
-			<div className="flex flex-wrap items-center gap-2.5 border-b border-line px-4 py-3">
-				<span className="muted text-[0.8rem]">{c.viewAs}</span>
-				<div className="w-44">
-					<Select
-						compact
-						options={[
-							{ value: '', label: c.everyone },
-							...members.map((m) => ({
-								value: m.id,
-								label: m.name + (m.id === me ? copy.preparation.youSuffix : '')
-							}))
-						]}
-						value={viewAs}
-						onChange={onViewAs}
-						ariaLabel={c.viewAs}
-					/>
-				</div>
-			</div>
+			{items.length > 0 && (
+				<ViewAsBar members={members} me={me} value={viewAs} onChange={onViewAs} />
+			)}
 
 			{items.length === 0 ? (
 				<EmptyState graphic message={copy.common.nothingAdded} />
@@ -159,7 +145,7 @@ export default function CostList({
 			)}
 
 			<div className="flex items-center justify-between gap-4 border-t border-line bg-surface-2 px-4 py-2.5 text-[0.92rem] font-medium">
-				<span>{viewAs ? c.share(nameOf(members, viewAs)) : c.total}</span>
+				<span>{viewAs ? cv.share(nameOf(members, viewAs)) : c.total}</span>
 				<span className="font-semibold tabular-nums">{fmt(total)}</span>
 			</div>
 		</div>
@@ -167,7 +153,4 @@ export default function CostList({
 }
 
 const who = (it: CostItem) =>
-	it.people.length === 0 ? c.everyone : it.people.map((p) => p.name).join(', ');
-
-export const nameOf = (members: { id: string; name: string }[], id: string) =>
-	members.find((m) => m.id === id)?.name ?? '';
+	it.people.length === 0 ? cv.everyone : it.people.map((p) => p.name).join(', ');

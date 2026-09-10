@@ -8,6 +8,8 @@ import SectionNav, { type SectionItem } from '../components/ui/SectionNav';
 import FormError from '../components/ui/FormError';
 import EmptyState from '../components/ui/EmptyState';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
+import Stat from '../components/ui/Stat';
+import ViewAsBar, { nameOf } from '../components/ui/ViewAsBar';
 import type { Expense, ExpensesData } from './expenses/types';
 import ExpenseRow from './expenses/ExpenseRow';
 import SettleRow from './expenses/SettleRow';
@@ -31,6 +33,8 @@ export default function Expenses() {
 	const [section, setSection] = useState('expenses');
 	const [showAdd, setShowAdd] = useState(false);
 	const [pendingDelete, setPendingDelete] = useState<Expense | null>(null);
+	/** Whose money the ledger is read as. '' is the whole trip. */
+	const [viewAs, setViewAs] = useState('');
 
 	if (!data) return error ? <FormError message={error} variant="banner" /> : null;
 
@@ -40,6 +44,23 @@ export default function Expenses() {
 	const owes = data.balances.filter((b) => b.netCents < 0);
 	const unsettled = owed.length + owes.length;
 	const fmt = (cents: number) => formatMoney(cents, data.currency);
+
+	// A settlement is a transfer between two members, not money the trip spent,
+	// so it is in the ledger but out of both totals. Counting it would make the
+	// trip look more expensive every time somebody paid a friend back.
+	const spend = data.expenses.filter((e) => e.settlement !== 1);
+	const spent = spend.reduce((n, e) => n + e.home_cents, 0);
+	const perPerson = data.members.length ? Math.round(spent / data.members.length) : spent;
+	const mine = viewAs ? spend.reduce((n, e) => n + (e.shares[viewAs] ?? 0), 0) : 0;
+
+	// Read as one person, the ledger keeps the rows that charge them, plus the
+	// payments they made. A row somebody else paid and nobody split with them
+	// costs them nothing, and a list of zeroes is not an answer.
+	const shown = viewAs
+		? data.expenses.filter(
+				(e) => e.shares[viewAs] !== undefined || (e.settlement === 1 && e.payer_id === viewAs)
+			)
+		: data.expenses;
 
 	const sections: SectionItem[] = [
 		{ id: 'expenses', label: ce.sections.expenses, badge: data.expenses.length },
@@ -80,28 +101,40 @@ export default function Expenses() {
 			<div className="min-w-0">
 				{section === 'expenses' && (
 					<>
-						<Head text={ce.ledgerHead}>
+						<Head
+							left={
+								<div className="flex min-w-0 flex-wrap items-end gap-6">
+									<Stat label={ce.tripTotal} value={fmt(spent)} />
+									<Stat
+										label={viewAs ? copy.viewAs.share(nameOf(data.members, viewAs)) : ce.perPerson}
+										value={fmt(viewAs ? mine : perPerson)}
+									/>
+								</div>
+							}
+						>
 							<button className="btn primary" onClick={() => setShowAdd(true)}>
 								{ce.addExpense}
 							</button>
 						</Head>
-						<div className="card px-5 py-5">
-							{data.expenses.length === 0 ? (
-								<EmptyState
-									message={ce.emptyMessage}
-									action={
-										<button className="btn" type="button" onClick={() => setShowAdd(true)}>
-											{ce.emptyAction}
-										</button>
-									}
+						<div className="card overflow-hidden p-0">
+							{data.expenses.length > 0 && (
+								<ViewAsBar
+									members={data.members}
+									me={data.me}
+									value={viewAs}
+									onChange={setViewAs}
 								/>
+							)}
+							{shown.length === 0 ? (
+								<EmptyState graphic message={copy.common.nothingAdded} />
 							) : (
-								<ul className="m-0 flex list-none flex-col gap-3 p-0">
-									{data.expenses.map((e) => (
+								<ul className="m-0 flex list-none flex-col gap-3 px-5 py-5">
+									{shown.map((e) => (
 										<ExpenseRow
 											key={e.id}
 											expense={e}
 											home={data.currency}
+											share={viewAs && e.settlement !== 1 ? (e.shares[viewAs] ?? 0) : undefined}
 											onRemove={() => setPendingDelete(e)}
 										/>
 									))}
@@ -206,10 +239,23 @@ export default function Expenses() {
 	);
 }
 
-function Head({ text, children }: { text: string; children?: React.ReactNode }) {
+/**
+ * The row every section opens with: what the section is about on the left, its
+ * action on the right. The ledger puts its two figures in the left slot, in
+ * line with "+ Add", the way Preparation does.
+ */
+function Head({
+	text,
+	left,
+	children
+}: {
+	text?: string;
+	left?: React.ReactNode;
+	children?: React.ReactNode;
+}) {
 	return (
 		<div className="mb-4 flex min-h-phead flex-wrap items-center justify-between gap-4">
-			<p className="muted m-0 min-w-0">{text}</p>
+			{left ?? (text ? <p className="muted m-0 min-w-0">{text}</p> : <span />)}
 			{children}
 		</div>
 	);

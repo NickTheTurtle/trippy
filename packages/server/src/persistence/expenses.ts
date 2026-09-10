@@ -30,6 +30,15 @@ export interface SplitPart {
 	weight: number;
 }
 
+/** One expense's home-currency division: who paid it and what each person owes on it. */
+export interface ExpenseSplit {
+	payerId: string;
+	/** The whole expense in home-currency minor units. */
+	totalCents: number;
+	/** Home-currency minor units per participant, summing to `totalCents`. */
+	shares: Record<string, number>;
+}
+
 export interface BalanceRow {
 	id: string;
 	name: string;
@@ -148,15 +157,21 @@ export function deleteExpense(tripId: string, actorId: string, expenseId: string
 	return res.changes > 0;
 }
 
-/** Net balance per member, in home-currency cents (positive = is owed money). */
-export function balances(tripId: string): BalanceRow[] {
-	const members = tripMembers(tripId);
-	const net = new Map<string, number>(members.map((m) => [m.id, 0]));
-
+/**
+ * What each expense charges each of its participants, in home-currency cents.
+ *
+ * Convert first, then split. Splitting the converted total keeps the shares
+ * summing to it exactly, so every balance set nets to zero. Everything stays in
+ * whole cents: no division into major units happens on the way. `balances` and
+ * the ledger's per-person view both read from here, so what a row says a member
+ * owes and what their balance is built from can never be two different numbers.
+ */
+export function expenseShares(tripId: string): Map<string, ExpenseSplit> {
 	const home =
-		(db.prepare(`SELECT home_currency FROM trips WHERE id = ?`).get(tripId) as
-			| { home_currency: string }
-			| undefined)?.home_currency ?? 'USD';
+		(
+			db.prepare(`SELECT home_currency FROM trips WHERE id = ?`).get(tripId) as
+				{ home_currency: string } | undefined
+		)?.home_currency ?? 'USD';
 
 	const rows = db
 		.prepare(
@@ -173,24 +188,36 @@ export function balances(tripId: string): BalanceRow[] {
 		`SELECT user_id, weight FROM expense_participants WHERE expense_id = ? ORDER BY user_id`
 	);
 
+	const out = new Map<string, ExpenseSplit>();
 	for (const e of rows) {
 		const parts = partsOf.all(e.id) as unknown as { user_id: string; weight: number }[];
 		if (parts.length === 0) continue;
 
-		// Convert first, then split. Splitting the converted total keeps the
-		// shares summing to it exactly, so every balance set nets to zero.
-		// Everything stays in whole cents: no division into major units happens
-		// while the running totals are being accumulated.
 		const totalCents = convertCents(e.amount_cents, e.currency ?? home, home);
-		const shares = splitByWeight(
+		const cents = splitByWeight(
 			totalCents,
 			parts.map((p) => p.weight ?? 1)
 		);
 
-		net.set(e.payer_id, (net.get(e.payer_id) ?? 0) + totalCents);
+		const shares: Record<string, number> = {};
 		parts.forEach((p, i) => {
-			net.set(p.user_id, (net.get(p.user_id) ?? 0) - shares[i]);
+			shares[p.user_id] = cents[i];
 		});
+		out.set(e.id, { payerId: e.payer_id, totalCents, shares });
+	}
+	return out;
+}
+
+/** Net balance per member, in home-currency cents (positive = is owed money). */
+export function balances(tripId: string): BalanceRow[] {
+	const members = tripMembers(tripId);
+	const net = new Map<string, number>(members.map((m) => [m.id, 0]));
+
+	for (const split of expenseShares(tripId).values()) {
+		net.set(split.payerId, (net.get(split.payerId) ?? 0) + split.totalCents);
+		for (const [userId, cents] of Object.entries(split.shares)) {
+			net.set(userId, (net.get(userId) ?? 0) - cents);
+		}
 	}
 
 	return members.map((m) => {
@@ -244,8 +271,7 @@ export function recordSettlement(
 	const home =
 		(
 			db.prepare(`SELECT home_currency FROM trips WHERE id = ?`).get(tripId) as
-				| { home_currency: string }
-				| undefined
+				{ home_currency: string } | undefined
 		)?.home_currency ?? 'USD';
 	const names = new Map(tripMembers(tripId).map((m) => [m.id, m.name]));
 

@@ -9,6 +9,7 @@ export type Expense = {
 	id: string;
 	description: string;
 	payer_name: string;
+	payer_id: string;
 	amount_cents: number;
 	currency: string;
 	split_mode: SplitMode;
@@ -17,6 +18,8 @@ export type Expense = {
 	created_at: number;
 	home_cents: number;
 	converted: boolean;
+	/** Home-currency cents this expense charges each participant, keyed by user id. */
+	shares: Record<string, number>;
 };
 export type ExpensesData = {
 	currency: string;

@@ -853,6 +853,12 @@ version and was never used for anything: it did not group, filter or total, and
 most lines of a trip budget (flights, insurance, the car) are not a city's at
 all. Splitting a stay per city is what the per-night lodging estimate is for.
 
+**"View as" is one component, shared with the ledger.** `components/ui/ViewAsBar`
+and `components/ui/Stat` are used by both Preparation and Expenses, so the two
+money screens cannot drift into two different answers to the same question. The
+bar hides itself on a solo trip, where the only person to read a list as is you,
+and is not drawn above an empty list.
+
 
 ### 5.0.5 Discover: places, stays and the search
 
@@ -1156,6 +1162,26 @@ impossible to tell apart and the ordering itself was unexplained. It is the
 expense they are typing in now, and there is no schema change. The year is shown
 only when it is not the current one, since it would otherwise repeat on every row
 of the page.
+
+**The ledger opens with the same header the estimates do.** Its two figures,
+the trip total and either the per-person average or the viewed member's share,
+sit in line with "+ Add", and the hint sentence that used to occupy that row was
+dropped: it repeated a note the add dialog already carries. What is spent
+excludes settlements. A payment between two members moves money that was already
+counted, so adding it would make the trip look more expensive every time
+somebody paid a friend back.
+
+**"View as" reads the ledger as one person.** Every row shows what it charges
+that member, with the whole amount underneath it, and rows that charge them
+nothing drop out, plus the payments they made. A row somebody else paid and did
+not split with them costs them nothing, and a column of zeroes is not an answer.
+
+The per-row shares come from `expenseShares`, which is also what `balances` is
+now built from, so the number a row says you owe and the number your balance is
+made of cannot disagree. It keeps the existing rule, convert to the home currency
+first and split the converted total, so the shares still sum to the expense
+exactly and the balances still net to zero. Settlements keep showing their full
+amount rather than a share: a transfer is not a cost anybody divided.
 
 ### 5.0.10 The trip list
 

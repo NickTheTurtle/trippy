@@ -296,9 +296,6 @@ export const copy = {
 			fallback: 'Could not save that.'
 		},
 		costTable: {
-			viewAs: 'View as',
-			everyone: 'Everyone',
-			share: (name: string) => `${name}'s share`,
 			sectionLabel: (category: string) => `${category} estimates`,
 			editLabel: (label: string) => `Edit ${label}`,
 			removeLabel: (label: string) => `Remove ${label}`,
@@ -323,10 +320,9 @@ export const copy = {
 	expenses: {
 		navAriaLabel: 'Expense sections',
 		sections: { expenses: 'Expenses', balances: 'Balances', settle: 'Settle up' },
-		ledgerHead: 'Use a negative amount for a refund or payout.',
 		addExpense: '+ Add',
-		emptyMessage: 'No expenses yet.',
-		emptyAction: 'Add expense',
+		tripTotal: 'Trip total',
+		perPerson: 'Per person',
 		balancesHead: (currency: string) => `Net position per person, in ${currency}.`,
 		allEven: 'Everyone is even.',
 		youTag: 'you',
@@ -339,6 +335,7 @@ export const copy = {
 			incomeTag: 'income',
 			received: 'received',
 			paid: 'paid',
+			ofTotal: (total: string) => `of ${total}`,
 			splitLabel: (mode: string, participants: number) => {
 				const people = `${participants} ${participants === 1 ? 'way' : 'ways'}`;
 				if (mode === 'shares') return `split by shares, ${people}`;
@@ -477,5 +474,12 @@ export const copy = {
 		working: 'Working...',
 		/** Every list that you fill by adding to it says this when it is empty. */
 		nothingAdded: 'Nothing added yet'
+	},
+
+	// Shared by the money lists: estimated costs and the expense ledger
+	viewAs: {
+		label: 'View as',
+		everyone: 'Everyone',
+		share: (name: string) => `${name}'s share`
 	}
 } as const;

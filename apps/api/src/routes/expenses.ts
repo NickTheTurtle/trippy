@@ -7,6 +7,7 @@ import {
 	addExpense,
 	balances,
 	deleteExpense,
+	expenseShares,
 	listExpenses,
 	recordSettlement,
 	settlement,
@@ -23,6 +24,9 @@ expenses.get('/', (c) => {
 	const trip = c.get('trip');
 	ensureRatesFresh();
 	const home = trip.home_currency;
+	// The same division the balances are built from, so a row read as one person
+	// and that person's balance can never disagree.
+	const splits = expenseShares(trip.id);
 
 	return c.json({
 		currency: home,
@@ -31,7 +35,8 @@ expenses.get('/', (c) => {
 		expenses: listExpenses(trip.id).map((e) => ({
 			...e,
 			home_cents: convertCents(e.amount_cents, e.currency, home),
-			converted: e.currency !== home
+			converted: e.currency !== home,
+			shares: splits.get(e.id)?.shares ?? {}
 		})),
 		balances: balances(trip.id),
 		settlement: settlement(trip.id),

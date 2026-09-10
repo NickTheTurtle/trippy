@@ -8,10 +8,12 @@ import { useTrip } from './TripShell';
 import SectionNav from '../components/ui/SectionNav';
 import FormError from '../components/ui/FormError';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
+import Stat from '../components/ui/Stat';
 import type { Task, CostItem, PretripData, Draft, TaskDraft } from './pretrip/types';
 import TaskList, { ListTitle } from './pretrip/TaskList';
 import MyTasks, { isMine } from './pretrip/MyTasks';
-import CostList, { nameOf } from './pretrip/CostList';
+import CostList from './pretrip/CostList';
+import { nameOf } from '../components/ui/ViewAsBar';
 import EditTask from './pretrip/EditTask';
 import EditCost from './pretrip/EditCost';
 import { totalFor } from './pretrip/shares';
@@ -146,7 +148,7 @@ export default function Pretrip() {
 							<>
 								<Stat label={cp.tripTotal} value={fmt(grand)} />
 								<Stat
-									label={viewAs ? cp.costTable.share(nameOf(data.members, viewAs)) : cp.perPerson}
+									label={viewAs ? copy.viewAs.share(nameOf(data.members, viewAs)) : cp.perPerson}
 									value={fmt(viewAs ? shownTotal : perPerson)}
 								/>
 							</>
@@ -269,15 +271,6 @@ export default function Pretrip() {
 					reload();
 				}}
 			/>
-		</div>
-	);
-}
-
-function Stat({ label, value }: { label: string; value: string }) {
-	return (
-		<div className="flex flex-col">
-			<span className="muted text-[0.8rem]">{label}</span>
-			<strong className="font-serif text-2xl">{value}</strong>
 		</div>
 	);
 }

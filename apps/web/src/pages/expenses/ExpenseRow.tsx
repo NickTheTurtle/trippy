@@ -12,10 +12,16 @@ const splitLabel = (mode: SplitMode, n: number): string => c.splitLabel(mode, n)
 export default function ExpenseRow({
 	expense: e,
 	home,
+	share,
 	onRemove
 }: {
 	expense: Expense;
 	home: string;
+	/**
+	 * Home-currency cents this row charges the person the ledger is being read
+	 * as. Undefined when it is being read as the whole trip.
+	 */
+	share?: number;
 	onRemove: () => void;
 }) {
 	const credit = e.amount_cents < 0;
@@ -56,11 +62,24 @@ export default function ExpenseRow({
 			<span
 				className={`ml-auto flex flex-col items-end text-right font-semibold ${credit ? 'text-accent-ink' : ''}`}
 			>
-				{formatMoney(e.amount_cents, e.currency)}
-				{e.converted && (
-					<span className="muted text-[0.75rem] font-medium">
-						≈ {formatMoney(e.home_cents, home)}
-					</span>
+				{/* Read as one person, the figure that matters is their share, so it
+				    takes the row's headline and the whole amount goes underneath it. */}
+				{share === undefined ? (
+					<>
+						{formatMoney(e.amount_cents, e.currency)}
+						{e.converted && (
+							<span className="muted text-[0.75rem] font-medium">
+								≈ {formatMoney(e.home_cents, home)}
+							</span>
+						)}
+					</>
+				) : (
+					<>
+						{formatMoney(share, home)}
+						<span className="muted text-[0.75rem] font-medium">
+							{c.ofTotal(formatMoney(e.home_cents, home))}
+						</span>
+					</>
 				)}
 			</span>
 			<IconButton

@@ -1335,6 +1335,37 @@ describe('money paths', () => {
 		expect(expenses.balances(f.tripId).every((b) => b.netCents === 0)).toBe(true);
 	});
 
+	it('divides an expense into per-person shares that sum to it and match the balances', () => {
+		const f = createTripFixture('shares-view');
+		const third = createUser('shares-third');
+		expect(members.inviteToTrip(f.tripId, f.organizer, auth.findUserById(third)!.email)).toBe(
+			'added'
+		);
+
+		expenses.addExpense(f.tripId, f.organizer, f.organizer, 'Uneven bill', 1000, 'USD', [
+			{ userId: f.organizer, weight: 1 },
+			{ userId: f.member, weight: 1 },
+			{ userId: third, weight: 1 }
+		]);
+		expenses.addExpense(f.tripId, f.organizer, f.member, 'Just the two of us', 500, 'USD', [
+			{ userId: f.member, weight: 1 },
+			{ userId: third, weight: 1 }
+		]);
+
+		const splits = [...expenses.expenseShares(f.tripId).values()];
+		for (const s of splits) {
+			const sum = Object.values(s.shares).reduce((n, cents) => n + cents, 0);
+			expect(sum).toBe(s.totalCents);
+		}
+
+		// What the ledger charges a person, read row by row, is exactly what their
+		// balance is built from: paid minus owed.
+		const owedBy = (id: string) =>
+			splits.reduce((n, s) => n + (s.shares[id] ?? 0), 0) -
+			splits.reduce((n, s) => n + (s.payerId === id ? s.totalCents : 0), 0);
+		for (const b of expenses.balances(f.tripId)) expect(b.netCents).toBe(-owedBy(b.id));
+	});
+
 	it('converts supported currencies into the trip home currency before balancing', () => {
 		const organizer = createUser('eur-organizer');
 		const member = createUser('eur-member');
