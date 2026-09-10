@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { requireUser, requireMember } from '../middleware';
 import { body, num, optStr, str } from '../parse';
-import { fail } from '../respond';
+import { fail, ok } from '../respond';
 import type { Env } from '../types';
 import {
 	listTripsForUser,
@@ -12,6 +12,8 @@ import {
 	updateCity,
 	removeCity,
 	cityOnTrip,
+	deleteTrip,
+	leaveTrip,
 	type CityInput
 } from '@trippy/server/trips';
 import { backfillTripListPhotos } from '@trippy/server/photos';
@@ -70,6 +72,28 @@ trips.patch('/:tripId', requireMember, async (c) => {
 	});
 	if (problem) return fail(c, 400, problem);
 	return c.json({ trip: getTripForUser(c.get('trip').id, c.get('user').id) });
+});
+
+/**
+ * Delete the whole trip, organizer only, and leave it, everyone else only.
+ *
+ * Two routes rather than one that branches on role: they destroy different
+ * amounts of data and a member must never be one permission check away from
+ * wiping the group's trip. Both refusals are 403 with the other option named,
+ * since the caller is a member either way and there is nothing to hide.
+ */
+trips.delete('/:tripId', requireMember, (c) => {
+	if (!deleteTrip(c.get('trip').id, c.get('user').id)) {
+		return fail(c, 403, 'Only the organizer can delete this trip. You can leave it instead.');
+	}
+	return ok(c);
+});
+
+trips.post('/:tripId/leave', requireMember, (c) => {
+	if (!leaveTrip(c.get('trip').id, c.get('user').id)) {
+		return fail(c, 403, 'The organizer cannot leave a trip. Delete it instead.');
+	}
+	return ok(c);
 });
 
 /**

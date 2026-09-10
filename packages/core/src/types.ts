@@ -87,6 +87,40 @@ export function poiKindFromCategory(category: string | null | undefined): PoiKin
 	return (POI_FOOD_CATEGORIES as readonly string[]).includes(c) ? 'food' : 'attraction';
 }
 
+/**
+ * Category strings that mean "somewhere you sleep".
+ *
+ * A stay is not a `PoiKind`, so this cannot fold into `poiKindFromCategory`: it
+ * answers a different question, "is this a hotel at all", for the one caller
+ * that can act on the answer by switching which table the thing is added to.
+ * Covers our own `Stay` label and the raw provider types a place can arrive
+ * with.
+ */
+export const POI_STAY_CATEGORIES = [
+	'stay',
+	'stays',
+	'lodging',
+	'hotel',
+	'hostel',
+	'motel',
+	'inn',
+	'resort',
+	'resort_hotel',
+	'guest_house',
+	'guesthouse',
+	'bed_and_breakfast',
+	'extended_stay_hotel',
+	'apartment',
+	'campground',
+	'cottage',
+	'farmstay'
+] as const;
+
+export function isStayCategory(category: string | null | undefined): boolean {
+	const c = (category ?? '').trim().toLowerCase();
+	return (POI_STAY_CATEGORIES as readonly string[]).includes(c);
+}
+
 /** Coerce untrusted input into a kind. Anything unrecognised is an attraction. */
 export function toPoiKind(v: unknown): PoiKind {
 	return typeof v === 'string' && isPoiKind(v) ? v : 'attraction';

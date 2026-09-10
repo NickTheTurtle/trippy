@@ -11,7 +11,8 @@ import Cover from '../../components/Cover';
 import type { PlaceHit, PlaceHitDetails } from '../../lib/api-types';
 import { HitSummary, MIN_QUERY, hitKey } from './place-meta';
 import { LinkField, NotesField, TypeField } from './place-fields';
-import { TYPE_OPTIONS, isStayView, type AddType } from './views';
+import { TYPE_OPTIONS, isStayView, STAY_VIEW, type AddType } from './views';
+import { isStayCategory, poiKindFromCategory } from '@trippy/core/types';
 import { copy } from '../../copy';
 
 const c = copy.discover.addDialog;
@@ -132,6 +133,11 @@ export default function AddDialog({
 	 * be reused.
 	 */
 	const session = useRef<string | undefined>(undefined);
+	/**
+	 * Whether the member has set the type themselves. Once they have, a picked
+	 * result never overrules it: they know a bakery is a breakfast stop.
+	 */
+	const typeChosen = useRef(false);
 
 	// Nothing in flight may outlive the popup.
 	useEffect(
@@ -196,6 +202,19 @@ export default function AddDialog({
 		timer.current = setTimeout(() => runSearch(value.trim()), SEARCH_DEBOUNCE_MS);
 	}
 
+	/**
+	 * Sets the type from what the provider says the place is.
+	 *
+	 * The type used to be whichever view the popup was opened from and nothing
+	 * else, so a ramen bar added from All was filed as an attraction. A member's
+	 * own choice still wins, and so does a category we cannot read.
+	 */
+	function inferType(category: string | null | undefined) {
+		const c = (category ?? '').trim();
+		if (typeChosen.current || !c) return;
+		setView(isStayCategory(c) ? STAY_VIEW : poiKindFromCategory(c));
+	}
+
 	/** Fills the form from a result, and fetches what the search left out. */
 	function pick(h: PlaceHit) {
 		clearTimeout(timer.current);
@@ -208,6 +227,8 @@ export default function AddDialog({
 		setNotes((v) => v || (stay ? '' : (h.address ?? '')));
 		setListOpen(false);
 		add.reset();
+		// A suggestion has no category yet; the details response below carries it.
+		inferType(h.category);
 
 		// A pick ends the search session whether or not it needs a lookup: the
 		// token is spent by the request below, and the next thing typed is a new
@@ -239,6 +260,7 @@ export default function AddDialog({
 				// would have been prefilled from one could not be. Fill it now, and
 				// only if the field is still untouched.
 				setNotes((v) => v || (stay ? '' : (merged.address ?? '')));
+				inferType(merged.category);
 			})
 			.catch(() => {})
 			.finally(() => {
@@ -256,6 +278,8 @@ export default function AddDialog({
 
 	function changeView(next: string) {
 		const v = next as AddType;
+		// Set by hand, so a later result must not quietly change it back.
+		typeChosen.current = true;
 		if (isStayView(v) !== stay) {
 			// A hotel is not a place and a place is not a hotel: the results and
 			// anything filled in from them do not survive the switch.

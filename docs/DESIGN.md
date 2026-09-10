@@ -503,8 +503,34 @@ edit dialog in the trip header. `nav.ts` is now the single source for all of
 this, and `App.tsx` generates both the tab routes and the redirects from it, so
 adding a section cannot leave the router and the tab bar disagreeing.
 
-**The trip shell owns the trip fetch; sections read it from outlet context.**
-Every section needs the same trip record. Letting each one fetch it would mean
+**Getting out of a trip: two different actions, never one that branches.** The
+header offered no way out at all, so the only exit was abandoning the row. The
+organizer now deletes from inside the edit dialog, which is where the rest of
+the trip's settings already live, and everyone else gets a **Leave trip** button
+in the same header slot the edit button occupies. They are separate endpoints
+(`DELETE /trips/:id` and `POST /trips/:id/leave`) rather than one that decides
+by role, because they destroy wildly different amounts of data and a member must
+never be one permission bug away from wiping the group's trip. The organizer
+cannot leave: that would orphan the trip, so their refusal names deleting
+instead.
+
+Leaving takes only the membership row. Expenses paid, shares owed and votes cast
+all stay, because the ledger has to keep balancing and a departure is not a
+reason to rewrite what the group already agreed. Deleting takes everything: each
+trip-scoped table cascades from `trips(id)`, so one statement clears cities,
+places, stays, votes, schedule, crews, expenses, budget and tasks. The one thing
+that does not cascade is a **placeholder user**, the account an invite creates
+before that person registers. It is owned by the trip that invited it but lives
+in `users`, so deleting the trip would strand it with no membership, invisible
+and unreachable forever. `deleteTrip` sweeps up any placeholder left without a
+membership, in the same transaction.
+
+The confirmation is the shared `ConfirmDialog`, and deleting closes the edit
+dialog rather than opening on top of it: two stacked modals mean two scroll
+locks and two Escape handlers. Cancelling reopens the edit dialog, so a change
+of mind does not also close the thing you were editing.
+
+**The trip shell owns the trip fetch; sections read it from outlet context.**Every section needs the same trip record. Letting each one fetch it would mean
 five identical requests per navigation and five chances to render a different
 name in the header than in the body. `TripShell` loads it once and passes
 `{ trip, reloadTrip }` down; `useTrip()` is the accessor. `reloadTrip` is handed
@@ -1423,6 +1449,30 @@ Two seeded trips, chosen to exercise opposite ends of the layout engine:
   per-request Essentials rate instead of nothing. That is still the right trade: not
   making a call beats making one.
 
+- **What a place *is* comes from the place, not from the tab it was found under.**
+  The add popup posted whatever type its dropdown held, and the dropdown only ever held
+  the view the popup was opened from. A ramen bar found under "All" was therefore filed
+  as an attraction, and nothing a member picked could change that. The popup now reads
+  the category off the result and sets the type itself: from the search hit, and again
+  when the details land, since an autocomplete suggestion arrives with no category at
+  all. A member who touches the dropdown wins permanently, because they know a bakery
+  is a breakfast stop. Inferring a stay sets the view directly rather than going
+  through `changeView`, which deliberately clears the results on that boundary and
+  would throw away the pick that caused the switch.
+
+  The server-side classifier was wrong twice over. It tested food before lodging and
+  treated Google's `primaryType` as one more entry in the type list, so Hotel Gracery
+  Shinjuku (`primaryType: hotel`, with `restaurant` and `food` further down `types`
+  because it has a restaurant in it) came back as Food & Drink. `primaryType` is
+  Google's own answer to this exact question and is now asked first; the full list is
+  only consulted when it means nothing to us, and only then does an unknown place
+  default to Sights. The second miss was narrowness: the real primary type is
+  `ramen_restaurant`, not `restaurant`, and there is a long tail of those, so a
+  `_restaurant` / `_cafe` / `_bar` suffix is read as food rather than being listed one
+  cuisine at a time. Cached details keep their old category for up to a week, which is
+  the cache's TTL; re-fetching them to correct the label would cost real money for a
+  handful of development lookups.
+
 - **A search is scoped by the city's state, not just its name.** Google's Text Search
   resolves the *text* it is given, so `museum Nashville United States` returns
   Tennessee however the request is biased: a `locationBias` circle over south Georgia
@@ -1718,6 +1768,8 @@ GET    /api/trips                          list
 POST   /api/trips                          create
 GET    /api/trips/:tripId                  trip + cities + members
 PATCH  /api/trips/:tripId                  rename / re-date / re-denominate
+DELETE /api/trips/:tripId                  delete the trip (organizer)
+POST   /api/trips/:tripId/leave            leave the trip (everyone else)
 POST   /api/trips/:tripId/cities           add a city (organizer)
 PATCH  /api/trips/:tripId/cities/:cityId   re-date a city (organizer)
 DELETE /api/trips/:tripId/cities/:cityId   remove a city, never the last one

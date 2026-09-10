@@ -133,6 +133,18 @@ export const copy = {
 			submitLabel: 'Save changes',
 			fallback: 'Could not save.'
 		},
+		deleteTrip: 'Delete trip',
+		deleteDialog: {
+			title: (trip: string) => `Delete ${trip}?`,
+			body: 'Everything on it goes: cities, places, schedule, expenses and votes.',
+			fallback: 'Could not delete this trip.'
+		},
+		leaveTrip: 'Leave trip',
+		leaveDialog: {
+			title: (trip: string) => `Leave ${trip}?`,
+			body: 'You lose access. Expenses you are part of stay on the trip.',
+			fallback: 'Could not leave this trip.'
+		},
 		liveOff: "Live updates are off, so you will not see other people's changes.",
 		reconnect: 'Reconnect'
 	},
@@ -172,8 +184,8 @@ export const copy = {
 			deleteConfirm: 'Delete city',
 			deleteBody: (items: number) =>
 				items > 0
-					? `Deletes ${items} saved ${items === 1 ? 'item' : 'items'}, their votes and this city's cost estimates.`
-					: `Deletes this city's cost estimates. Nothing else has been added.`,
+					? `Deletes ${items} saved ${items === 1 ? 'item' : 'items'}.`
+					: `Deletes this city.`,
 			deleteLinked: (linked: number) =>
 				`${linked} scheduled ${linked === 1 ? 'event keeps its slot' : 'events keep their slots'} on the calendar but ${linked === 1 ? 'loses' : 'lose'} the link.`
 		},
@@ -239,8 +251,6 @@ export const copy = {
 			priceLabel: 'Price / night',
 			activityLabel: 'Activity',
 			badPrice: 'Enter the nightly price as a number, or leave it blank.',
-			added: (count: number) =>
-				`Added${count > 1 ? ` \u00d7${count}` : ''}. Add another activity for the same place, or close.`,
 			close: 'Close',
 			busyLabel: 'Loading...',
 			submit: 'Add',

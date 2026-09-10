@@ -209,3 +209,46 @@ describe('picking a suggestion', () => {
 		expect(d?.rating).toBe(4.1);
 	});
 });
+
+describe('what a place is', () => {
+	/** The category assigned to a place with these Google types. */
+	async function categoryFor(id: string, types: string[], primaryType?: string) {
+		stubProvider({ details: { types, primaryType } });
+		return (await places.placeDetails(id))?.category;
+	}
+
+	it('calls a hotel with a restaurant in it a hotel', async () => {
+		// The regression, and it is Google's real answer for Hotel Gracery
+		// Shinjuku: a hotel lists its restaurant in `types`, so testing food
+		// before lodging filed every such hotel under Food & Drink.
+		expect(
+			await categoryFor(
+				'hotel-1',
+				['hotel', 'lodging', 'restaurant', 'food', 'point_of_interest'],
+				'hotel'
+			)
+		).toBe('Stay');
+	});
+
+	it('reads the narrow food types Google actually returns', async () => {
+		// `ramen_restaurant` is the primary type; there is a long tail of these
+		// and listing them one by one would always be one cuisine behind.
+		expect(await categoryFor('food-1', ['ramen_restaurant', 'food'], 'ramen_restaurant')).toBe(
+			'Food'
+		);
+		expect(await categoryFor('food-2', ['sushi_restaurant'], 'sushi_restaurant')).toBe('Food');
+	});
+
+	it("prefers Google's own pick to the rest of the list", async () => {
+		// `tourist_attraction` comes first in `types` for the Acropolis Museum,
+		// and a museum is the more useful answer.
+		expect(
+			await categoryFor('sight-1', ['tourist_attraction', 'museum', 'point_of_interest'], 'museum')
+		).toBe('Sights');
+	});
+
+	it('still classifies a place whose primary type means nothing to us', async () => {
+		expect(await categoryFor('food-3', ['bakery', 'store'], 'bagel_shop')).toBe('Food');
+		expect(await categoryFor('park-1', ['park'], 'dog_park')).toBe('Nature');
+	});
+});

@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, NavLink, Outlet, useOutletContext, useParams } from 'react-router';
+import { Link, NavLink, Outlet, useNavigate, useOutletContext, useParams } from 'react-router';
 import { api } from '../lib/api';
 import { useApi } from '../hooks/useApi';
 import { useTripEvents, TripEventsProvider } from '../hooks/useTripEvents';
 import { TABS } from '../nav';
 import AddCityDialog from '../components/AddCityDialog';
 import TripFormDialog from '../components/TripFormDialog';
+import ConfirmDialog from '../components/ui/ConfirmDialog';
 import LiveOff from '../components/LiveOff';
 import { copy } from '../copy';
 
@@ -61,8 +62,17 @@ export function useTrip(): Ctx {
 
 export default function TripShell() {
 	const { tripId } = useParams();
+	const navigate = useNavigate();
 	const { data, error, reload } = useApi<{ trip: Trip }>(`/trips/${tripId}`);
 	const [showEdit, setShowEdit] = useState(false);
+	/**
+	 * The open destructive confirmation, if any. Deleting is reached from the
+	 * edit dialog, which closes to make way for it: nesting one modal inside
+	 * another stacks two scroll locks and two Escape handlers for no gain.
+	 * Cancelling puts the edit dialog back, so the trip is not left closed by a
+	 * change of mind.
+	 */
+	const [confirming, setConfirming] = useState<'delete' | 'leave' | null>(null);
 	const [showAddCity, setShowAddCity] = useState(false);
 	/** Set by whoever opened the add-city dialog; see `Ctx.addCity`. */
 	const onCityAdded = useRef<(() => void) | undefined>(undefined);
@@ -123,9 +133,17 @@ export default function TripShell() {
 							{extra > 0 && (
 								<Avatar title={trip.members.slice(8).join(', ')} label={`+${extra}`} rest />
 							)}
-							{trip.role === 'organizer' && (
+							{trip.role === 'organizer' ? (
 								<button type="button" className="btn small ml-3" onClick={() => setShowEdit(true)}>
 									{c.editTrip}
+								</button>
+							) : (
+								<button
+									type="button"
+									className="btn small ml-3"
+									onClick={() => setConfirming('leave')}
+								>
+									{c.leaveTrip}
 								</button>
 							)}
 						</div>
@@ -152,7 +170,43 @@ export default function TripShell() {
 				</div>
 			</div>
 
-			{showEdit && <EditTrip trip={trip} onClose={() => setShowEdit(false)} onSaved={reload} />}
+			{showEdit && (
+				<EditTrip
+					trip={trip}
+					onClose={() => setShowEdit(false)}
+					onSaved={reload}
+					onDelete={() => {
+						setShowEdit(false);
+						setConfirming('delete');
+					}}
+				/>
+			)}
+			<ConfirmDialog
+				open={confirming !== null}
+				title={
+					confirming === 'leave' ? c.leaveDialog.title(trip.name) : c.deleteDialog.title(trip.name)
+				}
+				body={
+					<p className="m-0">{confirming === 'leave' ? c.leaveDialog.body : c.deleteDialog.body}</p>
+				}
+				confirmLabel={confirming === 'leave' ? c.leaveTrip : c.deleteTrip}
+				busyLabel={confirming === 'leave' ? copy.common.working : copy.common.deleting}
+				onCancel={() => {
+					const wasDelete = confirming === 'delete';
+					setConfirming(null);
+					if (wasDelete) setShowEdit(true);
+				}}
+				onConfirm={async () => {
+					if (confirming === 'leave') {
+						await api(`/trips/${trip.id}/leave`, { method: 'POST' });
+					} else {
+						await api(`/trips/${trip.id}`, { method: 'DELETE' });
+					}
+					// Either way this trip is no longer readable, and every section
+					// below is mid-render against it. Leave before anything refetches.
+					navigate('/trips', { replace: true });
+				}}
+			/>
 			{showAddCity && (
 				<AddCityDialog
 					trip={trip}
@@ -215,11 +269,13 @@ function Avatar({ title, label, rest }: { title: string; label: string; rest?: b
 function EditTrip({
 	trip,
 	onClose,
-	onSaved
+	onSaved,
+	onDelete
 }: {
 	trip: Trip;
 	onClose: () => void;
 	onSaved: () => void;
+	onDelete: () => void;
 }) {
 	return (
 		<TripFormDialog
@@ -227,6 +283,11 @@ function EditTrip({
 			submitLabel={c.editDialog.submitLabel}
 			busyLabel={copy.common.saving}
 			fallback={c.editDialog.fallback}
+			footerStart={
+				<button type="button" className="btn danger" onClick={onDelete}>
+					{c.deleteTrip}
+				</button>
+			}
 			initial={{
 				name: trip.name,
 				startDate: trip.start_date ?? '',

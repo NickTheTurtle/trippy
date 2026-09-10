@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useMutation } from '../hooks/useMutation';
 import { currencyOptions } from '../lib/currencies';
 import Modal from './ui/Modal';
@@ -41,6 +41,7 @@ export default function TripFormDialog({
 	busyLabel,
 	initial,
 	fallback,
+	footerStart,
 	onSubmit,
 	onClose
 }: {
@@ -52,6 +53,12 @@ export default function TripFormDialog({
 	initial?: Partial<TripFormValues>;
 	/** Used when the failure is not an ApiError. */
 	fallback?: string;
+	/**
+	 * Rendered at the left of the footer, away from Save. For an action that
+	 * belongs to the thing being edited rather than to the form: editing a trip
+	 * is where you go to delete it, and creating one has nothing to put here.
+	 */
+	footerStart?: ReactNode;
 	onSubmit: (values: TripFormValues) => Promise<void>;
 	onClose: () => void;
 }) {
@@ -102,6 +109,7 @@ export default function TripFormDialog({
 					</div>
 				</div>
 				<div className="mfoot">
+					{footerStart && <div className="mr-auto">{footerStart}</div>}
 					<button className="btn" type="button" onClick={onClose}>
 						{copy.common.cancel}
 					</button>

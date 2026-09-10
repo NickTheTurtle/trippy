@@ -289,6 +289,77 @@ export function updateTrip(tripId: string, actorId: string, e: TripEdit): string
 	return null;
 }
 
+/**
+ * Delete a trip and everything on it. Organizer only.
+ *
+ * Every trip-scoped table references `trips(id)` ON DELETE CASCADE, so the one
+ * statement takes the cities, places, stays, votes, schedule, crews, expenses,
+ * budget and tasks with it. Two things do not cascade and are handled here:
+ *
+ *  - **Placeholder users**, the accounts an invite creates before the person
+ *    registers. `trip_invites` cascades, so the invite itself goes, but the
+ *    `users` row is not owned by the trip and would be left behind with no
+ *    membership, invisible and unreachable. A placeholder exists only for the
+ *    trip that invited it, so any that has no membership left is deleted too.
+ *  - **Registered members** keep their accounts, obviously, and their rows in
+ *    this trip are simply gone with it.
+ *
+ * Runs in one transaction: a failure between the trip and the placeholder sweep
+ * would leave accounts nobody can see or clean up.
+ */export function deleteTrip(tripId: string, actorId: string): boolean {
+	if (!isOrganizer(tripId, actorId)) return false;
+	const placeholders = db
+		.prepare(
+			`SELECT u.id FROM users u
+			 JOIN memberships m ON m.user_id = u.id
+			 WHERE m.trip_id = ? AND u.password_hash LIKE 'placeholder:%'`
+		)
+		.all(tripId) as unknown as { id: string }[];
+
+	let deleted = false;
+	db.exec('BEGIN');
+	try {
+		deleted = db.prepare(`DELETE FROM trips WHERE id = ?`).run(tripId).changes > 0;
+		if (deleted) {
+			const orphaned = db.prepare(
+				`DELETE FROM users
+				 WHERE id = ? AND NOT EXISTS (SELECT 1 FROM memberships WHERE user_id = ?)`
+			);
+			for (const p of placeholders) orphaned.run(p.id, p.id);
+		}
+		db.exec('COMMIT');
+	} catch (err) {
+		db.exec('ROLLBACK');
+		throw err;
+	}
+	// After COMMIT: anyone still watching is looking at a page with nothing
+	// behind it, and the reload this provokes is what tells them so.
+	if (deleted) publish(tripId, 'trip');
+	return deleted;
+}
+
+/**
+ * Leave a trip. Anyone but the organizer, who would orphan it.
+ *
+ * Deliberately destroys nothing else. Expenses they paid, shares they owe and
+ * votes they cast all stay: the ledger has to keep balancing, and a departure
+ * is not a reason to rewrite what the group already agreed. This is the same
+ * effect `removeMember` has on a registered member, reached by the member
+ * rather than the organizer.
+ */
+export function leaveTrip(tripId: string, userId: string): boolean {
+	const row = db
+		.prepare(`SELECT role FROM memberships WHERE trip_id = ? AND user_id = ?`)
+		.get(tripId, userId) as { role: string } | undefined;
+	if (!row || row.role === 'organizer') return false;
+	const res = db
+		.prepare(`DELETE FROM memberships WHERE trip_id = ? AND user_id = ?`)
+		.run(tripId, userId);
+	// Settlement is per member, so the balances everyone else sees change.
+	if (res.changes > 0) publishMany(tripId, ['members', 'expenses', 'schedule']);
+	return res.changes > 0;
+}
+
 export interface CityInput {
 	name: string;
 	country: string;

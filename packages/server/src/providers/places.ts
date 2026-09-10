@@ -158,24 +158,57 @@ const DETAILS_MASK =
 	'rating,userRatingCount,priceLevel,regularOpeningHours,websiteUri,photos,displayName,formattedAddress,location,types,primaryType';
 
 /**
- * Maps a Google place type to one of our discover categories.
+ * Maps a set of Google place types to one of our discover categories.
  *
  * Order matters and must run specific → generic. Google tags almost every venue
  * worth visiting as `tourist_attraction`, so testing that early collapsed the
  * whole map to "Sights": a `park,tourist_attraction` hill and a
  * `flea_market,market,tourist_attraction` bazaar both came back as Sights.
- * `primaryType` is Google's own pick and is consulted first when present.
+ *
+ * Lodging is tested before food, which is not cosmetic: a hotel's type list
+ * routinely contains `restaurant` and `food` because the hotel has a restaurant
+ * in it. Hotel Gracery Shinjuku is `hotel, lodging, restaurant, food, ...`, and
+ * with food first it was filed under Food & Drink.
+ *
+ * Returns null when nothing matched, so the caller can decide what an unknown
+ * place is rather than being handed a guess.
  */
-function googleCategory(types: string[], primaryType?: string): string {
-	const t = new Set(types);
-	const has = (...names: string[]) =>
-		names.some((n) => n === primaryType) || names.some((n) => t.has(n));
+function categoryOf(names: Set<string>): string | null {
+	const has = (...wanted: string[]) => wanted.some((n) => names.has(n));
+	// Google's finer-grained food types: `ramen_restaurant`, `sushi_restaurant`,
+	// `chinese_restaurant` and a long tail more. Matching the suffix covers the
+	// ones we have never heard of, which is most of them.
+	const suffixed = (suffix: string) => [...names].some((n) => n.endsWith(suffix));
 
 	if (has('amusement_center', 'amusement_park', 'video_arcade', 'bowling_alley'))
 		return 'Activity';
-	if (has('restaurant', 'cafe', 'coffee_shop', 'bakery', 'food', 'meal_takeaway', 'food_court'))
+	if (
+		has(
+			'hotel',
+			'lodging',
+			'resort_hotel',
+			'guest_house',
+			'motel',
+			'hostel',
+			'bed_and_breakfast',
+			'extended_stay_hotel',
+			'budget_japanese_inn',
+			'inn',
+			'campground',
+			'rv_park',
+			'cottage',
+			'farmstay',
+			'private_guest_room'
+		)
+	)
+		return 'Stay';
+	if (
+		has('restaurant', 'cafe', 'coffee_shop', 'bakery', 'food', 'meal_takeaway', 'food_court') ||
+		suffixed('_restaurant') ||
+		suffixed('_cafe')
+	)
 		return 'Food';
-	if (has('bar', 'night_club', 'pub', 'wine_bar')) return 'Nightlife';
+	if (has('bar', 'night_club', 'pub', 'wine_bar') || suffixed('_bar')) return 'Nightlife';
 	if (
 		has(
 			'beach',
@@ -221,8 +254,25 @@ function googleCategory(types: string[], primaryType?: string): string {
 	)
 		return 'History';
 	if (has('museum', 'art_gallery', 'performing_arts_theater', 'opera_house')) return 'Sights';
-	if (has('hotel', 'lodging', 'resort_hotel', 'guest_house')) return 'Stay';
-	return 'Sights';
+	if (has('tourist_attraction', 'point_of_interest')) return 'Sights';
+	return null;
+}
+
+/**
+ * The category for a place, preferring Google's own pick.
+ *
+ * `primaryType` is what Google considers the place to *be*, and it is decided
+ * on its own before the rest of the list is read: a hotel is `hotel` first and
+ * `restaurant` fourth, and a museum is `museum` first and `tourist_attraction`
+ * first in `types`. Only when the primary type means nothing to us does the
+ * full list get a say, and only then does an unknown place default to Sights.
+ */
+function googleCategory(types: string[], primaryType?: string): string {
+	if (primaryType) {
+		const own = categoryOf(new Set([primaryType]));
+		if (own) return own;
+	}
+	return categoryOf(new Set(types)) ?? 'Sights';
 }
 
 /** Maps an OSM key/value pair to one of our discover categories. */

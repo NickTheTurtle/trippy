@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isItemType, isPoiKind, poiKindFromCategory, toPoiKind } from '@trippy/core/types';
+import { isItemType, isPoiKind, isStayCategory, poiKindFromCategory, toPoiKind } from '@trippy/core/types';
 
 describe('item types', () => {
 	it('accepts only canonical schedule item types', () => {
@@ -21,6 +21,15 @@ describe('poi kinds', () => {
 		expect(poiKindFromCategory('café')).toBe('food');
 		expect(poiKindFromCategory('museum')).toBe('attraction');
 		expect(poiKindFromCategory(null)).toBe('attraction');
+	});
+
+	it('recognises the categories that mean somewhere to sleep', () => {
+		expect(isStayCategory('Stay')).toBe(true);
+		expect(isStayCategory(' hotel ')).toBe(true);
+		expect(isStayCategory('museum')).toBe(false);
+		expect(isStayCategory(null)).toBe(false);
+		// A stay is not a PoiKind, so the kind classifier must not claim it.
+		expect(poiKindFromCategory('Stay')).toBe('attraction');
 	});
 
 	it('coerces unknown input to attraction', () => {
