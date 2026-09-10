@@ -271,9 +271,7 @@ export const copy = {
 		},
 		myTasks: {
 			title: 'Assigned to me',
-			othersTitle: 'Other tasks',
-			boxLabel: (done: boolean, label: string) =>
-				`${done ? 'Mark not done' : 'Mark done'}: ${label}`
+			othersTitle: 'Other tasks'
 		},
 		taskList: {
 			sharedBoxLabel: (done: boolean, label: string) =>

@@ -26,7 +26,6 @@ export default function TaskList({
 	items,
 	kind,
 	me,
-	boxFor,
 	onToggle,
 	onSetDone,
 	onEdit,
@@ -35,11 +34,6 @@ export default function TaskList({
 	items: Task[];
 	kind: 'task' | 'packing';
 	me: string;
-	/**
-	 * Whose box the row leads with. The full list leads with the whole task's,
-	 * so its box ticks the roster; the "assigned to me" block leads with yours.
-	 */
-	boxFor?: string;
 	/** Tick the shared box of a task that has nobody on it. */
 	onToggle: (taskId: string) => void;
 	/** Say exactly who has finished a task, in one press. */
@@ -58,47 +52,25 @@ export default function TaskList({
 		<ul className="m-0 flex list-none flex-col gap-0.5 p-0">
 			{items.map((it) => {
 				const assigned = it.people.length > 0;
-				const mine = boxFor ? it.people.find((p) => p.id === boxFor) : undefined;
 				return (
 					<li key={it.id}>
 						{/* `group` so the row's buttons can stay hidden until it is hovered
 						    without a hover-only stylesheet rule. */}
 						<div className="group flex min-w-0 items-center gap-3 rounded-[10px] px-1.5 py-2 text-[0.94rem] hover:bg-surface-2">
 							<Box
-								state={
-									mine
-										? mine.done
-											? 'on'
-											: 'off'
-										: it.done
-											? 'on'
-											: it.doneCount > 0
-												? 'part'
-												: 'off'
-								}
+								state={it.done ? 'on' : it.doneCount > 0 ? 'part' : 'off'}
 								label={
-									mine
-										? copy.preparation.myTasks.boxLabel(mine.done, it.label)
-										: assigned
-											? c.allBoxLabel(it.done, it.label)
-											: c.sharedBoxLabel(it.done, it.label)
+									assigned ? c.allBoxLabel(it.done, it.label) : c.sharedBoxLabel(it.done, it.label)
 								}
 								onClick={() =>
-									mine
-										? onSetDone(
-												it,
-												it.people
-													.filter((p) => (p.id === mine.id ? !p.done : p.done))
-													.map((p) => p.id)
-											)
-										: assigned
-											? onSetDone(it, it.done ? [] : it.people.map((p) => p.id))
-											: onToggle(it.id)
+									assigned
+										? onSetDone(it, it.done ? [] : it.people.map((p) => p.id))
+										: onToggle(it.id)
 								}
 							/>
 
 							<span
-								className={`min-w-0 flex-1 truncate ${(mine ? mine.done : it.done) ? 'text-ink-faint line-through' : ''}`}
+								className={`min-w-0 flex-1 truncate ${it.done ? 'text-ink-faint line-through' : ''}`}
 								title={it.label}
 							>
 								{it.label}

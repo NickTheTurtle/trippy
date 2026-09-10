@@ -772,14 +772,14 @@ it. The block answers the question most people open the tab for. It holds the
 real row, roster menu and pencil and bin included, and those rows leave the list
 below rather than being repeated in it: the same task in two places is two boxes
 to reason about, and one ticked while its twin sits unticked a few pixels down
-reads as a bug. It is the same `TaskList` in both places, given a `boxFor`, which
-is the one difference between them: your block's leading box ticks *your* row,
-where the full list's ticks the whole task's. Ticked items stay in the block,
-checked and sorted last: dropping one the moment you tick it makes the row you
-just pressed vanish, and takes away the only place you could undo it. The lists
-are titled only while the tab is actually split, and the lower card is not drawn
-at all when everything is yours. It is tasks only. Packing is already a list of
-your own things.
+reads as a bug. It is the same `TaskList` with the same props, so a row behaves
+identically whichever card it is sitting in; only which rows land in which card
+differs. An earlier version gave the block's leading box a different meaning,
+ticking your own row where the list's ticks the whole task's. Two boxes that
+look the same and do different things is worse than the scrolling it saved. The
+lists are titled only while the tab is actually split, and the lower card is not
+drawn at all when everything is yours. It is tasks only. Packing is already a
+list of your own things.
 
 **The empty box shows its tick on the row's hover, not its own.** An 18px target
 that only reveals what it does once the pointer is inside it tells you too late.
