@@ -1266,12 +1266,35 @@ the web client does. It is the port the whole monorepo restructure was for, so
 most of the decisions below are about _not_ re-deciding things the web app has
 already settled.
 
-**Expo SDK 56, and nothing that needs a custom build.** SDK 56 is the highest
-stable release (`latest` on npm is a 58 canary), and Expo Go on the App Store
-tracks recent SDKs. Every native module used is one Expo Go already bundles, so
-previewing the app is a QR scan rather than a signed development build. That
-constraint is worth keeping until there is a feature that genuinely needs a
-custom module.
+**Expo SDK 57, and nothing that needs a custom build.** Every native module used
+is one Expo Go already bundles, so previewing the app is a QR scan rather than a
+signed development build. That constraint is worth keeping until there is a
+feature that genuinely needs a custom module.
+
+The SDK version is not a free choice. The app was first written against SDK 56
+and Expo Go refused to open it: the App Store build only accepts the newest one
+or two SDKs, and 56 had already aged out. So the floor is set by whatever Expo Go
+currently ships, and it moves. Expect to be forced upward roughly every SDK
+release for as long as previewing through Expo Go matters, and treat that as a
+standing maintenance cost rather than a one-off. Pin by hand when upgrading:
+`npx expo install --fix` asks for patch versions Expo has not published yet
+(57.0.19 wants `expo@~57.0.21` and `expo-router@~57.0.20`, neither of which
+exists), so it fails on a tree that is actually fine.
+
+**Metro keeps hierarchical resolution, with the React packages pinned.** The
+obvious monorepo config sets `resolver.disableHierarchicalLookup = true` to stop
+a root-hoisted copy of React being loaded alongside the app's own. It does stop
+that, but it also stops Metro finding a dependency nested inside another package,
+and SDK 57 relies on nesting: `@expo/metro-runtime` keeps its own `@expo/log-box`,
+which npm cannot hoist because the root holds a different version. With the walk
+disabled the bundle fails to resolve it at all.
+
+`metro.config.js` therefore leaves the walk on and solves the narrower problem
+directly: a `resolveRequest` hook re-resolves `react`, `react-dom` and
+`react-native` as though the importer sat in `apps/mobile`, so the app's copy wins
+no matter which package asked. Nested dependencies still resolve normally. The
+root genuinely does hold a second React (the web app's), so this pin is load
+bearing, not defensive.
 
 **`packages/copy` holds the strings and the formatters.** `copy.ts` and
 `lib/format.ts` moved out of `apps/web` verbatim, and the web app kept one-line
