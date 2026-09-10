@@ -35,10 +35,53 @@ export interface PlaceDetails {
 	photo: string | null;
 }
 
-/** Where to bias a search. Free text (city + country) is enough for both providers. */
+/**
+ * Where to bias a search.
+ *
+ * The region is not decoration. Google resolves the *text* of the query, so
+ * "museum Nashville United States" returns Tennessee no matter where the
+ * search is biased to: a location bias alone was verified to change nothing
+ * for an ambiguous name. Naming the state is what actually picks out Nashville,
+ * Georgia. The coordinates then sharpen the ranking, and are what keep a
+ * neighbouring big city from taking the top slots once the state is in play.
+ */
 export interface SearchNear {
 	city: string;
 	country: string;
+	/** State or province, when the city has one. Omitted by city-states. */
+	region?: string | null;
+	lat?: number | null;
+	lng?: number | null;
+}
+
+/** How far around a city a search still counts as "here", for the bias circle. */
+const BIAS_RADIUS_M = 50000;
+
+/**
+ * The place half of a provider query: "Nashville, Georgia, United States".
+ *
+ * A region equal to the city name is dropped rather than repeated, because
+ * "Tokyo Tokyo Japan" is what a city that is its own prefecture would produce.
+ */
+function nearText(near: SearchNear): string {
+	const region = near.region?.trim();
+	return [near.city, region && region !== near.city ? region : '', near.country]
+		.map((p) => p?.trim())
+		.filter(Boolean)
+		.join(' ');
+}
+
+/** The bias circle for a city, or nothing when we have no coordinates for it. */
+function locationBias(near: SearchNear): Record<string, unknown> {
+	if (typeof near.lat !== 'number' || typeof near.lng !== 'number') return {};
+	return {
+		locationBias: {
+			circle: {
+				center: { latitude: near.lat, longitude: near.lng },
+				radius: BIAS_RADIUS_M
+			}
+		}
+	};
 }
 
 /**
@@ -184,13 +227,14 @@ async function searchGoogle(
 			'X-Goog-FieldMask': SEARCH_MASK
 		},
 		body: JSON.stringify({
-			textQuery: `${query} ${near.city} ${near.country}`.trim(),
+			textQuery: `${query} ${nearText(near)}`.trim(),
 			// Without this Google answers in the local language of the result, so an
 			// Athens search returns "Πιττάκη, Αθήνα" for one place and a romanised
 			// address for the next. Addresses are prefilled into user-editable notes,
 			// so they need to be consistent and readable to the person typing.
 			languageCode: 'en',
 			maxResultCount: 8,
+			...locationBias(near),
 			// `lodging` is the umbrella type: verified to cover hotels, hostels,
 			// resorts and the apartment listings people actually book, while
 			// returning nothing at all for a landmark query.
@@ -278,7 +322,13 @@ async function searchPhoton(
 	kind: SearchKind
 ): Promise<PlaceResult[]> {
 	const url = new URL(PHOTON_ENDPOINT);
-	url.searchParams.set('q', `${query} ${near.city}`.trim());
+	url.searchParams.set('q', `${query} ${nearText(near)}`.trim());
+	// Photon ranks by distance from a given point, which is the only steering it
+	// offers; without it a same-named city elsewhere wins on population.
+	if (typeof near.lat === 'number' && typeof near.lng === 'number') {
+		url.searchParams.set('lat', String(near.lat));
+		url.searchParams.set('lon', String(near.lng));
+	}
 	// Photon has no type filter, so lodging is filtered out of the response;
 	// ask for more rows than we show so the filter has something to keep.
 	url.searchParams.set('limit', kind === 'stay' ? '25' : '8');
@@ -356,13 +406,17 @@ export async function lookupPhoto(
 	if (!key) return NO_PHOTO;
 
 	const body: Record<string, unknown> = {
-		textQuery: `${name} ${near.city} ${near.country}`.trim(),
+		textQuery: `${name} ${nearText(near)}`.trim(),
 		maxResultCount: 1
 	};
 	if (typeof lat === 'number' && typeof lng === 'number') {
+		// The place's own coordinates, so a tight circle is right. The city's are
+		// the fallback and get the wider one, since they only say which town.
 		body.locationBias = {
 			circle: { center: { latitude: lat, longitude: lng }, radius: 5000 }
 		};
+	} else {
+		Object.assign(body, locationBias(near));
 	}
 
 	const res = await fetch(GOOGLE_ENDPOINT, {
@@ -420,7 +474,9 @@ export async function searchPlaces(
 	if (q.length < MIN_QUERY) return [];
 	// Case and inner spacing do not change what Google returns, so they must not
 	// change the cache key either; "Acropolis  Museum" is the same question.
-	const key = `${kind}|${q.toLowerCase().replace(/\s+/g, ' ')}|${near.city}|${near.country}`;
+	// The whole `near` goes in: two trips can hold two different Nashvilles, and
+	// keying on the name alone served one of them the other's results.
+	const key = `${kind}|${q.toLowerCase().replace(/\s+/g, ' ')}|${nearText(near)}|${near.lat ?? ''},${near.lng ?? ''}`;
 	return searchCache.take(key, async () => {
 		if (env.GOOGLE_PLACES_KEY) {
 			try {

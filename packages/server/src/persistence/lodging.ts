@@ -139,6 +139,10 @@ export interface LodgingNeedingPhoto {
 	name: string;
 	city: string;
 	country: string;
+	region: string | null;
+	/** The city's coordinates, since a stay carries none of its own. */
+	lat: number | null;
+	lng: number | null;
 }
 
 /**
@@ -152,7 +156,7 @@ export interface LodgingNeedingPhoto {
 export function lodgingNeedingPhotos(tripId: string, limit = 24): LodgingNeedingPhoto[] {
 	return db
 		.prepare(
-			`SELECT o.id, o.name, c.name AS city, c.country
+			`SELECT o.id, o.name, c.name AS city, c.country, c.region, c.lat, c.lng
 			 FROM lodging_options o JOIN cities c ON c.id = o.city_id
 			 WHERE o.trip_id = ? AND o.photo IS NULL
 			 ORDER BY o.created_at LIMIT ?`

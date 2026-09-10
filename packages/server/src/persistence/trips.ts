@@ -51,6 +51,7 @@ export interface CityNeedingPhoto {
 	id: string;
 	name: string;
 	country: string;
+	region: string | null;
 	lat: number | null;
 	lng: number | null;
 }
@@ -66,7 +67,7 @@ export interface CityNeedingPhoto {
 export function citiesNeedingPhotos(userId: string, limit = 24): CityNeedingPhoto[] {
 	return db
 		.prepare(
-			`SELECT c.id, c.name, c.country, c.lat, c.lng
+			`SELECT c.id, c.name, c.country, c.region, c.lat, c.lng
 			 FROM cities c
 			 JOIN memberships m ON m.trip_id = c.trip_id AND m.user_id = ?
 			 WHERE c.photo IS NULL
@@ -125,19 +126,28 @@ export function listMembersFull(tripId: string): TripMember[] {
 }
 
 /**
- * Name and country of a city, but only if it belongs to this trip. Null otherwise.
+ * Where a city is, but only if it belongs to this trip. Null otherwise.
  *
  * The trip check is the point: this feeds place search, which biases its query
  * by the city, so an id from another trip must not be able to steer it.
+ *
+ * The region and coordinates come with the name because the name alone is
+ * ambiguous. Searching a Nashville, Georgia trip returned Nashville, Tennessee
+ * until the state travelled with it (see `SearchNear` in `providers/places`).
  */
-export function citySearchContext(
-	tripId: string,
-	cityId: string
-): { name: string; country: string } | null {
+export function citySearchContext(tripId: string, cityId: string): CitySearchContext | null {
 	const row = db
-		.prepare(`SELECT name, country FROM cities WHERE id = ? AND trip_id = ?`)
-		.get(cityId, tripId) as { name: string; country: string } | undefined;
+		.prepare(`SELECT name, country, region, lat, lng FROM cities WHERE id = ? AND trip_id = ?`)
+		.get(cityId, tripId) as CitySearchContext | undefined;
 	return row ?? null;
+}
+
+export interface CitySearchContext {
+	name: string;
+	country: string;
+	region: string | null;
+	lat: number | null;
+	lng: number | null;
 }
 
 function listCities(tripId: string): CityRow[] {

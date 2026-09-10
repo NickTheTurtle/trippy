@@ -71,14 +71,26 @@ export async function backfillTripPhotos(
 	const jobs: PhotoJob[] = [
 		...places.map((p) => ({
 			run: async () => {
-				setPoiPhoto(p.id, await lookupPhoto(p.name, { city: p.city, country: p.country }, p.lat, p.lng));
+				setPoiPhoto(
+					p.id,
+					await lookupPhoto(p.name, { city: p.city, country: p.country, region: p.region }, p.lat, p.lng)
+				);
 			}
 		})),
-		// Stays carry no coordinates, so the city and country are the only bias
-		// available. That is enough: a hotel name plus its city is specific.
+		// Stays carry no coordinates of their own, so the lookup falls back to the
+		// city's. A hotel name plus its city, state and country is specific enough.
 		...stays.map((s) => ({
 			run: async () => {
-				setLodgingPhoto(s.id, await lookupPhoto(s.name, { city: s.city, country: s.country }));
+				setLodgingPhoto(
+					s.id,
+					await lookupPhoto(s.name, {
+						city: s.city,
+						country: s.country,
+						region: s.region,
+						lat: s.lat,
+						lng: s.lng
+					})
+				);
 			}
 		}))
 	];
@@ -100,7 +112,12 @@ export async function backfillTripListPhotos(
 			run: async () => {
 				setCityPhoto(
 					city.id,
-					await lookupPhoto(city.name, { city: city.name, country: city.country }, city.lat, city.lng)
+					await lookupPhoto(
+						city.name,
+						{ city: city.name, country: city.country, region: city.region },
+						city.lat,
+						city.lng
+					)
 				);
 			}
 		}))

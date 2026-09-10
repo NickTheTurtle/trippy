@@ -292,6 +292,7 @@ export interface PhotolessPoi {
 	lng: number | null;
 	city: string;
 	country: string;
+	region: string | null;
 }
 
 /**
@@ -302,7 +303,7 @@ export interface PhotolessPoi {
 export function poisNeedingPhotos(tripId: string, limit = 24): PhotolessPoi[] {
 	return db
 		.prepare(
-			`SELECT p.id, p.name, p.lat, p.lng, c.name AS city, c.country
+			`SELECT p.id, p.name, p.lat, p.lng, c.name AS city, c.country, c.region
 			 FROM pois p JOIN cities c ON c.id = p.city_id
 			 WHERE p.trip_id = ? AND p.photo IS NULL
 			 ORDER BY p.created_at LIMIT ?`

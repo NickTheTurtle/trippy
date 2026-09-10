@@ -65,7 +65,19 @@ discover.get('/search', async (c) => {
 	const city = citySearchContext(trip.id, c.req.query('cityId') ?? '');
 	if (!city) return fail(c, 400, 'Unknown city');
 
-	return c.json({ results: await searchPlaces(q, { city: city.name, country: city.country }, kind) });
+	return c.json({
+		results: await searchPlaces(
+			q,
+			{
+				city: city.name,
+				country: city.country,
+				region: city.region,
+				lat: city.lat,
+				lng: city.lng
+			},
+			kind
+		)
+	});
 });
 
 /**

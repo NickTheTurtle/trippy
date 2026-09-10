@@ -969,6 +969,12 @@ up, because that is the only one a card shows, which also keeps the cost of
 opening this page proportional to the number of trips rather than to the number
 of cities in them.
 
+**A card says how many cities, not which ones.** It used to list the names
+joined by a chevron, which read as an itinerary, but cities are stored as an
+unordered pool: the arrows implied a route nobody had chosen, and on a trip with
+eight stops the line wrapped to three. The count answers what the line was
+really for, which is telling two trips apart.
+
 **Cards say how many people are on the trip.** The card already answered where
 and when and what your role is; group size is the other thing that distinguishes
 two trips at a glance, and it is one aggregate on a query that already runs.
@@ -1365,7 +1371,28 @@ Two seeded trips, chosen to exercise opposite ends of the layout engine:
   target; a small "Add" button next to a wide row is a needlessly small target for the
   only action the row has. The dropdown scrolls at `min(60vh, 380px)`.
 
-- **Stays are searched too, but as a separate search.** The Stays section gets the same
+- **A search is scoped by the city's state, not just its name.** Google's Text Search
+  resolves the *text* it is given, so `museum Nashville United States` returns
+  Tennessee however the request is biased: a `locationBias` circle over south Georgia
+  was measured to change the results not at all. Naming the state is what picks out the
+  right town, so `citySearchContext` carries `region`, `lat` and `lng` alongside the
+  name, and the query reads `museum Nashville Georgia United States`. The bias circle
+  is sent as well, but as a tie-breaker rather than the fix: with the state in the
+  query it is what stops a bigger neighbour (Atlanta, in this case) taking the top
+  slots. A region equal to the city name is dropped rather than repeated, so Tokyo does
+  not search for "Tokyo Tokyo Japan", and a city-state with no region searches exactly
+  as it always did.
+
+  The 50km bias does cost something, and it is worth naming: a landmark far outside the
+  city, Mount Fuji searched from Tokyo, drops from first to second as nearer noise is
+  promoted. Being ranked below is recoverable, being absent is not, which is the trade
+  taken. The same region now travels with the photo lookups, which had the same bug
+  more quietly: the trip card for a Nashville, Georgia trip was showing a picture of
+  Nashville, Tennessee. The search cache key had to widen too, since it was keyed on
+  city and country alone and two trips holding two different Nashvilles were served
+  each other's results.
+
+
   header search box and the same dropdown, with `kind=stay` restricting Google to
   `includedType: 'lodging'`, verified to cover hotels, hostels, resorts and the
   apartment listings people actually book, and to return *nothing* for a landmark
