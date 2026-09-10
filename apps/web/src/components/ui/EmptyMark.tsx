@@ -40,10 +40,11 @@ export default function EmptyMark() {
 			 * The S: along the floor going nowhere, doubling back, then up. It
 			 * ends at the centre of the body rather than short of it, so the
 			 * trail reads as coming out of the fly. The filled body hides the
-			 * last of it.
+			 * last of it. The approach is angled to meet the tail, which the
+			 * body's tilt puts below the centre line, not level with it.
 			 */}
 			<path
-				d="M18 112C86 112 98 80 60 73 22 66 30 32 126 34"
+				d="M18 112C86 112 98 80 60 73 22 66 30 40 126 36"
 				strokeWidth="2"
 				strokeDasharray="1 9"
 				opacity="0.55"
