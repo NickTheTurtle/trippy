@@ -512,7 +512,7 @@ export const copy = {
 	ui: {
 		modal: { closeLabel: 'Close' },
 		confirmDialog: {
-			undone: 'This cannot be undone.',
+			undone: 'Are you sure? This action cannot be undone.',
 			fallback: 'Could not do that.'
 		},
 		searchDropdown: { busyLabel: 'Searching' },
