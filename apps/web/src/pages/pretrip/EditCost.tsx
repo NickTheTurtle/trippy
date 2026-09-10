@@ -113,7 +113,7 @@ export default function EditCost({
 					onClose={onClose}
 					busy={save.busy}
 					busyLabel={copy.common.saving}
-					submitLabel={draft.id ? c.saveLabel : c.addLabel}
+					submitLabel={draft.id ? copy.common.save : c.addLabel}
 				/>
 			</form>
 		</Modal>

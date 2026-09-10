@@ -314,13 +314,7 @@ export function ExpenseSheet({
 
 			<FormError message={save.error || remove.error} />
 			<Button
-				label={
-					expense
-						? copy.expenses.addDialog.saveChanges
-						: income
-							? copy.expenses.addDialog.saveIncome
-							: copy.expenses.addDialog.saveExpense
-				}
+				label={copy.common.save}
 				onPress={() => void save.run()}
 				busy={save.busy}
 				disabled={!description.trim() || chosen.length === 0}

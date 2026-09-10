@@ -109,7 +109,7 @@ function Profile({ data, onSaved }: { data: AccountData; onSaved: () => void }) 
 					/>
 				</FieldShell>
 				<button className="btn primary mt-1 self-start" type="submit" disabled={save.busy}>
-					{save.busy ? copy.common.saving : ca.profile.submitLabel}
+					{save.busy ? copy.common.saving : copy.common.save}
 				</button>
 			</form>
 		</section>

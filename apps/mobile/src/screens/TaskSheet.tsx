@@ -95,7 +95,7 @@ export function TaskSheet({
 
 			<FormError message={save.error || remove.error} />
 			<Button
-				label={task ? copy.preparation.taskDialog.saveLabel : copy.preparation.taskDialog.addLabel}
+				label={task ? copy.common.save : copy.preparation.taskDialog.addLabel}
 				onPress={() => void save.run()}
 				busy={save.busy}
 				disabled={!label.trim()}

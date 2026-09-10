@@ -277,7 +277,7 @@ function EditTrip({
 	return (
 		<TripFormDialog
 			title={c.editDialog.title}
-			submitLabel={c.editDialog.submitLabel}
+			submitLabel={copy.common.save}
 			busyLabel={copy.common.saving}
 			fallback={c.editDialog.fallback}
 			footerStart={

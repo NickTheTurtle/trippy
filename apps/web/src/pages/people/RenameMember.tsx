@@ -59,7 +59,7 @@ export default function RenameMember({
 					busy={save.busy}
 					disabled={name.trim() === ''}
 					busyLabel={copy.common.saving}
-					submitLabel={c.saveLabel}
+					submitLabel={copy.common.save}
 				/>
 			</form>
 		</Modal>

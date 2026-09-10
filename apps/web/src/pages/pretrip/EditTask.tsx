@@ -109,7 +109,7 @@ export default function EditTask({
 					onClose={onClose}
 					busy={save.busy}
 					busyLabel={editing ? copy.common.saving : copy.common.adding}
-					submitLabel={editing ? c.saveLabel : c.addLabel}
+					submitLabel={editing ? copy.common.save : c.addLabel}
 				/>
 			</form>
 		</Modal>

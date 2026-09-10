@@ -130,7 +130,6 @@ export const copy = {
 		editTrip: 'Edit trip',
 		editDialog: {
 			title: 'Edit trip',
-			submitLabel: 'Save changes',
 			fallback: 'Could not save.'
 		},
 		deleteTrip: 'Delete trip',
@@ -282,7 +281,6 @@ export const copy = {
 			selectEveryone: 'Select everyone',
 			clear: 'Clear',
 			addLabel: 'Add',
-			saveLabel: 'Save changes',
 			fallback: 'Could not save that.'
 		},
 		costTable: {
@@ -300,7 +298,6 @@ export const copy = {
 			categoryAriaLabel: 'Category',
 			forLabel: 'Who is it for?',
 			forEveryone: 'Everyone',
-			saveLabel: 'Save changes',
 			addLabel: 'Add cost',
 			fallback: 'Could not save that item.'
 		}
@@ -374,9 +371,6 @@ export const copy = {
 			weightLabel: (exact: boolean, name: string) => `${exact ? 'Amount' : 'Shares'} for ${name}`,
 			fewerShares: (name: string) => `One share fewer for ${name}`,
 			moreShares: (name: string) => `One share more for ${name}`,
-			saveIncome: 'Save income',
-			saveExpense: 'Save expense',
-			saveChanges: 'Save changes',
 			fallback: 'Could not save that expense.'
 		}
 	},
@@ -400,7 +394,6 @@ export const copy = {
 		rename: {
 			title: 'Edit name',
 			nameLabel: 'Display name',
-			saveLabel: 'Save changes',
 			fallback: 'Could not rename that member.'
 		},
 		invite: {
@@ -423,7 +416,6 @@ export const copy = {
 			emailLabel: 'Email',
 			timeZoneLabel: 'Home time zone',
 			timeZoneAriaLabel: 'Home time zone',
-			submitLabel: 'Save profile',
 			fallback: 'Could not save your profile.'
 		},
 		password: {
@@ -471,6 +463,8 @@ export const copy = {
 		add: 'Add',
 		cancel: 'Cancel',
 		delete: 'Delete',
+		/** Every save button says this. The dialog title already names the thing. */
+		save: 'Save',
 		saving: 'Saving...',
 		deleting: 'Deleting...',
 		adding: 'Adding...',

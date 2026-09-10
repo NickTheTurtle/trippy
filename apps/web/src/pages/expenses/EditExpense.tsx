@@ -404,7 +404,7 @@ export default function EditExpense({
 					busy={save.busy}
 					disabled={!canSave}
 					busyLabel={copy.common.saving}
-					submitLabel={expense ? c.saveChanges : income ? c.saveIncome : c.saveExpense}
+					submitLabel={copy.common.save}
 				/>
 			</form>
 		</Modal>

@@ -88,7 +88,7 @@ export default function Account() {
 						</Text>
 					) : null}
 					<Button
-						label={copy.account.profile.submitLabel}
+						label={copy.common.save}
 						onPress={() => {
 							setSavedProfile(false);
 							void saveProfile.run();

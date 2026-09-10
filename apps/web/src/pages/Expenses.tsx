@@ -159,7 +159,6 @@ export default function Expenses() {
 
 				{section === 'balances' && (
 					<>
-						<Head />
 						<div className="card px-5 py-5">
 							{unsettled === 0 ? (
 								<p className="muted m-0 text-[0.9rem]">{ce.allEven}</p>
@@ -200,7 +199,6 @@ export default function Expenses() {
 
 				{section === 'settle' && (
 					<>
-						<Head />
 						<div className="card px-5 py-5">
 							{data.settlement.length === 0 ? (
 								<p className="muted m-0 text-[0.9rem]">{ce.nothingToSettle}</p>
@@ -260,22 +258,16 @@ export default function Expenses() {
 }
 
 /**
- * The row every section opens with: what the section is about on the left, its
- * action on the right. The ledger puts its two figures in the left slot, in
- * line with "+ Add", the way Preparation does.
+ * The ledger opens with its two figures in line with "+ Add", the way
+ * Preparation does. Balances and Settle up have no figure and no action, so
+ * they open straight onto their card rather than reserving an empty band to
+ * keep the three sections aligned: dead space at the top of two of the three
+ * sections cost more than the alignment was worth.
  */
-function Head({
-	text,
-	left,
-	children
-}: {
-	text?: string;
-	left?: React.ReactNode;
-	children?: React.ReactNode;
-}) {
+function Head({ left, children }: { left: React.ReactNode; children: React.ReactNode }) {
 	return (
 		<div className="mb-4 flex min-h-phead flex-wrap items-center justify-between gap-4">
-			{left ?? (text ? <p className="muted m-0 min-w-0">{text}</p> : <span />)}
+			{left}
 			{children}
 		</div>
 	);
