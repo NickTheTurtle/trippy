@@ -924,6 +924,30 @@ made the click target far smaller than the thing it acted on.
 calendar events pointing at it, and those go with it; the dialog says how many.
 A stay carries only votes.
 
+**A stay is editable, and clicking it is how you edit it.** Places had an editor
+from the start and stays did not, so the only way to fix a wrong price or a
+typo'd name was to delete the stay and propose it again, which threw away
+everyone's votes over a spelling. `PATCH /stays/:id` writes the whole set of
+things a proposer typed (name, the one free-text line, nightly price, link and
+the night range) in one go, so clearing a price or a link is expressible;
+a patch of named fields cannot say "no price".
+
+The editor deliberately does not touch votes, the lock, the photo or the
+currency. A corrected price is the same stay, so re-opening the vote every time
+somebody tidies a name would make the board unusable; the photo is
+provider-derived and refreshed from the provider, as on places; and the currency
+is not asked for on the way in either, because a price typed on this page is in
+the trip's home currency. Any member may edit, on the same reasoning as deleting
+and as setting the nights: a stay is a shared proposal, not one person's
+property.
+
+The night range is on this form even though the calendar can also set it
+(`PATCH /stays/:id/dates`, which predates this and stays), because the nights
+are what a nightly price multiplies out against. The affordance is the card
+itself rather than a pencil, matching the place card exactly: cover, title and
+meta are one button, and the vote, open and remove controls sit outside it so
+the card never nests one interactive element inside another.
+
 **Stays get cover photos from the same pipeline as places.** Every option in the
 lodging vote rendered as the same grey bed icon, which is nothing to vote on when
 the choice is between an apartment, a villa and a hostel. `lodging_options` gains

@@ -9,21 +9,24 @@ const c = copy.discover.stayCard;
 /**
  * One proposed stay.
  *
- * Same footer treatment as a place card so the two read as one family: a vote
- * pill and an open icon, with the share of the group flush along the bottom
- * edge. A stay carries two things a place does not: what it costs per night and
- * the nights it covers.
+ * Same treatment as a place card so the two read as one family: the cover,
+ * title and meta are a single button, because clicking the stay is how you
+ * edit it, and the vote, open and remove controls stay outside it so the card
+ * never nests one interactive element inside another. A stay carries two
+ * things a place does not: what it costs per night and the nights it covers.
  */
 export default function StayCard({
 	stay: o,
 	currency,
 	pct,
+	onEdit,
 	onVote,
 	onRemove
 }: {
 	stay: Stay;
 	currency: string;
 	pct: number;
+	onEdit: () => void;
 	onVote: () => void;
 	onRemove: () => void;
 }) {
@@ -37,23 +40,31 @@ export default function StayCard({
 
 	return (
 		<article className={`${CARD} ${ring} group/card`}>
-			<Cover photo={o.photo} seed={o.name} category="stay" />
-			<div className="flex min-w-0 flex-auto flex-col px-4 pt-3.5 pb-3.5">
-				<div className="flex items-start justify-between gap-2">
-					<h4 className="m-0 line-clamp-2 min-w-0 text-base [overflow-wrap:anywhere]">{o.name}</h4>
-					{o.locked ? <span className="chip accent flex-none">{c.locked}</span> : null}
-				</div>
-				<p className="muted mt-1.5 mb-2.5 flex-auto text-[0.85rem]">
-					{o.tag ? `${o.tag} · ` : ''}
-					{formatPerNight(o.price_cents, o.currency || currency)}
-				</p>
-				{nights && <p className="mb-2.5 text-[0.8rem] text-accent-ink">🛏 {nights}</p>}
+			<button
+				type="button"
+				onClick={onEdit}
+				className="group flex min-w-0 flex-auto cursor-pointer flex-col p-0 text-left focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
+			>
+				<Cover photo={o.photo} seed={o.name} category="stay" />
+				<span className="flex min-w-0 flex-auto flex-col px-4 pt-3.5">
+					<span className="flex items-start justify-between gap-2">
+						<span className="line-clamp-2 min-w-0 text-base font-semibold [overflow-wrap:anywhere] group-hover:underline">
+							{o.name}
+						</span>
+						{o.locked ? <span className="chip accent flex-none">{c.locked}</span> : null}
+					</span>
+					<span className="muted mt-1.5 mb-2.5 flex-auto text-[0.85rem]">
+						{o.tag ? `${o.tag} · ` : ''}
+						{formatPerNight(o.price_cents, o.currency || currency)}
+					</span>
+					{nights && <span className="mb-2.5 text-[0.8rem] text-accent-ink">🛏 {nights}</span>}
+				</span>
+			</button>
 
-				<div className="flex flex-wrap items-center gap-1.5">
-					<VotePill votes={o.votes} youVoted={!!o.you_voted} subject={o.name} onVote={onVote} />
-					{o.url && <OpenLink url={o.url} name={o.name} />}
-					<RemoveCardButton label={c.removeLabel(o.name)} onClick={onRemove} className="ml-auto" />
-				</div>
+			<div className="flex flex-none flex-wrap items-center gap-1.5 px-4 pt-2.5 pb-3.5">
+				<VotePill votes={o.votes} youVoted={!!o.you_voted} subject={o.name} onVote={onVote} />
+				{o.url && <OpenLink url={o.url} name={o.name} />}
+				<RemoveCardButton label={c.removeLabel(o.name)} onClick={onRemove} className="ml-auto" />
 			</div>
 
 			<VoteRule pct={pct} />

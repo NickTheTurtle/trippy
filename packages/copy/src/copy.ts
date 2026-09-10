@@ -239,6 +239,16 @@ export const copy = {
 				voters.length ? `: ${voters.join(', ')}` : ', nobody yet',
 			submitLabel: 'Save',
 			fallback: 'Could not save that place.'
+		},
+		editStay: {
+			title: 'Edit stay',
+			nameLabel: 'Name',
+			priceLabel: 'Price / night',
+			checkInLabel: 'Check-in',
+			checkOutLabel: 'Check-out',
+			badPrice: 'Enter the nightly price as a number, or leave it blank.',
+			badDates: 'Check-out must be after check-in.',
+			fallback: 'Could not save that stay.'
 		}
 	},
 

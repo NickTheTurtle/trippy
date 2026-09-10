@@ -45,8 +45,7 @@ function cityInTrip(tripId: string, cityId: string): boolean {
 /** The trip's home currency, used when a price arrives without one. */
 function homeCurrency(tripId: string): string {
 	const row = db.prepare(`SELECT home_currency FROM trips WHERE id = ?`).get(tripId) as
-		| { home_currency: string }
-		| undefined;
+		{ home_currency: string } | undefined;
 	return row?.home_currency ?? 'USD';
 }
 
@@ -70,11 +69,12 @@ export function cityLodging(tripId: string, userId: string): CityLodging[] {
 				 ORDER BY o.locked DESC, votes DESC, o.created_at`
 			)
 			.all(userId, c.id) as unknown as LodgingOption[];
-		const voted = (
-			db
-				.prepare(`SELECT COUNT(DISTINCT user_id) AS n FROM lodging_votes WHERE city_id = ?`)
-				.get(c.id) as { n: number } | undefined
-		)?.n ?? 0;
+		const voted =
+			(
+				db
+					.prepare(`SELECT COUNT(DISTINCT user_id) AS n FROM lodging_votes WHERE city_id = ?`)
+					.get(c.id) as { n: number } | undefined
+			)?.n ?? 0;
 		return { ...c, options, voted };
 	});
 }
@@ -109,8 +109,7 @@ export function addOption(
 	if (!cityInTrip(tripId, cityId)) return null;
 	const clean = name.trim();
 	if (!clean) return null;
-	const price =
-		priceCents == null || !Number.isFinite(priceCents) ? null : Math.round(priceCents);
+	const price = priceCents == null || !Number.isFinite(priceCents) ? null : Math.round(priceCents);
 	const id = randomUUID();
 	db.prepare(
 		`INSERT INTO lodging_options (id, trip_id, city_id, name, tag, price_cents, currency, url, locked, check_in, check_out, photo, created_at)
@@ -218,12 +217,9 @@ export function lodgingForDay(tripId: string, cityId: string, day: string): DayL
 /** Summary for a specific option id (for per-crew lodging overrides). */
 export function lodgingOptionById(tripId: string, optionId: string): DayLodging | null {
 	const row = db
-		.prepare(
-			`SELECT name, tag, locked, url FROM lodging_options WHERE id = ? AND trip_id = ?`
-		)
+		.prepare(`SELECT name, tag, locked, url FROM lodging_options WHERE id = ? AND trip_id = ?`)
 		.get(optionId, tripId) as
-		| { name: string; tag: string; locked: number; url: string | null }
-		| undefined;
+		{ name: string; tag: string; locked: number; url: string | null } | undefined;
 	return row ? { name: row.name, tag: row.tag, locked: row.locked, url: row.url } : null;
 }
 
@@ -295,6 +291,56 @@ export function setDates(
 	const res = db
 		.prepare(`UPDATE lodging_options SET check_in = ?, check_out = ? WHERE id = ? AND trip_id = ?`)
 		.run(checkIn, checkOut, optionId, tripId);
+	if (res.changes > 0) publishMany(tripId, ['lodging', 'schedule']);
+	return res.changes > 0;
+}
+
+/** What a stay's editor may change. Everything a proposer typed, and nothing else. */
+export interface OptionEdit {
+	name: string;
+	tag: string;
+	priceCents: number | null;
+	url: string | null;
+	checkIn: string | null;
+	checkOut: string | null;
+}
+
+/**
+ * Edit a proposed stay.
+ *
+ * Any trip member may edit, on the same reasoning as `removeOption` and
+ * `setDates`: a stay is a shared proposal rather than one person's property,
+ * and the alternative to fixing a wrong price is deleting the stay, which
+ * throws away everyone's votes with it.
+ *
+ * Votes and the lock are deliberately untouched. A corrected price or a fixed
+ * typo is the same stay, and re-opening the vote every time somebody tidies a
+ * name would make the board unusable. The photo is untouched too: it is
+ * provider-derived and refreshed from the provider, as on places.
+ *
+ * `schedule` is published alongside `lodging` because the calendar renders the
+ * day's stay by name, and the night range decides which days it covers.
+ */
+export function updateOption(
+	tripId: string,
+	actorId: string,
+	optionId: string,
+	edit: OptionEdit
+): boolean {
+	if (!isMember(tripId, actorId)) return false;
+	const clean = edit.name.trim();
+	if (!clean) return false;
+	const price =
+		edit.priceCents == null || !Number.isFinite(edit.priceCents)
+			? null
+			: Math.round(edit.priceCents);
+	const res = db
+		.prepare(
+			`UPDATE lodging_options
+			 SET name = ?, tag = ?, price_cents = ?, url = ?, check_in = ?, check_out = ?
+			 WHERE id = ? AND trip_id = ?`
+		)
+		.run(clean, edit.tag, price, edit.url, edit.checkIn, edit.checkOut, optionId, tripId);
 	if (res.changes > 0) publishMany(tripId, ['lodging', 'schedule']);
 	return res.changes > 0;
 }

@@ -3,13 +3,21 @@ import { requireMember } from '../middleware';
 import { body, int, isoDay, num, optStr, str } from '../parse';
 import { fail, okOr } from '../respond';
 import type { Env } from '../types';
-import { addPoi, cityPois, poiTitleExists, removePoi, toggleVote, updatePoi } from '@trippy/server/pois';
+import {
+	addPoi,
+	cityPois,
+	poiTitleExists,
+	removePoi,
+	toggleVote,
+	updatePoi
+} from '@trippy/server/pois';
 import {
 	addOption,
 	cityLodging,
 	lockOption,
 	removeOption,
 	setDates,
+	updateOption,
 	vote as lodgingVote
 } from '@trippy/server/lodging';
 import { backfillTripPhotos } from '@trippy/server/photos';
@@ -321,6 +329,45 @@ discover.delete('/stays/:optionId', (c) =>
 		'Could not remove that stay.'
 	)
 );
+
+/**
+ * Edit a proposed stay: everything a proposer typed, in one write.
+ *
+ * A full replace rather than a patch of named fields, so the dialog's state is
+ * what ends up stored and clearing a price or a link is expressible. The
+ * narrower `/dates` route below predates this one and stays: the calendar
+ * moves a stay's nights without opening the editor.
+ */
+discover.patch('/stays/:optionId', async (c) => {
+	const b = await body(c);
+
+	const name = str(b.name);
+	if (!name) return fail(c, 400, 'Name the stay.');
+
+	const price = stayPriceCents(b);
+	if (price === 'bad') return fail(c, 400, 'Enter a valid price.');
+
+	const checkIn = optDay(b.checkIn);
+	const checkOut = optDay(b.checkOut);
+	if (checkIn === 'bad' || checkOut === 'bad') return fail(c, 400, 'Enter valid dates.');
+	if (checkIn && checkOut && checkIn > checkOut) {
+		return fail(c, 400, 'Check-out must be after check-in.');
+	}
+
+	return okOr(
+		c,
+		updateOption(c.get('trip').id, c.get('user').id, c.req.param('optionId'), {
+			name,
+			tag: str(b.tag) || str(b.notes),
+			priceCents: price,
+			url: optStr(b.url),
+			checkIn,
+			checkOut
+		}),
+		404,
+		'Could not save that stay.'
+	);
+});
 
 discover.patch('/stays/:optionId/dates', async (c) => {
 	const b = await body(c);

@@ -8,12 +8,13 @@ import Select from '../components/ui/Select';
 import FormError from '../components/ui/FormError';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 import EmptyState from '../components/ui/EmptyState';
-import type { DiscoverData, Poi } from '../lib/api-types';
+import type { DiscoverData, Poi, Stay } from '../lib/api-types';
 import CityList, { type CityRow } from './discover/CityList';
 import PlaceCard from './discover/PlaceCard';
 import StayCard from './discover/StayCard';
 import AddDialog from './discover/AddDialog';
 import EditPlaceDialog from './discover/EditPlaceDialog';
+import EditStayDialog from './discover/EditStayDialog';
 import NoCities from './discover/NoCities';
 import { PlusIcon } from '../components/ui/icons';
 import { VIEW_OPTIONS, showsStays, placeKinds, toAddType, ALL_VIEW } from './discover/views';
@@ -46,6 +47,7 @@ export default function Discover() {
 	const [view, setView] = useState<DiscoverView>(ALL_VIEW);
 	const [adding, setAdding] = useState(false);
 	const [editPoi, setEditPoi] = useState<Poi | null>(null);
+	const [editStay, setEditStay] = useState<Stay | null>(null);
 	const [deletePoi, setDeletePoi] = useState<Poi | null>(null);
 
 	// One state machine per write, each reporting the server's own refusal. The
@@ -176,6 +178,7 @@ export default function Discover() {
 								stay={o}
 								currency={data.currency}
 								pct={pct(o.votes)}
+								onEdit={() => setEditStay(o)}
 								onVote={() => void voteStay.run(o.id)}
 								onRemove={() => void removeStay.run(o.id)}
 							/>
@@ -220,6 +223,18 @@ export default function Discover() {
 					onClose={() => setEditPoi(null)}
 					onSaved={() => {
 						setEditPoi(null);
+						reload();
+					}}
+				/>
+			)}
+
+			{editStay && (
+				<EditStayDialog
+					base={base}
+					stay={editStay}
+					onClose={() => setEditStay(null)}
+					onSaved={() => {
+						setEditStay(null);
 						reload();
 					}}
 				/>
