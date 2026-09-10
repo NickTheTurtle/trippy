@@ -348,7 +348,7 @@ export default function EditExpense({
 													onChange={(e) =>
 														setWeights((prev) => ({ ...prev, [m.id]: e.target.value }))
 													}
-													className="input compact w-[3.2rem] text-center"
+													className="input compact stepped w-[3.2rem] text-center"
 												/>
 												<IconButton
 													label={c.moreShares(m.name)}

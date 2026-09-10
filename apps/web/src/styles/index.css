@@ -283,6 +283,23 @@ select.input.compact {
 }
 
 /*
+ * Drop the browser's own spinner on a number box that already has a stepper
+ * beside it. Two sets of arrows on one field is two answers to the same
+ * question, and the native pair is the worse of the two: a few pixels tall,
+ * unlabelled, and invisible until the field is hovered.
+ */
+.input.stepped {
+	appearance: textfield;
+	-moz-appearance: textfield;
+}
+.input.stepped::-webkit-outer-spin-button,
+.input.stepped::-webkit-inner-spin-button {
+	appearance: none;
+	-webkit-appearance: none;
+	margin: 0;
+}
+
+/*
  * A labelled field: the label sits above its control, and an optional hint
  * below it. Used by the shared Field component and by any page laying a
  * Select or a custom control out in a form.

@@ -1490,6 +1490,16 @@ write into a trip being deleted returns a clean 404.
 These exist so five pages don't each invent their own version. Reach for them
 before adding page-local CSS.
 
+**A number field carries one stepper, not two.** The shares box in the expense
+split dialog had explicit `−` / `+` buttons *and* the browser's own spin arrows,
+which is two answers to the same question on one control. The labelled buttons
+win and `.input.stepped` suppresses the native pair: the native arrows are a few
+pixels tall, unlabelled to a screen reader, drawn differently per browser, and
+invisible until the field is hovered or focused, so they are worse on every axis
+that matters here. The rule is per-field, not global: a plain number box with no
+stepper beside it keeps its native arrows, since removing them would leave no
+way to step at all.
+
 **All user-facing text lives in `apps/web/src/copy.ts`.** One `export const
 copy` object, nested to mirror the surfaces and ordered by user journey. The
 point is not localization, which is not planned; it is that the owner can read
