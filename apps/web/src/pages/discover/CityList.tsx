@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { api } from '../../lib/api';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
 import type { Trip } from '../TripShell';
-import { PlusIcon, RemoveCardButton } from './card-controls';
+import { RemoveCardButton } from './card-controls';
+import { PlusIcon } from '../../components/ui/icons';
 import { copy } from '../../copy';
 
 const cl = copy.discover.cityList;

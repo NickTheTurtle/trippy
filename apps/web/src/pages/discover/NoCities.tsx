@@ -1,4 +1,4 @@
-import { PlusIcon } from './card-controls';
+import { PlusIcon } from '../../components/ui/icons';
 import { copy } from '../../copy';
 
 const c = copy.discover.noCities;

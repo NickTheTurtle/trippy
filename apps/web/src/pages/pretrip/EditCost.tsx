@@ -1,9 +1,8 @@
 import { useState } from 'react';
 import { api } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
-import Modal from '../../components/ui/Modal';
+import Modal, { ModalFooter } from '../../components/ui/Modal';
 import Select from '../../components/ui/Select';
-import FormError from '../../components/ui/FormError';
 import type { Draft } from './types';
 import { cap } from './labels';
 import { copy } from '../../copy';
@@ -99,15 +98,13 @@ export default function EditCost({
 					</div>
 				</div>
 
-				<div className="mfoot">
-					<FormError message={save.error} />
-					<button className="btn" type="button" onClick={onClose}>
-						{copy.common.cancel}
-					</button>
-					<button className="btn primary" type="submit" disabled={save.busy}>
-						{save.busy ? copy.common.saving : draft.id ? c.saveLabel : c.addLabel}
-					</button>
-				</div>
+				<ModalFooter
+					error={save.error}
+					onClose={onClose}
+					busy={save.busy}
+					busyLabel={copy.common.saving}
+					submitLabel={draft.id ? c.saveLabel : c.addLabel}
+				/>
 			</form>
 		</Modal>
 	);

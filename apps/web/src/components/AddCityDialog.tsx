@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, ApiError } from '../lib/api';
-import Modal from './ui/Modal';
+import Modal, { ModalFooter } from './ui/Modal';
 import SearchDropdown from './ui/SearchDropdown';
 import type { Trip } from '../pages/TripShell';
 import { copy } from '../copy';
@@ -109,19 +109,14 @@ export default function AddCityDialog({
 					onTrip={new Set(trip.cities.map(key))}
 				/>
 			</div>
-			<div className="mfoot">
-				<button className="btn" type="button" onClick={onClose}>
-					{copy.common.cancel}
-				</button>
-				<button
-					className="btn primary"
-					type="button"
-					disabled={!picked || busy}
-					onClick={() => void add()}
-				>
-					{busy ? copy.common.adding : copy.common.add}
-				</button>
-			</div>
+			<ModalFooter
+				onClose={onClose}
+				onSubmit={() => void add()}
+				busy={busy}
+				disabled={!picked}
+				busyLabel={copy.common.adding}
+				submitLabel={copy.common.add}
+			/>
 		</Modal>
 	);
 }

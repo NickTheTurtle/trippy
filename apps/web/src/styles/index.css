@@ -857,6 +857,29 @@ select.input.compact {
 	padding: 0.3rem 0.5rem;
 	font-size: 0.82rem;
 }
+/*
+ * Borderless until it is wanted, for a menu that repeats down a list. One
+ * bordered box per row draws a column of boxes and out-shouts the rows. The
+ * caret also waits, so a resting row is only the count.
+ */
+.msel.quiet .mtrigger {
+	border-color: transparent;
+	background: transparent;
+}
+.msel.quiet .mcaret {
+	opacity: 0;
+}
+.msel.quiet .mtrigger:hover,
+.msel.quiet .mtrigger:focus-visible,
+.msel.quiet .mtrigger[aria-expanded='true'] {
+	border-color: var(--color-line);
+	background: var(--color-surface);
+}
+.msel.quiet .mtrigger:hover .mcaret,
+.msel.quiet .mtrigger:focus-visible .mcaret,
+.msel.quiet .mtrigger[aria-expanded='true'] .mcaret {
+	opacity: 1;
+}
 .mtrigger:hover {
 	border-color: var(--color-accent);
 }
@@ -930,6 +953,39 @@ select.input.compact {
 	background: var(--color-accent);
 	border-color: var(--color-accent);
 }
+/* The checkbox that draws its own tick; see CheckBox.tsx. */
+.cbox {
+	position: relative;
+	display: inline-grid;
+	place-items: center;
+	width: 16px;
+	height: 16px;
+	border: 1px solid var(--color-line);
+	border-radius: 4px;
+	color: #fff;
+	flex-shrink: 0;
+}
+.cbox.on {
+	background: var(--color-accent);
+	border-color: var(--color-accent);
+}
+.cbox input {
+	position: absolute;
+	inset: 0;
+	margin: 0;
+	width: 100%;
+	height: 100%;
+	opacity: 0;
+	cursor: inherit;
+}
+.cbox:has(input:focus-visible) {
+	outline: 2px solid var(--color-accent);
+	outline-offset: 2px;
+}
+.cbox:has(input:disabled) {
+	opacity: 0.5;
+}
+
 .mempty {
 	padding: 0.4rem 0.5rem;
 	font-size: 0.82rem;

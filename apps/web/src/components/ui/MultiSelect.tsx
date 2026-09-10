@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import { useAnchor } from '../../lib/anchor';
 import type { Option } from './Select';
 import { copy } from '../../copy';
+import { CheckIcon } from './icons';
 
 /**
  * The multi-pick sibling of `Select`, used wherever a field means "these people"
@@ -20,6 +21,7 @@ export default function MultiSelect({
 	placeholder = copy.ui.multiSelect.placeholder,
 	ariaLabel = copy.ui.multiSelect.ariaLabel,
 	compact = false,
+	quiet = false,
 	summary: summaryOverride,
 	summaryLabel = copy.ui.multiSelect.summaryLabel
 }: {
@@ -29,6 +31,12 @@ export default function MultiSelect({
 	placeholder?: string;
 	ariaLabel?: string;
 	compact?: boolean;
+	/**
+	 * Borderless until hovered, opened or focused, for a menu that sits in a list
+	 * row. One bordered box per row draws a column of boxes down the page and
+	 * out-shouts the rows themselves.
+	 */
+	quiet?: boolean;
 	/**
 	 * Fixed trigger text, for a menu whose ticks do not mean "these are the ones
 	 * I picked". The task list ticks people off a job, where a list of names
@@ -137,7 +145,7 @@ export default function MultiSelect({
 	return (
 		<div
 			ref={rootRef}
-			className={compact ? 'msel compact' : 'msel'}
+			className={['msel', compact ? 'compact' : '', quiet ? 'quiet' : ''].filter(Boolean).join(' ')}
 			onKeyDown={onKeyDown}
 			// Tabbing away has to close the menu too, otherwise it is left hanging
 			// over the page with no way back to it. Focus moving within the control
@@ -163,7 +171,11 @@ export default function MultiSelect({
 					setOpen((v) => !v);
 				}}
 			>
-				<span className={chosen.length === 0 ? 'mlabel placeholder' : 'mlabel'}>{summary}</span>
+				{/* An overridden summary is a sentence about the menu, not the absence
+				    of a pick, so it keeps the normal ink at zero selected. */}
+				<span className={chosen.length === 0 && !summaryOverride ? 'mlabel placeholder' : 'mlabel'}>
+					{summary}
+				</span>
 				<span className="mcaret">▾</span>
 			</button>
 
@@ -199,7 +211,7 @@ export default function MultiSelect({
 							}}
 						>
 							<span className={selected.includes(o.value) ? 'mbox on' : 'mbox'}>
-								{selected.includes(o.value) ? '✓' : ''}
+								{selected.includes(o.value) && <CheckIcon />}
 							</span>
 							<span className="mopttext">{o.label}</span>
 						</li>

@@ -11,6 +11,7 @@ import ConfirmDialog from '../components/ui/ConfirmDialog';
 import type { Task, CostItem, PretripData, Draft, TaskDraft } from './pretrip/types';
 import { cap } from './pretrip/labels';
 import TaskList from './pretrip/TaskList';
+import MyTasks from './pretrip/MyTasks';
 import CostTable from './pretrip/CostTable';
 import EditTask from './pretrip/EditTask';
 import EditCost from './pretrip/EditCost';
@@ -115,50 +116,66 @@ export default function Pretrip() {
 				</div>
 
 				{section !== 'costs' ? (
-					<div className="card min-w-0 px-5 py-5">
-						<TaskList
-							items={section === 'tasks' ? data.tasks : data.packing}
-							kind={section === 'tasks' ? 'task' : 'packing'}
-							me={data.me}
-							onToggle={(taskId) =>
-								void act.run(() =>
-									api(`/trips/${trip.id}/pretrip/tasks/${taskId}/toggle`, {
-										method: 'POST',
-										body: {}
-									})
-								)
-							}
-							// The API ticks one box at a time, so a change to the menu walks
-							// the roster. Only the people whose state actually changed are
-							// touched, and it runs inside one mutation so a refusal halts the
-							// rest instead of leaving the row half ticked.
-							onSetDone={(task, doneIds) =>
-								void act.run(async () => {
-									for (const p of task.people) {
-										if (p.done === doneIds.includes(p.id)) continue;
-										await api(`/trips/${trip.id}/pretrip/tasks/${task.id}/toggle`, {
+					<>
+						{section === 'tasks' && (
+							<MyTasks
+								items={data.tasks}
+								me={data.me}
+								onToggle={(taskId) =>
+									void act.run(() =>
+										api(`/trips/${trip.id}/pretrip/tasks/${taskId}/toggle`, {
 											method: 'POST',
-											body: { userId: p.id }
-										});
-									}
-								})
-							}
-							onEdit={(task) =>
-								setEditingTask({
-									id: task.id,
-									kind: section === 'tasks' ? 'task' : 'packing',
-									label: task.label,
-									assignees: task.people.map((p) => p.id)
-								})
-							}
-							onRemove={(task) =>
-								setPendingTask({
-									kind: section === 'tasks' ? 'task' : 'packing',
-									task
-								})
-							}
-						/>
-					</div>
+											body: { userId: data.me }
+										})
+									)
+								}
+							/>
+						)}
+						<div className="card min-w-0 px-5 py-5">
+							<TaskList
+								items={section === 'tasks' ? data.tasks : data.packing}
+								kind={section === 'tasks' ? 'task' : 'packing'}
+								me={data.me}
+								onToggle={(taskId) =>
+									void act.run(() =>
+										api(`/trips/${trip.id}/pretrip/tasks/${taskId}/toggle`, {
+											method: 'POST',
+											body: {}
+										})
+									)
+								}
+								// The API ticks one box at a time, so a change to the menu walks
+								// the roster. Only the people whose state actually changed are
+								// touched, and it runs inside one mutation so a refusal halts the
+								// rest instead of leaving the row half ticked.
+								onSetDone={(task, doneIds) =>
+									void act.run(async () => {
+										for (const p of task.people) {
+											if (p.done === doneIds.includes(p.id)) continue;
+											await api(`/trips/${trip.id}/pretrip/tasks/${task.id}/toggle`, {
+												method: 'POST',
+												body: { userId: p.id }
+											});
+										}
+									})
+								}
+								onEdit={(task) =>
+									setEditingTask({
+										id: task.id,
+										kind: section === 'tasks' ? 'task' : 'packing',
+										label: task.label,
+										assignees: task.people.map((p) => p.id)
+									})
+								}
+								onRemove={(task) =>
+									setPendingTask({
+										kind: section === 'tasks' ? 'task' : 'packing',
+										task
+									})
+								}
+							/>
+						</div>
+					</>
 				) : (
 					<>
 						<div className="mb-4 flex min-w-0 flex-wrap items-end gap-6">

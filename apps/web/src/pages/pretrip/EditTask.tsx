@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { api } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
-import Modal from '../../components/ui/Modal';
-import FormError from '../../components/ui/FormError';
+import Modal, { ModalFooter } from '../../components/ui/Modal';
 import { LinkButton } from '../../components/ui/buttons';
+import MultiSelect from '../../components/ui/MultiSelect';
 import type { TaskDraft } from './types';
 import { copy } from '../../copy';
 
@@ -69,61 +69,35 @@ export default function EditTask({
 						/>
 					</label>
 
-					<fieldset className="m-0 min-w-0 rounded-[10px] border border-line px-3 py-3">
-						<legend className="px-1 text-[0.8rem] text-ink-soft">{c.assigneesLegend}</legend>
-						<div className="grid max-h-48 grid-cols-[repeat(auto-fill,minmax(min(9rem,100%),1fr))] gap-0.5 overflow-y-auto overscroll-contain">
-							{members.map((m) => (
-								<label
-									key={m.id}
-									className="flex min-w-0 cursor-pointer items-center gap-2 rounded-sm px-1.5 py-1 text-[0.85rem] text-ink hover:bg-surface-2"
-								>
-									<input
-										type="checkbox"
-										checked={assignees.has(m.id)}
-										onChange={() =>
-											setAssignees((prev) => {
-												const next = new Set(prev);
-												if (next.has(m.id)) next.delete(m.id);
-												else next.add(m.id);
-												return next;
-											})
-										}
-										className="flex-none accent-accent"
-									/>
-									<span className="min-w-0 truncate">
-										{m.name}
-										{m.id === me ? copy.preparation.youSuffix : ''}
-									</span>
-								</label>
-							))}
-							{members.length === 0 && <p className="muted text-[0.9rem]">{c.noMembers}</p>}
-						</div>
+					<div className="flex flex-col gap-2">
+						<MultiSelect
+							options={members.map((m) => ({
+								value: m.id,
+								label: m.name + (m.id === me ? copy.preparation.youSuffix : '')
+							}))}
+							selected={[...assignees]}
+							onChange={(next) => setAssignees(new Set(next))}
+							ariaLabel={c.assignPlaceholder}
+							placeholder={members.length === 0 ? c.noMembers : c.assignPlaceholder}
+						/>
 						{members.length > 2 && (
-							<div className="flex gap-3 px-1 pt-2">
+							<div className="flex gap-3 px-1">
 								<LinkButton onClick={() => setAssignees(new Set(members.map((m) => m.id)))}>
 									{c.selectEveryone}
 								</LinkButton>
 								<LinkButton onClick={() => setAssignees(new Set())}>{c.clear}</LinkButton>
 							</div>
 						)}
-					</fieldset>
+					</div>
 				</div>
 
-				<div className="mfoot">
-					<FormError message={save.error} />
-					<button className="btn" type="button" onClick={onClose}>
-						{copy.common.cancel}
-					</button>
-					<button className="btn primary" type="submit" disabled={save.busy}>
-						{save.busy
-							? editing
-								? copy.common.saving
-								: copy.common.adding
-							: editing
-								? c.saveLabel
-								: c.addLabel}
-					</button>
-				</div>
+				<ModalFooter
+					error={save.error}
+					onClose={onClose}
+					busy={save.busy}
+					busyLabel={editing ? copy.common.saving : copy.common.adding}
+					submitLabel={editing ? c.saveLabel : c.addLabel}
+				/>
 			</form>
 		</Modal>
 	);

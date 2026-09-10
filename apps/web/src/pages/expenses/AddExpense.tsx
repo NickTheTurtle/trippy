@@ -4,11 +4,11 @@ import { api } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
 import { formatMoney } from '../../lib/format';
 import { currencyOptions } from '../../lib/currencies';
-import Modal from '../../components/ui/Modal';
+import Modal, { ModalFooter } from '../../components/ui/Modal';
 import Select from '../../components/ui/Select';
 import { FieldShell } from '../../components/ui/Field';
-import FormError from '../../components/ui/FormError';
 import { LinkButton } from '../../components/ui/buttons';
+import { CheckBox } from '../../components/ui/CheckBox';
 import type { Member } from './types';
 import { copy } from '../../copy';
 
@@ -255,12 +255,7 @@ export default function AddExpense({
 										].join(' ')}
 									>
 										<label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 select-none">
-											<input
-												type="checkbox"
-												checked={on}
-												onChange={() => toggle(m.id)}
-												className="flex-none accent-accent"
-											/>
+											<CheckBox checked={on} onChange={() => toggle(m.id)} />
 											<span className="truncate" title={m.name}>
 												{m.name}
 											</span>
@@ -295,15 +290,14 @@ export default function AddExpense({
 					</div>
 				</div>
 
-				<div className="mfoot">
-					<FormError message={save.error} />
-					<button className="btn" type="button" onClick={onClose}>
-						{copy.common.cancel}
-					</button>
-					<button className="btn primary" type="submit" disabled={!canSave || save.busy}>
-						{save.busy ? copy.common.saving : income ? c.saveIncome : c.saveExpense}
-					</button>
-				</div>
+				<ModalFooter
+					error={save.error}
+					onClose={onClose}
+					busy={save.busy}
+					disabled={!canSave}
+					busyLabel={copy.common.saving}
+					submitLabel={income ? c.saveIncome : c.saveExpense}
+				/>
 			</form>
 		</Modal>
 	);

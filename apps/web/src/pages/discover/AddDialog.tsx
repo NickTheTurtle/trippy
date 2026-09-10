@@ -2,8 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { api } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
 import { parseMoneyToCents } from '../../lib/format';
-import Modal from '../../components/ui/Modal';
-import FormError from '../../components/ui/FormError';
+import Modal, { ModalFooter } from '../../components/ui/Modal';
 import { LinkButton } from '../../components/ui/buttons';
 import { Field } from '../../components/ui/Field';
 import SearchDropdown from '../../components/ui/SearchDropdown';
@@ -361,7 +360,6 @@ export default function AddDialog({
 	}
 
 	const query = name.trim();
-	const busy = add.busy || detailLoading;
 
 	return (
 		<Modal open title={c.title(city.name)} size="md" onClose={onClose}>
@@ -447,24 +445,23 @@ export default function AddDialog({
 							/>
 						)}
 
-						<LinkField value={url} onChange={setUrl} />
-
 						<TypeField options={TYPE_OPTIONS} value={view} onChange={changeView} />
+
+						<LinkField value={url} onChange={setUrl} />
 
 						<NotesField value={notes} onChange={setNotes} />
 					</div>
 				</div>
-				<div className="mfoot">
-					<FormError message={add.error} />
-					<button className="btn" type="button" onClick={onClose}>
-						{c.close}
-					</button>
-					{/* Submitting mid-fetch would save the place without its rating or
-					    photo, and nothing backfills a rating later. */}
-					<button className="btn primary" type="submit" disabled={busy}>
-						{detailLoading ? c.busyLabel : c.submit}
-					</button>
-				</div>
+				{/* Submitting mid-fetch would save the place without its rating or
+				    photo, and nothing backfills a rating later. */}
+				<ModalFooter
+					error={add.error}
+					onClose={onClose}
+					busy={detailLoading}
+					disabled={add.busy}
+					busyLabel={c.busyLabel}
+					submitLabel={c.submit}
+				/>
 			</form>
 		</Modal>
 	);

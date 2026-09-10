@@ -10,74 +10,16 @@
  * that opens the place. The bar moved to the card's bottom edge, where it reads
  * as an indicator on the card rather than a fourth thing competing in the row.
  *
- * Icons are inline SVG with `currentColor`, which is how the app already draws
- * the one it had (`Modal`'s close button). No icon dependency was added.
+ * The glyphs these use live in `components/ui/icons`, which is where every page
+ * takes them from.
  */
 
+import { CaretIcon, CompassIcon, TrashIcon } from '../../components/ui/icons';
 import { copy } from '../../copy';
 
 /** `.card` is the shared surface; the rest is this page's card geometry. The
     old string also carried an `.opt` class that no stylesheet defines. */
 export const CARD = 'card flex flex-col overflow-hidden';
-
-export function CaretIcon() {
-	return (
-		<svg viewBox="0 0 16 16" aria-hidden="true" className="size-3.5">
-			<path
-				d="M8 3.5l4.5 6h-9z"
-				fill="currentColor"
-				stroke="currentColor"
-				strokeWidth="1.2"
-				strokeLinejoin="round"
-			/>
-		</svg>
-	);
-}
-
-/** A compass rose: "open this place somewhere else", not "submit a form". */
-export function CompassIcon() {
-	return (
-		<svg viewBox="0 0 16 16" aria-hidden="true" className="size-3.5">
-			<circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="1.4" />
-			<path
-				d="M10.6 5.4l-1.3 3.9-3.9 1.3 1.3-3.9z"
-				fill="none"
-				stroke="currentColor"
-				strokeWidth="1.4"
-				strokeLinejoin="round"
-			/>
-		</svg>
-	);
-}
-
-export function TrashIcon() {
-	return (
-		<svg viewBox="0 0 16 16" aria-hidden="true" className="size-4">
-			<path
-				d="M3.5 4.5h9M6.5 4.5V3h3v1.5M5 4.5l.6 8h4.8l.6-8"
-				fill="none"
-				stroke="currentColor"
-				strokeWidth="1.3"
-				strokeLinecap="round"
-				strokeLinejoin="round"
-			/>
-		</svg>
-	);
-}
-
-export function PlusIcon() {
-	return (
-		<svg viewBox="0 0 16 16" aria-hidden="true" className="size-3.5">
-			<path
-				d="M8 3.5v9M3.5 8h9"
-				fill="none"
-				stroke="currentColor"
-				strokeWidth="1.5"
-				strokeLinecap="round"
-			/>
-		</svg>
-	);
-}
 
 /**
  * The vote control: a caret and the count, as one toggle. Filled in accent when

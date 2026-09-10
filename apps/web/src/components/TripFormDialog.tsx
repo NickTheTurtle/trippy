@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { useMutation } from '../hooks/useMutation';
 import { currencyOptions } from '../lib/currencies';
-import Modal from './ui/Modal';
+import Modal, { ModalFooter } from './ui/Modal';
 import Select from './ui/Select';
 import FormError from './ui/FormError';
 import { Field, FieldShell } from './ui/Field';
@@ -108,15 +108,13 @@ export default function TripFormDialog({
 						</FieldShell>
 					</div>
 				</div>
-				<div className="mfoot">
-					{footerStart && <div className="mr-auto">{footerStart}</div>}
-					<button className="btn" type="button" onClick={onClose}>
-						{copy.common.cancel}
-					</button>
-					<button className="btn primary" type="submit" disabled={save.busy}>
-						{save.busy ? busyLabel : submitLabel}
-					</button>
-				</div>
+				<ModalFooter
+					start={footerStart}
+					onClose={onClose}
+					busy={save.busy}
+					busyLabel={busyLabel}
+					submitLabel={submitLabel}
+				/>
 			</form>
 		</Modal>
 	);

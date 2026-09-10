@@ -238,7 +238,6 @@ export const copy = {
 			priceLabel: 'Price / night',
 			activityLabel: 'Activity',
 			badPrice: 'Enter the nightly price as a number, or leave it blank.',
-			close: 'Close',
 			busyLabel: 'Loading...',
 			submit: 'Add',
 			fallback: 'Could not add that.'
@@ -270,6 +269,11 @@ export const copy = {
 		deleteCost: {
 			title: (estimate: string) => `Delete ${estimate}?`
 		},
+		myTasks: {
+			title: 'Assigned to me',
+			boxLabel: (done: boolean, label: string) =>
+				`${done ? 'Mark not done' : 'Mark done'}: ${label}`
+		},
 		taskList: {
 			sharedBoxLabel: (done: boolean, label: string) =>
 				`${done ? 'Mark not done' : 'Mark done'}: ${label}`,
@@ -283,8 +287,8 @@ export const copy = {
 		taskDialog: {
 			title: (kind: 'task' | 'packing', editing: boolean) =>
 				`${editing ? 'Edit' : 'Add'} ${kind === 'packing' ? 'a packing item' : 'a task'}`,
-			labelField: 'What needs doing?',
-			assigneesLegend: 'Who has to do it?',
+			labelField: 'Name',
+			assignPlaceholder: 'Assign to...',
 			noMembers: 'No members yet.',
 			selectEveryone: 'Select everyone',
 			clear: 'Clear',
@@ -476,6 +480,6 @@ export const copy = {
 		adding: 'Adding...',
 		working: 'Working...',
 		/** Every list that you fill by adding to it says this when it is empty. */
-		nothingAdded: 'Nothing added yet.'
+		nothingAdded: 'Nothing added yet'
 	}
 } as const;

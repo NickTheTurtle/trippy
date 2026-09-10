@@ -15,7 +15,7 @@ import StayCard from './discover/StayCard';
 import AddDialog from './discover/AddDialog';
 import EditPlaceDialog from './discover/EditPlaceDialog';
 import NoCities from './discover/NoCities';
-import { PlusIcon } from './discover/card-controls';
+import { PlusIcon } from '../components/ui/icons';
 import { VIEW_OPTIONS, showsStays, placeKinds, toAddType, ALL_VIEW } from './discover/views';
 import type { DiscoverView } from './discover/views';
 import { copy } from '../copy';

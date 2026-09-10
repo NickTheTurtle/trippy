@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, type ReactNode } from 'react';
 import { lockScroll } from '../../lib/scroll-lock';
+import FormError from './FormError';
 import { copy } from '../../copy';
 
 /**
@@ -156,5 +157,57 @@ export default function Modal({
 				</>
 			)}
 		</dialog>
+	);
+}
+
+/**
+ * The row of buttons every dialog ends with.
+ *
+ * Seven dialogs had written out the same footer: the failure message, a Cancel
+ * that closes, and a primary button that swaps its label while the request is
+ * in flight. They had already drifted (one omitted the message, one disabled
+ * the wrong button), which is the usual fate of a shape copied by hand.
+ *
+ * The primary button submits the surrounding form. `onSubmit` is for the one
+ * dialog whose body is not a <form>, and turns it into a plain button.
+ */
+export function ModalFooter({
+	error,
+	onClose,
+	submitLabel,
+	busyLabel,
+	busy = false,
+	disabled = false,
+	onSubmit,
+	start
+}: {
+	error?: ReactNode;
+	onClose: () => void;
+	submitLabel: string;
+	/** What the primary button reads while the request is in flight. */
+	busyLabel: string;
+	busy?: boolean;
+	/** Refuses the submit for a reason of the form's own, beyond being busy. */
+	disabled?: boolean;
+	onSubmit?: () => void;
+	/** Anything pinned to the left of the row, such as a delete. */
+	start?: ReactNode;
+}) {
+	return (
+		<div className="mfoot">
+			{start && <div className="mr-auto">{start}</div>}
+			<FormError message={error} />
+			<button className="btn" type="button" onClick={onClose}>
+				{copy.common.cancel}
+			</button>
+			<button
+				className="btn primary"
+				type={onSubmit ? 'button' : 'submit'}
+				disabled={busy || disabled}
+				onClick={onSubmit}
+			>
+				{busy ? busyLabel : submitLabel}
+			</button>
+		</div>
 	);
 }

@@ -733,10 +733,46 @@ the 9:40 ferry", and the roster, because the person it was for drops out. The
 only way to do either was to delete the row, which threw away every tick on it.
 `PUT` takes both at once and keeps the ticks of everyone still on the task.
 
+**The menu is quiet until it is wanted.** A bordered trigger on every row drew a
+column of boxes down the card that out-shouted the rows themselves, so at rest
+the trigger is just the count; the border and the caret arrive on hover, focus
+or opening. The empty leading box works the same way, holding a transparent tick
+that surfaces on hover: the control shows what pressing it will do, not merely
+that it can be pressed.
+
+**Glyphs are drawn, not typed.** The row's marks were text characters (✎, ×, ✓,
+–). Those are rendered by whatever font the platform has for them, so their
+weight never matched the row and some systems drew the pencil in colour as an
+emoji. They are inline SVG in `components/ui/icons`, which also became the home
+of the icons Discover had defined inside one of its own page files.
+
+The same argument reaches the checkbox. A native `input[type=checkbox]` paints a
+tick the browser chooses and sets a little high of centre, which read as a
+misprint beside our own square. `components/ui/CheckBox` keeps the real input,
+invisible and full-size on top, so labels, focus and the keyboard behave exactly
+as before, and draws the box and the tick itself.
+
+**Assigning is a menu, and it is empty by default.** A task belongs to the trip
+until somebody claims it, so the dialog's second field is one closed dropdown
+reading "Assign to...". Leaving it alone leaves the task shared, which is the
+common case; an always-open roster of names made it look as though a task
+*needed* an owner. It is a `MultiSelect` rather than a grid of checkboxes: the
+grid was fine for three people and unreadable for twenty, and the dropdown is
+already how the row itself asks who has finished.
+
+**"Assigned to me" sits above the list, and keeps what you have ticked.** The
+list below is the whole trip's and is sorted by what is outstanding across
+everyone, so your own two jobs can be anywhere in it. The block answers the
+question most people open the tab for, and its box ticks *your* row rather than
+the whole task's. Ticked items stay in the block, checked and sorted last:
+dropping one the moment you tick it makes the row you just pressed vanish, and
+takes away the only place you could undo it. It is tasks only. Packing is
+already a list of your own things.
+
 **Editing and deleting are on hover, not always visible.** Every row carrying a
-permanent ✎ and × makes a long list feel hostile and invites misclicks. They are
-revealed by the row's `group` hover and by keyboard focus, so they are still
-reachable without a mouse.
+permanent pencil and bin makes a long list feel hostile and invites misclicks.
+They are revealed by the row's `group` hover and by keyboard focus, so they are
+still reachable without a mouse.
 
 **Add and Edit are the same dialog, for a task and for a cost alike.**
 `id === null` means add. The fields, validation and layout are identical, and
@@ -1230,6 +1266,21 @@ supplies padding and scrolling but deliberately no gap between its children.
 
 Sizes are `sm` / `md` / `lg` (460 / 620 / 860px). Use `focusOnMount` from
 `src/lib/focus.ts` on the first meaningful field.
+
+**`ModalFooter` writes the `.mfoot` row, and every dialog uses it.** Seven
+dialogs had hand-written the same three things: the failure message, a Cancel
+that closes, and a primary button that swaps its label while the request is in
+flight. They had already drifted, one omitting the message and one saying
+"Close" where the rest said "Cancel", which is the usual fate of a shape copied
+by hand. The primary button submits the surrounding form; `onSubmit` turns it
+into a plain button for `AddCityDialog`, whose body is not a `<form>`, and
+`start` takes the delete that the trip form pins to the left.
+
+Add and Edit remain **one component per thing**, not one per verb: `TripFormDialog`,
+`EditTask` and `EditCost` each take a draft whose `id === null` means add. The
+exception is Discover, where adding is a provider search that fills a form and
+editing is a form over a saved row; those stay separate components and share
+their fields through `place-fields` instead.
 
 **Global styles live in `src/app.css`, not in page files.** Specifically: the
 `:focus-visible` ring, `:disabled` treatment, the `prefers-reduced-motion`

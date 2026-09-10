@@ -1,6 +1,7 @@
 import EmptyState from '../../components/ui/EmptyState';
 import MultiSelect from '../../components/ui/MultiSelect';
 import { IconButton } from '../../components/ui/buttons';
+import { CheckIcon, MinusIcon, PencilIcon, TrashIcon } from '../../components/ui/icons';
 import type { Task } from './types';
 import { copy } from '../../copy';
 
@@ -78,9 +79,10 @@ export default function TaskList({
 							{it.flag && <span className="chip flex-none border-warn text-warn">{it.flag}</span>}
 
 							{assigned && (
-								<div className="w-36 flex-none">
+								<div className="w-32 flex-none">
 									<MultiSelect
 										compact
+										quiet
 										options={it.people.map((p) => ({
 											value: p.id,
 											label: p.name + (p.id === me ? copy.preparation.youSuffix : '')
@@ -95,14 +97,14 @@ export default function TaskList({
 
 							<span className="flex flex-none gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
 								<IconButton label={c.editLabel(kind, it.label)} onClick={() => onEdit(it)}>
-									✎
+									<PencilIcon />
 								</IconButton>
 								<IconButton
 									label={c.removeLabel(kind, it.label)}
 									danger
 									onClick={() => onRemove(it)}
 								>
-									×
+									<TrashIcon />
 								</IconButton>
 							</span>
 						</div>
@@ -117,8 +119,11 @@ export default function TaskList({
  * The leading box. `part` is some but not all of the roster: without it a task
  * two people out of three have finished looks identical to one nobody has
  * started.
+ *
+ * An empty box holds a transparent tick that surfaces on hover, so the control
+ * shows what pressing it will do rather than only that it can be pressed.
  */
-function Box({
+export function Box({
 	state,
 	label,
 	onClick
@@ -134,15 +139,15 @@ function Box({
 			aria-pressed={state === 'on'}
 			aria-label={label}
 			title={label}
-			className={`grid size-[18px] flex-none cursor-pointer place-items-center rounded-[5px] border p-0 text-[0.72rem] ${
+			className={`grid size-[18px] flex-none cursor-pointer place-items-center rounded-[5px] border p-0 transition-colors ${
 				state === 'on'
 					? 'border-accent bg-accent text-white'
 					: state === 'part'
 						? 'border-accent bg-accent-soft text-accent-ink'
-						: 'border-line bg-surface text-white hover:border-accent'
+						: 'border-line bg-surface text-transparent hover:border-accent hover:text-accent'
 			}`}
 		>
-			{state === 'on' ? '✓' : state === 'part' ? '–' : ''}
+			{state === 'part' ? <MinusIcon /> : <CheckIcon />}
 		</button>
 	);
 }

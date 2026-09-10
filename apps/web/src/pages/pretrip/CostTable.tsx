@@ -1,4 +1,5 @@
 import { IconButton } from '../../components/ui/buttons';
+import { PencilIcon, TrashIcon } from '../../components/ui/icons';
 import type { CostItem } from './types';
 import { cap } from './labels';
 import { copy } from '../../copy';
@@ -53,10 +54,10 @@ export default function CostTable({
 							<td className={`${CELL} text-right`}>
 								<span className="inline-flex justify-end gap-1">
 									<IconButton label={c.editLabel(it.label)} onClick={() => onEdit(it)}>
-										✎
+										<PencilIcon />
 									</IconButton>
 									<IconButton label={c.removeLabel(it.label)} danger onClick={() => onRemove(it)}>
-										✕
+										<TrashIcon />
 									</IconButton>
 								</span>
 							</td>

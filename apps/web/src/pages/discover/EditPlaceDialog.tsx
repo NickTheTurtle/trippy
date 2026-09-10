@@ -2,8 +2,7 @@ import { useState } from 'react';
 import { POI_KINDS, type PoiKind } from '@trippy/core/types';
 import { api } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
-import Modal from '../../components/ui/Modal';
-import FormError from '../../components/ui/FormError';
+import Modal, { ModalFooter } from '../../components/ui/Modal';
 import { Field } from '../../components/ui/Field';
 import type { Poi } from '../../lib/api-types';
 import { LinkField, NotesField, TypeField } from './place-fields';
@@ -66,8 +65,8 @@ export default function EditPlaceDialog({
 							value={kind}
 							onChange={(v) => setKind(v as PoiKind)}
 						/>
-						<NotesField value={notes} onChange={setNotes} />
 						<LinkField value={url} onChange={setUrl} />
+						<NotesField value={notes} onChange={setNotes} />
 					</div>
 					{/* Read-only, so it sits after the fields: the count answers "is this
 					    popular?", which the card already told you. The names answer
@@ -77,15 +76,13 @@ export default function EditPlaceDialog({
 						<span className="muted">{c.voters(p.voters)}</span>
 					</p>
 				</div>
-				<div className="mfoot">
-					<FormError message={save.error} />
-					<button className="btn" type="button" onClick={onClose}>
-						{copy.common.cancel}
-					</button>
-					<button className="btn primary" type="submit" disabled={save.busy}>
-						{save.busy ? copy.common.saving : c.submitLabel}
-					</button>
-				</div>
+				<ModalFooter
+					error={save.error}
+					onClose={onClose}
+					busy={save.busy}
+					busyLabel={copy.common.saving}
+					submitLabel={c.submitLabel}
+				/>
 			</form>
 		</Modal>
 	);
