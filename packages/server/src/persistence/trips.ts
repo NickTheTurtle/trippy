@@ -10,8 +10,8 @@ export interface TripRow {
 	dates: string;
 	cover: string;
 	home_currency: string;
-	start_date: string | null;
-	end_date: string | null;
+	start_date: string;
+	end_date: string;
 	role: string;
 }
 
@@ -151,10 +151,8 @@ function listCities(tripId: string): CityRow[] {
 
 export interface TripCreate {
 	name: string;
-	/** Optional free-text label, only used when no real dates are given. */
-	dates?: string;
-	startDate?: string | null;
-	endDate?: string | null;
+	startDate: string;
+	endDate: string;
 	homeCurrency?: string;
 }
 
@@ -166,9 +164,9 @@ export interface TripCreate {
 export type TripCreateResult = { id: string; error: null } | { id: null; error: string };
 
 /**
- * Create a trip owned by `userId`. Dates are optional in both directions: a trip
- * may have neither endpoint (the common "we know where, not when" case) or a
- * start with no end. Whatever is given is validated here, never trusted.
+ * Create a trip owned by `userId`. Both dates are required and validated here,
+ * never trusted: every dated surface downstream (the schedule, per-day costs,
+ * travel fit) reads them as given.
  */
 export function createTrip(userId: string, input: TripCreate): TripCreateResult {
 	const name = input.name.trim();
@@ -187,7 +185,7 @@ export function createTrip(userId: string, input: TripCreate): TripCreateResult 
 		id,
 		userId,
 		name,
-		tripLabel(range.start, range.end, input.dates),
+		tripLabel(range.start, range.end),
 		cover,
 		currency,
 		range.start,
@@ -206,30 +204,34 @@ export function createTrip(userId: string, input: TripCreate): TripCreateResult 
 /**
  * The two endpoints as real days, or the message explaining why they are not.
  *
- * A blank value means "not set" and is accepted; a value that is present but is
- * not a day that exists on the calendar is a mistake worth reporting, so the
- * two cases are deliberately distinguished before `normalizeDay` flattens them.
+ * Both are required. A trip without dates cannot be scheduled, costed per day
+ * or checked for travel fit, and the "Dates TBD" placeholder it used to produce
+ * was a label pretending to be data. A missing date and an unparseable one are
+ * still reported separately, because they are different mistakes.
  */
 function validateDates(
 	startInput: string | null | undefined,
 	endInput: string | null | undefined
-): { start: string | null; end: string | null } | string {
-	const start = normalizeDay(startInput);
-	const end = normalizeDay(endInput);
-	if (!start && (startInput ?? '').trim()) return 'Enter a valid start date.';
-	if (!end && (endInput ?? '').trim()) return 'Enter a valid end date.';
-	if (start && end && end < start) return 'The end date must be on or after the start date.';
+): { start: string; end: string } | string {
+	const rawStart = (startInput ?? '').trim();
+	const rawEnd = (endInput ?? '').trim();
+	if (!rawStart) return 'Pick a start date.';
+	if (!rawEnd) return 'Pick an end date.';
+	const start = normalizeDay(rawStart);
+	const end = normalizeDay(rawEnd);
+	if (!start) return 'Enter a valid start date.';
+	if (!end) return 'Enter a valid end date.';
+	if (end < start) return 'The end date must be on or after the start date.';
 	return { start, end };
 }
 
 /**
- * The stored `dates` label. Derived from the endpoints whenever there are any,
- * so there is one source of truth; the free-text `fallback` only covers a trip
- * that has no real dates at all.
+ * The stored `dates` label, always derived from the endpoints so it cannot
+ * drift from them. It exists only because the header and the trip card render
+ * a formatted string; the endpoints remain the source of truth.
  */
-function tripLabel(start: string | null, end: string | null, fallback?: string): string {
-	if (start || end) return formatDayRange(start, end);
-	return (fallback ?? '').trim() || 'Dates TBD';
+function tripLabel(start: string, end: string): string {
+	return formatDayRange(start, end);
 }
 
 function isOrganizer(tripId: string, userId: string): boolean {
@@ -250,18 +252,14 @@ export const formatDateRange = formatDayRange;
 
 export interface TripEdit {
 	name: string;
-	startDate: string | null;
-	endDate: string | null;
+	startDate: string;
+	endDate: string;
 	currency: string;
 }
 
 /**
- * Rename / re-date / re-denominate a trip. Organizer only. Whenever the trip has
- * real endpoints the `dates` label is derived from them, so it cannot drift.
- *
- * The one case that keeps its old text is a trip that had no endpoints before
- * and still has none: its label is legacy free text somebody typed, and an edit
- * that never touched the dates must not silently replace it with a placeholder.
+ * Rename / re-date / re-denominate a trip. Organizer only. The `dates` label is
+ * always derived from the endpoints, so it cannot drift from them.
  */
 export function updateTrip(tripId: string, actorId: string, e: TripEdit): string | null {
 	if (!isOrganizer(tripId, actorId)) return 'Only the organizer can edit this trip.';
@@ -272,25 +270,10 @@ export function updateTrip(tripId: string, actorId: string, e: TripEdit): string
 	const currency = e.currency.trim().toUpperCase();
 	if (!/^[A-Z]{3}$/.test(currency)) return 'Pick a currency.';
 
-	const prior = db
-		.prepare(`SELECT dates, start_date, end_date FROM trips WHERE id = ?`)
-		.get(tripId) as
-		| { dates: string; start_date: string | null; end_date: string | null }
-		| undefined;
-	const keepLegacyLabel =
-		!dates.start && !dates.end && !prior?.start_date && !prior?.end_date ? prior?.dates : undefined;
-
 	db.prepare(
 		`UPDATE trips SET name = ?, start_date = ?, end_date = ?, dates = ?, home_currency = ?
 		 WHERE id = ?`
-	).run(
-		name,
-		dates.start,
-		dates.end,
-		tripLabel(dates.start, dates.end, keepLegacyLabel),
-		currency,
-		tripId
-	);
+	).run(name, dates.start, dates.end, tripLabel(dates.start, dates.end), currency, tripId);
 	// The home currency is part of every balance figure, so the ledger is stale too.
 	publishMany(tripId, ['trip', 'expenses']);
 	return null;

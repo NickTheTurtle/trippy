@@ -60,12 +60,6 @@ describe('formatDayRange', () => {
 		expect(formatDayRange('2026-12-30', '2027-01-02')).toBe('Dec 30, 2026 \u2013 Jan 2, 2027');
 	});
 
-	it('formats one-sided and unset ranges', () => {
-		expect(formatDayRange('2026-04-16', null)).toBe('Apr 16, 2026');
-		expect(formatDayRange(null, '2026-04-20')).toBe('Apr 20, 2026');
-		expect(formatDayRange(null, null)).toBe('Dates TBD');
-	});
-
 	it('collapses a same-day range to a single date', () => {
 		expect(formatDayRange('2028-01-02', '2028-01-02')).toBe('Jan 2, 2028');
 		expect(formatDayRange('2026-04-16', '2026-04-16')).toBe('Apr 16, 2026');
@@ -81,8 +75,8 @@ describe('formatDayRange', () => {
 		expect(formatDayRange('2026-01-30', '2027-01-02')).toBe('Jan 30, 2026 \u2013 Jan 2, 2027');
 	});
 
-	it('passes malformed one-sided dates through unchanged', () => {
-		expect(formatDayRange('not-a-day', null)).toBe('not-a-day');
+	it('passes a malformed date through unchanged', () => {
+		expect(formatDayRange('not-a-day', 'not-a-day')).toBe('not-a-day');
 	});
 });
 

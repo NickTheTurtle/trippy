@@ -110,14 +110,13 @@ export const copy = {
 			title: 'New trip',
 			submitLabel: 'Create trip',
 			busyLabel: 'Creating...',
-			note: 'Dates are optional and can be filled in later. Currency is what totals and estimates are shown in.',
 			fallback: 'Could not create the trip.'
 		}
 	},
 
 	// Trip form, shared by the New trip and Edit trip dialogs
 	tripForm: {
-		nameLabel: 'Trip name',
+		nameLabel: 'Name',
 		startLabel: 'Start',
 		endLabel: 'End',
 		currencyLabel: 'Currency',
@@ -178,8 +177,8 @@ export const copy = {
 					stays > 0 ? `${stays} ${stays === 1 ? 'stay' : 'stays'}` : ''
 				].filter(Boolean);
 				return bits.length > 0
-					? `Deletes ${bits.join(' and ')} in ${city}, every vote on them, and the city's estimated costs.`
-					: `Nothing has been added to ${city} yet. Only the stop and its estimated costs go.`;
+					? `Deletes ${bits.join(' and ')} in ${city}.`
+					: `Nothing has been added to ${city} yet.`;
 			},
 			deleteLinked: (linked: number) =>
 				`${linked} scheduled ${linked === 1 ? 'event stays' : 'events stay'} on the calendar, but ${linked === 1 ? 'loses' : 'lose'} the link back to the place.`

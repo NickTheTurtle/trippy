@@ -4,6 +4,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { poiKindFromCategory } from '@trippy/core/types';
+import { formatDayRange } from '@trippy/core/tz';
 
 /**
  * Local persistence via Node's built-in SQLite (no native build step).
@@ -272,6 +273,42 @@ addColumn('cities', 'region', 'TEXT');
 addColumn('trips', 'start_date', 'TEXT');
 addColumn('trips', 'end_date', 'TEXT');
 
+// Dates are required now, so the free-text "Dates TBD" label has nowhere left
+// to come from. Rows written while dates were optional are anchored to the day
+// the trip was created: it invents no travel plan, it is traceable to something
+// real, and the organizer can correct it in one edit. Both endpoints get the
+// same day, which is a valid one-day trip rather than a range nobody chose.
+//
+// The `dates` label is now always derived from the endpoints, so this also
+// repairs rows whose free-text label had drifted away from them. It only writes
+// where the two actually disagree, so a normal boot touches nothing.
+//
+// The columns stay nullable. Tightening them to NOT NULL means rebuilding a
+// table that several others reference by foreign key, which is not worth the
+// risk when `createTrip` and `updateTrip` are the only writers and both now
+// reject a blank date.
+{
+	const rows = db
+		.prepare(`SELECT id, created_at, start_date, end_date, dates FROM trips`)
+		.all() as unknown as {
+		id: string;
+		created_at: number;
+		start_date: string | null;
+		end_date: string | null;
+		dates: string;
+	}[];
+	const fix = db.prepare(`UPDATE trips SET start_date = ?, end_date = ?, dates = ? WHERE id = ?`);
+	for (const trip of rows) {
+		const created = new Date(trip.created_at).toISOString().slice(0, 10);
+		const start = trip.start_date ?? created;
+		const end = trip.end_date ?? start;
+		const label = formatDayRange(start, end);
+		if (start !== trip.start_date || end !== trip.end_date || label !== trip.dates) {
+			fix.run(start, end, label, trip.id);
+		}
+	}
+}
+
 // Cities are places in the itinerary, not dated schedule spans. The trip's
 // start and end stay on trips, and per-day city assignment stays in party_day.
 dropColumn('cities', 'arrive');
@@ -393,9 +430,7 @@ addColumn('tracks', 'party_id', 'TEXT REFERENCES parties(id) ON DELETE CASCADE')
  */
 function backfillParties(): void {
 	const trips = db.prepare(`SELECT id FROM trips`).all() as unknown as { id: string }[];
-	const findDefault = db.prepare(
-		`SELECT id FROM parties WHERE trip_id = ? AND is_default = 1`
-	);
+	const findDefault = db.prepare(`SELECT id FROM parties WHERE trip_id = ? AND is_default = 1`);
 	const insParty = db.prepare(
 		`INSERT INTO parties (id, trip_id, name, color, is_solo, is_default, sort, created_at)
 		 VALUES (?, ?, 'Everyone', '#2f6d5e', 0, 1, 0, ?)`

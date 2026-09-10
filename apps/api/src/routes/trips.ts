@@ -42,9 +42,8 @@ trips.post('/', async (c) => {
 	const b = await body(c);
 	const { id, error } = createTrip(c.get('user').id, {
 		name: str(b.name),
-		dates: str(b.dates),
-		startDate: optStr(b.startDate),
-		endDate: optStr(b.endDate),
+		startDate: str(b.startDate),
+		endDate: str(b.endDate),
 		homeCurrency: str(b.homeCurrency) || 'USD'
 	});
 	if (error !== null) return fail(c, 400, error);
@@ -64,8 +63,8 @@ trips.patch('/:tripId', requireMember, async (c) => {
 	const b = await body(c);
 	const problem = updateTrip(c.get('trip').id, c.get('user').id, {
 		name: str(b.name),
-		startDate: optStr(b.startDate),
-		endDate: optStr(b.endDate),
+		startDate: str(b.startDate),
+		endDate: str(b.endDate),
 		currency: str(b.currency)
 	});
 	if (problem) return fail(c, 400, problem);

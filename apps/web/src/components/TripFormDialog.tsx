@@ -11,7 +11,7 @@ const c = copy.tripForm;
 
 export type TripFormValues = {
 	name: string;
-	/** 'YYYY-MM-DD', or '' for "not set". Both ends are optional. */
+	/** 'YYYY-MM-DD'. Both ends are required; the server is what enforces it. */
 	startDate: string;
 	endDate: string;
 	currency: string;
@@ -39,7 +39,6 @@ export default function TripFormDialog({
 	title,
 	submitLabel,
 	busyLabel,
-	note,
 	initial,
 	fallback,
 	onSubmit,
@@ -49,8 +48,6 @@ export default function TripFormDialog({
 	submitLabel: string;
 	/** Shown on the submit button while the write is in flight. */
 	busyLabel: string;
-	/** The line under the fields, which says different true things per caller. */
-	note?: string;
 	/** Omitted fields start empty, which is what the create case wants. */
 	initial?: Partial<TripFormValues>;
 	/** Used when the failure is not an ApiError. */
@@ -67,12 +64,11 @@ export default function TripFormDialog({
 
 	return (
 		<Modal open title={title} size="sm" onClose={onClose}>
-			{/* Nothing here is `required`, and native validation is off entirely:
-			    both dates are genuinely optional, and every rule about them
-			    (including end-before-start, which `min` below can only hint at)
-			    belongs to the server, whose wording is the one the user should see.
-			    A native constraint would block the submit and that message would
-			    never arrive. */}
+			{/* Nothing here is marked `required` and native validation is off: every
+			    rule (a missing date, end-before-start, which `min` below can only
+			    hint at) belongs to the server, whose wording is the one the user
+			    should see. A native constraint would block the submit and that
+			    message would never arrive. */}
 			<form className="mform" noValidate onSubmit={save.submit}>
 				<div className="mbody flex flex-col gap-3">
 					<FormError message={save.error} variant="banner" className="mb-0" />
@@ -80,7 +76,6 @@ export default function TripFormDialog({
 					<div className="flex flex-wrap gap-2.5">
 						<Field
 							label={c.startLabel}
-							optional
 							className="flex-[1_1_130px]"
 							type="date"
 							value={startDate}
@@ -88,7 +83,6 @@ export default function TripFormDialog({
 						/>
 						<Field
 							label={c.endLabel}
-							optional
 							className="flex-[1_1_130px]"
 							type="date"
 							// A native affordance only, and deliberately inclusive: a trip
@@ -106,7 +100,6 @@ export default function TripFormDialog({
 							/>
 						</FieldShell>
 					</div>
-					{note && <p className="muted m-0 text-[0.78rem] leading-relaxed">{note}</p>}
 				</div>
 				<div className="mfoot">
 					<button className="btn" type="button" onClick={onClose}>

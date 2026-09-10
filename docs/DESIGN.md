@@ -930,6 +930,24 @@ disabled with a `title` saying why). Removing it would put the trip back into
 exactly the dead-end state this feature exists to get out of. Disabled rather
 than hidden: a button that vanishes as you delete down to one looks like a bug.
 
+**A trip must have both dates.** They started out optional, for the "we know
+where, not when" case, and produced a `Dates TBD` placeholder wherever a range
+was rendered. That placeholder was a label pretending to be data: the schedule,
+per-day costs and the travel-fit check all read the endpoints, so a dateless
+trip was one that could not use half the app. `createTrip` and `updateTrip` now
+reject a blank date, the two date fields lost their "(optional)" suffix, and
+`formatDayRange` takes two days rather than two nullables, which is what deleted
+the placeholder string outright.
+
+Existing dateless rows are anchored by migration to the day the trip was
+created, as a single-day trip. That invents no travel plan, it is traceable to
+something real, and one edit corrects it. The same migration recomputes the
+stored `dates` label wherever it disagrees with the endpoints, since the label
+is now always derived from them; it had drifted on rows written when the label
+was free text. The columns stay nullable on purpose: tightening them to NOT NULL
+means rebuilding a table several others reference by foreign key, which is not
+worth the risk when the two writers both validate.
+
 ### 5.0.9 The expense ledger
 
 **Each row shows when it was logged.** The list is ordered newest first and the

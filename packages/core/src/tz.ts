@@ -133,11 +133,12 @@ export function eachDay(start: string, end: string): string[] {
  *
  * A same-day trip collapses to the single date. Both endpoints being equal is a
  * valid trip, not an error, and "Jan 2 – 2, 2028" reads as a typo, so it renders
- * exactly like the one-sided cases already do.
+ * as the one date.
+ *
+ * Both endpoints are required. A trip cannot exist without them, so there is no
+ * placeholder case to format.
  */
-export function formatDayRange(start: string | null, end: string | null): string {
-	if (!start && !end) return 'Dates TBD';
-	if (!start || !end) return niceDay((start ?? end)!, true);
+export function formatDayRange(start: string, end: string): string {
 	if (start === end) return niceDay(start, true);
 	const [sy, sm] = start.split('-');
 	const [ey, em] = end.split('-');

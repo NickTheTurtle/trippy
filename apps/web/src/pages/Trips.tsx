@@ -112,7 +112,6 @@ function NewTrip({ onClose, onCreated }: { onClose: () => void; onCreated: () =>
 			title={c.newDialog.title}
 			submitLabel={c.newDialog.submitLabel}
 			busyLabel={c.newDialog.busyLabel}
-			note={c.newDialog.note}
 			fallback={c.newDialog.fallback}
 			onClose={onClose}
 			onSubmit={async (v) => {
