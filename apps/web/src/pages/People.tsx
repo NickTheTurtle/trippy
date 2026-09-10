@@ -7,7 +7,6 @@ import FormError from '../components/ui/FormError';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 import type { Person, PeopleData } from './people/types';
 import MemberRow from './people/MemberRow';
-import RemoveBody from './people/RemoveBody';
 import Invite from './people/Invite';
 import { copy } from '../copy';
 
@@ -84,7 +83,6 @@ export default function People() {
 				title={pendingRemove ? cpl.removeTitle(pendingRemove.name) : ''}
 				confirmLabel={cpl.removeConfirm}
 				busyLabel={cpl.removeBusy}
-				body={pendingRemove && <RemoveBody tripId={trip.id} person={pendingRemove} />}
 				onCancel={() => setPendingRemove(null)}
 				onConfirm={async () => {
 					if (!pendingRemove) return;

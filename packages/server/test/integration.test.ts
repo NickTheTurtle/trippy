@@ -220,7 +220,7 @@ describe('schedule authorization and trip scoping', () => {
 });
 
 describe('member removal cascade', () => {
-	it('matches removalImpact for a placeholder with expenses, shares, votes, and assignments', () => {
+	it('deletes a placeholder and everything that cascades from their user row', () => {
 		const f = createTripFixture('placeholder');
 		expect(members.inviteToTrip(f.tripId, f.organizer, 'guest@example.test')).toBe('invited');
 		const placeholder = members.listPeople(f.tripId).find((p) => p.placeholder)!;
@@ -263,19 +263,17 @@ describe('member removal cascade', () => {
 			parties.assignMembership(f.tripId, f.organizer, crew, placeholder.id, '2026-10-01', 60, 120)
 		).toBe(true);
 		const before = snapshotRemovalCounts(f.tripId, placeholder.id);
-		const impact = members.removalImpact(f.tripId, placeholder.id, f.organizer)!;
 
-		expect(impact.destroyed).toEqual(before);
-		expect(impact.destroyed.expensesPaid).toBe(1);
-		expect(impact.destroyed.expensesPaidCents).toBe(999);
-		expect(impact.destroyed.expenseShares).toBe(2);
-		expect(impact.destroyed.otherPeopleSharesLost).toBe(2);
-		expect(impact.destroyed.poiVotes).toBe(1);
-		expect(impact.destroyed.lodgingVotes).toBe(1);
-		expect(impact.destroyed.itemAssignments).toBe(1);
-		expect(impact.destroyed.taskAssignments).toBe(1);
-		expect(impact.destroyed.taskCompletions).toBe(1);
-		expect(impact.destroyed.partySegments).toBe(1);
+		expect(before.expensesPaid).toBe(1);
+		expect(before.expensesPaidCents).toBe(999);
+		expect(before.expenseShares).toBe(2);
+		expect(before.otherPeopleSharesLost).toBe(2);
+		expect(before.poiVotes).toBe(1);
+		expect(before.lodgingVotes).toBe(1);
+		expect(before.itemAssignments).toBe(1);
+		expect(before.taskAssignments).toBe(1);
+		expect(before.taskCompletions).toBe(1);
+		expect(before.partySegments).toBe(1);
 
 		expect(members.removeMember(f.tripId, f.organizer, placeholder.id)).toBe(true);
 
@@ -287,7 +285,7 @@ describe('member removal cascade', () => {
 		expect(tableCount('expense_participants', 'expense_id = ?', paidByPlaceholder)).toBe(0);
 	});
 
-	it('matches removalImpact for a registered member and removes only the membership row', () => {
+	it('removes only the membership row for a registered member', () => {
 		const f = createTripFixture('registered');
 		const expenseId = expenses.addExpense(f.tripId, f.organizer, f.member, 'Tickets', 1200, 'USD', [
 			{ userId: f.organizer, weight: 1 },
@@ -305,14 +303,12 @@ describe('member removal cascade', () => {
 			null
 		)!;
 		expect(pois.toggleVote(f.tripId, f.member, poiId)).toBe(true);
-		const impact = members.removalImpact(f.tripId, f.member, f.organizer)!;
+		const before = snapshotRemovalCounts(f.tripId, f.member);
 
-		expect(impact.deletesUserRow).toBe(false);
-		expect(impact.destroyed).toEqual({ ...zeroCounts(), memberships: 1 });
-		expect(impact.retained.expensesPaid).toBe(1);
-		expect(impact.retained.expenseShares).toBe(1);
-		expect(impact.retained.otherPeopleSharesLost).toBe(1);
-		expect(impact.retained.poiVotes).toBe(1);
+		expect(before.expensesPaid).toBe(1);
+		expect(before.expenseShares).toBe(1);
+		expect(before.otherPeopleSharesLost).toBe(1);
+		expect(before.poiVotes).toBe(1);
 
 		expect(members.removeMember(f.tripId, f.organizer, f.member)).toBe(true);
 

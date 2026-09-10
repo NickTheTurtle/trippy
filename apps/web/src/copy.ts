@@ -136,13 +136,11 @@ export const copy = {
 		deleteTrip: 'Delete trip',
 		deleteDialog: {
 			title: (trip: string) => `Delete ${trip}?`,
-			body: 'Everything on it goes: cities, places, schedule, expenses and votes.',
 			fallback: 'Could not delete this trip.'
 		},
 		leaveTrip: 'Leave trip',
 		leaveDialog: {
 			title: (trip: string) => `Leave ${trip}?`,
-			body: 'You lose access. Expenses you are part of stay on the trip.',
 			fallback: 'Could not leave this trip.'
 		},
 		liveOff: "Live updates are off, so you will not see other people's changes.",
@@ -181,26 +179,15 @@ export const copy = {
 			lastCityTitle: 'A trip needs at least one city',
 			deleteTitle: (city: string, region?: string | null) =>
 				`Delete ${region ? `${city}, ${region}` : city}?`,
-			deleteConfirm: 'Delete city',
-			deleteBody: (items: number) =>
-				items > 0
-					? `Deletes ${items} saved ${items === 1 ? 'item' : 'items'}.`
-					: `Deletes this city.`,
-			deleteLinked: (linked: number) =>
-				`${linked} scheduled ${linked === 1 ? 'event keeps its slot' : 'events keep their slots'} on the calendar but ${linked === 1 ? 'loses' : 'lose'} the link.`
+			deleteConfirm: 'Delete city'
 		},
 		header: {
 			typeAriaLabel: 'Type',
 			add: 'Add'
 		},
 		deletePlace: {
-			title: 'Delete this place?',
-			confirmLabel: (linked: number) => `Delete and ${linked} event${linked === 1 ? '' : 's'}`,
-			linkedBody: (linked: number) =>
-				`${linked} scheduled ${linked === 1 ? 'event' : 'events'} linked to this place ${
-					linked === 1 ? 'is' : 'are'
-				} deleted too.`,
-			unlinkedBody: 'Nothing on the calendar is linked to it.'
+			title: (place: string) => `Delete ${place}?`,
+			confirmLabel: (linked: number) => `Delete and ${linked} event${linked === 1 ? '' : 's'}`
 		},
 		errors: {
 			votePlace: 'Could not vote on that place.',
@@ -281,20 +268,11 @@ export const copy = {
 		youSuffix: ' (you)',
 		saveFallback: 'Could not save that.',
 		deleteTask: {
-			taskTitle: 'Delete this task?',
-			packingTitle: 'Delete this packing item?',
-			assignedBody: (people: number, done: number) =>
-				`Assigned to ${people} ${
-					people === 1 ? 'person' : 'people'
-				}, ${done} of whom have ticked it off. The row and everyone's ticks go.`,
-			unassignedBody: 'The row goes, along with whether it was ticked off.'
+			taskTitle: (task: string) => `Delete ${task}?`,
+			packingTitle: (item: string) => `Delete ${item}?`
 		},
 		deleteCost: {
-			title: 'Delete this estimate?',
-			body: (amount: string, category: string, city: string | null) =>
-				`${amount} under ${category}${
-					city ? ` in ${city}` : ''
-				}. The trip total and the per-person figure drop by it. Logged expenses are not affected.`
+			title: (estimate: string) => `Delete ${estimate}?`
 		},
 		taskList: {
 			taskAction: 'Add task',
@@ -365,23 +343,8 @@ export const copy = {
 		youTag: 'you',
 		settleHead: 'Minimum transfers to clear all balances.',
 		nothingToSettle: 'Nothing to settle.',
-		deletePaymentTitle: 'Delete this payment?',
-		deleteExpenseTitle: 'Delete this expense?',
-		deleteBody: (
-			amount: string,
-			homeAmount: string | null,
-			payer: string,
-			received: boolean,
-			when: string,
-			settlement: boolean
-		) =>
-			`${amount}${homeAmount ? ` (≈ ${homeAmount})` : ''}, ${payer}${
-				received ? ' received' : ' paid'
-			}, ${when}. ${
-				settlement
-					? 'The balance it cleared comes back.'
-					: 'Everyone on it has their balance recalculated.'
-			}`,
+		deletePaymentTitle: (payment: string) => `Delete ${payment}?`,
+		deleteExpenseTitle: (expense: string) => `Delete ${expense}?`,
 		row: {
 			paymentTag: 'payment',
 			incomeTag: 'income',
@@ -457,28 +420,6 @@ export const copy = {
 			busyLabel: 'Sending...',
 			submitLabel: 'Send invite',
 			fallback: 'Could not send that invite.'
-		},
-		removeBody: {
-			placeholderBody: (email: string) =>
-				`Invited at ${email}, never joined. The invite is withdrawn and their record is deleted. You can invite the address again.`,
-			memberBody: 'They lose access to this trip. Their account and other trips are untouched.',
-			settlementWarning:
-				'Balances on this trip will change, so who owes whom will not be what it was.',
-			destroyed: (list: string) => `Permanently deleted: ${list}.`,
-			otherShares: (shares: string) =>
-				`That also deletes ${shares} other people had on those expenses.`,
-			retained: (list: string) => `Kept, with their name on it: ${list}.`,
-			units: {
-				expensesPaid: { one: 'expense they paid', many: 'expenses they paid' },
-				expenseShares: { one: 'share they owe', many: 'shares they owe' },
-				poiVotes: { one: 'place vote', many: 'place votes' },
-				lodgingVotes: { one: 'stay vote', many: 'stay votes' },
-				itemAssignments: { one: 'calendar assignment', many: 'calendar assignments' },
-				taskAssignments: { one: 'task assignment', many: 'task assignments' },
-				taskCompletions: { one: 'ticked-off task', many: 'ticked-off tasks' },
-				partySegments: { one: 'crew membership', many: 'crew memberships' },
-				shares: { one: 'share', many: 'shares' }
-			}
 		}
 	},
 

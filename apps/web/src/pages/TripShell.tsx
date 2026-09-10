@@ -186,9 +186,6 @@ export default function TripShell() {
 				title={
 					confirming === 'leave' ? c.leaveDialog.title(trip.name) : c.deleteDialog.title(trip.name)
 				}
-				body={
-					<p className="m-0">{confirming === 'leave' ? c.leaveDialog.body : c.deleteDialog.body}</p>
-				}
 				confirmLabel={confirming === 'leave' ? c.leaveTrip : c.deleteTrip}
 				busyLabel={confirming === 'leave' ? copy.common.working : copy.common.deleting}
 				onCancel={() => {

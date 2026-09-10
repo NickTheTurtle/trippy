@@ -132,7 +132,6 @@ export default function CityList({
 				title={pendingDelete ? cl.deleteTitle(pendingDelete.name, pendingDelete.region) : ''}
 				confirmLabel={cl.deleteConfirm}
 				busyLabel={copy.common.deleting}
-				body={pendingDelete && <DeleteBody city={pendingDelete} />}
 				onCancel={() => setPendingDelete(null)}
 				onConfirm={async () => {
 					if (!pendingDelete) return;
@@ -150,34 +149,5 @@ export default function CityList({
 				}}
 			/>
 		</div>
-	);
-}
-
-/**
- * What deleting a city actually takes with it, verified against the schema and
- * a real delete on a copy of the database rather than assumed:
- *
- *  - its places and stays cascade, and every vote on them goes too;
- *  - the city's estimated costs (both the per-category estimates and the
- *    itemised lines on Preparation) cascade;
- *  - scheduled calendar items do **not** go. Their FK is ON DELETE SET NULL, so
- *    the blocks keep their title and time slot and only lose the link back to
- *    the place. That is worth saying, because "deleting cascades to the
- *    calendar" is true of deleting one *place* and it would be reasonable to
- *    assume it is true here.
- *
- * The city's name (and its region, when the sidebar had to disambiguate) is in
- * the dialog's title, so the body is only ever the consequences. It counts what
- * is saved without breaking it down by type: which of the two tables a row
- * lives in changes nothing about what pressing Delete does.
- */
-function DeleteBody({ city }: { city: CityRow }) {
-	return (
-		<>
-			<p className="m-0 text-[0.9rem]">{cl.deleteBody(city.items)}</p>
-			{city.linked > 0 && (
-				<p className="muted m-0 mt-2 text-[0.9rem]">{cl.deleteLinked(city.linked)}</p>
-			)}
-		</>
 	);
 }

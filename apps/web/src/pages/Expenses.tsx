@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { api } from '../lib/api';
 import { useApi } from '../hooks/useApi';
 import { useLiveSection } from '../hooks/useTripEvents';
-import { formatMoney, formatTimestamp } from '../lib/format';
+import { formatMoney } from '../lib/format';
 import { useTrip } from './TripShell';
 import SectionNav, { type SectionItem } from '../components/ui/SectionNav';
 import FormError from '../components/ui/FormError';
@@ -185,10 +185,15 @@ export default function Expenses() {
 			    The dialog both asks and is where the refusal lands. */}
 			<ConfirmDialog
 				open={!!pendingDelete}
-				title={pendingDelete?.settlement === 1 ? ce.deletePaymentTitle : ce.deleteExpenseTitle}
+				title={
+					pendingDelete
+						? pendingDelete.settlement === 1
+							? ce.deletePaymentTitle(pendingDelete.description)
+							: ce.deleteExpenseTitle(pendingDelete.description)
+						: ''
+				}
 				confirmLabel={copy.common.delete}
 				busyLabel={copy.common.deleting}
-				body={pendingDelete && <DeleteBody expense={pendingDelete} home={data.currency} />}
 				onCancel={() => setPendingDelete(null)}
 				onConfirm={async () => {
 					if (!pendingDelete) return;
@@ -198,29 +203,6 @@ export default function Expenses() {
 				}}
 			/>
 		</div>
-	);
-}
-
-/**
- * What deleting one row takes with it. Its participant rows cascade and the
- * balances are recomputed from what is left, so the honest consequence is that
- * everyone's balance moves; nothing else in the trip refers to an expense.
- */
-function DeleteBody({ expense: e, home }: { expense: Expense; home: string }) {
-	return (
-		<>
-			<p className="m-0 mb-2 font-semibold [overflow-wrap:anywhere]">{e.description}</p>
-			<p className="m-0 text-[0.9rem]">
-				{ce.deleteBody(
-					formatMoney(e.amount_cents, e.currency),
-					e.converted ? formatMoney(e.home_cents, home) : null,
-					e.payer_name,
-					e.amount_cents < 0,
-					formatTimestamp(e.created_at),
-					e.settlement === 1
-				)}
-			</p>
-		</>
 	);
 }
 

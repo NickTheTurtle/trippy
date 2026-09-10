@@ -242,27 +242,13 @@ export default function Discover() {
 
 			<ConfirmDialog
 				open={!!deletePoi}
-				title={cd.deletePlace.title}
+				title={deletePoi ? cd.deletePlace.title(deletePoi.name) : ''}
 				confirmLabel={
 					deletePoi && deletePoi.linked > 0
 						? cd.deletePlace.confirmLabel(deletePoi.linked)
 						: copy.common.delete
 				}
 				busyLabel={copy.common.deleting}
-				body={
-					deletePoi && (
-						<>
-							<p className="m-0 mb-2 font-semibold [overflow-wrap:anywhere]">{deletePoi.name}</p>
-							{deletePoi.linked > 0 ? (
-								<p className="m-0 text-[0.9rem] text-warn">
-									{cd.deletePlace.linkedBody(deletePoi.linked)}
-								</p>
-							) : (
-								<p className="muted m-0 text-[0.9rem]">{cd.deletePlace.unlinkedBody}</p>
-							)}
-						</>
-					)
-				}
 				onCancel={() => setDeletePoi(null)}
 				onConfirm={async () => {
 					if (!deletePoi) return;

@@ -206,14 +206,17 @@ export default function Pretrip() {
 			)}
 
 			{/* Deleting a task takes the whole row, including everyone else's ticks
-			    on it, which is the part that is not obvious from the row itself. */}
+			    on it. */}
 			<ConfirmDialog
 				open={!!pendingTask}
 				title={
-					pendingTask?.kind === 'packing' ? cp.deleteTask.packingTitle : cp.deleteTask.taskTitle
+					pendingTask
+						? pendingTask.kind === 'packing'
+							? cp.deleteTask.packingTitle(pendingTask.task.label)
+							: cp.deleteTask.taskTitle(pendingTask.task.label)
+						: ''
 				}
 				busyLabel={copy.common.deleting}
-				body={pendingTask && <DeleteTaskBody task={pendingTask.task} />}
 				onCancel={() => setPendingTask(null)}
 				onConfirm={async () => {
 					if (!pendingTask) return;
@@ -227,22 +230,8 @@ export default function Pretrip() {
 
 			<ConfirmDialog
 				open={!!pendingCost}
-				title={cp.deleteCost.title}
+				title={pendingCost ? cp.deleteCost.title(pendingCost.label) : ''}
 				busyLabel={copy.common.deleting}
-				body={
-					pendingCost && (
-						<>
-							<p className="m-0 mb-2 font-semibold [overflow-wrap:anywhere]">{pendingCost.label}</p>
-							<p className="m-0 text-[0.9rem]">
-								{cp.deleteCost.body(
-									fmt(pendingCost.amountCents),
-									cap(pendingCost.category),
-									pendingCost.cityName
-								)}
-							</p>
-						</>
-					)
-				}
 				onCancel={() => setPendingCost(null)}
 				onConfirm={async () => {
 					if (!pendingCost) return;
@@ -252,20 +241,6 @@ export default function Pretrip() {
 				}}
 			/>
 		</div>
-	);
-}
-
-/** Who a task delete takes down with it, stated in terms of what is on the row. */
-function DeleteTaskBody({ task }: { task: Task }) {
-	return (
-		<>
-			<p className="m-0 mb-2 font-semibold [overflow-wrap:anywhere]">{task.label}</p>
-			<p className="m-0 text-[0.9rem]">
-				{task.people.length > 0
-					? cp.deleteTask.assignedBody(task.people.length, task.doneCount)
-					: cp.deleteTask.unassignedBody}
-			</p>
-		</>
 	);
 }
 

@@ -530,6 +530,24 @@ dialog rather than opening on top of it: two stacked modals mean two scroll
 locks and two Escape handlers. Cancelling reopens the edit dialog, so a change
 of mind does not also close the thing you were editing.
 
+**Every confirmation says one sentence: "Are you sure? This action cannot be
+undone."** Each of the six delete flows used to explain its own blast radius,
+some of them with live counts. The result read as six different voices arguing
+for the same decision, and the longer bodies were the ones people skipped. The
+name of the thing being destroyed carries the specificity instead, so it moved
+into the title: *Delete Kyoto in Spring?*, *Remove Sam?*, *Delete Hotel
+deposit?*. `ConfirmDialog` therefore takes no `body` prop at all, which is what
+stops the explanations growing back one page at a time.
+
+The cost is real and was accepted deliberately: removing an invited-but-never-
+registered member deletes the expenses they paid and moves everyone's balances,
+and the dialog no longer says so. The rule that the wording is identical
+everywhere was judged worth more than the one screen where a warning helped. The
+`GET /people/:userId/removal-impact` endpoint, its client type, and the
+`removalImpact` query that fed those counts are gone with the copy; the cascade
+they documented is now recorded on `removeMember` itself, which is where it
+actually happens.
+
 **The trip shell owns the trip fetch; sections read it from outlet context.**Every section needs the same trip record. Letting each one fetch it would mean
 five identical requests per navigation and five chances to render a different
 name in the header than in the body. `TripShell` loads it once and passes
