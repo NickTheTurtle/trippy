@@ -15,6 +15,8 @@ type CostItem = {
 	category: string;
 	label: string;
 	amountCents: number;
+	/** Blank means the trip's home currency. */
+	currency: string;
 	people: { id: string; name: string }[];
 };
 
@@ -47,6 +49,7 @@ export function CostSheet({
 }) {
 	const [label, setLabel] = useState('');
 	const [amount, setAmount] = useState('');
+	const [cur, setCur] = useState(currency);
 	const [category, setCategory] = useState(categories[0] ?? '');
 	const [assignees, setAssignees] = useState<string[]>([]);
 
@@ -54,9 +57,10 @@ export function CostSheet({
 		if (!open) return;
 		setLabel(item?.label ?? '');
 		setAmount(item ? (item.amountCents / 100).toFixed(2) : '');
+		setCur(item?.currency || currency);
 		setCategory(item?.category ?? categories[0] ?? '');
 		setAssignees(item ? item.people.map((p) => p.id) : []);
-	}, [open, item, categories]);
+	}, [open, item, categories, currency]);
 
 	const save = useMutation(
 		async () => {
@@ -64,7 +68,7 @@ export function CostSheet({
 			if (!Number.isFinite(value) || value < 0) {
 				throw new ApiError(400, copy.preparation.costDialog.fallback);
 			}
-			const body = { label, category, amount: value, assignees };
+			const body = { label, category, amount: value, currency: cur, assignees };
 			if (item) {
 				await api(`/trips/${tripId}/pretrip/costs/${item.id}`, { method: 'PUT', body });
 			} else {
@@ -91,12 +95,25 @@ export function CostSheet({
 			onClose={onClose}
 		>
 			<Field label={copy.preparation.costDialog.labelField} value={label} onChangeText={setLabel} />
-			<Field
-				label={copy.preparation.costDialog.amountLabel(currency)}
-				value={amount}
-				onChangeText={setAmount}
-				keyboardType="decimal-pad"
-			/>
+			<View style={{ flexDirection: 'row', gap: space.sm }}>
+				<View style={{ flex: 1 }}>
+					<Field
+						label={copy.preparation.costDialog.amountLabel}
+						value={amount}
+						onChangeText={setAmount}
+						keyboardType="decimal-pad"
+					/>
+				</View>
+				<View style={{ flex: 1 }}>
+					<Field
+						label={copy.preparation.costDialog.currencyLabel}
+						value={cur}
+						onChangeText={(v) => setCur(v.toUpperCase())}
+						autoCapitalize="characters"
+						maxLength={3}
+					/>
+				</View>
+			</View>
 
 			<View style={{ gap: space.xs }}>
 				<Text style={type.small}>{copy.preparation.costDialog.categoryLabel}</Text>

@@ -300,6 +300,8 @@ export interface OptionEdit {
 	name: string;
 	tag: string;
 	priceCents: number | null;
+	/** Blank falls back to the trip's home currency, as on `addOption`. */
+	currency: string;
 	url: string | null;
 	checkIn: string | null;
 	checkOut: string | null;
@@ -337,10 +339,20 @@ export function updateOption(
 	const res = db
 		.prepare(
 			`UPDATE lodging_options
-			 SET name = ?, tag = ?, price_cents = ?, url = ?, check_in = ?, check_out = ?
+			 SET name = ?, tag = ?, price_cents = ?, currency = ?, url = ?, check_in = ?, check_out = ?
 			 WHERE id = ? AND trip_id = ?`
 		)
-		.run(clean, edit.tag, price, edit.url, edit.checkIn, edit.checkOut, optionId, tripId);
+		.run(
+			clean,
+			edit.tag,
+			price,
+			edit.currency.trim().toUpperCase() || homeCurrency(tripId),
+			edit.url,
+			edit.checkIn,
+			edit.checkOut,
+			optionId,
+			tripId
+		);
 	if (res.changes > 0) publishMany(tripId, ['lodging', 'schedule']);
 	return res.changes > 0;
 }

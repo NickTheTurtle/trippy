@@ -4,7 +4,9 @@ import { useMutation } from '../../hooks/useMutation';
 import { parseMoneyToCents } from '../../lib/format';
 import Modal, { ModalFooter } from '../../components/ui/Modal';
 import { LinkButton } from '../../components/ui/buttons';
-import { Field } from '../../components/ui/Field';
+import { Field, FieldShell } from '../../components/ui/Field';
+import Select from '../../components/ui/Select';
+import { currencyOptions } from '../../lib/currencies';
 import SearchDropdown from '../../components/ui/SearchDropdown';
 import Cover from '../../components/Cover';
 import type { PlaceHit, PlaceHitDetails } from '../../lib/api-types';
@@ -80,6 +82,8 @@ export default function AddDialog({
 	tz,
 	provider,
 	initialType,
+	currency,
+	currencies,
 	onClose,
 	onAdded
 }: {
@@ -90,6 +94,9 @@ export default function AddDialog({
 	tz: string;
 	provider: 'google' | 'osm';
 	initialType: AddType;
+	/** The trip's home currency, which a stay's price defaults to. */
+	currency: string;
+	currencies: string[];
 	onClose: () => void;
 	/** Reloads the page data and shows the view the new thing landed in. */
 	onAdded: (type: AddType) => void;
@@ -98,6 +105,7 @@ export default function AddDialog({
 	const [name, setName] = useState('');
 	const [activity, setActivity] = useState('');
 	const [price, setPrice] = useState('');
+	const [cur, setCur] = useState(currency);
 	const [url, setUrl] = useState('');
 	const [notes, setNotes] = useState('');
 
@@ -304,6 +312,7 @@ export default function AddDialog({
 						cityId: city.id,
 						name: name.trim(),
 						priceCents: cents,
+						currency: cur,
 						// The one free-text line a stay carries.
 						notes: notes.trim(),
 						url: url.trim(),
@@ -425,16 +434,26 @@ export default function AddDialog({
 						)}
 
 						{stay ? (
-							<Field
-								label={c.priceLabel}
-								optional
-								type="number"
-								min="0"
-								step="1"
-								value={price}
-								onChange={(e) => setPrice(e.target.value)}
-								inputClassName="w-full"
-							/>
+							<div className="grid grid-cols-2 gap-3">
+								<Field
+									label={c.priceLabel}
+									optional
+									type="number"
+									min="0"
+									step="1"
+									value={price}
+									onChange={(e) => setPrice(e.target.value)}
+									inputClassName="w-full"
+								/>
+								<FieldShell label={c.currencyLabel}>
+									<Select
+										options={currencyOptions(currencies)}
+										value={cur}
+										onChange={setCur}
+										ariaLabel={c.currencyLabel}
+									/>
+								</FieldShell>
+							</div>
 						) : (
 							<Field
 								label={c.activityLabel}

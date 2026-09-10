@@ -2,7 +2,9 @@ import { useState } from 'react';
 import { api } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
 import Modal, { ModalFooter } from '../../components/ui/Modal';
-import { Field } from '../../components/ui/Field';
+import { Field, FieldShell } from '../../components/ui/Field';
+import Select from '../../components/ui/Select';
+import { currencyOptions } from '../../lib/currencies';
 import { parseMoneyToCents } from '../../lib/format';
 import type { Stay } from '../../lib/api-types';
 import { LinkField, NotesField } from './place-fields';
@@ -20,22 +22,28 @@ const c = copy.discover.editStay;
  *
  * The night range is here rather than only on the calendar because it is what
  * a nightly price multiplies out against, so the two belong on one form.
- * Currency is absent for the same reason the add popup omits it: a price typed
- * on this page is in the trip's home currency.
+ * Currency sits beside the price, because a stay abroad is quoted in the local
+ * currency and converting it by hand before typing it loses the real number.
  */
 export default function EditStayDialog({
 	base,
 	stay: s,
+	currency,
+	currencies,
 	onClose,
 	onSaved
 }: {
 	base: string;
 	stay: Stay;
+	/** The trip's home currency, used when the stay carries none. */
+	currency: string;
+	currencies: string[];
 	onClose: () => void;
 	onSaved: () => void;
 }) {
 	const [name, setName] = useState(s.name);
 	const [price, setPrice] = useState(s.price_cents == null ? '' : String(s.price_cents / 100));
+	const [cur, setCur] = useState(s.currency || currency);
 	const [url, setUrl] = useState(s.url ?? '');
 	const [notes, setNotes] = useState(s.tag);
 	const [checkIn, setCheckIn] = useState(s.check_in ?? '');
@@ -48,6 +56,7 @@ export default function EditStayDialog({
 				body: {
 					name: name.trim(),
 					priceCents: cents,
+					currency: cur,
 					notes: notes.trim(),
 					url: url.trim(),
 					checkIn: checkIn || null,
@@ -80,16 +89,26 @@ export default function EditStayDialog({
 							onChange={(e) => setName(e.target.value)}
 							inputClassName="w-full"
 						/>
-						<Field
-							label={c.priceLabel}
-							optional
-							type="number"
-							min="0"
-							step="1"
-							value={price}
-							onChange={(e) => setPrice(e.target.value)}
-							inputClassName="w-full"
-						/>
+						<div className="grid grid-cols-2 gap-3">
+							<Field
+								label={c.priceLabel}
+								optional
+								type="number"
+								min="0"
+								step="1"
+								value={price}
+								onChange={(e) => setPrice(e.target.value)}
+								inputClassName="w-full"
+							/>
+							<FieldShell label={c.currencyLabel}>
+								<Select
+									options={currencyOptions(currencies)}
+									value={cur}
+									onChange={setCur}
+									ariaLabel={c.currencyLabel}
+								/>
+							</FieldShell>
+						</div>
 						<div className="grid grid-cols-2 gap-3">
 							<Field
 								label={c.checkInLabel}

@@ -205,6 +205,8 @@ export default function Discover() {
 					tz={tzOf(current.id)}
 					provider={data.provider}
 					initialType={toAddType(view)}
+					currency={data.currency}
+					currencies={data.currencies}
 					onClose={() => setAdding(false)}
 					onAdded={(added) => {
 						// Show the list the new thing landed in: adding a restaurant while
@@ -232,6 +234,8 @@ export default function Discover() {
 				<EditStayDialog
 					base={base}
 					stay={editStay}
+					currency={data.currency}
+					currencies={data.currencies}
 					onClose={() => setEditStay(null)}
 					onSaved={() => {
 						setEditStay(null);

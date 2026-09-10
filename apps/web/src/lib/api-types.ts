@@ -75,8 +75,10 @@ export type DiscoverData = {
 	cities: DiscoverCity[];
 	/** Stays keyed by city id. */
 	stays: Record<string, Stay[]>;
-	/** The trip's home currency, which stay prices are denominated in. */
+	/** The trip's home currency, which a stay with no currency of its own is in. */
 	currency: string;
+	/** Every currency the rate table knows, for the price field's dropdown. */
+	currencies: string[];
 	memberCount: number;
 	isOrganizer: boolean;
 	provider: 'google' | 'osm';

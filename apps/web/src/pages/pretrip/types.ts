@@ -19,6 +19,10 @@ export type CostItem = {
 	label: string;
 	category: string;
 	amountCents: number;
+	/** The currency `amountCents` is in. Blank means the trip's home currency. */
+	currency: string;
+	/** `amountCents` in the trip's home currency. All the totals use this. */
+	homeCents: number;
 	/** Who the line is for. Empty means the whole trip. */
 	people: { id: string; name: string }[];
 };
@@ -28,6 +32,7 @@ export type PretripData = {
 	tasks: Task[];
 	packing: Task[];
 	currency: string;
+	currencies: string[];
 	memberCount: number;
 	categories: string[];
 	budget: {
@@ -41,6 +46,7 @@ export type Draft = {
 	id: string | null;
 	label: string;
 	amount: string;
+	currency: string;
 	category: string;
 	assignees: string[];
 };

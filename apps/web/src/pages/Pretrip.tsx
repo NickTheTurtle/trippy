@@ -77,6 +77,11 @@ export default function Pretrip() {
 	// noise. The rounding is the formatter's, not a second division here.
 	const fmt = (cents: number) => formatMoney(cents, data.currency, { whole: true });
 
+	// An estimate typed in another currency reaches these figures through a
+	// rate, so the totals it feeds are marked as approximate.
+	const anyConverted = data.budget.items.some((it) => it.currency && it.currency !== data.currency);
+	const fmtTotal = (cents: number) => (anyConverted ? `≈ ${fmt(cents)}` : fmt(cents));
+
 	const grand = data.budget.grandTotal;
 	const perPerson = data.memberCount ? grand / data.memberCount : grand;
 	// Reading the estimates as one person answers "what does this cost me", so
@@ -151,10 +156,10 @@ export default function Pretrip() {
 					<div className="flex min-w-0 flex-wrap items-end gap-6">
 						{section === 'costs' && (
 							<>
-								<Stat label={cp.tripTotal} value={fmt(grand)} />
+								<Stat label={cp.tripTotal} value={fmtTotal(grand)} />
 								<Stat
 									label={viewAs ? shareLabel(data.members, viewAs, data.me) : cp.perPerson}
-									value={fmt(viewAs ? shownTotal : perPerson)}
+									value={fmtTotal(viewAs ? shownTotal : perPerson)}
 								/>
 							</>
 						)}
@@ -167,6 +172,7 @@ export default function Pretrip() {
 										id: null,
 										label: '',
 										amount: '',
+										currency: data.currency,
 										category: data.categories[0] ?? '',
 										assignees: []
 									})
@@ -204,11 +210,13 @@ export default function Pretrip() {
 						onViewAs={setViewAs}
 						total={shownTotal}
 						fmt={fmt}
+						home={data.currency}
 						onEdit={(it) =>
 							setEditing({
 								id: it.id,
 								label: it.label,
 								amount: String(it.amountCents / 100),
+								currency: it.currency || data.currency,
 								category: it.category,
 								assignees: it.people.map((p) => p.id)
 							})
@@ -233,6 +241,7 @@ export default function Pretrip() {
 				<EditCost
 					draft={editing}
 					currency={data.currency}
+					currencies={data.currencies}
 					categories={data.categories}
 					members={data.members}
 					me={data.me}

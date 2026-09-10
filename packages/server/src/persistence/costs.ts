@@ -1,6 +1,19 @@
 import { randomUUID } from 'node:crypto';
 import { db } from '../db';
 import { publish } from '../events';
+import { convertCents } from '../providers/fx';
+
+/** The trip's home currency, which an estimate with no currency of its own is in. */
+function homeCurrency(tripId: string): string {
+	const row = db.prepare(`SELECT home_currency FROM trips WHERE id = ?`).get(tripId) as
+		{ home_currency: string } | undefined;
+	return row?.home_currency ?? 'USD';
+}
+
+/** Stored as typed or not at all: blank stays blank, and blank means home. */
+function cleanCurrency(currency: string | undefined): string {
+	return (currency ?? '').trim().toUpperCase();
+}
 
 export const COST_CATEGORIES = ['lodging', 'activities', 'food', 'travel'] as const;
 export type CostCategory = (typeof COST_CATEGORIES)[number];
@@ -111,19 +124,31 @@ export interface CostItem {
 	category: string;
 	label: string;
 	amountCents: number;
+	/**
+	 * The currency `amountCents` is in. Empty means the trip's home currency,
+	 * which is what every estimate written before currencies were askable is in.
+	 */
+	currency: string;
 	sort: number;
 	people: CostPerson[];
 }
 
 export interface ItemizedBudget {
-	items: CostItem[];
+	items: BudgetLine[];
+	/** Home-currency minor units. */
 	grandTotal: number;
+}
+
+/** A cost item with its home-currency equivalent worked out. */
+export interface BudgetLine extends CostItem {
+	/** `amountCents` converted into the trip's home currency. */
+	homeCents: number;
 }
 
 export function listCostItems(tripId: string): CostItem[] {
 	const rows = db
 		.prepare(
-			`SELECT id, category, label, amount_cents, sort FROM cost_items
+			`SELECT id, category, label, amount_cents, currency, sort FROM cost_items
 			 WHERE trip_id = ? ORDER BY sort, created_at`
 		)
 		.all(tripId) as unknown as {
@@ -131,6 +156,7 @@ export function listCostItems(tripId: string): CostItem[] {
 		category: string;
 		label: string;
 		amount_cents: number;
+		currency: string;
 		sort: number;
 	}[];
 	if (rows.length === 0) return [];
@@ -162,15 +188,28 @@ export function listCostItems(tripId: string): CostItem[] {
 		category: r.category,
 		label: r.label,
 		amountCents: r.amount_cents,
+		currency: r.currency ?? '',
 		sort: r.sort,
 		people: byItem.get(r.id) ?? []
 	}));
 }
 
+/**
+ * The itemized budget, with every line converted to the trip's home currency.
+ *
+ * `grandTotal` is in home currency, because adding a yen line to a euro line
+ * any other way produces a number that means nothing. Each item keeps
+ * `amountCents` as it was typed so the edit form can round-trip it, and gains
+ * `homeCents` for the arithmetic. Same shape the expense ledger uses.
+ */
 export function getItemizedBudget(tripId: string): ItemizedBudget {
-	const items = listCostItems(tripId);
+	const home = homeCurrency(tripId);
+	const items = listCostItems(tripId).map((it) => ({
+		...it,
+		homeCents: convertCents(it.amountCents, it.currency || home, home)
+	}));
 	let grandTotal = 0;
-	for (const it of items) grandTotal += it.amountCents;
+	for (const it of items) grandTotal += it.homeCents;
 	return { items, grandTotal };
 }
 
@@ -190,6 +229,8 @@ export interface CostItemInput {
 	category: string;
 	label: string;
 	cents: number;
+	/** Blank means the trip's home currency. Normalized to upper case. */
+	currency?: string;
 	assignees: string[];
 }
 
@@ -229,9 +270,18 @@ export function addCostItem(tripId: string, actorId: string, input: CostItemInpu
 	db.exec('BEGIN');
 	try {
 		db.prepare(
-			`INSERT INTO cost_items (id, trip_id, category, label, amount_cents, sort, created_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?)`
-		).run(id, tripId, ok.category, ok.label, ok.cents, next.n, Date.now());
+			`INSERT INTO cost_items (id, trip_id, category, label, amount_cents, currency, sort, created_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+		).run(
+			id,
+			tripId,
+			ok.category,
+			ok.label,
+			ok.cents,
+			cleanCurrency(input.currency),
+			next.n,
+			Date.now()
+		);
 		setPeople(id, people);
 		db.exec('COMMIT');
 	} catch (err) {
@@ -260,9 +310,9 @@ export function updateCostItem(
 	db.exec('BEGIN');
 	try {
 		db.prepare(
-			`UPDATE cost_items SET category = ?, label = ?, amount_cents = ?
+			`UPDATE cost_items SET category = ?, label = ?, amount_cents = ?, currency = ?
 			 WHERE id = ? AND trip_id = ?`
-		).run(ok.category, ok.label, ok.cents, itemId, tripId);
+		).run(ok.category, ok.label, ok.cents, cleanCurrency(input.currency), itemId, tripId);
 		setPeople(itemId, people);
 		db.exec('COMMIT');
 	} catch (err) {

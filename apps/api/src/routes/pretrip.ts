@@ -11,6 +11,7 @@ import {
 	removeCostItem,
 	updateCostItem
 } from '@trippy/server/costs';
+import { ensureRatesFresh, knownCurrencies } from '@trippy/server/fx';
 
 export const pretrip = new Hono<Env>();
 
@@ -18,12 +19,16 @@ pretrip.use('*', requireMember);
 
 pretrip.get('/', (c) => {
 	const trip = c.get('trip');
+	// An estimate can be typed in any currency, so the rates the totals are
+	// converted with have to be current, and the dialog needs the list to offer.
+	ensureRatesFresh();
 	return c.json({
 		me: c.get('user').id,
 		members: trip.memberList.map((m) => ({ id: m.id, name: m.name })),
 		tasks: listTasks(trip.id, 'task'),
 		packing: listTasks(trip.id, 'packing'),
 		currency: trip.home_currency,
+		currencies: knownCurrencies().sort(),
 		memberCount: trip.members.length,
 		categories: [...COST_CATEGORIES],
 		budget: getItemizedBudget(trip.id)
@@ -107,6 +112,7 @@ function readItem(b: Record<string, unknown>) {
 	return {
 		category: str(b.category),
 		label: str(b.label),
+		currency: str(b.currency),
 		assignees: strList(b.assignees),
 		cents: amount === null ? null : Math.round(amount * 100)
 	};

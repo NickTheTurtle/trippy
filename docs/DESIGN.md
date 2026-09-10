@@ -868,6 +868,33 @@ version and was never used for anything: it did not group, filter or total, and
 most lines of a trip budget (flights, insurance, the car) are not a city's at
 all. Splitting a stay per city is what the per-night lodging estimate is for.
 
+**An estimate is stored in the currency it was typed in.** A hotel abroad is
+quoted in the local currency, and asking someone to convert it by hand before
+writing it down throws away the only number they can check against the booking,
+and bakes today's rate into the record forever. `cost_items` carries a
+`currency` beside `amount_cents`, and `getItemizedBudget` derives a `homeCents`
+per line through `convertCents`. Every figure that gets summed or compared, the
+section subtotals, the grand total, the per-person share, `shares.ts` in its
+entirety, is the converted one, because a euro added to a yen is not a number.
+This is the same division the expense ledger already makes; the difference is
+only that an estimate is never settled, so it rounds plainly.
+
+An empty currency means "the trip's home currency" rather than the home
+currency being copied in at write time. Every row written before the column
+existed was typed in the home currency, so that is already the honest reading of
+them, and it keeps following the trip if the organizer later changes it, which
+is what someone who never picked a currency would expect. `lodging_options` has
+read its own currency column this way since it was added.
+
+**A converted figure is marked "≈", and the mark has a column of its own.** The
+row shows what was written down, muted, then the sign, then the home-currency
+figure the column adds up. All three sit on one line so a foreign line is
+exactly as tall as every other line, and the "≈" gets a fixed-width slot that is
+held open on every row, converted or not, so the numbers stay a clean stack
+instead of stepping left wherever a rate was involved. The subtotals, the grand
+total and the two header stats carry the same mark whenever any line beneath
+them went through a rate.
+
 **"View as" is one component, shared with the ledger.** `components/ui/ViewAsBar`
 and `components/ui/Stat` are used by both Preparation and Expenses, so the two
 money screens cannot drift into two different answers to the same question. The
@@ -932,12 +959,15 @@ things a proposer typed (name, the one free-text line, nightly price, link and
 the night range) in one go, so clearing a price or a link is expressible;
 a patch of named fields cannot say "no price".
 
-The editor deliberately does not touch votes, the lock, the photo or the
-currency. A corrected price is the same stay, so re-opening the vote every time
-somebody tidies a name would make the board unusable; the photo is
-provider-derived and refreshed from the provider, as on places; and the currency
-is not asked for on the way in either, because a price typed on this page is in
-the trip's home currency. Any member may edit, on the same reasoning as deleting
+The editor deliberately does not touch votes, the lock or the photo. A corrected
+price is the same stay, so re-opening the vote every time somebody tidies a name
+would make the board unusable, and the photo is provider-derived and refreshed
+from the provider, as on places. Currency _is_ editable, and sits beside the
+price on the way in as well as on the way back: a stay abroad is quoted in the
+local currency, and converting it by hand before typing it loses the number you
+would check the booking against. The column has existed on `lodging_options`
+since the table was written; only the form was missing. Any member may edit, on
+the same reasoning as deleting
 and as setting the nights: a stay is a shared proposal, not one person's
 property.
 

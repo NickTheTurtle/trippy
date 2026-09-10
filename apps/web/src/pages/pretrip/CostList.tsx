@@ -4,7 +4,8 @@ import ViewAsBar, { shareLabel } from '../../components/ui/ViewAsBar';
 import { IconButton } from '../../components/ui/buttons';
 import { ChevronIcon, PencilIcon, TrashIcon } from '../../components/ui/icons';
 import type { CostItem } from './types';
-import { amountFor, isFor } from './shares';
+import { amountFor, isFor, typedAmountFor } from './shares';
+import { formatMoney } from '../../lib/format';
 import { cap } from './labels';
 import { copy } from '../../copy';
 
@@ -35,6 +36,7 @@ export default function CostList({
 	onViewAs,
 	total,
 	fmt,
+	home,
 	onEdit,
 	onRemove
 }: {
@@ -48,6 +50,8 @@ export default function CostList({
 	onViewAs: (value: string) => void;
 	total: number;
 	fmt: (cents: number) => string;
+	/** The trip's home currency, which `fmt` renders in. */
+	home: string;
 	onEdit: (it: CostItem) => void;
 	onRemove: (it: CostItem) => void;
 }) {
@@ -61,7 +65,9 @@ export default function CostList({
 
 	const shown = viewAs ? items.filter((it) => isFor(it, viewAs)) : items;
 	const amount = (it: CostItem) => amountFor(it, viewAs, memberCount);
-
+	/** True once a figure has been through a rate, so it can be marked "≈". */
+	const converted = (it: CostItem) => !!it.currency && it.currency !== home;
+	const anyConverted = (rows: CostItem[]) => rows.some(converted);
 	return (
 		<div className="card overflow-hidden p-0">
 			{items.length > 0 && (
@@ -84,7 +90,8 @@ export default function CostList({
 								<div className="flex items-center gap-2 px-4 py-2.5 text-[0.92rem] text-ink-faint">
 									<span className="size-3.5 flex-none" />
 									<span>{cap(cat)}</span>
-									<span className="ml-auto tabular-nums">{fmt(0)}</span>
+									<span className="ml-auto w-3 flex-none" />
+									<span className="tabular-nums">{fmt(0)}</span>
 								</div>
 							) : (
 								<button
@@ -100,7 +107,10 @@ export default function CostList({
 										<ChevronIcon />
 									</span>
 									<span className="font-medium">{cap(cat)}</span>
-									<span className="ml-auto font-semibold tabular-nums">{fmt(subtotal)}</span>
+									<span className="ml-auto w-3 flex-none text-center text-[0.78rem] text-ink-faint">
+										{anyConverted(rows) ? '≈' : ''}
+									</span>
+									<span className="font-semibold tabular-nums">{fmt(subtotal)}</span>
 								</button>
 							)}
 
@@ -119,6 +129,20 @@ export default function CostList({
 												title={who(it)}
 											>
 												{who(it)}
+											</span>
+											{/* Typed in another currency: what was actually written down
+											    sits beside the converted figure rather than under it, so a
+											    foreign line is the same height as every other line. The "≈"
+											    gets a slot of its own, held open on every row, so the
+											    column that has to add up stays a clean stack of numbers. */}
+											<span className="muted flex-none text-[0.78rem] tabular-nums">
+												{converted(it) &&
+													formatMoney(typedAmountFor(it, viewAs, memberCount), it.currency, {
+														whole: true
+													})}
+											</span>
+											<span className="w-3 flex-none text-center text-[0.78rem] text-ink-faint">
+												{converted(it) ? '≈' : ''}
 											</span>
 											<span className="w-24 flex-none text-right font-semibold tabular-nums">
 												{fmt(amount(it))}
@@ -144,8 +168,11 @@ export default function CostList({
 				})
 			)}
 
-			<div className="flex items-center justify-between gap-4 border-t border-line bg-surface-2 px-4 py-2.5 text-[0.92rem] font-medium">
-				<span>{viewAs ? shareLabel(members, viewAs, me) : c.total}</span>
+			<div className="flex items-center gap-4 border-t border-line bg-surface-2 px-4 py-2.5 text-[0.92rem] font-medium">
+				<span className="flex-1">{viewAs ? shareLabel(members, viewAs, me) : c.total}</span>
+				<span className="w-3 flex-none text-center text-[0.78rem] text-ink-faint">
+					{anyConverted(shown) ? '≈' : ''}
+				</span>
 				<span className="font-semibold tabular-nums">{fmt(total)}</span>
 			</div>
 		</div>

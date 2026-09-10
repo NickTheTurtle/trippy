@@ -4,6 +4,7 @@ import { useMutation } from '../../hooks/useMutation';
 import Modal, { ModalFooter } from '../../components/ui/Modal';
 import Select from '../../components/ui/Select';
 import MultiSelect from '../../components/ui/MultiSelect';
+import { currencyOptions } from '../../lib/currencies';
 import type { Draft } from './types';
 import { cap } from './labels';
 import { copy } from '../../copy';
@@ -20,6 +21,7 @@ const c = copy.preparation.costDialog;
 export default function EditCost({
 	draft,
 	currency,
+	currencies,
 	categories,
 	members,
 	me,
@@ -29,6 +31,7 @@ export default function EditCost({
 }: {
 	draft: Draft;
 	currency: string;
+	currencies: string[];
 	categories: string[];
 	members: { id: string; name: string }[];
 	me: string;
@@ -38,6 +41,7 @@ export default function EditCost({
 }) {
 	const [label, setLabel] = useState(draft.label);
 	const [amount, setAmount] = useState(draft.amount);
+	const [cur, setCur] = useState(draft.currency || currency);
 	const [category, setCategory] = useState(draft.category);
 	const [assignees, setAssignees] = useState<Set<string>>(new Set(draft.assignees));
 
@@ -47,7 +51,13 @@ export default function EditCost({
 				draft.id ? `/trips/${tripId}/pretrip/costs/${draft.id}` : `/trips/${tripId}/pretrip/costs`,
 				{
 					method: draft.id ? 'PUT' : 'POST',
-					body: { label, amount: Number(amount), category, assignees: [...assignees] }
+					body: {
+						label,
+						amount: Number(amount),
+						currency: cur,
+						category,
+						assignees: [...assignees]
+					}
 				}
 			);
 			onSaved();
@@ -71,8 +81,8 @@ export default function EditCost({
 						/>
 					</label>
 					<div className="flex flex-wrap gap-2.5">
-						<label className="field flex-[0_1_130px]">
-							<span>{c.amountLabel(currency)}</span>
+						<label className="field flex-[0_1_110px]">
+							<span>{c.amountLabel}</span>
 							<input
 								type="number"
 								min="0"
@@ -81,6 +91,15 @@ export default function EditCost({
 								value={amount}
 								onChange={(e) => setAmount(e.target.value)}
 								className="input w-full"
+							/>
+						</label>
+						<label className="field flex-[0_1_110px]">
+							<span>{c.currencyLabel}</span>
+							<Select
+								options={currencyOptions(currencies)}
+								value={cur}
+								onChange={setCur}
+								ariaLabel={c.currencyAriaLabel}
 							/>
 						</label>
 						<label className="field flex-[1_1_130px]">

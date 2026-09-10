@@ -21,6 +21,7 @@ import {
 	vote as lodgingVote
 } from '@trippy/server/lodging';
 import { backfillTripPhotos } from '@trippy/server/photos';
+import { ensureRatesFresh, knownCurrencies } from '@trippy/server/fx';
 import { citySearchContext } from '@trippy/server/trips';
 import {
 	activeProvider,
@@ -47,10 +48,13 @@ discover.get('/', async (c) => {
 	// Stays live in their own table (they carry prices, night ranges and a single
 	// exclusive vote per city) but are presented alongside places on this page.
 	const stays = cityLodging(trip.id, userId);
+	// A stay's price can be typed in any currency, so the popup needs the list.
+	ensureRatesFresh();
 	return c.json({
 		cities: cityPois(trip.id, userId),
 		stays: Object.fromEntries(stays.map((s) => [s.id, s.options])),
 		currency: trip.home_currency,
+		currencies: knownCurrencies().sort(),
 		memberCount: trip.members.length,
 		isOrganizer: trip.role === 'organizer',
 		provider: activeProvider()
@@ -260,8 +264,8 @@ function stayPriceCents(b: Record<string, unknown>): number | null | 'bad' {
  *
  * Only `cityId` and `name` are required. A stay is worth putting up for a vote
  * with nothing but a name and what it costs per night: the night range is set
- * later from the stay's own editor, and the currency is the trip's home
- * currency, so neither is asked for here.
+ * later from the stay's own editor, so it is not asked for here. The currency
+ * is asked for beside the price, and falls back to the trip's home currency.
  */
 discover.post('/stays', async (c) => {
 	const trip = c.get('trip');
@@ -289,9 +293,8 @@ discover.post('/stays', async (c) => {
 		// a stay carries; the column has always been called `tag`.
 		str(b.tag) || str(b.notes),
 		price,
-		// Blank: the server falls back to the trip's home currency, which is what
-		// a price typed on this page is denominated in.
-		'',
+		// Blank: the server falls back to the trip's home currency.
+		str(b.currency),
 		optStr(b.url),
 		checkIn,
 		checkOut,
@@ -360,6 +363,7 @@ discover.patch('/stays/:optionId', async (c) => {
 			name,
 			tag: str(b.tag) || str(b.notes),
 			priceCents: price,
+			currency: str(b.currency),
 			url: optStr(b.url),
 			checkIn,
 			checkOut

@@ -588,6 +588,17 @@ db.exec(
 	   ON expenses(trip_id, settle_token) WHERE settle_token IS NOT NULL`
 );
 
+// The currency an estimate was typed in, so a hotel quoted in yen can be
+// entered in yen instead of converted by hand before it is written down.
+//
+// Empty string rather than the trip's home currency as the default, and it
+// means "home". Rows written before this column existed were typed in the home
+// currency, so that is already the right reading of them, and an empty value
+// keeps following the trip if the organizer later changes the home currency,
+// which is what someone who never picked a currency would expect. `lodging`
+// has read its currency column this way since it was added.
+addColumn('cost_items', 'currency', `TEXT NOT NULL DEFAULT ''`);
+
 /**
  * Provider caches, on disk rather than in memory.
  *
