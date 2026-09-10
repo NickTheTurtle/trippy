@@ -51,6 +51,19 @@ discover.get('/', async (c) => {
 
 // --- Search -----------------------------------------------------------------
 
+/**
+ * The token that ties one member's typing to the place they finally pick.
+ *
+ * Client-generated, so it is checked rather than trusted: it ends up in a
+ * request to Google, and "whatever the caller sent" is not something to paste
+ * into an outbound URL. A UUID passes; anything else is dropped, which costs
+ * the session its free suggestions but cannot do any harm.
+ */
+function sessionToken(raw: string | undefined): string | undefined {
+	const t = raw?.trim() ?? '';
+	return /^[A-Za-z0-9-]{8,64}$/.test(t) ? t : undefined;
+}
+
 discover.get('/search', async (c) => {
 	const trip = c.get('trip');
 	const q = c.req.query('q')?.trim() ?? '';
@@ -74,7 +87,8 @@ discover.get('/search', async (c) => {
 				lat: city.lat,
 				lng: city.lng
 			},
-			kind
+			kind,
+			sessionToken(c.req.query('token'))
 		)
 	});
 });
@@ -85,12 +99,15 @@ discover.get('/search', async (c) => {
  * endpoint so typing never buys this for eight results at once. Membership is
  * enforced (by the router-wide guard) even though the data is public, because
  * this endpoint spends our API quota and must not be an open proxy to Google.
+ *
+ * Sending the token the suggestions were made under closes that session, which
+ * is what makes them free.
  */
 discover.get('/details', async (c) => {
 	const id = c.req.query('id')?.trim() ?? '';
 	if (!id) return fail(c, 400, 'Missing id');
 	try {
-		return c.json({ details: await placeDetailsCached(id) });
+		return c.json({ details: await placeDetailsCached(id, sessionToken(c.req.query('token'))) });
 	} catch {
 		// A failed enrichment is not a failed search; the caller still has the
 		// name, address and pin, so let it show the result without the extras.

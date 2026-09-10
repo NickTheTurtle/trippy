@@ -33,6 +33,19 @@ export interface PlaceDetails {
 	priceLevel: number | null;
 	hours: string[] | null;
 	photo: string | null;
+	/**
+	 * Identity, for the case where the "search" was really a suggestion.
+	 *
+	 * A prediction carries a name and an address and nothing else, so these are
+	 * how a picked suggestion gets its coordinates and category. Absent rather
+	 * than null when the provider did not say, so a caller merging this over a
+	 * result it already has cannot blank a field it already knew.
+	 */
+	name?: string;
+	address?: string;
+	category?: string;
+	lat?: number;
+	lng?: number;
 }
 
 /**
@@ -93,8 +106,23 @@ function locationBias(near: SearchNear): Record<string, unknown> {
 export type SearchKind = 'place' | 'stay';
 
 const GOOGLE_ENDPOINT = 'https://places.googleapis.com/v1/places:searchText';
+const GOOGLE_SUGGEST = 'https://places.googleapis.com/v1/places:autocomplete';
 const GOOGLE_DETAILS = 'https://places.googleapis.com/v1/places/';
 const PHOTON_ENDPOINT = 'https://photon.komoot.io/api/';
+
+/**
+ * How far either side of a city, in degrees, a suggestion may sit.
+ *
+ * Autocomplete takes a *restriction* here rather than the bias a text search
+ * gets, because bias barely moves it: biased on Nashville, Georgia it offered
+ * museums in Washington, New York and Boston, exactly the way an unweighted
+ * text search does. Restricting is the only steering that works, so the box has
+ * to be wide enough to keep the day trips people actually plan. One degree is
+ * about 110km north to south and less east to west, which reaches Mount Fuji
+ * from Tokyo while leaving Nashville, Tennessee well outside Nashville,
+ * Georgia. A circle cannot do this job: Google caps its radius at 50km.
+ */
+const NEAR_DEGREES = 1;
 
 /**
  * Fields the search asks for. Under Places (New) the highest-tier field in the
@@ -106,9 +134,28 @@ const PHOTON_ENDPOINT = 'https://photon.komoot.io/api/';
 const SEARCH_MASK =
 	'places.id,places.displayName,places.formattedAddress,places.location,places.types,places.primaryType';
 
-/** The expensive half of the split, bought once for the one place that is clicked. */
+/**
+ * What a suggestion is worth asking for: an id to look up and two lines to show.
+ *
+ * `structuredFormat` splits the prediction into the place's own name and the
+ * address under it, which is what the dropdown draws. The plain `text` field
+ * runs the two together, so asking for it as well would only buy a duplicate.
+ */
+const SUGGEST_MASK =
+	'suggestions.placePrediction.placeId,suggestions.placePrediction.structuredFormat';
+
+/**
+ * The expensive half of the split, bought once for the one place that is clicked.
+ *
+ * The Essentials fields at the end are not extras: a suggestion carries a name
+ * and an address and nothing else, so this is where a picked place gets its
+ * coordinates and its category, and without them a suggested place would land
+ * on the board with no map pin. They ride along free, because a request is
+ * priced by the highest tier in its mask and the ratings above are already
+ * Enterprise.
+ */
 const DETAILS_MASK =
-	'rating,userRatingCount,priceLevel,regularOpeningHours,websiteUri,photos';
+	'rating,userRatingCount,priceLevel,regularOpeningHours,websiteUri,photos,displayName,formattedAddress,location,types,primaryType';
 
 /**
  * Maps a Google place type to one of our discover categories.
@@ -271,17 +318,106 @@ async function searchGoogle(
 }
 
 /**
+ * Asks Google what the half-typed query is likely to mean.
+ *
+ * This is the cheap way to answer "as you type". A text search is billed per
+ * request, so every pause in typing bought another one; autocomplete requests
+ * that are followed by a Place Details call on the same session token are not
+ * billed at all, and that details call is one we already make when a result is
+ * picked. The same keystrokes therefore cost one request instead of one per
+ * pause, and the request they cost is one we were paying for anyway.
+ *
+ * Returns partial results: an id, a name and an address, with the rest left for
+ * `placeDetails` to fill in. Returns nothing when the city has no coordinates,
+ * because the restriction box is what keeps predictions in the right country
+ * and there is nothing to build one from.
+ */
+async function suggestGoogle(
+	query: string,
+	near: SearchNear,
+	kind: SearchKind,
+	sessionToken: string
+): Promise<PlaceResult[]> {
+	const key = env.GOOGLE_PLACES_KEY;
+	if (!key || typeof near.lat !== 'number' || typeof near.lng !== 'number') return [];
+	const res = await fetch(GOOGLE_SUGGEST, {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			'X-Goog-Api-Key': key,
+			'X-Goog-FieldMask': SUGGEST_MASK
+		},
+		body: JSON.stringify({
+			input: query,
+			languageCode: 'en',
+			// The token is what makes these requests free, and it only works if the
+			// caller sends the same one for a whole session and then spends it on
+			// the details call. See `placeDetails`.
+			sessionToken,
+			locationRestriction: {
+				rectangle: {
+					low: { latitude: near.lat - NEAR_DEGREES, longitude: near.lng - NEAR_DEGREES },
+					high: { latitude: near.lat + NEAR_DEGREES, longitude: near.lng + NEAR_DEGREES }
+				}
+			},
+			// Autocomplete spells this differently from a text search
+			// (`includedPrimaryTypes`, a list) but means the same thing, and was
+			// verified to hold: "acropolis" under it returns Acropolis *hotels*.
+			...(kind === 'stay' ? { includedPrimaryTypes: ['lodging'] } : {})
+		})
+	});
+	if (!res.ok) throw new Error(`google ${res.status}`);
+	const data = (await res.json()) as {
+		suggestions?: {
+			placePrediction?: {
+				placeId?: string;
+				structuredFormat?: { mainText?: { text?: string }; secondaryText?: { text?: string } };
+			};
+		}[];
+	};
+	return (data.suggestions ?? [])
+		.map((s) => s.placePrediction)
+		.filter((p): p is NonNullable<typeof p> => Boolean(p?.placeId))
+		.map((p) => ({
+			id: p.placeId ?? null,
+			name: p.structuredFormat?.mainText?.text ?? 'Unknown',
+			address: p.structuredFormat?.secondaryText?.text ?? null,
+			// Everything below arrives with the details of whichever one is picked.
+			category: '',
+			url: null,
+			lat: null,
+			lng: null,
+			rating: null,
+			ratingCount: null,
+			priceLevel: null,
+			hours: null,
+			photo: null,
+			source: 'google' as const
+		}));
+}
+
+/**
  * Fetches the fields the search skipped, for a single place the user has picked.
  *
  * This is the expensive half of the split search: one request per place actually
  * considered, rather than eight per keystroke-batch. Returns null when the
  * provider has no key or the id is unknown, so callers can just show what the
  * search already gave them.
+ *
+ * Passing back the session token the suggestions were made under is what closes
+ * that session and makes them free; without it they are billed one by one. A
+ * token may only be spent once, so the caller starts a new one after each pick.
  */
-export async function placeDetails(id: string): Promise<PlaceDetails | null> {
+export async function placeDetails(
+	id: string,
+	sessionToken?: string
+): Promise<PlaceDetails | null> {
 	const key = env.GOOGLE_PLACES_KEY;
 	if (!key || !id) return null;
-	const res = await fetch(`${GOOGLE_DETAILS}${encodeURIComponent(id)}?languageCode=en`, {
+	const url = new URL(`${GOOGLE_DETAILS}${encodeURIComponent(id)}`);
+	url.searchParams.set('languageCode', 'en');
+	if (sessionToken) url.searchParams.set('sessionToken', sessionToken);
+	const res = await fetch(url, {
 		headers: { 'X-Goog-Api-Key': key, 'X-Goog-FieldMask': DETAILS_MASK }
 	});
 	if (!res.ok) throw new Error(`google ${res.status}`);
@@ -292,6 +428,11 @@ export async function placeDetails(id: string): Promise<PlaceDetails | null> {
 		priceLevel?: string;
 		regularOpeningHours?: { weekdayDescriptions?: string[] };
 		photos?: { name?: string }[];
+		displayName?: { text?: string };
+		formattedAddress?: string;
+		location?: { latitude?: number; longitude?: number };
+		types?: string[];
+		primaryType?: string;
 	};
 	return {
 		url: p.websiteUri ?? null,
@@ -299,7 +440,14 @@ export async function placeDetails(id: string): Promise<PlaceDetails | null> {
 		ratingCount: p.userRatingCount ?? null,
 		priceLevel: googlePriceLevel(p.priceLevel),
 		hours: p.regularOpeningHours?.weekdayDescriptions ?? null,
-		photo: p.photos?.[0]?.name ?? null
+		photo: p.photos?.[0]?.name ?? null,
+		// Left off entirely when Google did not answer, rather than nulled: the
+		// caller merges this over a result that may already know better.
+		...(p.displayName?.text ? { name: p.displayName.text } : {}),
+		...(p.formattedAddress ? { address: p.formattedAddress } : {}),
+		...(p.types?.length ? { category: googleCategory(p.types, p.primaryType) } : {}),
+		...(typeof p.location?.latitude === 'number' ? { lat: p.location.latitude } : {}),
+		...(typeof p.location?.longitude === 'number' ? { lng: p.location.longitude } : {})
 	};
 }
 
@@ -476,7 +624,8 @@ const detailsCache = createPersistentCache<PlaceDetails | null>(
 export async function searchPlaces(
 	query: string,
 	near: SearchNear,
-	kind: SearchKind = 'place'
+	kind: SearchKind = 'place',
+	sessionToken?: string
 ): Promise<PlaceResult[]> {
 	const q = query.trim();
 	if (q.length < MIN_QUERY) return [];
@@ -484,9 +633,25 @@ export async function searchPlaces(
 	// change the cache key either; "Acropolis  Museum" is the same question.
 	// The whole `near` goes in: two trips can hold two different Nashvilles, and
 	// keying on the name alone served one of them the other's results.
+	// The session token is deliberately *not* in the key: it changes every
+	// search, and keying on it would mean never reading the cache again.
 	const key = `${kind}|${q.toLowerCase().replace(/\s+/g, ' ')}|${nearText(near)}|${near.lat ?? ''},${near.lng ?? ''}`;
 	return searchCache.take(key, async () => {
 		if (env.GOOGLE_PLACES_KEY) {
+			// Suggestions first, because inside a session they are free. They are
+			// prefix matching though, so they come up empty on the wordier queries
+			// ("cheap sushi near the station") that a text search still answers.
+			// Paying for a text search only once predictions have failed keeps that
+			// answer without paying for it on every ordinary lookup.
+			if (sessionToken) {
+				try {
+					const hits = await suggestGoogle(q, near, kind, sessionToken);
+					if (hits.length) return hits;
+				} catch {
+					// Fall through to the text search rather than to Photon: a failed
+					// suggestion says nothing about whether Google is reachable.
+				}
+			}
 			try {
 				return await searchGoogle(q, near, kind);
 			} catch {
@@ -497,7 +662,18 @@ export async function searchPlaces(
 	});
 }
 
-/** Cached `placeDetails`, keyed by place ID. */
-export function placeDetailsCached(id: string): Promise<PlaceDetails | null> {
-	return detailsCache.take(id, () => placeDetails(id));
+/**
+ * Cached `placeDetails`, keyed by place ID.
+ *
+ * The token is not part of the key and is not part of what is stored: it
+ * identifies a typing session, not a place. A cache hit therefore skips the
+ * request that would have closed the session, which leaves that session
+ * unterminated and its suggestions billed at the cheap per-request rate. That
+ * is the right trade: not making a call is always cheaper than making one.
+ */
+export function placeDetailsCached(
+	id: string,
+	sessionToken?: string
+): Promise<PlaceDetails | null> {
+	return detailsCache.take(id, () => placeDetails(id, sessionToken));
 }

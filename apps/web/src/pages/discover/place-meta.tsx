@@ -85,11 +85,11 @@ export function HitSummary({ hit, tz, loading }: { hit: PlaceHit; tz: string; lo
 	if (loading) {
 		// Holds the summary line's height so the fields below do not jump down
 		// when the ratings arrive.
-		return <p aria-hidden="true" className="mb-1 h-[1.2em] w-36 rounded-sm bg-line opacity-50" />;
+		return <p aria-hidden="true" className="h-[1.2em] w-36 rounded-sm bg-line opacity-50" />;
 	}
 	if (!hit.rating && hit.priceLevel == null && !hrs) return null;
 	return (
-		<p className="muted mb-1 flex flex-wrap items-center gap-1.5 text-[0.8rem]">
+		<p className="muted m-0 flex flex-wrap items-center gap-1.5 text-[0.8rem]">
 			<MetaBits
 				rating={hit.rating}
 				ratingCount={hit.ratingCount}

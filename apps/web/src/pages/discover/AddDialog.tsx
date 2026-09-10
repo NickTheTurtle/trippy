@@ -7,6 +7,7 @@ import FormError from '../../components/ui/FormError';
 import { LinkButton } from '../../components/ui/buttons';
 import { Field } from '../../components/ui/Field';
 import SearchDropdown from '../../components/ui/SearchDropdown';
+import Cover from '../../components/Cover';
 import type { PlaceHit, PlaceHitDetails } from '../../lib/api-types';
 import { HitSummary, MIN_QUERY, hitKey } from './place-meta';
 import { LinkField, NotesField, TypeField } from './place-fields';
@@ -14,9 +15,6 @@ import { TYPE_OPTIONS, isStayView, type AddType } from './views';
 import { copy } from '../../copy';
 
 const c = copy.discover.addDialog;
-
-/** The activity input, refocused after each add. One dialog, so one fixed id. */
-const ACTIVITY_ID = 'discover-add-activity';
 
 /**
  * How long typing must pause before the search is sent.
@@ -28,6 +26,37 @@ const ACTIVITY_ID = 'discover-add-activity';
  * instead of three.
  */
 const SEARCH_DEBOUNCE_MS = 600;
+
+/**
+ * Identifies one search session: everything typed up to the moment a result is
+ * picked. Provider suggestions made under a session that ends in a details
+ * lookup are not billed, so this token is what makes typing free. `randomUUID`
+ * needs a secure context, which the app has, but the fallback keeps a plain-http
+ * dev box working rather than throwing halfway through a keystroke.
+ */
+function newSessionToken(): string {
+	if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID();
+	return `s${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
+}
+
+/**
+ * Merges a details response over the result it belongs to.
+ *
+ * Not a plain spread: a suggestion knows its name and address and the details
+ * call may not have answered with either, and `{...hit, ...details}` would
+ * write those `undefined`s straight over the good values.
+ */
+function withDetails(h: PlaceHit, d: PlaceHitDetails): PlaceHit {
+	return {
+		...h,
+		...d,
+		name: d.name ?? h.name,
+		address: d.address ?? h.address,
+		category: d.category || h.category,
+		lat: d.lat ?? h.lat,
+		lng: d.lng ?? h.lng
+	};
+}
 
 /**
  * The one way anything gets added on this page.
@@ -81,8 +110,6 @@ export default function AddDialog({
 	const [listOpen, setListOpen] = useState(false);
 	/** True while the picked result's ratings, hours and photo are loading. */
 	const [detailLoading, setDetailLoading] = useState(false);
-	/** How many times this place has been added from this popup. */
-	const [addedCount, setAddedCount] = useState(0);
 
 	const stay = isStayView(view);
 	const providerLabel = provider === 'google' ? c.providerGoogle : c.providerOsm;
@@ -99,6 +126,12 @@ export default function AddDialog({
 	 */
 	const detailCtl = useRef<AbortController | undefined>(undefined);
 	const detailToken = useRef(0);
+	/**
+	 * The current search session, started by the first search after a pick.
+	 * Held until the pick's details call spends it, since a spent token cannot
+	 * be reused.
+	 */
+	const session = useRef<string | undefined>(undefined);
 
 	// Nothing in flight may outlive the popup.
 	useEffect(
@@ -124,12 +157,14 @@ export default function AddDialog({
 		const ctl = new AbortController();
 		searchCtl.current = ctl;
 		setSearching(true);
+		session.current ??= newSessionToken();
 		const params = new URLSearchParams({
 			q,
 			cityId: city.id,
 			// Stays and places are different searches against different provider
 			// filters; one's results never apply to the other.
-			kind: stay ? 'stay' : 'place'
+			kind: stay ? 'stay' : 'place',
+			token: session.current
 		});
 		api<{ results: PlaceHit[] }>(`${base}/search?${params}`, { signal: ctl.signal })
 			.then((d) => {
@@ -152,7 +187,6 @@ export default function AddDialog({
 	function onNameChange(value: string) {
 		setName(value);
 		setListOpen(true);
-		setAddedCount(0);
 		add.reset();
 		clearTimeout(timer.current);
 		// Show the progress line from the first keystroke that will actually
@@ -173,8 +207,13 @@ export default function AddDialog({
 		setUrl(h.url ?? '');
 		setNotes((v) => v || (stay ? '' : (h.address ?? '')));
 		setListOpen(false);
-		setAddedCount(0);
 		add.reset();
+
+		// A pick ends the search session whether or not it needs a lookup: the
+		// token is spent by the request below, and the next thing typed is a new
+		// search that must start its own.
+		const sessionId = session.current;
+		session.current = undefined;
 
 		if (!h.id || (h.rating !== null && h.photo)) return;
 		detailCtl.current?.abort();
@@ -182,7 +221,9 @@ export default function AddDialog({
 		detailCtl.current = ctl;
 		const token = (detailToken.current += 1);
 		setDetailLoading(true);
-		api<{ details: PlaceHitDetails | null }>(`${base}/details?id=${encodeURIComponent(h.id)}`, {
+		const params = new URLSearchParams({ id: h.id });
+		if (sessionId) params.set('token', sessionId);
+		api<{ details: PlaceHitDetails | null }>(`${base}/details?${params}`, {
 			signal: ctl.signal
 		})
 			.then((d) => {
@@ -190,10 +231,14 @@ export default function AddDialog({
 				// stamp a different place's rating onto the open form.
 				if (token !== detailToken.current) return;
 				if (!d.details) return;
-				const merged = { ...h, ...d.details };
+				const merged = withDetails(h, d.details);
 				setHits((xs) => xs.map((x) => (hitKey(x) === hitKey(h) ? merged : x)));
 				setHit((v) => (v && hitKey(v) === hitKey(h) ? merged : v));
 				setUrl((v) => v || (merged.url ?? ''));
+				// A suggestion arrives without an address, so the notes line that
+				// would have been prefilled from one could not be. Fill it now, and
+				// only if the field is still untouched.
+				setNotes((v) => v || (stay ? '' : (merged.address ?? '')));
 			})
 			.catch(() => {})
 			.finally(() => {
@@ -221,9 +266,9 @@ export default function AddDialog({
 			clearTimeout(timer.current);
 			searchCtl.current?.abort();
 			searchCtl.current = undefined;
+			session.current = undefined;
 			setSearching(false);
 		}
-		setAddedCount(0);
 		setView(v);
 	}
 
@@ -272,19 +317,7 @@ export default function AddDialog({
 			fallback: c.fallback,
 			onSuccess: () => {
 				onAdded(view);
-				// A stay is added once. A place can legitimately be added several
-				// times, once per activity ("Acropolis" at sunrise and again for the
-				// museum), so the popup stays open with the place still filled in and
-				// only the activity cleared.
-				if (stay) {
-					onClose();
-					return;
-				}
-				setAddedCount((n) => n + 1);
-				setActivity('');
-				// Back to the one field that has to change for the next add. Found by
-				// id rather than a ref because the shared `Field` renders the input.
-				document.getElementById(ACTIVITY_ID)?.focus();
+				onClose();
 			}
 		}
 	);
@@ -353,14 +386,19 @@ export default function AddDialog({
 						/>
 
 						{hit && (
-							<div className="rounded-[10px] border border-accent-soft bg-accent-soft/40 px-3 py-2.5">
-								<HitSummary hit={hit} tz={tz} loading={detailLoading} />
-								{hit.address && (
-									<p className="muted m-0 text-[0.85rem] [overflow-wrap:anywhere]">{hit.address}</p>
-								)}
-								<LinkButton className="mt-1.5" onClick={unpick}>
-									{c.notThisOne}
-								</LinkButton>
+							/* Confirmation that the right place was picked, and nothing more.
+							   This was a tinted panel repeating the address that is already
+							   prefilled into Notes below; the picture is the part that
+							   actually tells you at a glance whether this is the museum you
+							   meant. */
+							<div className="flex items-center gap-2.5">
+								<div className="w-16 shrink-0 overflow-hidden rounded-lg">
+									<Cover photo={hit.photo} seed={hit.name} category={hit.category} height="44px" />
+								</div>
+								<div className="min-w-0 flex-1">
+									<HitSummary hit={hit} tz={tz} loading={detailLoading} />
+								</div>
+								<LinkButton onClick={unpick}>{c.notThisOne}</LinkButton>
 							</div>
 						)}
 
@@ -377,7 +415,6 @@ export default function AddDialog({
 							/>
 						) : (
 							<Field
-								id={ACTIVITY_ID}
 								label={c.activityLabel}
 								optional
 								value={activity}
@@ -395,9 +432,6 @@ export default function AddDialog({
 				</div>
 				<div className="mfoot">
 					<FormError message={add.error} />
-					{!add.error && addedCount > 0 && (
-						<FormError tone="success" message={c.added(addedCount)} />
-					)}
 					<button className="btn" type="button" onClick={onClose}>
 						{c.close}
 					</button>

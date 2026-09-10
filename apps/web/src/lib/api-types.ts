@@ -102,11 +102,18 @@ export type PlaceHit = {
 	source: 'google' | 'osm';
 };
 
-/** The fields the search deliberately leaves out, fetched for one clicked place. */
+/**
+ * The fields the search deliberately leaves out, fetched for one clicked place.
+ *
+ * The optional half is identity: when the results came from autocomplete they
+ * carry only a name and an address, so this is where the picked one gets its
+ * coordinates and category. Absent, not null, when the provider did not say.
+ */
 export type PlaceHitDetails = Pick<
 	PlaceHit,
 	'url' | 'rating' | 'ratingCount' | 'priceLevel' | 'hours' | 'photo'
->;
+> &
+	Partial<Pick<PlaceHit, 'name' | 'address' | 'category' | 'lat' | 'lng'>>;
 
 /**
  * Row counts for one member, in one direction of the removal cascade.

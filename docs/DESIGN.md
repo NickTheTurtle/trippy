@@ -688,10 +688,16 @@ were filled in differently. There is now one popup: type in Name, results appear
 under it, pick one to fill in the provider data or ignore them and submit what
 you typed.
 
-**Adding a place does not close the popup.** One place is often added several
-times, once per activity, so the count of adds is shown in the footer ("Added
-×2") rather than a tick that would understate it, and only the activity is
-cleared. A stay is added once, so adding one closes the popup.
+**Adding closes the popup.** It used to stay open for places, on the reasoning that
+one place is often added several times, once per activity, and it counted the adds in
+the footer. That optimises for the rarer case: most adds are one place, and the reward
+for the common path was a dialog that would not go away and a running total nobody
+asked for. Adding now closes, the same way a stay always did.
+
+**The picked result shows a picture, not a panel.** Confirmation that the right
+place was chosen is a thumbnail, the rating and today's hours on one line, and a link
+to detach it. What was there before was a tinted box that also repeated the address,
+which is already prefilled into the Notes field a few rows below it.
 
 **Switching type clears the search.** Places and stays are different searches
 against different provider filters, and one's results never apply to the other.
@@ -1383,6 +1389,39 @@ Two seeded trips, chosen to exercise opposite ends of the layout engine:
   convenience and not the guard. No UNIQUE index backs it, on purpose: the real
   database already holds one duplicated city, and adding the index would either fail on
   boot or require deleting somebody's data. `addCity` is the only writer.
+
+- **Typing reaches Autocomplete; only a query it cannot answer reaches Text Search.**
+  A text search is billed per request, so a search that fires as you type bought a Pro
+  request per pause in typing. Autocomplete is priced differently: requests carrying a
+  session token that ends in a Place Details call on the same token are not billed at
+  all, and that details call is one Discover already makes when a result is picked. The
+  same keystrokes therefore cost one request instead of one per pause, and it is a
+  request that was already being paid for. The token is minted in the popup, sent with
+  every search in that session, spent on the details lookup, and replaced after each
+  pick, because a spent token cannot be reused.
+
+  Predictions are prefix matching, so they come up empty on a wordier question ("a
+  quiet place for coffee before the drive", which Text Search answers with two cafes).
+  A search only falls through to the billed text search once autocomplete has returned
+  nothing, which keeps the wordy answer without paying for it on ordinary lookups. A
+  failed autocomplete falls through the same way rather than dropping to the keyless
+  provider: it says nothing about whether Google is reachable.
+
+  Autocomplete is steered by a **restriction**, not the bias a text search gets. Bias
+  was measured to be as weak here as it is there: biased on Nashville, Georgia it
+  offered museums in Washington, New York and Boston. The restriction is a one-degree
+  rectangle around the city, about 110km north to south, which reaches Mount Fuji from
+  Tokyo while leaving Nashville, Tennessee well outside Nashville, Georgia. A circle
+  cannot do this job at all, since Google caps its radius at 50km.
+
+  Two consequences worth naming. A prediction carries only a name and an address, so
+  the details call now also buys `displayName`, `formattedAddress`, `location` and
+  `types`: without them a suggested place would land on the board with no map pin.
+  They are free, because a request is priced by the highest tier in its mask and the
+  ratings alongside them are already Enterprise. And a cache hit on the details lookup
+  means the session is never terminated, so its suggestions bill at the cheap
+  per-request Essentials rate instead of nothing. That is still the right trade: not
+  making a call beats making one.
 
 - **A search is scoped by the city's state, not just its name.** Google's Text Search
   resolves the *text* it is given, so `museum Nashville United States` returns
