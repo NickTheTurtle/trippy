@@ -42,7 +42,6 @@ discover.get('/', async (c) => {
 	return c.json({
 		cities: cityPois(trip.id, userId),
 		stays: Object.fromEntries(stays.map((s) => [s.id, s.options])),
-		staysVoted: Object.fromEntries(stays.map((s) => [s.id, s.voted])),
 		currency: trip.home_currency,
 		memberCount: trip.members.length,
 		isOrganizer: trip.role === 'organizer',

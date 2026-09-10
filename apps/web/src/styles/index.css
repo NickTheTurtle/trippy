@@ -816,6 +816,13 @@ select.input.compact {
 .sdropopt.active {
 	background: var(--color-accent-soft);
 }
+/* A row that cannot be picked: already on the trip. Shown rather than hidden,
+   so searching for a city you have already added answers the question instead
+   of returning nothing. */
+.sdropopt.off {
+	cursor: default;
+	opacity: 0.55;
+}
 .sdropnote {
 	margin: 0;
 	padding: 0.4rem 0.5rem;

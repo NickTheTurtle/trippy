@@ -42,6 +42,12 @@ function detail(...parts: (string | null | undefined)[]): string {
 		.join(' · ');
 }
 
+/** A city's identity for comparison: name, country and region, folded. */
+function key(c: { name: string; country: string; region?: string | null }): string {
+	const part = (s: string | null | undefined) => (s ?? '').trim().toLowerCase();
+	return `${part(c.name)}|${part(c.country)}|${part(c.region)}`;
+}
+
 /**
  * The add-city dialog.
  *
@@ -66,16 +72,21 @@ export default function AddCityDialog({
 	onChanged: () => void;
 }) {
 	const [error, setError] = useState('');
+	const [picked, setPicked] = useState<Suggestion | null>(null);
+	const [busy, setBusy] = useState(false);
 
-	async function call(path: string, method: string, body?: unknown, fallback?: string) {
+	async function add() {
+		if (!picked) return;
+		setBusy(true);
 		setError('');
 		try {
-			await api(path, { method, body });
+			await api(`/trips/${trip.id}/cities`, { method: 'POST', body: picked });
 			onChanged();
-			return true;
+			onClose();
 		} catch (err) {
-			setError(err instanceof ApiError ? err.message : (fallback ?? c.saveFallback));
-			return false;
+			setError(err instanceof ApiError ? err.message : c.addFallback);
+		} finally {
+			setBusy(false);
 		}
 	}
 
@@ -88,11 +99,27 @@ export default function AddCityDialog({
 					</p>
 				)}
 
-				<CitySearch onAdd={(v) => call(`/trips/${trip.id}/cities`, 'POST', v, c.addFallback)} />
+				{/* The search stays put once a city is chosen, so changing your mind
+				    is another search rather than a button to undo the last one. */}
+				<CitySearch
+					picked={picked}
+					onPick={setPicked}
+					// Same rule the server enforces, so a city the trip already has is
+					// visibly unavailable instead of failing on Add.
+					onTrip={new Set(trip.cities.map(key))}
+				/>
 			</div>
 			<div className="mfoot">
 				<button className="btn" type="button" onClick={onClose}>
-					{c.done}
+					{copy.common.cancel}
+				</button>
+				<button
+					className="btn primary"
+					type="button"
+					disabled={!picked || busy}
+					onClick={() => void add()}
+				>
+					{busy ? copy.common.adding : copy.common.add}
 				</button>
 			</div>
 		</Modal>
@@ -100,20 +127,28 @@ export default function AddCityDialog({
 }
 
 /**
- * Search, pick, add.
+ * Search and pick. Adding is the dialog's job, in its footer, because a form
+ * with its own submit inside a modal that has one too leaves two buttons doing
+ * the same thing and no way to tell which is the real one.
  *
  * The search is the geocoder behind `/citysearch`, which returns the country,
  * the coordinates and the IANA zone with the name, so the organizer never types
  * a time zone.
  */
-function CitySearch({ onAdd }: { onAdd: (v: Record<string, unknown>) => Promise<boolean> }) {
+function CitySearch({
+	picked,
+	onPick,
+	onTrip
+}: {
+	picked: Suggestion | null;
+	onPick: (v: Suggestion) => void;
+	onTrip: Set<string>;
+}) {
 	const [query, setQuery] = useState('');
 	const [hits, setHits] = useState<Suggestion[]>([]);
 	const [searching, setSearching] = useState(false);
-	const [picked, setPicked] = useState<Suggestion | null>(null);
 	/** Whether the results overlay is showing. Closed by picking, reopened by typing. */
 	const [open, setOpen] = useState(false);
-	const [busy, setBusy] = useState(false);
 	const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
 	const inflight = useRef<AbortController>(undefined);
 
@@ -161,28 +196,56 @@ function CitySearch({ onAdd }: { onAdd: (v: Record<string, unknown>) => Promise<
 	}
 
 	function pick(s: Suggestion) {
-		setPicked(s);
+		onPick(s);
 		setQuery('');
 		setHits([]);
 		setOpen(false);
 	}
 
-	async function add() {
-		if (!picked) return;
-		setBusy(true);
-		const okay = await onAdd(picked);
-		setBusy(false);
-		if (okay) {
-			setPicked(null);
-		}
-	}
+	return (
+		<>
+			<SearchDropdown
+				// The dialog's title already says "Add city", so the field is named for
+				// what it holds rather than repeating the action. The placeholder does
+				// the rest: what the box wants is examples, not a format.
+				label={c.searchLabel}
+				placeholder={c.searchPlaceholder}
+				value={query}
+				onChange={onQuery}
+				open={open}
+				onOpenChange={setOpen}
+				busy={searching}
+				// The results overlay rather than pushing the dialog's own controls
+				// down, which is what typing here used to do on every keystroke.
+				items={hits.slice(0, 6)}
+				itemKey={(s) => `${s.name}|${s.country}|${s.lat}`}
+				onPick={pick}
+				// The region is what tells two same-named hits apart, so it goes on the
+				// row itself rather than only on the card after the pick: choosing
+				// between two Springfields is the moment it is needed. It joins the
+				// country through `detail`, so a city-state with no region renders as
+				// the country alone, exactly as every row did before.
+				renderItem={(s) => (
+					<span className="flex items-baseline gap-2">
+						<span className="min-w-0 truncate font-medium">{s.name}</span>
+						<span className="muted min-w-0 truncate text-[0.8rem]">
+							{detail(s.region, s.country)}
+						</span>
+						{onTrip.has(key(s)) && (
+							<span className="muted ml-auto shrink-0 text-[0.75rem]">{c.alreadyAdded}</span>
+						)}
+					</span>
+				)}
+				itemDisabled={(s) => onTrip.has(key(s))}
+				// Nothing to say yet on one letter, so the popup stays shut until the
+				// query is long enough to have searched.
+				empty={query.trim().length < MIN_QUERY ? null : searching ? c.searching : c.noMatches}
+			/>
 
-	if (picked) {
-		return (
-			<div className="flex flex-col gap-2.5 rounded-[10px] border border-accent-soft bg-accent-soft/40 px-3 py-3">
-				<span className="flex min-w-0 flex-col">
-					{/* Laid out like the search result it came from, so the card you
-					    confirm reads the same as the row you picked. */}
+			{picked && (
+				<div className="flex min-w-0 flex-col rounded-[10px] border border-accent-soft bg-accent-soft/40 px-3 py-2.5">
+					{/* Laid out like the search result it came from, so what you are
+					    about to add reads the same as the row you picked. */}
 					<span className="flex items-baseline gap-1.5">
 						<span className="truncate font-medium">{picked.name}</span>
 						{picked.region && (
@@ -192,52 +255,8 @@ function CitySearch({ onAdd }: { onAdd: (v: Record<string, unknown>) => Promise<
 					<span className="muted truncate text-[0.78rem]">
 						{detail(picked.country, picked.tz.replace(/_/g, ' '))}
 					</span>
-				</span>
-				<div className="flex gap-2">
-					<button className="btn small primary" type="button" disabled={busy} onClick={add}>
-						{busy ? copy.common.adding : c.addPicked(picked.name)}
-					</button>
-					<button className="btn small" type="button" onClick={() => setPicked(null)}>
-						{copy.common.cancel}
-					</button>
 				</div>
-			</div>
-		);
-	}
-
-	return (
-		<SearchDropdown
-			// The dialog's title already says "Add city", so the field is named for
-			// what it holds rather than repeating the action. The placeholder does
-			// the rest: what the box wants is examples, not a format.
-			label={c.searchLabel}
-			placeholder={c.searchPlaceholder}
-			value={query}
-			onChange={onQuery}
-			open={open}
-			onOpenChange={setOpen}
-			busy={searching}
-			// The results overlay rather than pushing the dialog's own controls
-			// down, which is what typing here used to do on every keystroke.
-			items={hits.slice(0, 6)}
-			itemKey={(s) => `${s.name}|${s.country}|${s.lat}`}
-			onPick={pick}
-			// The region is what tells two same-named hits apart, so it goes on the
-			// row itself rather than only on the card after the pick: choosing
-			// between two Springfields is the moment it is needed. It joins the
-			// country through `detail`, so a city-state with no region renders as
-			// the country alone, exactly as every row did before.
-			renderItem={(s) => (
-				<span className="flex items-baseline gap-2">
-					<span className="min-w-0 truncate font-medium">{s.name}</span>
-					<span className="muted min-w-0 truncate text-[0.8rem]">
-						{detail(s.region, s.country)}
-					</span>
-				</span>
 			)}
-			// Nothing to say yet on one letter, so the popup stays shut until the
-			// query is long enough to have searched.
-			empty={query.trim().length < MIN_QUERY ? null : searching ? c.searching : c.noMatches}
-		/>
+		</>
 	);
 }

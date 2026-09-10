@@ -15,7 +15,8 @@ import AddDialog from './discover/AddDialog';
 import EditPlaceDialog from './discover/EditPlaceDialog';
 import NoCities from './discover/NoCities';
 import { PlusIcon } from './discover/card-controls';
-import { VIEW_OPTIONS, isStayView, type DiscoverView } from './discover/views';
+import { VIEW_OPTIONS, showsStays, placeKinds, toAddType, ALL_VIEW } from './discover/views';
+import type { DiscoverView } from './discover/views';
 import { copy } from '../copy';
 
 const cd = copy.discover;
@@ -25,9 +26,10 @@ const cd = copy.discover;
  *
  * The page has two axes. Which city you are looking at is the standing choice,
  * so it is the sidebar; what kind of thing you are looking at changes far more
- * often, so it is one dropdown in the header. Attractions and Food & Drink
- * filter the same list by `pois.kind`; Stays swaps the list for
- * `lodging_options`, which is why there is no "All" (see docs/DESIGN.md 2.3).
+ * often, so it is one dropdown in the header, and it opens on All. Attractions
+ * and Food & Drink filter `pois.kind`, Stays reads `lodging_options`, and All
+ * shows the lot in one grid: the two tables are a storage detail, and a group
+ * weighing up a city wants to see what is in it (see docs/DESIGN.md 2.3).
  *
  * This file is composition only. The search-and-add popup, the two card types
  * and the city sidebar each live in `pages/discover/`.
@@ -40,7 +42,7 @@ export default function Discover() {
 	useLiveSection(['pois', 'lodging', 'schedule', 'members', 'trip'], reload);
 
 	const [activeCity, setActiveCity] = useState('');
-	const [view, setView] = useState<DiscoverView>('attraction');
+	const [view, setView] = useState<DiscoverView>(ALL_VIEW);
 	const [adding, setAdding] = useState(false);
 	const [editPoi, setEditPoi] = useState<Poi | null>(null);
 	const [deletePoi, setDeletePoi] = useState<Poi | null>(null);
@@ -96,7 +98,8 @@ export default function Discover() {
 		return <NoCities isOrganizer={trip.role === 'organizer'} onAddCity={() => addCity(reload)} />;
 	}
 
-	const stay = isStayView(view);
+	const withStays = showsStays(view);
+	const kinds = placeKinds(view);
 
 	// Alphabetical, so the list is a lookup rather than a second rendering of
 	// the itinerary order the trip header already shows.
@@ -104,9 +107,11 @@ export default function Discover() {
 	const current = cities.find((c) => c.id === activeCity) ?? cities[0];
 	if (!current) return null;
 
-	const staysIn = (cityId: string) => data.stays[cityId] ?? [];
+	const staysIn = (cityId: string) => (withStays ? (data.stays[cityId] ?? []) : []);
+	const placesIn = (city: (typeof cities)[number]) =>
+		city.pois.filter((p) => kinds.includes(p.kind));
 	const stays = staysIn(current.id);
-	const places = current.pois.filter((p) => p.kind === view);
+	const places = placesIn(current);
 
 	/** `cities.tz` is where the IANA zone lives; Discover joins the trip on it. */
 	const tzOf = (cityId: string) => trip.cities.find((c) => c.id === cityId)?.tz ?? '';
@@ -128,9 +133,8 @@ export default function Discover() {
 		region: regionOf(c.id),
 		// The badge counts what the current view would show, so it never reads as
 		// a places count while you are comparing stays.
-		badge: stay ? staysIn(c.id).length : c.pois.filter((p) => p.kind === view).length,
-		places: c.pois.length,
-		stays: staysIn(c.id).length,
+		badge: placesIn(c).length + staysIn(c.id).length,
+		items: c.pois.length + (data.stays[c.id]?.length ?? 0),
 		linked: c.pois.reduce((n, p) => n + p.linked, 0)
 	}));
 
@@ -168,56 +172,41 @@ export default function Discover() {
 						/>
 					</div>
 
-					{/* Lives in the header row rather than on a line below it, so
-					    switching view never changes the height above the cards. */}
-					{stay && (
-						<span className="muted text-[0.85rem] whitespace-nowrap">
-							{cd.header.voted(data.staysVoted[current.id] ?? 0, data.memberCount)}
-						</span>
-					)}
-
 					<button type="button" className="btn primary ml-auto" onClick={() => setAdding(true)}>
 						<PlusIcon />
-						{stay ? cd.header.addStay : cd.header.addPlace}
+						{cd.header.add}
 					</button>
 				</div>
 
 				<div className="grid min-w-0 grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-4">
-					{stay ? (
-						<>
-							{stays.map((o) => (
-								<StayCard
-									key={o.id}
-									stay={o}
-									currency={data.currency}
-									pct={pct(o.votes)}
-									isOrganizer={data.isOrganizer}
-									editingDates={datesFor === o.id}
-									onToggleDates={() => setDatesFor((v) => (v === o.id ? null : o.id))}
-									onVote={() => void voteStay.run(o.id)}
-									onLock={() => void lockStay.run(o.id)}
-									onRemove={() => void removeStay.run(o.id)}
-									onSaveDates={(checkIn, checkOut) =>
-										void saveStayDates.run(o.id, checkIn, checkOut)
-									}
-								/>
-							))}
-						</>
-					) : (
-						<>
-							{places.map((p) => (
-								<PlaceCard
-									key={p.id}
-									poi={p}
-									tz={tzOf(current.id)}
-									pct={pct(p.votes)}
-									onEdit={() => setEditPoi(p)}
-									onVote={() => void votePlace.run(p.id)}
-									onRemove={() => setDeletePoi(p)}
-								/>
-							))}
-						</>
-					)}
+					{/* Stays lead, because a bed is the decision the rest of a city
+					    gets planned around. Within each the server's order stands. */}
+					{stays.map((o) => (
+						<StayCard
+							key={o.id}
+							stay={o}
+							currency={data.currency}
+							pct={pct(o.votes)}
+							isOrganizer={data.isOrganizer}
+							editingDates={datesFor === o.id}
+							onToggleDates={() => setDatesFor((v) => (v === o.id ? null : o.id))}
+							onVote={() => void voteStay.run(o.id)}
+							onLock={() => void lockStay.run(o.id)}
+							onRemove={() => void removeStay.run(o.id)}
+							onSaveDates={(checkIn, checkOut) => void saveStayDates.run(o.id, checkIn, checkOut)}
+						/>
+					))}
+					{places.map((p) => (
+						<PlaceCard
+							key={p.id}
+							poi={p}
+							tz={tzOf(current.id)}
+							pct={pct(p.votes)}
+							onEdit={() => setEditPoi(p)}
+							onVote={() => void votePlace.run(p.id)}
+							onRemove={() => setDeletePoi(p)}
+						/>
+					))}
 				</div>
 			</div>
 
@@ -227,12 +216,13 @@ export default function Discover() {
 					city={{ id: current.id, name: current.name }}
 					tz={tzOf(current.id)}
 					provider={data.provider}
-					initialView={view}
+					initialType={toAddType(view)}
 					onClose={() => setAdding(false)}
 					onAdded={(added) => {
 						// Show the list the new thing landed in: adding a restaurant while
-						// Attractions is showing would otherwise look like it did nothing.
-						setView(added);
+						// only Attractions is showing would otherwise look like it did
+						// nothing. All already shows it, so All is left alone.
+						setView((v) => (v === ALL_VIEW ? v : added));
 						reload();
 					}}
 				/>

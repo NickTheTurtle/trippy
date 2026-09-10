@@ -10,13 +10,24 @@ import SearchDropdown from '../../components/ui/SearchDropdown';
 import type { PlaceHit, PlaceHitDetails } from '../../lib/api-types';
 import { HitSummary, MIN_QUERY, hitKey } from './place-meta';
 import { LinkField, NotesField, TypeField } from './place-fields';
-import { VIEW_OPTIONS, isStayView, type DiscoverView } from './views';
+import { TYPE_OPTIONS, isStayView, type AddType } from './views';
 import { copy } from '../../copy';
 
 const c = copy.discover.addDialog;
 
 /** The activity input, refocused after each add. One dialog, so one fixed id. */
 const ACTIVITY_ID = 'discover-add-activity';
+
+/**
+ * How long typing must pause before the search is sent.
+ *
+ * Every send is a billed provider request, so this is a price as much as a
+ * feel. At 350ms a normal typist paid for two or three prefixes of the word
+ * they were halfway through writing; 600ms is still under the pause you make
+ * when you stop to look at a screen, and it usually buys one search per word
+ * instead of three.
+ */
+const SEARCH_DEBOUNCE_MS = 600;
 
 /**
  * The one way anything gets added on this page.
@@ -39,7 +50,7 @@ export default function AddDialog({
 	city,
 	tz,
 	provider,
-	initialView,
+	initialType,
 	onClose,
 	onAdded
 }: {
@@ -49,12 +60,12 @@ export default function AddDialog({
 	/** The city's IANA zone, for the opening-hours line on a result. */
 	tz: string;
 	provider: 'google' | 'osm';
-	initialView: DiscoverView;
+	initialType: AddType;
 	onClose: () => void;
 	/** Reloads the page data and shows the view the new thing landed in. */
-	onAdded: (view: DiscoverView) => void;
+	onAdded: (type: AddType) => void;
 }) {
-	const [view, setView] = useState<DiscoverView>(initialView);
+	const [view, setView] = useState<AddType>(initialType);
 	const [name, setName] = useState('');
 	const [activity, setActivity] = useState('');
 	const [price, setPrice] = useState('');
@@ -148,7 +159,7 @@ export default function AddDialog({
 		// search rather than once the request is in flight, so it does not only
 		// appear after the debounce.
 		setSearching(value.trim().length >= MIN_QUERY);
-		timer.current = setTimeout(() => runSearch(value.trim()), 350);
+		timer.current = setTimeout(() => runSearch(value.trim()), SEARCH_DEBOUNCE_MS);
 	}
 
 	/** Fills the form from a result, and fetches what the search left out. */
@@ -199,7 +210,7 @@ export default function AddDialog({
 	}
 
 	function changeView(next: string) {
-		const v = next as DiscoverView;
+		const v = next as AddType;
 		if (isStayView(v) !== stay) {
 			// A hotel is not a place and a place is not a hotel: the results and
 			// anything filled in from them do not survive the switch.
@@ -377,7 +388,7 @@ export default function AddDialog({
 
 						<LinkField value={url} onChange={setUrl} />
 
-						<TypeField options={VIEW_OPTIONS} value={view} onChange={changeView} />
+						<TypeField options={TYPE_OPTIONS} value={view} onChange={changeView} />
 
 						<NotesField value={notes} onChange={setNotes} />
 					</div>
@@ -393,7 +404,7 @@ export default function AddDialog({
 					{/* Submitting mid-fetch would save the place without its rating or
 					    photo, and nothing backfills a rating later. */}
 					<button className="btn primary" type="submit" disabled={busy}>
-						{detailLoading ? c.busyLabel : stay ? c.submitStay : c.submitPlace}
+						{detailLoading ? c.busyLabel : c.submit}
 					</button>
 				</div>
 			</form>

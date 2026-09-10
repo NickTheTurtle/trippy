@@ -1371,6 +1371,19 @@ Two seeded trips, chosen to exercise opposite ends of the layout engine:
   target; a small "Add" button next to a wide row is a needlessly small target for the
   only action the row has. The dropdown scrolls at `min(60vh, 380px)`.
 
+- **A city can only be on a trip once.** Identity is name + country + region, compared
+  trimmed and case-insensitively, and both `addCity` and `updateCity` refuse a
+  collision. The region has to be part of the test rather than the name alone, because
+  a trip can legitimately visit Nashville, Tennessee and Nashville, Georgia, or both
+  Parises. Coordinates are deliberately *not* the test: they come from whichever
+  geocoder row was picked, so the same city reached by two different searches can carry
+  slightly different numbers and would slip through. The add-city search marks a city
+  the trip already holds as `Added` and makes the row unpickable, so the rule is
+  visible before it is enforced; the server still refuses, since the dropdown is a
+  convenience and not the guard. No UNIQUE index backs it, on purpose: the real
+  database already holds one duplicated city, and adding the index would either fail on
+  boot or require deleting somebody's data. `addCity` is the only writer.
+
 - **A search is scoped by the city's state, not just its name.** Google's Text Search
   resolves the *text* it is given, so `museum Nashville United States` returns
   Tennessee however the request is biased: a `locationBias` circle over south Georgia
@@ -1391,6 +1404,36 @@ Two seeded trips, chosen to exercise opposite ends of the layout engine:
   Nashville, Tennessee. The search cache key had to widen too, since it was keyed on
   city and country alone and two trips holding two different Nashvilles were served
   each other's results.
+
+- **Provider caches live in SQLite, because the process restarts constantly.** Google
+  bills per request, and the free monthly allowance is per SKU (10,000 Essentials,
+  5,000 Pro, 1,000 Enterprise) rather than one pooled credit, so the SKU that runs
+  hottest is the one that starts costing money. Here that is Text Search Pro: the
+  Discover search fires as you type, and its cache was in memory only. The API runs
+  under `tsx watch`, so every saved file threw that cache away and the next search was
+  bought again. `createPersistentCache` writes results through to a `provider_cache`
+  table, keeping the in-memory layer in front of it because that is what de-duplicates
+  requests already in flight, which a stored value cannot do. TTLs are capped at 30
+  days, the limit Google's terms put on caching Places content, and set to 7 for
+  searches and details so a rating or an opening time is never more than a week stale.
+
+  Photo bytes get their own table rather than sharing that one, since they are binary
+  and large. `/api/place-photo` was a pure pass-through: measured, three identical
+  requests each took about 110ms and each one reached Google. The browser cache was the
+  only brake, and it is per profile, so every new profile, private window and automated
+  check re-bought the same pictures. It now serves from a `photo_cache` table and
+  fetches only on a miss, measured at 996ms cold and 4ms warm for identical bytes. The
+  response is buffered rather than streamed for exactly that reason: a streamed body is
+  spent by the time it reaches the browser. `Cache-Control` went from one day to 30
+  days and `immutable`, since a photo reference's bytes never change; 30 rather than
+  forever is the same terms limit. Both tables are pure cost optimisations and never a
+  source of truth, so either can be deleted at any time and the app only gets slower,
+  never wrong.
+
+  The search debounce went from 350ms to 600ms in the same pass. At 350ms a normal
+  typist pays for two or three prefixes of the word they are still writing. The
+  three-character minimum was already enforced on the server, where it is a cost guard
+  rather than a UX choice.
 
 
   header search box and the same dropdown, with `kind=stay` restricting Google to

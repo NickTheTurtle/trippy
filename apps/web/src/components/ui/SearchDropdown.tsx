@@ -49,6 +49,7 @@ export default function SearchDropdown<T>({
 	itemKey,
 	renderItem,
 	onPick,
+	itemDisabled,
 	empty,
 	footer
 }: {
@@ -77,6 +78,12 @@ export default function SearchDropdown<T>({
 	renderItem: (item: T) => ReactNode;
 	onPick: (item: T) => void;
 	/**
+	 * Rows that are shown but cannot be chosen, because picking them would only
+	 * earn a refusal from the server. They are skipped by the arrows and ignored
+	 * by clicks and Enter, so the only way to reach one is to look at it.
+	 */
+	itemDisabled?: (item: T) => boolean;
+	/**
 	 * Shown in place of the rows when there are none: "searching", "no matches",
 	 * "keep typing". Pass null to keep the popup shut in that state.
 	 */
@@ -103,11 +110,13 @@ export default function SearchDropdown<T>({
 	const shown = open && value.trim().length > 0 && (items.length > 0 || empty != null);
 	const { triggerRef, menuRef } = useAnchor<HTMLDivElement, HTMLDivElement>(shown);
 
-	// Back to the top whenever the result set changes underneath the highlight,
-	// so Enter can never pick a row that has since been replaced by another.
+	// Back to the first pickable row whenever the result set changes underneath
+	// the highlight, so Enter can never pick a row that has since been replaced
+	// by another. -1 when nothing in the list can be chosen.
 	const keys = items.map(itemKey).join('\u0000');
 	useEffect(() => {
-		setActiveIndex(0);
+		setActiveIndex(firstEnabled(0, 1));
+		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [keys, shown]);
 
 	// The highlighted row is not focused, so nothing scrolls it into view for us.
@@ -130,9 +139,20 @@ export default function SearchDropdown<T>({
 		return () => window.removeEventListener('click', onClick);
 	}, [shown, onOpenChange]);
 
+	const off = (i: number) => {
+		const item = items[i];
+		return item !== undefined && !!itemDisabled?.(item);
+	};
+
+	/** The first pickable row at or after `from`, walking in `step`. -1 if none. */
+	function firstEnabled(from: number, step: number): number {
+		for (let i = from; i >= 0 && i < items.length; i += step) if (!off(i)) return i;
+		return -1;
+	}
+
 	function choose(i: number) {
 		const item = items[i];
-		if (!item) return;
+		if (!item || off(i)) return;
 		onPick(item);
 	}
 
@@ -155,8 +175,9 @@ export default function SearchDropdown<T>({
 				return;
 			}
 			if (items.length === 0) return;
-			const next = activeRef.current + (e.key === 'ArrowDown' ? 1 : -1);
-			setActiveIndex(Math.max(0, Math.min(items.length - 1, next)));
+			const step = e.key === 'ArrowDown' ? 1 : -1;
+			const next = firstEnabled(activeRef.current + step, step);
+			if (next >= 0) setActiveIndex(next);
 			return;
 		}
 		if (e.key === 'Enter' && shown && items.length > 0) {
@@ -233,8 +254,11 @@ export default function SearchDropdown<T>({
 								data-index={i}
 								role="option"
 								aria-selected={i === active}
-								className={i === active ? 'sdropopt active' : 'sdropopt'}
-								onMouseEnter={() => setActiveIndex(i)}
+								aria-disabled={off(i) || undefined}
+								className={`sdropopt${i === active ? ' active' : ''}${off(i) ? ' off' : ''}`}
+								onMouseEnter={() => {
+									if (!off(i)) setActiveIndex(i);
+								}}
 								onClick={() => choose(i)}
 							>
 								{renderItem(item)}

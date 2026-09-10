@@ -20,8 +20,8 @@ export type CityRow = {
 	region?: string | null;
 	/** The count shown beside the name, which follows the current view. */
 	badge: number;
-	places: number;
-	stays: number;
+	/** Everything saved in the city, whatever its type. */
+	items: number;
 	/** Calendar items scheduled from a place in this city. */
 	linked: number;
 };
@@ -129,7 +129,7 @@ export default function CityList({
 
 			<ConfirmDialog
 				open={!!pendingDelete}
-				title={pendingDelete ? cl.deleteTitle(pendingDelete.name) : ''}
+				title={pendingDelete ? cl.deleteTitle(pendingDelete.name, pendingDelete.region) : ''}
 				confirmLabel={cl.deleteConfirm}
 				busyLabel={copy.common.deleting}
 				body={pendingDelete && <DeleteBody city={pendingDelete} />}
@@ -165,19 +165,19 @@ export default function CityList({
  *    the place. That is worth saying, because "deleting cascades to the
  *    calendar" is true of deleting one *place* and it would be reasonable to
  *    assume it is true here.
+ *
+ * The city's name (and its region, when the sidebar had to disambiguate) is in
+ * the dialog's title, so the body is only ever the consequences. It counts what
+ * is saved without breaking it down by type: which of the two tables a row
+ * lives in changes nothing about what pressing Delete does.
  */
 function DeleteBody({ city }: { city: CityRow }) {
 	return (
 		<>
-			{/* Carries the region when the sidebar had to disambiguate, because
-			    this is the irreversible step and "Delete Springfield?" is not
-			    enough to act on when the trip holds two of them. */}
-			<p className="m-0 mb-2 font-semibold [overflow-wrap:anywhere]">
-				{city.name}
-				{city.region && <span className="muted ml-1.5 text-[0.78rem]">{city.region}</span>}
-			</p>
-			<p className="m-0 mb-2 text-[0.9rem]">{cl.deleteBody(city.places, city.stays, city.name)}</p>
-			{city.linked > 0 && <p className="muted m-0 text-[0.9rem]">{cl.deleteLinked(city.linked)}</p>}
+			<p className="m-0 text-[0.9rem]">{cl.deleteBody(city.items)}</p>
+			{city.linked > 0 && (
+				<p className="muted m-0 mt-2 text-[0.9rem]">{cl.deleteLinked(city.linked)}</p>
+			)}
 		</>
 	);
 }

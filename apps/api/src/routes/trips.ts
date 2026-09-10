@@ -11,6 +11,7 @@ import {
 	addCity,
 	updateCity,
 	removeCity,
+	cityOnTrip,
 	type CityInput
 } from '@trippy/server/trips';
 import { backfillTripListPhotos } from '@trippy/server/photos';
@@ -79,14 +80,21 @@ trips.patch('/:tripId', requireMember, async (c) => {
  */
 trips.post('/:tripId/cities', requireMember, async (c) => {
 	const b = await body(c);
-	const id = addCity(c.get('trip').id, c.get('user').id, cityInput(b));
+	const input = cityInput(b);
+	// Asked separately from the add so the refusal can say which city, and why.
+	if (cityOnTrip(c.get('trip').id, input))
+		return fail(c, 400, `${input.name.trim()} is already on this trip.`);
+	const id = addCity(c.get('trip').id, c.get('user').id, input);
 	if (!id) return fail(c, 400, 'Could not add that city. Check the name and time zone.');
 	return c.json({ trip: getTripForUser(c.get('trip').id, c.get('user').id) }, 201);
 });
 
 trips.patch('/:tripId/cities/:cityId', requireMember, async (c) => {
 	const b = await body(c);
-	const okay = updateCity(c.get('trip').id, c.get('user').id, c.req.param('cityId'), cityInput(b));
+	const input = cityInput(b);
+	if (cityOnTrip(c.get('trip').id, input, c.req.param('cityId')))
+		return fail(c, 400, `${input.name.trim()} is already on this trip.`);
+	const okay = updateCity(c.get('trip').id, c.get('user').id, c.req.param('cityId'), input);
 	if (!okay) return fail(c, 400, 'Could not save that city. Check the name and time zone.');
 	return c.json({ trip: getTripForUser(c.get('trip').id, c.get('user').id) });
 });

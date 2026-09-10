@@ -75,8 +75,6 @@ export type DiscoverData = {
 	cities: DiscoverCity[];
 	/** Stays keyed by city id. */
 	stays: Record<string, Stay[]>;
-	/** Distinct members who have voted on a stay, keyed by city id. */
-	staysVoted: Record<string, number>;
 	/** The trip's home currency, which stay prices are denominated in. */
 	currency: string;
 	memberCount: number;

@@ -978,6 +978,89 @@ describe('required trip dates', () => {
 	});
 });
 
+describe('duplicate cities', () => {
+	it('refuses a city the trip already has, whatever the spacing or case', () => {
+		const f = createTripFixture('dupe-city');
+		const kyoto = {
+			name: 'Kyoto',
+			country: 'Japan',
+			region: 'Kyoto Prefecture',
+			tz: 'Asia/Tokyo'
+		};
+		expect(trips.addCity(f.tripId, f.organizer, kyoto)).toBeTruthy();
+		expect(trips.addCity(f.tripId, f.organizer, kyoto)).toBeNull();
+		expect(
+			trips.addCity(f.tripId, f.organizer, { ...kyoto, name: '  kyoto ', country: 'JAPAN' })
+		).toBeNull();
+		expect(
+			trips.getTripForUser(f.tripId, f.organizer)!.cities.filter((c) => c.name === 'Kyoto')
+		).toHaveLength(1);
+	});
+
+	it('treats a blank region as the missing one it is stored as', () => {
+		const f = createTripFixture('dupe-blank-region');
+		expect(
+			trips.addCity(f.tripId, f.organizer, {
+				name: 'Singapore',
+				country: 'Singapore',
+				tz: 'Asia/Singapore'
+			})
+		).toBeTruthy();
+		expect(
+			trips.addCity(f.tripId, f.organizer, {
+				name: 'Singapore',
+				country: 'Singapore',
+				region: '   ',
+				tz: 'Asia/Singapore'
+			})
+		).toBeNull();
+	});
+
+	// The whole reason identity is not the name alone: a trip can legitimately
+	// visit two different places that share one.
+	it('still allows two same-named cities in different regions', () => {
+		const f = createTripFixture('dupe-two-nashvilles');
+		const base = { name: 'Nashville', country: 'United States', tz: 'America/Chicago' };
+		expect(trips.addCity(f.tripId, f.organizer, { ...base, region: 'Tennessee' })).toBeTruthy();
+		expect(trips.addCity(f.tripId, f.organizer, { ...base, region: 'Georgia' })).toBeTruthy();
+	});
+
+	it('will not rename one city onto another, but leaves a city saving itself alone', () => {
+		const f = createTripFixture('dupe-rename');
+		const lisbon = trips.addCity(f.tripId, f.organizer, {
+			name: 'Lisbon',
+			country: 'Portugal',
+			region: 'Lisbon',
+			tz: 'Europe/Lisbon'
+		})!;
+		const porto = trips.addCity(f.tripId, f.organizer, {
+			name: 'Porto',
+			country: 'Portugal',
+			region: 'Porto',
+			tz: 'Europe/Lisbon'
+		})!;
+		expect(
+			trips.updateCity(f.tripId, f.organizer, porto, {
+				name: 'Lisbon',
+				country: 'Portugal',
+				region: 'Lisbon',
+				tz: 'Europe/Lisbon'
+			})
+		).toBe(false);
+		expect(cityRow(porto).name).toBe('Porto');
+		// Saving a city without changing its name is not a collision with itself.
+		expect(
+			trips.updateCity(f.tripId, f.organizer, lisbon, {
+				name: 'Lisbon',
+				country: 'Portugal',
+				region: 'Lisbon',
+				tz: 'Atlantic/Azores'
+			})
+		).toBe(true);
+		expect(cityRow(lisbon).tz).toBe('Atlantic/Azores');
+	});
+});
+
 describe('city regions', () => {
 	it('stores and returns a region, and accepts a city without one', () => {
 		const f = createTripFixture('regions');

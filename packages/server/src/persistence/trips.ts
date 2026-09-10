@@ -315,10 +315,48 @@ function validCity(c: CityInput): boolean {
 	return true;
 }
 
-/** Add a city to the end of the trip's itinerary. Organizer only. */
+/**
+ * Whether the trip already holds this city.
+ *
+ * Identity is name + country + region, compared trimmed and case-insensitively,
+ * because that is what a person means by "already on the trip". The region has
+ * to be part of it rather than the name alone: Nashville, Tennessee and
+ * Nashville, Georgia are two different places a trip can legitimately visit
+ * both of. Coordinates are deliberately not the test. They come from whichever
+ * geocoder row was picked, so the same city reached by two different searches
+ * can carry slightly different numbers and would slip past.
+ *
+ * `exclude` is the city being edited, so renaming a city to its own name is not
+ * a collision with itself.
+ */
+export function cityOnTrip(tripId: string, c: CityInput, exclude?: string): boolean {
+	const row = db
+		.prepare(
+			`SELECT 1 FROM cities
+			 WHERE trip_id = ?
+			   AND lower(trim(name)) = lower(trim(?))
+			   AND lower(trim(country)) = lower(trim(?))
+			   AND coalesce(lower(trim(region)), '') = ?
+			   AND id IS NOT ?`
+		)
+		.get(tripId, c.name, c.country, (cityRegion(c) ?? '').toLowerCase(), exclude ?? null);
+	return !!row;
+}
+
+/**
+ * Add a city to the end of the trip's itinerary. Organizer only.
+ *
+ * Returns null for a refusal, which now includes a city the trip already has:
+ * a second Paris splits one city's places, stays and costs across two sidebar
+ * rows that look identical, and nothing in the app can tell them apart. The
+ * column pair is left without a UNIQUE index on purpose, because one trip in
+ * the real database already holds a duplicate and creating the index would
+ * either fail or require deleting somebody's data; this is the only writer.
+ */
 export function addCity(tripId: string, actorId: string, c: CityInput): string | null {
 	if (!isOrganizer(tripId, actorId)) return null;
 	if (!validCity(c)) return null;
+	if (cityOnTrip(tripId, c)) return null;
 	const next =
 		((
 			db.prepare(`SELECT MAX(sort) AS m FROM cities WHERE trip_id = ?`).get(tripId) as
@@ -355,6 +393,7 @@ export function updateCity(
 ): boolean {
 	if (!isOrganizer(tripId, actorId)) return false;
 	if (!validCity(c)) return false;
+	if (cityOnTrip(tripId, c, cityId)) return false;
 	const res = db
 		.prepare(
 			`UPDATE cities SET name = ?, country = ?, region = ?, tz = ?, lat = ?, lng = ?

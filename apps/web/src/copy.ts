@@ -140,19 +140,18 @@ export const copy = {
 	// Add city dialog, reached from Discover
 	addCity: {
 		title: 'Add city',
-		done: 'Done',
-		saveFallback: 'Could not save that.',
 		addFallback: 'Could not add that city.',
 		searchLabel: 'City',
 		searchPlaceholder: 'Kyoto, Lisbon, Cusco...',
-		addPicked: (city: string) => `Add ${city}`,
 		searching: 'Searching...',
-		noMatches: 'No cities matched that.'
+		noMatches: 'No cities matched that.',
+		alreadyAdded: 'Added'
 	},
 
 	// Discover > city sidebar, place and stay cards, add and edit dialogs
 	discover: {
 		types: {
+			all: 'All',
 			attraction: 'Attractions',
 			food: 'Food & Drink',
 			stay: 'Stays'
@@ -168,25 +167,19 @@ export const copy = {
 			addCity: 'Add city',
 			removeLabel: (city: string) => `Delete ${city}`,
 			lastCityTitle: 'A trip needs at least one city',
-			deleteTitle: (city: string) => `Delete ${city}?`,
+			deleteTitle: (city: string, region?: string | null) =>
+				`Delete ${region ? `${city}, ${region}` : city}?`,
 			deleteConfirm: 'Delete city',
-			deleteBody: (places: number, stays: number, city: string) => {
-				const bits = [
-					places > 0 ? `${places} ${places === 1 ? 'place' : 'places'}` : '',
-					stays > 0 ? `${stays} ${stays === 1 ? 'stay' : 'stays'}` : ''
-				].filter(Boolean);
-				return bits.length > 0
-					? `Deletes ${bits.join(' and ')} in ${city}.`
-					: `Nothing has been added to ${city} yet.`;
-			},
+			deleteBody: (items: number) =>
+				items > 0
+					? `Deletes ${items} saved ${items === 1 ? 'item' : 'items'}, their votes and this city's cost estimates.`
+					: `Deletes this city's cost estimates. Nothing else has been added.`,
 			deleteLinked: (linked: number) =>
-				`${linked} scheduled ${linked === 1 ? 'event stays' : 'events stay'} on the calendar, but ${linked === 1 ? 'loses' : 'lose'} the link back to the place.`
+				`${linked} scheduled ${linked === 1 ? 'event keeps its slot' : 'events keep their slots'} on the calendar but ${linked === 1 ? 'loses' : 'lose'} the link.`
 		},
 		header: {
 			typeAriaLabel: 'Type',
-			voted: (voted: number, members: number) => `${voted} of ${members} voted`,
-			addStay: 'Add a stay',
-			addPlace: 'Add a place'
+			add: 'Add'
 		},
 		deletePlace: {
 			title: 'Delete this place?',
@@ -250,8 +243,7 @@ export const copy = {
 				`Added${count > 1 ? ` \u00d7${count}` : ''}. Add another activity for the same place, or close.`,
 			close: 'Close',
 			busyLabel: 'Loading...',
-			submitStay: 'Add stay',
-			submitPlace: 'Add place',
+			submit: 'Add',
 			fallback: 'Could not add that.'
 		},
 		editPlace: {
@@ -536,6 +528,7 @@ export const copy = {
 
 	// Generic control labels reused across unrelated surfaces
 	common: {
+		add: 'Add',
 		cancel: 'Cancel',
 		delete: 'Delete',
 		saving: 'Saving...',
