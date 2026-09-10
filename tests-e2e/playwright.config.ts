@@ -29,6 +29,13 @@ export default defineConfig({
 		timeout: 10_000
 	},
 	fullyParallel: false,
+	// One worker, not one file at a time. Every spec talks to the same throwaway
+	// SQLite database through the same API server, and SQLite takes a single
+	// writer: two files running side by side fail with SQLITE_BUSY ("database is
+	// locked") somewhere in whichever one wrote second. `fullyParallel: false`
+	// does not cover this, because it only serializes tests *within* a file and
+	// still hands separate files to separate workers.
+	workers: 1,
 	retries: process.env.CI ? 2 : 0,
 	reporter: [['list']],
 	use: {
