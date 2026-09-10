@@ -9,6 +9,7 @@ import {
 	findUserById,
 	updateProfile
 } from '@trippy/server/auth';
+import { clearFailures, recordFailure, retryAfterMs } from '@trippy/server/throttle';
 
 export const account = new Hono<Env>();
 
@@ -70,8 +71,21 @@ account.post('/password', async (c) => {
 	if (next !== rawStr(b.confirm)) {
 		return fail(c, 400, 'New passwords do not match.');
 	}
+	// This endpoint verifies the current password, so it is a second place to
+	// guess one, reachable by anyone holding a stolen session. Throttled by
+	// account for the same reason login is.
+	const key = `password:${c.get('user').id}`;
+	const wait = retryAfterMs(key);
+	if (wait > 0) {
+		c.header('retry-after', String(Math.ceil(wait / 1000)));
+		return fail(c, 429, 'Too many attempts. Try again in a moment.');
+	}
 	const res = changePassword(c.get('user').id, rawStr(b.current), next);
-	if (!res.ok) return fail(c, 400, res.error);
+	if (!res.ok) {
+		recordFailure(key);
+		return fail(c, 400, res.error);
+	}
+	clearFailures(key);
 	// A password is usually changed because someone else may know it, so the
 	// other devices holding a session issued against the old one are signed out.
 	// This device keeps its session: being logged out by your own change reads

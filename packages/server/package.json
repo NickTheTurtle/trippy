@@ -27,6 +27,7 @@
 		"./seed-athens": "./src/seeds/seed-athens.ts",
 		"./seed-example": "./src/seeds/seed-example.ts",
 		"./tasks": "./src/persistence/tasks.ts",
+		"./throttle": "./src/infra/throttle.ts",
 		"./trips": "./src/persistence/trips.ts",
 		"./versioning": "./src/persistence/versioning.ts"
 	},

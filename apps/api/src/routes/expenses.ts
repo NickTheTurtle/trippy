@@ -105,9 +105,11 @@ expenses.get('/', (c) => {
 	const trip = c.get('trip');
 	ensureRatesFresh();
 	const home = trip.home_currency;
-	// The same division the balances are built from, so a row read as one person
-	// and that person's balance can never disagree.
+	// One pass over the ledger, shared by the rows, the balances and the
+	// suggested transfers. They must agree, and computing each from scratch was
+	// both three times the work and three chances to disagree.
 	const splits = expenseShares(trip.id);
+	const bals = balances(trip.id, splits);
 
 	return c.json({
 		currency: home,
@@ -127,8 +129,8 @@ expenses.get('/', (c) => {
 				parts: split?.parts ?? []
 			};
 		}),
-		balances: balances(trip.id),
-		settlement: settlement(trip.id),
+		balances: bals,
+		settlement: settlement(trip.id, bals),
 		me: c.get('user').id
 	});
 });

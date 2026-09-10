@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { getConnInfo } from '@hono/node-server/conninfo';
 import { issueSession, clearSession, requireUser, sessionId, wantsToken } from '../middleware';
 import { body, rawStr, str } from '../parse';
 import { fail, ok } from '../respond';
@@ -10,10 +11,35 @@ import {
 	deleteSession,
 	type SessionUser
 } from '@trippy/server/auth';
+import { clearFailures, recordFailure, retryAfterMs } from '@trippy/server/throttle';
 
 type Env = { Variables: { user: SessionUser | null } };
 
 export const auth = new Hono<Env>();
+
+/** Best guess at who is calling, for throttling. Never trusted for authority. */
+function clientIp(c: Parameters<typeof getConnInfo>[0]): string {
+	const forwarded = c.req.header('x-forwarded-for');
+	if (forwarded) return forwarded.split(',')[0]!.trim();
+	return getConnInfo(c).remote.address ?? 'unknown';
+}
+
+/**
+ * Failed logins are counted against the account *and* against the caller.
+ *
+ * One key alone leaves an obvious hole in each direction: counting only the
+ * email lets a spray try one common password against every account in turn
+ * without ever tripping, and counting only the address lets a botnet grind a
+ * single account from a thousand of them. Both are cheap, so both are kept.
+ */
+function throttleKeys(c: Parameters<typeof getConnInfo>[0], email: string): string[] {
+	return [`login:email:${email}`, `login:ip:${clientIp(c)}`];
+}
+
+/** The longest wait any of these keys is currently serving. */
+function blockedFor(keys: string[]): number {
+	return Math.max(0, ...keys.map((k) => retryAfterMs(k)));
+}
 
 /**
  * Hands the caller its session however it asked for it: a cookie for the
@@ -41,14 +67,29 @@ auth.post('/login', async (c) => {
 	const email = str(b.email).toLowerCase();
 	const password = rawStr(b.password);
 
+	// Checked before the password is verified, so a throttled attempt costs a
+	// map lookup instead of a scrypt derivation. That is the point: the cost
+	// that protects the stored hashes must not become a lever against us.
+	const keys = throttleKeys(c, email);
+	const wait = blockedFor(keys);
+	if (wait > 0) {
+		c.header('retry-after', String(Math.ceil(wait / 1000)));
+		return fail(c, 429, 'Too many attempts. Try again in a moment.');
+	}
+
 	const user = email ? findUserByEmail(email) : null;
 
 	// One message and one code for both a missing account and a wrong password.
 	// Distinguishing them turns this endpoint into a test for which addresses
 	// are registered.
 	if (!user || !verifyPassword(password, user.password_hash)) {
+		for (const k of keys) recordFailure(k);
 		return fail(c, 401, 'Wrong email or password');
 	}
+
+	// Only a success clears the count, and it clears the address too: whoever
+	// just proved they own an account is not the traffic being defended against.
+	for (const k of keys) clearFailures(k);
 
 	return c.json({
 		user: { id: user.id, name: user.name, email: user.email },
@@ -61,10 +102,23 @@ auth.post('/register', async (c) => {
 	const name = str(b.name);
 	const password = rawStr(b.password);
 
+	// Registering also derives a key, so this endpoint is the same CPU lever as
+	// login with none of the guessing. Counted by address only: the email is by
+	// definition not an account yet.
+	const key = `register:ip:${clientIp(c)}`;
+	const wait = retryAfterMs(key);
+	if (wait > 0) {
+		c.header('retry-after', String(Math.ceil(wait / 1000)));
+		return fail(c, 429, 'Too many attempts. Try again in a moment.');
+	}
+
 	if (!email || !name) return fail(c, 400, 'Name and email are required');
 	if (password.length < 8) return fail(c, 400, 'Use at least 8 characters');
 	if (findUserByEmail(email)) return fail(c, 409, 'That email is already registered');
 
+	// Counted on success rather than on failure: one person signing up is one
+	// account, so it is the rate of real registrations that needs a ceiling.
+	recordFailure(key);
 	const user = createUser(email, name, password);
 	return c.json({ user, ...grant(c, user.id) }, 201);
 });

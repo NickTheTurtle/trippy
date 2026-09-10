@@ -81,12 +81,19 @@ export function updateProfile(
 	const clash = findUserByEmail(cleanEmail);
 	if (clash && clash.id !== userId)
 		return { ok: false, error: 'Another account already uses that email.' };
+	const before = findUserById(userId);
 	db.prepare(`UPDATE users SET name = ?, email = ?, home_tz = ? WHERE id = ?`).run(
 		cleanName,
 		cleanEmail,
 		homeTz,
 		userId
 	);
+	// An invite is addressed to an email, not to an account, so one sent to an
+	// address you add later is waiting for you and nothing would ever pick it
+	// up: registration was the only place that looked. Someone invited at their
+	// work address who then corrects their profile should land in the trip, not
+	// be told the invite had expired.
+	if (before && before.email !== cleanEmail) consumeInvites(userId, cleanEmail);
 	return { ok: true };
 }
 

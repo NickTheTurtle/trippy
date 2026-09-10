@@ -409,14 +409,29 @@ export function expenseShares(tripId: string): Map<string, ExpenseSplit> {
 		fx_home: string | null;
 	}[];
 
-	const partsOf = db.prepare(
-		`SELECT user_id, weight FROM expense_participants WHERE expense_id = ? ORDER BY user_id`
-	);
+	// Every participant on the trip in one read, then grouped in memory. Asking
+	// per expense was a query per row, and this table is read on every expenses
+	// page load, every balance and every settlement.
+	const grouped = new Map<string, { user_id: string; weight: number }[]>();
+	const parts = db
+		.prepare(
+			`SELECT ep.expense_id, ep.user_id, ep.weight
+			   FROM expense_participants ep
+			   JOIN expenses e ON e.id = ep.expense_id
+			  WHERE e.trip_id = ?
+			  ORDER BY ep.expense_id, ep.user_id`
+		)
+		.all(tripId) as unknown as { expense_id: string; user_id: string; weight: number }[];
+	for (const p of parts) {
+		const list = grouped.get(p.expense_id);
+		if (list) list.push(p);
+		else grouped.set(p.expense_id, [p]);
+	}
 
 	const out = new Map<string, ExpenseSplit>();
 	for (const e of rows) {
-		const parts = partsOf.all(e.id) as unknown as { user_id: string; weight: number }[];
-		if (parts.length === 0) continue;
+		const parts = grouped.get(e.id);
+		if (!parts || parts.length === 0) continue;
 
 		const totalCents =
 			e.fx_rate !== null && e.fx_home === home
@@ -450,13 +465,18 @@ export function expenseShares(tripId: string): Map<string, ExpenseSplit> {
  * a settle-up screen that could never be cleared, with no indication why. They
  * are marked `former` so the UI can say what they are rather than showing a
  * stranger.
+ *
+ * `splits` is accepted so a caller that already has the division does not pay
+ * for it twice. The expenses endpoint needs the same map for its rows, and
+ * `settlement` needs these balances, so one request used to compute the whole
+ * ledger three times over.
  */
-export function balances(tripId: string): BalanceRow[] {
+export function balances(tripId: string, splits = expenseShares(tripId)): BalanceRow[] {
 	const members = tripMembers(tripId);
 	const net = new Map<string, number>(members.map((m) => [m.id, 0]));
 	const current = new Set(members.map((m) => m.id));
 
-	for (const split of expenseShares(tripId).values()) {
+	for (const split of splits.values()) {
 		net.set(split.payerId, (net.get(split.payerId) ?? 0) + split.totalCents);
 		for (const [userId, cents] of Object.entries(split.shares)) {
 			net.set(userId, (net.get(userId) ?? 0) - cents);
@@ -518,8 +538,7 @@ function settlementToken(
 }
 
 /** Minimal transfers to clear all balances, with names resolved for display. */
-export function settlement(tripId: string): SettlementRow[] {
-	const bals = balances(tripId);
+export function settlement(tripId: string, bals = balances(tripId)): SettlementRow[] {
 	const nameById = new Map(bals.map((b) => [b.id, b.name]));
 	const input: Balance[] = bals.map((b) => ({ userId: b.id, netCents: b.netCents }));
 	return settle(input).map((t: Transaction) => ({
@@ -576,11 +595,7 @@ export function recordSettlement(
 		if (existing) return { id: existing.id, duplicate: true };
 	}
 
-	const home =
-		(
-			db.prepare(`SELECT home_currency FROM trips WHERE id = ?`).get(tripId) as
-				{ home_currency: string } | undefined
-		)?.home_currency ?? 'USD';
+	const home = homeCurrency(tripId);
 	const names = new Map(tripMembers(tripId).map((m) => [m.id, m.name]));
 
 	const id = addExpense(

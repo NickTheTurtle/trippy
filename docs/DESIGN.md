@@ -431,6 +431,32 @@ against, so without this the usual reason to change a password (somebody else
 may know it) would not be addressed by changing it. The device that made the
 change keeps its session; being logged out by your own action reads as failure.
 
+**Failed attempts back off, and the backoff is counted twice.** Verifying a
+password is scrypt, deliberately slow so a stolen `users` table is worth little.
+Unthrottled, that cost points the wrong way: every guess is free to send and
+expensive to serve, so the endpoint is both a password oracle and a way to pin
+the process at 100% CPU from a laptop. `infra/throttle.ts` gives five free
+attempts, then doubles the wait per failure up to fifteen minutes, and forgets
+everything on a success or after an hour of quiet.
+
+Failures are counted against the email *and* against the caller's address,
+because either key alone leaves an obvious hole: count only the email and a
+spray tries one common password against every account in turn without tripping;
+count only the address and a botnet grinds one account from a thousand of them.
+A blocked request is refused before the key derivation runs, which is the whole
+point, and does *not* extend its own block, so a third party cannot keep an
+account locked out by hammering it. Login, register and the password-change
+endpoint all go through it; register counts successes rather than failures,
+since one person signing up is one account. State is in memory and lost on
+restart, which is the honest trade here: a persistent counter would mean a disk
+write per failed guess, handing the attacker a cheaper lever than the one being
+defended against.
+
+**An invite is addressed to an email, not to an account.** So changing your
+profile email consumes any invites waiting at the new address, the same way
+registering does. Without it, somebody invited at their work address who then
+corrected their profile would simply never appear in the trip.
+
 ---
 
 ## 5. Architecture & Stack
@@ -2188,6 +2214,17 @@ Two seeded trips, chosen to exercise opposite ends of the layout engine:
   forever is the same terms limit. Both tables are pure cost optimisations and never a
   source of truth, so either can be deleted at any time and the app only gets slower,
   never wrong.
+
+  Two holes the stored cache did not close, both since fixed. A cold grid mounts a
+  dozen images at once, so every one of them missed simultaneously and each paid its
+  own Google call: the endpoint now keys fetches in flight by the same `name|width`
+  and lets a burst share one promise, measured at ten concurrent requests and one
+  upstream call. And a reference that fails is not cached at all, so a revoked photo
+  or a place whose photo ids changed was re-bought on every page load forever;
+  failures are now remembered for five minutes, measured at 234ms for the first ask
+  and 2ms for the second. Five minutes rather than longer because the other cause of
+  a failure is a transient upstream error, and that must not turn into a permanently
+  broken picture.
 
   The search debounce went from 350ms to 600ms in the same pass. At 350ms a normal
   typist pays for two or three prefixes of the word they are still writing. The
