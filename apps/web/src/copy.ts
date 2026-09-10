@@ -296,14 +296,12 @@ export const copy = {
 			fallback: 'Could not save that.'
 		},
 		costTable: {
-			item: 'Item',
-			category: 'Category',
-			city: 'City',
-			amount: 'Amount',
-			noCity: 'General',
+			viewAs: 'View as',
+			everyone: 'Everyone',
+			share: (name: string) => `${name}'s share`,
+			sectionLabel: (category: string) => `${category} estimates`,
 			editLabel: (label: string) => `Edit ${label}`,
 			removeLabel: (label: string) => `Remove ${label}`,
-			empty: 'No estimates yet.',
 			total: 'Total'
 		},
 		costDialog: {
@@ -313,9 +311,8 @@ export const copy = {
 			amountLabel: (currency: string) => `Amount (${currency})`,
 			categoryLabel: 'Category',
 			categoryAriaLabel: 'Category',
-			cityLabel: 'City',
-			cityAriaLabel: 'City',
-			anyCity: 'All / general',
+			forLabel: 'Who is it for?',
+			forEveryone: 'Everyone',
 			saveLabel: 'Save changes',
 			addLabel: 'Add cost',
 			fallback: 'Could not save that item.'

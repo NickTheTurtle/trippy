@@ -3,18 +3,26 @@ import { api } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
 import Modal, { ModalFooter } from '../../components/ui/Modal';
 import Select from '../../components/ui/Select';
+import MultiSelect from '../../components/ui/MultiSelect';
 import type { Draft } from './types';
 import { cap } from './labels';
 import { copy } from '../../copy';
 
 const c = copy.preparation.costDialog;
 
-/** Adds or edits one cost estimate; the draft it opens on decides which. */
+/**
+ * Adds or edits one cost estimate; the draft it opens on decides which.
+ *
+ * "Who is it for?" left alone means the whole trip, which is what most of an
+ * estimate is. Naming people is for the lines that are not shared evenly: one
+ * person's flight, or the two who want the diving trip.
+ */
 export default function EditCost({
 	draft,
 	currency,
 	categories,
-	cities,
+	members,
+	me,
 	tripId,
 	onClose,
 	onSaved
@@ -22,7 +30,8 @@ export default function EditCost({
 	draft: Draft;
 	currency: string;
 	categories: string[];
-	cities: { id: string; name: string }[];
+	members: { id: string; name: string }[];
+	me: string;
 	tripId: string;
 	onClose: () => void;
 	onSaved: () => void;
@@ -30,7 +39,7 @@ export default function EditCost({
 	const [label, setLabel] = useState(draft.label);
 	const [amount, setAmount] = useState(draft.amount);
 	const [category, setCategory] = useState(draft.category);
-	const [cityId, setCityId] = useState(draft.cityId);
+	const [assignees, setAssignees] = useState<Set<string>>(new Set(draft.assignees));
 
 	const save = useMutation(
 		async () => {
@@ -38,7 +47,7 @@ export default function EditCost({
 				draft.id ? `/trips/${tripId}/pretrip/costs/${draft.id}` : `/trips/${tripId}/pretrip/costs`,
 				{
 					method: draft.id ? 'PUT' : 'POST',
-					body: { label, amount: Number(amount), category, cityId }
+					body: { label, amount: Number(amount), category, assignees: [...assignees] }
 				}
 			);
 			onSaved();
@@ -83,19 +92,20 @@ export default function EditCost({
 								ariaLabel={c.categoryAriaLabel}
 							/>
 						</label>
-						<label className="field flex-[1_1_130px]">
-							<span>{c.cityLabel}</span>
-							<Select
-								options={[
-									{ value: '', label: c.anyCity },
-									...cities.map((x) => ({ value: x.id, label: x.name }))
-								]}
-								value={cityId}
-								onChange={setCityId}
-								ariaLabel={c.cityAriaLabel}
-							/>
-						</label>
 					</div>
+					<label className="field">
+						<span>{c.forLabel}</span>
+						<MultiSelect
+							options={members.map((m) => ({
+								value: m.id,
+								label: m.name + (m.id === me ? copy.preparation.youSuffix : '')
+							}))}
+							selected={[...assignees]}
+							onChange={(next) => setAssignees(new Set(next))}
+							ariaLabel={c.forLabel}
+							placeholder={c.forEveryone}
+						/>
+					</label>
 				</div>
 
 				<ModalFooter

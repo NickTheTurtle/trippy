@@ -807,6 +807,52 @@ label is noise that also disappears the moment you type. This follows the
 convention already used in People: labels always, placeholders only where
 the *format* is not obvious.
 
+**The estimates are folded by category, not listed flat.** The question people
+open the section with is "what is the lodging going to run to", and a flat table
+made that something you answered by reading every row and adding it up yourself.
+Each category is a section whose header carries its own subtotal, so the answer
+is there before anything is expanded, and the detail folds away once it has been
+read. The four categories are a fixed vocabulary, so an empty one is still
+listed, at zero, as a line of text rather than a caret that opens onto nothing:
+its absence would read as a category that does not exist rather than one nothing
+has been put in yet.
+
+**The subtotals replaced a row of category chips.** The chips said the same four
+numbers a few pixels above the same four categories, and they could not be acted
+on. Putting the number in the header it belongs to costs no space at all.
+
+**The two figures moved onto the "+ Add" row.** They are the answer the section
+exists for, and a band of their own above the card only pushed them further from
+the rows that add up to them. The row is shared by all three sections and keeps
+its height, so switching sections never shifts the card below.
+
+**A line with nobody on it is the whole trip's; a line with people on it is
+split between exactly those people.** That single rule is enough to express the
+things a real budget has, one person's single supplement, the three people doing
+the day trip, without a second concept, and it makes the common case, an
+estimate for everybody, the one that requires no input. It lives in
+`pretrip/shares.ts` so the list, the section subtotals and the header stat can
+never disagree about what somebody owes.
+
+**"View as" sits on the table, not in the header.** It changes what the table
+says, so it belongs where the change happens. Set to a person it drops the lines
+they are not on, swaps every amount for their share, and turns the second stat
+and the card's foot from "Per person" into "<name>'s share": the average is a
+useful number for the organizer and the wrong number for anybody asking what the
+trip will cost *them*. A departed member is dropped from a line by joining
+`memberships` when the roster is read, so a removal cannot leave a phantom head
+dividing the amount.
+
+**Estimates round plainly.** `shareOf` divides by the head count and rounds,
+where the expense ledger walks the remainder so the cents sum exactly. Nothing
+is settled from an estimate, so a cent of drift across a category costs nothing,
+and the simpler rule keeps a share readable in isolation.
+
+**An estimate no longer names a city.** The field was on the row from the first
+version and was never used for anything: it did not group, filter or total, and
+most lines of a trip budget (flights, insurance, the car) are not a city's at
+all. Splitting a stay per city is what the per-night lodging estimate is for.
+
 
 ### 5.0.5 Discover: places, stays and the search
 

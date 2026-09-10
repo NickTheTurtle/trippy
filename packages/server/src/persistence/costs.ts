@@ -91,59 +91,87 @@ export function setBudget(
 
 // ---- Itemized cost breakdown -------------------------------------------------
 
+export interface CostPerson {
+	id: string;
+	name: string;
+}
+
+/**
+ * One line of the estimate.
+ *
+ * `people` is who the line is for. Empty means the whole trip: an estimate is
+ * usually written before anyone has worked out who is doing what, and a line
+ * that had to name someone would make the common case the laborious one.
+ *
+ * There is no city. An estimate is a guess at a number, and pinning each guess
+ * to a city asked for a decision that changed nothing on the screen.
+ */
 export interface CostItem {
 	id: string;
-	cityId: string | null;
-	cityName: string | null;
 	category: string;
 	label: string;
 	amountCents: number;
 	sort: number;
+	people: CostPerson[];
 }
 
 export interface ItemizedBudget {
 	items: CostItem[];
-	categoryTotals: Record<string, number>;
 	grandTotal: number;
 }
 
 export function listCostItems(tripId: string): CostItem[] {
 	const rows = db
 		.prepare(
-			`SELECT ci.id, ci.city_id, ci.category, ci.label, ci.amount_cents, ci.sort, c.name AS city_name
-			 FROM cost_items ci LEFT JOIN cities c ON c.id = ci.city_id
-			 WHERE ci.trip_id = ? ORDER BY ci.sort, ci.created_at`
+			`SELECT id, category, label, amount_cents, sort FROM cost_items
+			 WHERE trip_id = ? ORDER BY sort, created_at`
 		)
 		.all(tripId) as unknown as {
 		id: string;
-		city_id: string | null;
 		category: string;
 		label: string;
 		amount_cents: number;
 		sort: number;
-		city_name: string | null;
 	}[];
+	if (rows.length === 0) return [];
+
+	// Joining memberships, not just users, keeps a removed member off the line:
+	// the row itself outlives the removal (the user row is still there), but the
+	// person is no longer one of the heads the amount divides between.
+	const people = db
+		.prepare(
+			`SELECT p.item_id AS item_id, u.id AS id, u.name AS name
+			   FROM cost_item_people p
+			   JOIN cost_items ci ON ci.id = p.item_id
+			   JOIN users u ON u.id = p.user_id
+			   JOIN memberships m ON m.trip_id = ci.trip_id AND m.user_id = p.user_id
+			  WHERE ci.trip_id = ?
+			  ORDER BY u.name`
+		)
+		.all(tripId) as unknown as { item_id: string; id: string; name: string }[];
+
+	const byItem = new Map<string, CostPerson[]>();
+	for (const p of people) {
+		const list = byItem.get(p.item_id) ?? [];
+		list.push({ id: p.id, name: p.name });
+		byItem.set(p.item_id, list);
+	}
+
 	return rows.map((r) => ({
 		id: r.id,
-		cityId: r.city_id,
-		cityName: r.city_name,
 		category: r.category,
 		label: r.label,
 		amountCents: r.amount_cents,
-		sort: r.sort
+		sort: r.sort,
+		people: byItem.get(r.id) ?? []
 	}));
 }
 
 export function getItemizedBudget(tripId: string): ItemizedBudget {
 	const items = listCostItems(tripId);
-	const categoryTotals: Record<string, number> = {};
-	for (const c of COST_CATEGORIES) categoryTotals[c] = 0;
 	let grandTotal = 0;
-	for (const it of items) {
-		categoryTotals[it.category] = (categoryTotals[it.category] ?? 0) + it.amountCents;
-		grandTotal += it.amountCents;
-	}
-	return { items, categoryTotals, grandTotal };
+	for (const it of items) grandTotal += it.amountCents;
+	return { items, grandTotal };
 }
 
 function validItem(
@@ -158,38 +186,59 @@ function validItem(
 	return { label: l, category, cents: Math.round(cents) };
 }
 
-export function addCostItem(
-	tripId: string,
-	actorId: string,
-	input: { cityId?: string | null; category: string; label: string; cents: number }
-): boolean {
+export interface CostItemInput {
+	category: string;
+	label: string;
+	cents: number;
+	assignees: string[];
+}
+
+/** Who on this trip the given ids actually are, in one query. */
+function validMembers(tripId: string, userIds: string[]): string[] {
+	if (userIds.length === 0) return [];
+	const unique = [...new Set(userIds)];
+	const rows = db
+		.prepare(
+			`SELECT user_id FROM memberships
+			  WHERE trip_id = ? AND user_id IN (${unique.map(() => '?').join(',')})`
+		)
+		.all(tripId, ...unique) as unknown as { user_id: string }[];
+	return rows.map((r) => r.user_id);
+}
+
+/** Rewrites an item's roster, inside whatever transaction the caller opened. */
+function setPeople(itemId: string, userIds: string[]): void {
+	const holes = userIds.map(() => '?').join(',');
+	db.prepare(
+		`DELETE FROM cost_item_people WHERE item_id = ?${userIds.length ? ` AND user_id NOT IN (${holes})` : ''}`
+	).run(itemId, ...userIds);
+	const ins = db.prepare(`INSERT OR IGNORE INTO cost_item_people (item_id, user_id) VALUES (?, ?)`);
+	for (const uid of userIds) ins.run(itemId, uid);
+}
+
+export function addCostItem(tripId: string, actorId: string, input: CostItemInput): boolean {
 	if (!isMember(tripId, actorId)) return false;
 	const ok = validItem(input.label, input.category, input.cents);
 	if (!ok) return false;
-	let cityId: string | null = null;
-	if (input.cityId) {
-		const found = db
-			.prepare(`SELECT id FROM cities WHERE id = ? AND trip_id = ?`)
-			.get(input.cityId, tripId);
-		if (found) cityId = input.cityId;
-	}
+	const people = validMembers(tripId, input.assignees);
+	const id = randomUUID();
 	const next = db
 		.prepare(`SELECT COALESCE(MAX(sort), 0) + 1 AS n FROM cost_items WHERE trip_id = ?`)
 		.get(tripId) as { n: number };
-	db.prepare(
-		`INSERT INTO cost_items (id, trip_id, city_id, category, label, amount_cents, sort, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-	).run(
-		randomUUID(),
-		tripId,
-		cityId,
-		ok.category,
-		ok.label,
-		ok.cents,
-		next.n,
-		Date.now()
-	);
-	publish(tripId, 'costs');
+
+	db.exec('BEGIN');
+	try {
+		db.prepare(
+			`INSERT INTO cost_items (id, trip_id, category, label, amount_cents, sort, created_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?)`
+		).run(id, tripId, ok.category, ok.label, ok.cents, next.n, Date.now());
+		setPeople(id, people);
+		db.exec('COMMIT');
+	} catch (err) {
+		db.exec('ROLLBACK');
+		throw err;
+	}
+	publish(tripId, 'costs'); // after COMMIT
 	return true;
 }
 
@@ -197,33 +246,36 @@ export function updateCostItem(
 	tripId: string,
 	actorId: string,
 	itemId: string,
-	input: { cityId?: string | null; category: string; label: string; cents: number }
+	input: CostItemInput
 ): boolean {
 	if (!isMember(tripId, actorId)) return false;
 	const ok = validItem(input.label, input.category, input.cents);
 	if (!ok) return false;
-	let cityId: string | null = null;
-	if (input.cityId) {
-		const found = db
-			.prepare(`SELECT id FROM cities WHERE id = ? AND trip_id = ?`)
-			.get(input.cityId, tripId);
-		if (found) cityId = input.cityId;
-	}
-	const res = db
-		.prepare(
-			`UPDATE cost_items SET city_id = ?, category = ?, label = ?, amount_cents = ?
+	const exists = !!db
+		.prepare(`SELECT 1 FROM cost_items WHERE id = ? AND trip_id = ?`)
+		.get(itemId, tripId);
+	if (!exists) return false;
+	const people = validMembers(tripId, input.assignees);
+
+	db.exec('BEGIN');
+	try {
+		db.prepare(
+			`UPDATE cost_items SET category = ?, label = ?, amount_cents = ?
 			 WHERE id = ? AND trip_id = ?`
-		)
-		.run(cityId, ok.category, ok.label, ok.cents, itemId, tripId);
-	if (res.changes > 0) publish(tripId, 'costs');
-	return res.changes > 0;
+		).run(ok.category, ok.label, ok.cents, itemId, tripId);
+		setPeople(itemId, people);
+		db.exec('COMMIT');
+	} catch (err) {
+		db.exec('ROLLBACK');
+		throw err;
+	}
+	publish(tripId, 'costs'); // after COMMIT
+	return true;
 }
 
 export function removeCostItem(tripId: string, actorId: string, itemId: string): boolean {
 	if (!isMember(tripId, actorId)) return false;
-	const res = db
-		.prepare(`DELETE FROM cost_items WHERE id = ? AND trip_id = ?`)
-		.run(itemId, tripId);
+	const res = db.prepare(`DELETE FROM cost_items WHERE id = ? AND trip_id = ?`).run(itemId, tripId);
 	if (res.changes > 0) publish(tripId, 'costs');
 	return res.changes > 0;
 }

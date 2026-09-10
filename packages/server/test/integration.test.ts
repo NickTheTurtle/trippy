@@ -20,6 +20,7 @@ let pois: typeof import('../src/persistence/pois.ts');
 let lodging: typeof import('../src/persistence/lodging.ts');
 let parties: typeof import('../src/persistence/parties.ts');
 let tasks: typeof import('../src/persistence/tasks.ts');
+let costs: typeof import('../src/persistence/costs.ts');
 
 interface Fixture {
 	organizer: string;
@@ -30,7 +31,7 @@ interface Fixture {
 }
 
 beforeAll(async () => {
-	[{ db }, auth, trips, schedule, members, expenses, events, pois, lodging, parties, tasks] =
+	[{ db }, auth, trips, schedule, members, expenses, events, pois, lodging, parties, tasks, costs] =
 		await Promise.all([
 			import('../src/db.ts'),
 			import('../src/infra/auth.ts'),
@@ -42,7 +43,8 @@ beforeAll(async () => {
 			import('../src/persistence/pois.ts'),
 			import('../src/persistence/lodging.ts'),
 			import('../src/persistence/parties.ts'),
-			import('../src/persistence/tasks.ts')
+			import('../src/persistence/tasks.ts'),
+			import('../src/persistence/costs.ts')
 		]);
 });
 
@@ -222,7 +224,14 @@ describe('schedule authorization and trip scoping', () => {
 describe('ticking a task box', () => {
 	function assignedTask(label: string) {
 		const f = createTripFixture(label);
-		const taskId = tasks.addTask(f.tripId, f.organizer, 'prep', 'Book the ferry', [f.member], null)!;
+		const taskId = tasks.addTask(
+			f.tripId,
+			f.organizer,
+			'prep',
+			'Book the ferry',
+			[f.member],
+			null
+		)!;
 		return { f, taskId };
 	}
 
@@ -307,6 +316,49 @@ describe('ticking a task box', () => {
 		// With nobody on it, the shared flag is what the box ticks.
 		expect(tasks.toggleTask(f.tripId, f.member, id)).toBe(true);
 		expect(item().done).toBe(true);
+	});
+});
+
+describe('who an estimate is for', () => {
+	it('keeps only trip members on the line, and treats an empty roster as everyone', () => {
+		const f = createTripFixture('cost-roster');
+		expect(
+			costs.addCostItem(f.tripId, f.organizer, {
+				category: 'lodging',
+				label: 'Single supplement',
+				cents: 9000,
+				assignees: [f.member, f.outsider, f.member]
+			})
+		).toBe(true);
+
+		const item = () => costs.listCostItems(f.tripId)[0];
+		// The outsider is not on the trip, and the duplicate is one person.
+		expect(item().people.map((p) => p.id)).toEqual([f.member]);
+
+		expect(
+			costs.updateCostItem(f.tripId, f.organizer, item().id, {
+				category: 'lodging',
+				label: 'Single supplement',
+				cents: 9000,
+				assignees: []
+			})
+		).toBe(true);
+		expect(item().people).toEqual([]);
+	});
+
+	it('drops a departed member from the line it was for', () => {
+		const f = createTripFixture('cost-roster-cascade');
+		costs.addCostItem(f.tripId, f.organizer, {
+			category: 'food',
+			label: 'Tasting menu',
+			cents: 12000,
+			assignees: [f.member]
+		});
+		const id = costs.listCostItems(f.tripId)[0].id;
+
+		expect(members.removeMember(f.tripId, f.organizer, f.member)).toBe(true);
+		// The line survives the removal; the person stops being one of its heads.
+		expect(costs.listCostItems(f.tripId).find((i) => i.id === id)!.people).toEqual([]);
 	});
 });
 

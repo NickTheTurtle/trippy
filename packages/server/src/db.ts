@@ -399,6 +399,20 @@ db.exec(`
 	UPDATE trip_tasks SET assignee = '' WHERE kind = 'packing' AND assignee <> '';
 `);
 
+// A cost estimate is a guess at what something will cost, and who it is for is
+// part of the guess: a rental car everyone shares and one person's museum pass
+// are not the same line. No rows means the whole trip, the way an unassigned
+// task means anyone, so an estimate written before the roster exists still
+// counts for everybody.
+db.exec(`
+	CREATE TABLE IF NOT EXISTS cost_item_people (
+		item_id TEXT NOT NULL REFERENCES cost_items(id) ON DELETE CASCADE,
+		user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		PRIMARY KEY (item_id, user_id)
+	);
+	CREATE INDEX IF NOT EXISTS idx_cost_item_people_item ON cost_item_people(item_id);
+`);
+
 /**
  * Parties ("crews"): the multi-schedule model. A party groups tracks; its
  * membership is time-segmented so a person can split off (and re-merge) within a

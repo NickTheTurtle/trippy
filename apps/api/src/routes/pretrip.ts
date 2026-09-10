@@ -26,7 +26,6 @@ pretrip.get('/', (c) => {
 		currency: trip.home_currency,
 		memberCount: trip.members.length,
 		categories: [...COST_CATEGORIES],
-		cities: trip.cities.map((x) => ({ id: x.id, name: x.name })),
 		budget: getItemizedBudget(trip.id)
 	});
 });
@@ -88,13 +87,13 @@ pretrip.delete('/tasks/:taskId', (c) =>
 
 // --- Estimated costs --------------------------------------------------------
 
-/** The four fields a cost item carries, read the same way on create and update. */
+/** The fields a cost item carries, read the same way on create and update. */
 function readItem(b: Record<string, unknown>) {
 	const amount = num(b.amount);
 	return {
-		cityId: optStr(b.cityId),
 		category: str(b.category),
 		label: str(b.label),
+		assignees: strList(b.assignees),
 		cents: amount === null ? null : Math.round(amount * 100)
 	};
 }

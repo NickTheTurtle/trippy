@@ -24,6 +24,22 @@ export function CaretIcon() {
 	);
 }
 
+/** The disclosure chevron: pointing right when shut, turned down when open. */
+export function ChevronIcon() {
+	return (
+		<svg viewBox="0 0 16 16" aria-hidden="true" className="size-3.5">
+			<path
+				d="M6 3.5L10.5 8 6 12.5"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="1.6"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			/>
+		</svg>
+	);
+}
+
 /** A compass rose: "open this place somewhere else", not "submit a form". */
 export function CompassIcon() {
 	return (

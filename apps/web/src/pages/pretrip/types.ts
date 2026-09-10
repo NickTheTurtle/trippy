@@ -16,9 +16,9 @@ export type CostItem = {
 	id: string;
 	label: string;
 	category: string;
-	cityId: string | null;
-	cityName: string | null;
 	amountCents: number;
+	/** Who the line is for. Empty means the whole trip. */
+	people: { id: string; name: string }[];
 };
 export type PretripData = {
 	me: string;
@@ -28,10 +28,8 @@ export type PretripData = {
 	currency: string;
 	memberCount: number;
 	categories: string[];
-	cities: { id: string; name: string }[];
 	budget: {
 		items: CostItem[];
-		categoryTotals: Record<string, number>;
 		grandTotal: number;
 	};
 };
@@ -42,7 +40,7 @@ export type Draft = {
 	label: string;
 	amount: string;
 	category: string;
-	cityId: string;
+	assignees: string[];
 };
 
 /** The same for a task or a packing item: `id` is null when adding. */

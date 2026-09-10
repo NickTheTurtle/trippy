@@ -9,12 +9,12 @@ import SectionNav from '../components/ui/SectionNav';
 import FormError from '../components/ui/FormError';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 import type { Task, CostItem, PretripData, Draft, TaskDraft } from './pretrip/types';
-import { cap } from './pretrip/labels';
 import TaskList, { ListTitle } from './pretrip/TaskList';
 import MyTasks, { isMine } from './pretrip/MyTasks';
-import CostTable from './pretrip/CostTable';
+import CostList, { nameOf } from './pretrip/CostList';
 import EditTask from './pretrip/EditTask';
 import EditCost from './pretrip/EditCost';
+import { totalFor } from './pretrip/shares';
 import { copy } from '../copy';
 
 const cp = copy.preparation;
@@ -40,6 +40,8 @@ export default function Pretrip() {
 		null
 	);
 	const [pendingCost, setPendingCost] = useState<CostItem | null>(null);
+	/** Whose money the estimates are read as. '' is the whole trip. */
+	const [viewAs, setViewAs] = useState('');
 
 	// One state machine for the small in-place writes this page makes (ticking a
 	// box, and the deletes the dialogs below confirm), so a refusal lands in the
@@ -75,6 +77,11 @@ export default function Pretrip() {
 
 	const grand = data.budget.grandTotal;
 	const perPerson = data.memberCount ? grand / data.memberCount : grand;
+	// Reading the estimates as one person answers "what does this cost me", so
+	// the second stat stops being the average and becomes their own share of
+	// every line they are on. The trip total beside it stays whole, as the thing
+	// being divided.
+	const shownTotal = totalFor(data.budget.items, viewAs, data.memberCount);
 
 	// Both task lists take the same handlers; they differ only in which rows
 	// they hold and whose box each row leads with.
@@ -129,8 +136,22 @@ export default function Pretrip() {
 
 				{/* The row keeps its height across sections, so switching never shifts
 				    the card below it up or down. The section is named by the nav to the
-				    left, so the button only has to say what it does. */}
-				<div className="mb-4 flex min-h-phead flex-wrap items-center justify-end gap-4">
+				    left, so the button only has to say what it does. The estimates put
+				    their two figures on this line: they answer the question the tab is
+				    open for, and a band of their own above the table only pushed the
+				    numbers further from the rows they add up. */}
+				<div className="mb-4 flex min-h-phead flex-wrap items-center justify-between gap-4">
+					<div className="flex min-w-0 flex-wrap items-end gap-6">
+						{section === 'costs' && (
+							<>
+								<Stat label={cp.tripTotal} value={fmt(grand)} />
+								<Stat
+									label={viewAs ? cp.costTable.share(nameOf(data.members, viewAs)) : cp.perPerson}
+									value={fmt(viewAs ? shownTotal : perPerson)}
+								/>
+							</>
+						)}
+					</div>
 					<button
 						className="btn primary"
 						onClick={() =>
@@ -140,7 +161,7 @@ export default function Pretrip() {
 										label: '',
 										amount: '',
 										category: data.categories[0] ?? '',
-										cityId: ''
+										assignees: []
 									})
 								: setEditingTask({
 										id: null,
@@ -165,42 +186,27 @@ export default function Pretrip() {
 						)}
 					</>
 				) : (
-					<>
-						<div className="mb-4 flex min-w-0 flex-wrap items-end gap-6">
-							<Stat label={cp.tripTotal} value={fmt(grand)} />
-							<Stat label={cp.perPerson} value={fmt(perPerson)} />
-						</div>
-
-						<div className="mb-4 flex flex-wrap gap-2.5">
-							{data.categories.map((c) => (
-								<div
-									key={c}
-									className="flex min-w-0 items-baseline gap-1.5 rounded-full border border-line bg-surface px-3 py-1.5"
-								>
-									<span className="muted text-[0.78rem]">{cap(c)}</span>
-									<strong className="text-[0.9rem]">
-										{fmt(data.budget.categoryTotals[c] ?? 0)}
-									</strong>
-								</div>
-							))}
-						</div>
-
-						<CostTable
-							items={data.budget.items}
-							total={grand}
-							fmt={fmt}
-							onEdit={(it) =>
-								setEditing({
-									id: it.id,
-									label: it.label,
-									amount: String(it.amountCents / 100),
-									category: it.category,
-									cityId: it.cityId ?? ''
-								})
-							}
-							onRemove={(it) => setPendingCost(it)}
-						/>
-					</>
+					<CostList
+						items={data.budget.items}
+						categories={data.categories}
+						members={data.members}
+						me={data.me}
+						memberCount={data.memberCount}
+						viewAs={viewAs}
+						onViewAs={setViewAs}
+						total={shownTotal}
+						fmt={fmt}
+						onEdit={(it) =>
+							setEditing({
+								id: it.id,
+								label: it.label,
+								amount: String(it.amountCents / 100),
+								category: it.category,
+								assignees: it.people.map((p) => p.id)
+							})
+						}
+						onRemove={(it) => setPendingCost(it)}
+					/>
 				)}
 			</div>
 
@@ -220,7 +226,8 @@ export default function Pretrip() {
 					draft={editing}
 					currency={data.currency}
 					categories={data.categories}
-					cities={data.cities}
+					members={data.members}
+					me={data.me}
 					tripId={trip.id}
 					onClose={() => setEditing(null)}
 					onSaved={reload}
