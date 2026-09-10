@@ -87,10 +87,11 @@ function TripCard({ trip }: { trip: Trip }) {
 			</Cover>
 			<div className="px-6 pt-5 pb-6">
 				<h3 className="text-[1.15rem]">{trip.name}</h3>
-				<p className="muted mt-1 mb-3 text-[0.9rem]">{trip.dates}</p>
-				<p className="mb-4 text-[0.95rem] text-ink-soft">
-					{trip.cities.length ? trip.cities.map((x) => x.name).join('  ›  ') : c.noCities}
-				</p>
+				{/* The card carries how many cities, not which ones. The names were
+				    joined with a chevron, which read as an itinerary, but cities are
+				    stored as an unordered pool and the arrows implied a route nobody
+				    had chosen. */}
+				<p className="muted mt-1 mb-4 text-[0.9rem]">{trip.dates}</p>
 				<span className="flex flex-wrap items-center gap-2.5">
 					<span className="chip accent capitalize">{trip.role}</span>
 					<span className="muted text-[0.85rem]">{c.memberCount(trip.memberCount)}</span>

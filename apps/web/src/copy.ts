@@ -104,7 +104,6 @@ export const copy = {
 		emptyMessage: 'No trips yet.',
 		emptyAction: 'New trip',
 		cityCount: (cities: number) => `${cities} ${cities === 1 ? 'city' : 'cities'}`,
-		noCities: 'No cities yet',
 		memberCount: (members: number) => `${members} ${members === 1 ? 'person' : 'people'}`,
 		newDialog: {
 			title: 'New trip',
