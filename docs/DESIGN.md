@@ -548,6 +548,33 @@ everywhere was judged worth more than the one screen where a warning helped. The
 they documented is now recorded on `removeMember` itself, which is where it
 actually happens.
 
+**An empty list draws a fly, not an explanation.** The places in a city, the
+task list, and the packing list all start out empty, and the old treatment was a
+grey line of text and a button repeating the Add already sitting at the top
+right of the same panel. That is three pieces of furniture saying one thing.
+`EmptyMark` replaces them with a single drawing: a fly on a long dashed S of a
+flight path, above one shared caption, `Nothing added yet.`
+
+The choices worth recording. **One caption for every section**, not a
+section-specific sentence, because "No tasks yet" next to a heading that says
+Tasks is the kind of restatement the rest of the copy has been pruned of.
+**A joke, not an icon**, because an empty list is not an error and this is the
+only screen in the app with room for one: a fly with no idea where it is going
+is what a trip nobody has planned yet actually looks like. **No background
+tile**: a filled shape behind the drawing read as a large unpressable button.
+**No action button** in the empty state, since every one of these panels already
+has its own Add control a few pixels away.
+
+Explicit `width` and `height` on the `svg` rather than Tailwind size classes.
+The utility classes are only emitted for values already used elsewhere in the
+tree, so a new one silently does nothing and the drawing stretches to fill its
+container.
+
+Deliberately not applied to the expenses list, the estimated-costs table, or the
+trips page. Those are tables and a top-level index rather than a section of a
+trip, and the first two share a screen with a real total; a drawing there would
+be decoration rather than an answer.
+
 **The trip shell owns the trip fetch; sections read it from outlet context.**Every section needs the same trip record. Letting each one fetch it would mean
 five identical requests per navigation and five chances to render a different
 name in the header than in the body. `TripShell` loads it once and passes

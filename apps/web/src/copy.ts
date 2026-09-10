@@ -261,8 +261,6 @@ export const copy = {
 		addTask: '+ Add task',
 		addPackingItem: '+ Add item',
 		addCost: '+ Add cost',
-		emptyTasks: 'No tasks yet.',
-		emptyPacking: 'No packing items yet.',
 		tripTotal: 'Trip total',
 		perPerson: 'Per person',
 		youSuffix: ' (you)',
@@ -485,6 +483,8 @@ export const copy = {
 		saving: 'Saving...',
 		deleting: 'Deleting...',
 		adding: 'Adding...',
-		working: 'Working...'
+		working: 'Working...',
+		/** Every list that you fill by adding to it says this when it is empty. */
+		nothingAdded: 'Nothing added yet.'
 	}
 } as const;

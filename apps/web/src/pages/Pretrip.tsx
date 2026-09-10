@@ -124,7 +124,6 @@ export default function Pretrip() {
 							items={section === 'tasks' ? data.tasks : data.packing}
 							kind={section === 'tasks' ? 'task' : 'packing'}
 							me={data.me}
-							empty={section === 'tasks' ? cp.emptyTasks : cp.emptyPacking}
 							onToggle={(taskId, userId) =>
 								void act.run(() =>
 									api(`/trips/${trip.id}/pretrip/tasks/${taskId}/toggle`, {
@@ -139,7 +138,6 @@ export default function Pretrip() {
 									task
 								})
 							}
-							onAdd={() => setAdding(section === 'tasks' ? 'task' : 'packing')}
 						/>
 					</div>
 				) : (

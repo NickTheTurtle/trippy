@@ -14,34 +14,23 @@ export default function TaskList({
 	items,
 	kind,
 	me,
-	empty,
 	onToggle,
-	onRemove,
-	onAdd
+	onRemove
 }: {
 	items: Task[];
 	kind: 'task' | 'packing';
 	me: string;
-	empty: string;
 	onToggle: (taskId: string, userId?: string) => void;
 	onRemove: (task: Task) => void;
-	onAdd: () => void;
 }) {
 	/** Which task's roster is expanded. Only one at a time, because these lists are long. */
 	const [openRoster, setOpenRoster] = useState<string | null>(null);
 
 	if (items.length === 0) {
-		return (
-			<EmptyState
-				className="py-2"
-				message={empty}
-				action={
-					<button type="button" className="btn small" onClick={onAdd}>
-						{kind === 'task' ? c.taskAction : c.packingAction}
-					</button>
-				}
-			/>
-		);
+		// No button here: every section that renders this list already carries its
+		// own Add in the header a few pixels above, and two of the same action on
+		// one empty screen is the louder of the two ways to say it.
+		return <EmptyState graphic message={copy.common.nothingAdded} />;
 	}
 
 	return (

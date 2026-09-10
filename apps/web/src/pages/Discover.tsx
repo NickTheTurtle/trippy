@@ -7,6 +7,7 @@ import { useTrip } from './TripShell';
 import Select from '../components/ui/Select';
 import FormError from '../components/ui/FormError';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
+import EmptyState from '../components/ui/EmptyState';
 import type { DiscoverData, Poi } from '../lib/api-types';
 import CityList, { type CityRow } from './discover/CityList';
 import PlaceCard from './discover/PlaceCard';
@@ -178,36 +179,45 @@ export default function Discover() {
 					</button>
 				</div>
 
-				<div className="grid min-w-0 grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-4">
-					{/* Stays lead, because a bed is the decision the rest of a city
-					    gets planned around. Within each the server's order stands. */}
-					{stays.map((o) => (
-						<StayCard
-							key={o.id}
-							stay={o}
-							currency={data.currency}
-							pct={pct(o.votes)}
-							isOrganizer={data.isOrganizer}
-							editingDates={datesFor === o.id}
-							onToggleDates={() => setDatesFor((v) => (v === o.id ? null : o.id))}
-							onVote={() => void voteStay.run(o.id)}
-							onLock={() => void lockStay.run(o.id)}
-							onRemove={() => void removeStay.run(o.id)}
-							onSaveDates={(checkIn, checkOut) => void saveStayDates.run(o.id, checkIn, checkOut)}
-						/>
-					))}
-					{places.map((p) => (
-						<PlaceCard
-							key={p.id}
-							poi={p}
-							tz={tzOf(current.id)}
-							pct={pct(p.votes)}
-							onEdit={() => setEditPoi(p)}
-							onVote={() => void votePlace.run(p.id)}
-							onRemove={() => setDeletePoi(p)}
-						/>
-					))}
-				</div>
+				{stays.length + places.length === 0 ? (
+					// The grid is skipped entirely rather than emptied: a centred panel
+					// inside a column track would sit under the first column instead of
+					// under the whole area it is standing in for.
+					<div className="card px-5 py-5">
+						<EmptyState graphic message={copy.common.nothingAdded} />
+					</div>
+				) : (
+					<div className="grid min-w-0 grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-4">
+						{/* Stays lead, because a bed is the decision the rest of a city
+						    gets planned around. Within each the server's order stands. */}
+						{stays.map((o) => (
+							<StayCard
+								key={o.id}
+								stay={o}
+								currency={data.currency}
+								pct={pct(o.votes)}
+								isOrganizer={data.isOrganizer}
+								editingDates={datesFor === o.id}
+								onToggleDates={() => setDatesFor((v) => (v === o.id ? null : o.id))}
+								onVote={() => void voteStay.run(o.id)}
+								onLock={() => void lockStay.run(o.id)}
+								onRemove={() => void removeStay.run(o.id)}
+								onSaveDates={(checkIn, checkOut) => void saveStayDates.run(o.id, checkIn, checkOut)}
+							/>
+						))}
+						{places.map((p) => (
+							<PlaceCard
+								key={p.id}
+								poi={p}
+								tz={tzOf(current.id)}
+								pct={pct(p.votes)}
+								onEdit={() => setEditPoi(p)}
+								onVote={() => void votePlace.run(p.id)}
+								onRemove={() => setDeletePoi(p)}
+							/>
+						))}
+					</div>
+				)}
 			</div>
 
 			{adding && (
