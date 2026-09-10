@@ -88,7 +88,7 @@ export function localDayMinutes(tz: string, at: Date = new Date()): { day: strin
 
 /*
  * A "day string" is `YYYY-MM-DD` with no zone and no time attached: the unit the
- * whole app dates things in (city arrive/depart, trip endpoints, schedule days).
+ * whole app dates things in (trip endpoints, schedule days, stay night ranges).
  * It lives here because it is the boundary between zoned instants and plain
  * calendar days, and because every layer needs the same answer to "is this a
  * real date" and "how do I show this range".

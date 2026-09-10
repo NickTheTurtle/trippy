@@ -80,19 +80,21 @@ calendar.get('/', async (c) => {
 	const trip = c.get('trip');
 
 	const days = scheduleDays(trip.id);
-	// `day` is fed to shiftDay() and compared against city ranges, so a malformed
-	// one would build an Invalid Date and throw inside toISOString(), turning a
-	// mistyped url into a 500. Anything that is not a real calendar day falls
-	// back to the first scheduled day, which is what a bare /calendar shows.
+	// `day` is fed to shiftDay(), so a malformed one would build an Invalid Date
+	// and throw inside toISOString(), turning a mistyped url into a 500. Anything
+	// that is not a real calendar day falls back to the first scheduled day, then
+	// the trip start, which is what a bare /calendar shows.
 	const fallback =
-		isoDay(days[0]) ?? isoDay(trip.cities[0]?.arrive) ?? new Date().toISOString().slice(0, 10);
+		isoDay(days[0]) ?? isoDay(trip.start_date) ?? new Date().toISOString().slice(0, 10);
 	const day = isoDay(c.req.query('day')) ?? fallback;
 	const viewRaw = c.req.query('view') ?? 'day';
 	const view: ViewMode = VIEWS.includes(viewRaw as ViewMode) ? (viewRaw as ViewMode) : 'day';
 
-	// Which city does a given day fall in? (arrive inclusive, depart inclusive)
-	const cityForDay = (d: string) =>
-		trip.cities.find((x) => d >= x.arrive && d <= x.depart) ?? trip.cities[0] ?? null;
+	// Cities are dateless itinerary places now. Until the calendar redesign adds
+	// real day-to-city assignment, the first city is only the trip-wide default;
+	// party_day is the one deliberate override, so we do not fabricate a schedule
+	// by slicing the trip date range across cities.
+	const tripDefaultCity = trip.cities[0] ?? null;
 
 	const cell = (city: Trip['cities'][number] | null | undefined) =>
 		city ? { id: city.id, name: city.name, tz: city.tz, lat: city.lat, lng: city.lng } : null;
@@ -104,7 +106,7 @@ calendar.get('/', async (c) => {
 		const tracks = tracksForDay(trip.id, d);
 		// Refine straight-line legs into real road durations (falls back gracefully).
 		await routeTracks(tracks);
-		const city = cityForDay(d);
+		const city = tripDefaultCity;
 		const defaultCity = cell(city);
 		const defaultLodging = city ? lodgingForDay(trip.id, city.id, d) : null;
 
@@ -144,7 +146,7 @@ calendar.get('/', async (c) => {
 		view,
 		board,
 		members: trip.memberList,
-		dayCity: cell(cityForDay(day)),
+		dayCity: cell(tripDefaultCity),
 		mapsKey: env.GOOGLE_MAPS_KEY ?? '',
 		saved: savedPoisForTrip(trip.id),
 		parties,
@@ -411,7 +413,7 @@ calendar.post('/crews/split', async (c) => {
 		const trackId = firstTrackOfParty(targetPartyId, day);
 		const pd = partyDayMap(trip.id, day).get(targetPartyId);
 		const toCity = pd?.cityId ? trip.cities.find((x) => x.id === pd.cityId) : null;
-		const fromCity = trip.cities.find((x) => day >= x.arrive && day <= x.depart) ?? trip.cities[0];
+		const fromCity = trip.cities[0] ?? null;
 		if (
 			trackId &&
 			toCity &&

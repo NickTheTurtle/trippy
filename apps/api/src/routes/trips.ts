@@ -81,14 +81,14 @@ trips.patch('/:tripId', requireMember, async (c) => {
 trips.post('/:tripId/cities', requireMember, async (c) => {
 	const b = await body(c);
 	const id = addCity(c.get('trip').id, c.get('user').id, cityInput(b));
-	if (!id) return fail(c, 400, 'Could not add that city. Check the name and the dates.');
+	if (!id) return fail(c, 400, 'Could not add that city. Check the name and time zone.');
 	return c.json({ trip: getTripForUser(c.get('trip').id, c.get('user').id) }, 201);
 });
 
 trips.patch('/:tripId/cities/:cityId', requireMember, async (c) => {
 	const b = await body(c);
 	const okay = updateCity(c.get('trip').id, c.get('user').id, c.req.param('cityId'), cityInput(b));
-	if (!okay) return fail(c, 400, 'Could not save that city. Check the dates.');
+	if (!okay) return fail(c, 400, 'Could not save that city. Check the name and time zone.');
 	return c.json({ trip: getTripForUser(c.get('trip').id, c.get('user').id) });
 });
 
@@ -102,7 +102,7 @@ trips.delete('/:tripId/cities/:cityId', requireMember, (c) => {
 });
 
 /**
- * The eight fields a city carries. The region and the coordinates are optional:
+ * The six fields a city carries. The region and the coordinates are optional:
  * a city added by hand may have neither, some places genuinely have no region
  * at all, and `num` reads a numeric string as well as a number, so a client
  * posting form-style values keeps its pin. `optStr` turns a missing or blank
@@ -114,8 +114,6 @@ function cityInput(b: Record<string, unknown>): CityInput {
 		country: str(b.country),
 		region: optStr(b.region),
 		tz: str(b.tz),
-		arrive: str(b.arrive),
-		depart: str(b.depart),
 		lat: num(b.lat),
 		lng: num(b.lng)
 	};

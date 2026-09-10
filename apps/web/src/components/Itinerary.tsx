@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, ApiError } from '../lib/api';
 import Modal from './ui/Modal';
-import { Field } from './ui/Field';
 import { LinkButton } from './ui/buttons';
 import SearchDropdown from './ui/SearchDropdown';
 import type { Trip, TripCity } from '../pages/TripShell';
@@ -78,9 +77,8 @@ export default function Itinerary({
 			open
 			title="Itinerary"
 			subtitle={trip.name}
-			// A list editor over rows that already exist: its first field is a
-			// saved arrival date, so autofocusing it would put a stray keystroke on
-			// real data. Focus stays on the close button, as it did before.
+			// Focus stays on the close button so opening this list editor never
+			// sends a stray keystroke into the city search box.
 			autoFocusField={false}
 			onClose={onClose}
 		>
@@ -100,7 +98,6 @@ export default function Itinerary({
 								key={city.id}
 								city={city}
 								canRemove={trip.cities.length > 1}
-								onSave={(v) => call(`/trips/${trip.id}/cities/${city.id}`, 'PATCH', v)}
 								onRemove={() => call(`/trips/${trip.id}/cities/${city.id}`, 'DELETE')}
 							/>
 						))}
@@ -108,7 +105,6 @@ export default function Itinerary({
 				)}
 
 				<AddCity
-					trip={trip}
 					onAdd={(v) => call(`/trips/${trip.id}/cities`, 'POST', v, 'Could not add that city.')}
 				/>
 			</div>
@@ -121,39 +117,16 @@ export default function Itinerary({
 	);
 }
 
-/**
- * One city. The dates are editable in place and save on blur rather than behind
- * a Save button: a row with its own button reads as a separate form, and there
- * would be one per city.
- */
+/** One city in the itinerary. Dates live on the trip, not on the city row. */
 function CityRow({
 	city,
 	canRemove,
-	onSave,
 	onRemove
 }: {
 	city: TripCity;
 	canRemove: boolean;
-	onSave: (v: Record<string, unknown>) => Promise<boolean>;
 	onRemove: () => void;
 }) {
-	const [arrive, setArrive] = useState(city.arrive);
-	const [depart, setDepart] = useState(city.depart);
-	const [busy, setBusy] = useState(false);
-
-	async function commit(next: { arrive: string; depart: string }) {
-		if (next.arrive === city.arrive && next.depart === city.depart) return;
-		setBusy(true);
-		const okay = await onSave({ ...city, ...next });
-		if (!okay) {
-			// The server refused, so the row must not keep showing a value the trip
-			// does not have.
-			setArrive(city.arrive);
-			setDepart(city.depart);
-		}
-		setBusy(false);
-	}
-
 	return (
 		<li className="flex flex-wrap items-end gap-2.5 rounded-[10px] border border-line bg-surface-2 px-3 py-2.5">
 			<span className="flex min-w-0 flex-[1_1_140px] flex-col">
@@ -172,30 +145,10 @@ function CityRow({
 					{detail(city.country, city.tz.replace(/_/g, ' '))}
 				</span>
 			</span>
-			<Field
-				label="Arrive"
-				className="flex-[0_1_140px]"
-				type="date"
-				inputClassName="compact"
-				disabled={busy}
-				value={arrive}
-				onChange={(e) => setArrive(e.target.value)}
-				onBlur={() => commit({ arrive, depart })}
-			/>
-			<Field
-				label="Depart"
-				className="flex-[0_1_140px]"
-				type="date"
-				inputClassName="compact"
-				disabled={busy}
-				value={depart}
-				onChange={(e) => setDepart(e.target.value)}
-				onBlur={() => commit({ arrive, depart })}
-			/>
 			<LinkButton
 				danger
 				onClick={onRemove}
-				disabled={!canRemove || busy}
+				disabled={!canRemove}
 				aria-label={`Remove ${city.name}`}
 				// Disabled rather than hidden on the last city: the button vanishing
 				// as you delete down to one looks like a bug, and the title says why.
@@ -214,30 +167,14 @@ function CityRow({
  * The search is the geocoder behind `/citysearch`, which returns the country,
  * the coordinates and the IANA zone with the name, so the organizer never types
  * a time zone.
- *
- * Adding does not ask for dates. `arrive` and `depart` are NOT NULL columns and
- * `validCity` rejects a city without real ones, so they are still sent; they are
- * just derived rather than demanded. Picking a city is the answer to "where",
- * and making that the moment you also answer "when" put two decisions behind one
- * search box. The dates land on the row below, which is already an editor for
- * exactly this and is where they can be adjusted against the rest of the
- * itinerary instead of in isolation.
  */
-function AddCity({
-	trip,
-	onAdd
-}: {
-	trip: Trip;
-	onAdd: (v: Record<string, unknown>) => Promise<boolean>;
-}) {
+function AddCity({ onAdd }: { onAdd: (v: Record<string, unknown>) => Promise<boolean> }) {
 	const [query, setQuery] = useState('');
 	const [hits, setHits] = useState<Suggestion[]>([]);
 	const [searching, setSearching] = useState(false);
 	const [picked, setPicked] = useState<Suggestion | null>(null);
 	/** Whether the results overlay is showing. Closed by picking, reopened by typing. */
 	const [open, setOpen] = useState(false);
-	const [arrive, setArrive] = useState('');
-	const [depart, setDepart] = useState('');
 	const [busy, setBusy] = useState(false);
 	const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
 	const inflight = useRef<AbortController>(undefined);
@@ -290,26 +227,15 @@ function AddCity({
 		setQuery('');
 		setHits([]);
 		setOpen(false);
-		// The dates the city is created with. Nothing asks for these, so they are
-		// the stored values rather than a prefill: a stop appended to the itinerary
-		// starts the day after the last one leaves, and the first city of a trip
-		// spans the trip. A brand new trip has free-text dates and no parsed start,
-		// hence today. All of it is editable on the row once the city exists.
-		const last = trip.cities[trip.cities.length - 1];
-		const from = last ? nextDay(last.depart) : (trip.start_date ?? today());
-		setArrive(from);
-		setDepart(last ? from : (trip.end_date ?? from));
 	}
 
 	async function add() {
 		if (!picked) return;
 		setBusy(true);
-		const okay = await onAdd({ ...picked, arrive, depart });
+		const okay = await onAdd(picked);
 		setBusy(false);
 		if (okay) {
 			setPicked(null);
-			setArrive('');
-			setDepart('');
 		}
 	}
 
@@ -382,22 +308,4 @@ function AddCity({
 			}
 		/>
 	);
-}
-
-/** Next calendar day, in the same YYYY-MM-DD form, via UTC so it cannot shift. */
-function nextDay(date: string): string {
-	const d = new Date(`${date}T00:00:00Z`);
-	if (Number.isNaN(d.getTime())) return date;
-	d.setUTCDate(d.getUTCDate() + 1);
-	return d.toISOString().slice(0, 10);
-}
-
-/** Today where the organizer is, not in UTC, since it seeds a date they read. */
-function today(): string {
-	const d = new Date();
-	return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
-
-function pad(n: number): string {
-	return String(n).padStart(2, '0');
 }

@@ -14,12 +14,12 @@ describe('sample trips', () => {
 		expect(getTrip('missing-trip')).toBeUndefined();
 	});
 
-	it('keeps every sample city attached to a real trip with ordered dates', () => {
+	it('keeps every sample city attached to a dated trip', () => {
 		expect(trips.length).toBeGreaterThan(0);
 		for (const trip of trips) {
+			expect(trip.startDate <= trip.endDate).toBe(true);
 			expect(trip.cities.length).toBeGreaterThan(0);
 			for (const city of trip.cities) {
-				expect(city.arrive <= city.depart).toBe(true);
 				expect(city.tz).not.toBe('');
 			}
 		}

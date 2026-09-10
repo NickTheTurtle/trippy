@@ -17,14 +17,14 @@ import { poiKindFromCategory, type ItemType } from '@trippy/core/types';
 export const ATHENS_TRIP = {
 	name: 'Athens escape marathon',
 	dates: 'Apr 16 – 20, 2026',
+	startDate: '2026-04-16',
+	endDate: '2026-04-20',
 	cover: 'linear-gradient(135deg, #2f5d8a, #86b7dd)',
 	homeCurrency: 'EUR',
 	city: {
 		name: 'Athens',
 		country: 'Greece',
 		tz: 'Europe/Athens',
-		arrive: '2026-04-16',
-		depart: '2026-04-20',
 		lat: 37.9838,
 		lng: 23.7275
 	}
@@ -196,17 +196,27 @@ export function seedAthensTrip(db: DatabaseSync, userId: string): string {
 	const tripId = randomUUID();
 
 	db.prepare(
-		`INSERT INTO trips (id, organizer_id, name, dates, cover, home_currency, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`
-	).run(tripId, userId, ATHENS_TRIP.name, ATHENS_TRIP.dates, ATHENS_TRIP.cover, ATHENS_TRIP.homeCurrency, now);
+		`INSERT INTO trips (id, organizer_id, name, dates, cover, home_currency, start_date, end_date, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	).run(
+		tripId,
+		userId,
+		ATHENS_TRIP.name,
+		ATHENS_TRIP.dates,
+		ATHENS_TRIP.cover,
+		ATHENS_TRIP.homeCurrency,
+		ATHENS_TRIP.startDate,
+		ATHENS_TRIP.endDate,
+		now
+	);
 	db.prepare(`INSERT INTO memberships (trip_id, user_id, role) VALUES (?, ?, 'organizer')`).run(tripId, userId);
 
 	const c = ATHENS_TRIP.city;
 	const cityId = randomUUID();
 	db.prepare(
-		`INSERT INTO cities (id, trip_id, name, country, tz, arrive, depart, lat, lng, sort)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
-	).run(cityId, tripId, c.name, c.country, c.tz, c.arrive, c.depart, c.lat, c.lng);
+		`INSERT INTO cities (id, trip_id, name, country, tz, lat, lng, sort)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, 0)`
+	).run(cityId, tripId, c.name, c.country, c.tz, c.lat, c.lng);
 
 	// Roster: index 0 is the organizer, 1..19 are seeded companions.
 	const insertUser = db.prepare(

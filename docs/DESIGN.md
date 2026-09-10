@@ -907,13 +907,14 @@ So the organizer types a city name and never sees a time zone field, which
 matters because the zone is what the whole calendar renders through and is the
 single field a human is most likely to get wrong.
 
-**Dates default forward.** A new city arrives the day after the previous one
-departs, because the common case is appending the next stop. The first city falls
-back to the trip's start date, or to today when the trip has no start date.
-
-**Dates save on blur, with no per-row Save button.** One button per city reads as
-one form per city. If the server refuses the edit, the row resets to the value
-the trip actually holds rather than keeping a number that was never stored.
+**Cities are dateless places, not schedule spans.** `cities.arrive` and
+`cities.depart` were removed because an itinerary city answers "where", while
+`trips.start_date` / `trips.end_date` answer "when". Keeping per-city dates made
+the app pretend it knew which city every day belonged to. Until the calendar
+redesign adds real day-to-city assignment, the calendar uses the first city as
+the trip-wide default and lets `party_day.city_id` be the only explicit override.
+It deliberately does not slice the trip range across cities in sort order,
+because that would fabricate the schedule this change removes.
 
 **The last city cannot be removed** (`removeCity` refuses, and the button is
 disabled with a `title` saying why). Removing it would put the trip back into
@@ -1451,9 +1452,9 @@ Two seeded trips, chosen to exercise opposite ends of the layout engine:
   themselves live in `@trippy/core/geo`, because the calendar and the router each had
   their own copy and one of them carried a comment saying it matched the other.
 - Editable cities (`trips.ts` `addCity` / `updateCity` / `removeCity`, overview page):
-  organizers can add, rename, re-zone, re-date, and remove cities inline on the trip
-  overview. Validation covers the IANA time-zone shape, ISO dates, and arrive ≤ depart,
-  and at least one city is always kept. Non-organizers see a read-only list.
+  organizers can add, rename, re-zone, and remove cities inline on the trip
+  overview. Validation covers the required labels and IANA time-zone shape, and
+  at least one city is always kept. Non-organizers see a read-only list.
 - Placeholder members (`members.ts`): inviting an email that has no account now creates
   a visible placeholder member (synthetic address, non-login `placeholder:` hash) so the
   invitee shows up on the trip immediately and can be assigned to expenses and votes.
@@ -1632,11 +1633,9 @@ failing. FormData could only ever yield strings, so the old `String(f.get(k) ??
 '')` idiom was safe and the JSON equivalent is not.
 
 **Known gaps, inherited rather than introduced.** `tracks` has no delete, and
-`addCity` / `updateCity` / `removeCity`, `getBudget` / `setBudget`,
-`toggleSave` and `linkedItemCount` exist in `packages/server` but no UI ever
-called them. They are deliberately not exposed: the API mirrors the app that
-exists. Cities currently only arrive via seed data, which is a real product gap
-to close before the Svelte app is retired.
+`getBudget` / `setBudget`, `toggleSave` and `linkedItemCount` exist in
+`packages/server` but no UI ever called them. They are deliberately not exposed:
+the API mirrors the app that exists.
 
 ---
 ## 6. Data Model (Drizzle-style sketch)
@@ -1645,7 +1644,7 @@ to close before the Svelte app is retired.
 users(id, email, passwordHash, displayName, homeTz, createdAt)
 trips(id, organizerId, name, startDate, endDate, homeCurrency)
 memberships(userId, tripId, role)                 // organizer | member
-locations(id, tripId, name, tz, lat, lng, arriveDate, departDate)
+locations(id, tripId, name, tz, lat, lng)
 pois(id, tripId, locationId, name, category, lat, lng,
      openHours jsonb, priceLevel, url, source, addedBy)
 tracks(id, tripId, name, color)

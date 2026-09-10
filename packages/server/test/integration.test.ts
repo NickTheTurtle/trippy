@@ -102,8 +102,6 @@ function createTripFixture(label = 'trip'): Fixture {
 		name: 'Athens',
 		country: 'Greece',
 		tz: 'Europe/Athens',
-		arrive: '2026-10-01',
-		depart: '2026-10-03',
 		lat: 37.98,
 		lng: 23.73
 	})!;
@@ -550,9 +548,7 @@ describe('event bus', () => {
 		const newCity = trips.addCity(tripA.tripId, tripA.organizer, {
 			name: 'Paris',
 			country: 'France',
-			tz: 'Europe/Paris',
-			arrive: '2026-10-02',
-			depart: '2026-10-03'
+			tz: 'Europe/Paris'
 		});
 		const track = schedule.createTrack(tripA.tripId, '2026-10-01', 'Live');
 		const expense = expenses.addExpense(tripA.tripId, tripA.organizer, tripA.organizer, 'Snacks', 301, 'USD', [
@@ -678,7 +674,7 @@ describe('event bus', () => {
 });
 
 describe('schema and migrations', () => {
-	it('can run migrations twice against the same database and keeps additive columns singular', async () => {
+	it('can run migrations twice, keeps additive columns singular, and drops city dates', async () => {
 		const dbAgain = (await import('../src/db.ts?rerun')).db;
 		dbAgain.close();
 
@@ -704,6 +700,12 @@ describe('schema and migrations', () => {
 			expect(matches, `${table}.${column}`).toHaveLength(1);
 			expect(matches[0].type.toUpperCase()).toBe(type);
 		}
+
+		const cityColumns = db.prepare(`PRAGMA table_info(cities)`).all() as {
+			name: string;
+		}[];
+		expect(cityColumns.map((c) => c.name)).not.toContain('arrive');
+		expect(cityColumns.map((c) => c.name)).not.toContain('depart');
 	});
 
 	it('enforces cascade and set-null foreign keys used by removal warnings', () => {
@@ -743,35 +745,27 @@ describe('city regions', () => {
 			name: 'Springfield',
 			country: 'United States',
 			region: 'Illinois',
-			tz: 'America/Chicago',
-			arrive: '2026-10-01',
-			depart: '2026-10-02'
+			tz: 'America/Chicago'
 		});
 		const otherSpringfield = trips.addCity(f.tripId, f.organizer, {
 			name: 'Springfield',
 			country: 'United States',
 			region: 'Missouri',
-			tz: 'America/Chicago',
-			arrive: '2026-10-02',
-			depart: '2026-10-03'
+			tz: 'America/Chicago'
 		});
 		// No region at all is a valid city: some places have none, and a
 		// hand-entered one may simply not say.
 		const noRegion = trips.addCity(f.tripId, f.organizer, {
 			name: 'Singapore',
 			country: 'Singapore',
-			tz: 'Asia/Singapore',
-			arrive: '2026-10-03',
-			depart: '2026-10-03'
+			tz: 'Asia/Singapore'
 		});
 		// A blank region is the same as no region, never the empty string.
 		const blankRegion = trips.addCity(f.tripId, f.organizer, {
 			name: 'Monaco',
 			country: 'Monaco',
 			region: '   ',
-			tz: 'Europe/Monaco',
-			arrive: '2026-10-03',
-			depart: '2026-10-03'
+			tz: 'Europe/Monaco'
 		});
 		expect(withRegion).toBeTruthy();
 		expect(otherSpringfield).toBeTruthy();
@@ -794,16 +788,12 @@ describe('city regions', () => {
 			name: 'Springfield',
 			country: 'United States',
 			region: 'Illinois',
-			tz: 'America/Chicago',
-			arrive: '2026-10-01',
-			depart: '2026-10-02'
+			tz: 'America/Chicago'
 		})!;
 		const base = {
 			name: 'Springfield',
 			country: 'United States',
-			tz: 'America/Chicago',
-			arrive: '2026-10-01',
-			depart: '2026-10-02'
+			tz: 'America/Chicago'
 		};
 		expect(trips.updateCity(f.tripId, f.organizer, cityId, { ...base, region: 'Missouri' })).toBe(true);
 		expect(cityRow(cityId).region).toBe('Missouri');
@@ -818,8 +808,8 @@ describe('city regions', () => {
 		// data/app.db look like after the additive migration runs.
 		const legacyId = crypto.randomUUID();
 		db.prepare(
-			`INSERT INTO cities (id, trip_id, name, country, tz, arrive, depart, lat, lng, sort)
-			 VALUES (?, ?, 'Old Town', 'Greece', 'Europe/Athens', '2026-10-01', '2026-10-02', 37.9, 23.7, 9)`
+			`INSERT INTO cities (id, trip_id, name, country, tz, lat, lng, sort)
+			 VALUES (?, ?, 'Old Town', 'Greece', 'Europe/Athens', 37.9, 23.7, 9)`
 		).run(legacyId, f.tripId);
 
 		const legacy = trips.getTripForUser(f.tripId, f.organizer)!.cities.find((c) => c.id === legacyId)!;
@@ -834,9 +824,7 @@ describe('city regions', () => {
 				name: 'Old Town',
 				country: 'Greece',
 				region: 'Attica',
-				tz: 'Europe/Athens',
-				arrive: '2026-10-01',
-				depart: '2026-10-02'
+				tz: 'Europe/Athens'
 			})
 		).toBe(true);
 		expect(cityRow(legacyId).region).toBe('Attica');

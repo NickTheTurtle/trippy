@@ -74,8 +74,6 @@ db.exec(`
 		name     TEXT NOT NULL,
 		country  TEXT NOT NULL,
 		tz       TEXT NOT NULL,
-		arrive   TEXT NOT NULL,
-		depart   TEXT NOT NULL,
 		lat      REAL,
 		lng      REAL,
 		sort     INTEGER NOT NULL DEFAULT 0
@@ -232,6 +230,12 @@ function addColumn(table: string, column: string, definition: string): void {
 	}
 }
 
+function dropColumn(table: string, column: string): void {
+	if (columnExists(table, column)) {
+		db.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
+	}
+}
+
 // Day-scoped lodging: an option can be pinned to a night range within its city.
 addColumn('lodging_options', 'check_in', 'TEXT');
 addColumn('lodging_options', 'check_out', 'TEXT');
@@ -268,15 +272,10 @@ addColumn('cities', 'region', 'TEXT');
 addColumn('trips', 'start_date', 'TEXT');
 addColumn('trips', 'end_date', 'TEXT');
 
-// Backfill trip endpoints from the itinerary, which is the real source of truth
-// for when a trip runs.
-db.exec(`
-	UPDATE trips SET
-		start_date = (SELECT MIN(arrive) FROM cities WHERE cities.trip_id = trips.id),
-		end_date   = (SELECT MAX(depart) FROM cities WHERE cities.trip_id = trips.id)
-	WHERE start_date IS NULL
-	  AND EXISTS (SELECT 1 FROM cities WHERE cities.trip_id = trips.id)
-`);
+// Cities are places in the itinerary, not dated schedule spans. The trip's
+// start and end stay on trips, and per-day city assignment stays in party_day.
+dropColumn('cities', 'arrive');
+dropColumn('cities', 'depart');
 
 // Uneven expense splits: participants carry a weight (1 for an even split, a
 // share count, or a stated amount in cents), and the expense records which of

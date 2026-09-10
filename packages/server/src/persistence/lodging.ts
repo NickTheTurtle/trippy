@@ -21,8 +21,6 @@ export interface CityLodging {
 	id: string;
 	name: string;
 	country: string;
-	arrive: string;
-	depart: string;
 	options: LodgingOption[];
 	voted: number; // distinct members who voted in this city
 }
@@ -55,13 +53,11 @@ function homeCurrency(tripId: string): string {
 /** Cities of a trip with their lodging options, vote counts, and the viewer's pick. */
 export function cityLodging(tripId: string, userId: string): CityLodging[] {
 	const cities = db
-		.prepare(`SELECT id, name, country, arrive, depart FROM cities WHERE trip_id = ? ORDER BY sort`)
+		.prepare(`SELECT id, name, country FROM cities WHERE trip_id = ? ORDER BY sort`)
 		.all(tripId) as unknown as {
 		id: string;
 		name: string;
 		country: string;
-		arrive: string;
-		depart: string;
 	}[];
 
 	return cities.map((c) => {

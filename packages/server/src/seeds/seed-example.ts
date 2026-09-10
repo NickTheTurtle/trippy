@@ -18,15 +18,15 @@ import { trips as sampleTrips, sampleDay } from '@trippy/core/sample';
 /** Give each new account the two example trips so the workspace is populated. */
 export function seedExampleTrips(userId: string): void {
 	const insertTrip = db.prepare(
-		`INSERT INTO trips (id, organizer_id, name, dates, cover, home_currency, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`
+		`INSERT INTO trips (id, organizer_id, name, dates, cover, home_currency, start_date, end_date, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	);
 	const insertMember = db.prepare(
 		`INSERT INTO memberships (trip_id, user_id, role) VALUES (?, ?, 'organizer')`
 	);
 	const insertCity = db.prepare(
-		`INSERT INTO cities (id, trip_id, name, country, tz, arrive, depart, lat, lng, sort)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		`INSERT INTO cities (id, trip_id, name, country, tz, lat, lng, sort)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
 	);
 	for (const t of sampleTrips) {
 		if (t.id === 'athens-2026') {
@@ -35,11 +35,21 @@ export function seedExampleTrips(userId: string): void {
 			continue;
 		}
 		const tripId = randomUUID();
-		insertTrip.run(tripId, userId, t.name, t.dates, t.cover, t.homeCurrency, Date.now());
+		insertTrip.run(
+			tripId,
+			userId,
+			t.name,
+			t.dates,
+			t.cover,
+			t.homeCurrency,
+			t.startDate,
+			t.endDate,
+			Date.now()
+		);
 		insertMember.run(tripId, userId);
 		const cityIds: string[] = t.cities.map((c, i) => {
 			const cityId = randomUUID();
-			insertCity.run(cityId, tripId, c.name, c.country, c.tz, c.arrive, c.depart, c.lat ?? null, c.lng ?? null, i);
+			insertCity.run(cityId, tripId, c.name, c.country, c.tz, c.lat ?? null, c.lng ?? null, i);
 			return cityId;
 		});
 		if (t.id === 'china-2026') {

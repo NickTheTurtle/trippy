@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { formatDayRange, isDayString, normalizeDay } from '@trippy/core/tz';
+import { formatDayRange, normalizeDay } from '@trippy/core/tz';
 import { db } from '../db';
 import { defaultPartyId } from './parties';
 import { publish, publishMany } from '../events';
@@ -25,8 +25,6 @@ export interface CityRow {
 	 */
 	region: string | null;
 	tz: string;
-	arrive: string;
-	depart: string;
 	lat: number | null;
 	lng: number | null;
 	photo: string | null;
@@ -145,7 +143,7 @@ export function citySearchContext(
 function listCities(tripId: string): CityRow[] {
 	return db
 		.prepare(
-			`SELECT id, name, country, region, tz, arrive, depart, lat, lng, photo
+			`SELECT id, name, country, region, tz, lat, lng, photo
 			 FROM cities WHERE trip_id = ? ORDER BY sort`
 		)
 		.all(tripId) as unknown as CityRow[];
@@ -308,8 +306,6 @@ export interface CityInput {
 	 */
 	region?: string | null;
 	tz: string;
-	arrive: string;
-	depart: string;
 	lat?: number | null;
 	lng?: number | null;
 }
@@ -323,10 +319,7 @@ function cityRegion(c: CityInput): string | null {
 function validCity(c: CityInput): boolean {
 	if (!c.name.trim() || !c.country.trim()) return false;
 	if (!TZ_RE.test(c.tz)) return false;
-	// Real calendar days, not just the right shape: a city arriving on Feb 31st
-	// would otherwise become a schedule day that never happens.
-	if (!isDayString(c.arrive) || !isDayString(c.depart)) return false;
-	return c.arrive <= c.depart;
+	return true;
 }
 
 /** Add a city to the end of the trip's itinerary. Organizer only. */
@@ -341,8 +334,8 @@ export function addCity(tripId: string, actorId: string, c: CityInput): string |
 		)?.m ?? -1) + 1;
 	const id = randomUUID();
 	db.prepare(
-		`INSERT INTO cities (id, trip_id, name, country, region, tz, arrive, depart, lat, lng, sort)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		`INSERT INTO cities (id, trip_id, name, country, region, tz, lat, lng, sort)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	).run(
 		id,
 		tripId,
@@ -350,14 +343,12 @@ export function addCity(tripId: string, actorId: string, c: CityInput): string |
 		c.country.trim(),
 		cityRegion(c),
 		c.tz,
-		c.arrive,
-		c.depart,
 		c.lat ?? null,
 		c.lng ?? null,
 		next
 	);
-	// A city is the spine of the itinerary: the calendar's days, the stays
-	// portal and the budget's columns are all derived from it.
+	// A city is the spine of the itinerary: places, stays and budget cells are
+	// all scoped to it.
 	publishMany(tripId, ['trip', 'schedule', 'lodging', 'costs']);
 	return id;
 }
@@ -373,7 +364,7 @@ export function updateCity(
 	if (!validCity(c)) return false;
 	const res = db
 		.prepare(
-			`UPDATE cities SET name = ?, country = ?, region = ?, tz = ?, arrive = ?, depart = ?, lat = ?, lng = ?
+			`UPDATE cities SET name = ?, country = ?, region = ?, tz = ?, lat = ?, lng = ?
 			 WHERE id = ? AND trip_id = ?`
 		)
 		.run(
@@ -381,8 +372,6 @@ export function updateCity(
 			c.country.trim(),
 			cityRegion(c),
 			c.tz,
-			c.arrive,
-			c.depart,
 			c.lat ?? null,
 			c.lng ?? null,
 			cityId,
@@ -407,5 +396,4 @@ export function removeCity(tripId: string, actorId: string, cityId: string): boo
 	if (res.changes > 0) publishMany(tripId, ['trip', 'pois', 'lodging', 'costs', 'schedule']);
 	return res.changes > 0;
 }
-
 
