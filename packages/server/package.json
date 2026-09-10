@@ -18,6 +18,7 @@
 		"./members": "./src/persistence/members.ts",
 		"./parties": "./src/persistence/parties.ts",
 		"./photos": "./src/photos.ts",
+		"./photo-cache": "./src/providers/photo-cache.ts",
 		"./places": "./src/providers/places.ts",
 		"./pois": "./src/persistence/pois.ts",
 		"./routing": "./src/providers/routing.ts",

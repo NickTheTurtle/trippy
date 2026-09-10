@@ -1,3 +1,5 @@
+import { db } from '../db';
+
 /**
  * A tiny in-process TTL cache with in-flight de-duplication.
  *
@@ -58,6 +60,61 @@ export function createCache<T>(ttlMs: number, max: number): TtlCache<T> {
 		},
 		get size() {
 			return entries.size;
+		}
+	};
+}
+
+/**
+ * The same cache, with its values also written to SQLite so a restart does not
+ * throw away answers we have already paid for.
+ *
+ * This matters more than it sounds. The API runs under `tsx watch`, so every
+ * saved file restarts the process; before this, a day of development re-bought
+ * the same place searches dozens of times over. The memory layer is kept in
+ * front of the table because it is what de-duplicates requests that are in
+ * flight at the same moment, which a stored value can never do.
+ *
+ * Values are JSON, so this suits provider results and not binary. `ttlMs` is
+ * capped at 30 days, the limit Google's terms place on caching Places content.
+ */
+const MAX_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+export function createPersistentCache<T>(
+	namespace: string,
+	ttlMs: number,
+	max: number
+): TtlCache<T> {
+	const ttl = Math.min(ttlMs, MAX_TTL_MS);
+	const mem = createCache<T>(ttl, max);
+	const read = db.prepare(`SELECT value FROM provider_cache WHERE key = ? AND expires_at > ?`);
+	const write = db.prepare(
+		`INSERT INTO provider_cache (key, value, expires_at) VALUES (?, ?, ?)
+		 ON CONFLICT(key) DO UPDATE SET value = excluded.value, expires_at = excluded.expires_at`
+	);
+	const prune = db.prepare(`DELETE FROM provider_cache WHERE expires_at <= ?`);
+
+	return {
+		take(key, load) {
+			const full = `${namespace}|${key}`;
+			return mem.take(full, async () => {
+				const hit = read.get(full, Date.now()) as { value: string } | undefined;
+				// A row we cannot parse is a row from an older shape of the value.
+				// Treat it as a miss and let the fresh load overwrite it.
+				if (hit) {
+					try {
+						return JSON.parse(hit.value) as T;
+					} catch {
+						/* fall through to the load */
+					}
+				}
+				const value = await load();
+				write.run(full, JSON.stringify(value), Date.now() + ttl);
+				prune.run(Date.now());
+				return value;
+			});
+		},
+		get size() {
+			return mem.size;
 		}
 	};
 }

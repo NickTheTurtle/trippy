@@ -509,3 +509,30 @@ if (poiKindIsNew) {
 		throw err;
 	}
 }
+
+/**
+ * Provider caches, on disk rather than in memory.
+ *
+ * Every provider call is billed, and the in-process cache these back is lost on
+ * every restart: under `tsx watch` that is dozens of times a day, each one
+ * re-buying searches we had already paid for. These tables are a pure cost
+ * optimisation and never a source of truth, so anything in them can be deleted
+ * at any time and the app only gets slower and dearer, never wrong.
+ *
+ * `expires_at` is capped by the callers at 30 days, the limit Google's terms put
+ * on caching Places content. Both tables are pruned on write.
+ */
+db.exec(`
+	CREATE TABLE IF NOT EXISTS provider_cache (
+		key        TEXT PRIMARY KEY,
+		value      TEXT NOT NULL,
+		expires_at INTEGER NOT NULL
+	);
+
+	CREATE TABLE IF NOT EXISTS photo_cache (
+		key          TEXT PRIMARY KEY,
+		bytes        BLOB NOT NULL,
+		content_type TEXT NOT NULL,
+		expires_at   INTEGER NOT NULL
+	);
+`);

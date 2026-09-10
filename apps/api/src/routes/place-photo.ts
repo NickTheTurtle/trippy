@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { requireUser } from '../middleware';
 import { int } from '../parse';
 import { fail } from '../respond';
+import { readPhoto, writePhoto } from '@trippy/server/photo-cache';
 
 /**
  * Proxies a Google Places photo so the API key never reaches the browser.
@@ -34,6 +35,10 @@ placePhoto.get('/', requireUser, async (c) => {
 	const asked = int(c.req.query('w'));
 	const width =
 		asked === null ? DEFAULT_WIDTH : Math.min(Math.max(asked, MIN_WIDTH), MAX_WIDTH);
+
+	const cached = readPhoto(name, width);
+	if (cached) return photo(cached.bytes, cached.contentType);
+
 	const upstream = new URL(`https://places.googleapis.com/v1/${name}/media`);
 	upstream.searchParams.set('maxWidthPx', String(width));
 	upstream.searchParams.set('key', key);
@@ -41,12 +46,32 @@ placePhoto.get('/', requireUser, async (c) => {
 	const res = await fetch(upstream, { redirect: 'follow' });
 	if (!res.ok || !res.body) return fail(c, 502, 'Photo fetch failed');
 
-	return new Response(res.body, {
+	// Buffered rather than streamed, because the bytes have to be kept: a
+	// streamed response is spent by the time it reaches the browser and the
+	// next cold load pays for it again. These are thumbnails, not files.
+	const bytes = new Uint8Array(await res.arrayBuffer());
+	const type = res.headers.get('content-type') ?? 'image/jpeg';
+	// A cache write must never cost the caller their picture.
+	try {
+		writePhoto(name, width, bytes, type);
+	} catch {
+		/* served anyway */
+	}
+	return photo(bytes, type);
+});
+
+/**
+ * The response, however the bytes were obtained.
+ *
+ * A photo reference's bytes are immutable, so this is cached hard. 30 days is
+ * both the longest Google's terms allow Places content to be kept and long
+ * enough that a returning member never re-fetches one.
+ */
+function photo(bytes: Uint8Array, contentType: string): Response {
+	return new Response(bytes, {
 		headers: {
-			'content-type': res.headers.get('content-type') ?? 'image/jpeg',
-			// Place photos are immutable for the lifetime of the reference, so let
-			// the browser and any CDN keep them for a day.
-			'cache-control': 'public, max-age=86400'
+			'content-type': contentType,
+			'cache-control': 'public, max-age=2592000, immutable'
 		}
 	});
-});
+}

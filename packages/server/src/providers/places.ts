@@ -1,5 +1,5 @@
 import { env } from '../infra/env';
-import { createCache } from '../infra/cache';
+import { createPersistentCache } from '../infra/cache';
 
 /**
  * A place returned from a search provider, normalised across backends.
@@ -450,12 +450,20 @@ export function activeProvider(): 'google' | 'osm' {
 export const MIN_QUERY = 3;
 
 /**
- * Place data is stable over hours, and a group researches the same city from a
+ * Place data is stable over days, and a group researches the same city from a
  * dozen devices, so an uncached search bills once per member for an identical
- * question. Kept well inside Google's 30-day limit on caching place content.
+ * question. Written through to SQLite, so a `tsx watch` restart no longer
+ * re-buys every answer: that, not repeat queries, was where most of the
+ * development spend went. Kept well inside Google's 30-day limit on caching
+ * place content, and short enough that a rating or an opening time is never
+ * more than a week stale.
  */
-const searchCache = createCache<PlaceResult[]>(6 * 60 * 60 * 1000, 500);
-const detailsCache = createCache<PlaceDetails | null>(24 * 60 * 60 * 1000, 1000);
+const searchCache = createPersistentCache<PlaceResult[]>('search', 7 * 24 * 60 * 60 * 1000, 500);
+const detailsCache = createPersistentCache<PlaceDetails | null>(
+	'details',
+	7 * 24 * 60 * 60 * 1000,
+	1000
+);
 
 /**
  * Search for places. Uses Google Places when GOOGLE_PLACES_KEY is set,
