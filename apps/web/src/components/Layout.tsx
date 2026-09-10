@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, Outlet, useNavigate } from 'react-router';
 import { useAuth } from '../auth';
 import { CaretIcon } from './ui/icons';
+import Avatar from './ui/Avatar';
 import { copy } from '../copy';
 
 /**
@@ -44,13 +45,13 @@ function TopBar() {
 			<div className="container flex h-16 items-center justify-between">
 				<Link
 					to={status === 'authenticated' ? '/trips' : '/'}
-					className="flex items-center gap-2 font-serif text-[1.25rem] font-[560]"
+					className="flex items-center gap-2 font-serif text-heading font-[560]"
 				>
-					<span className="text-[1.4rem] text-accent">◍</span>
+					<span className="text-heading text-accent">◍</span>
 					<span>{copy.shell.brand}</span>
 				</Link>
 
-				<nav className="flex items-center gap-6 text-[0.92rem] font-medium">
+				<nav className="flex items-center gap-6 text-body font-medium">
 					{status === 'authenticated' ? (
 						<div
 							className="relative"
@@ -89,9 +90,7 @@ function TopBar() {
 								// `quiet` drops the border until it is hovered or open.
 								className={menuOpen ? 'btn pill' : 'btn pill quiet'}
 							>
-								<span className="grid size-7 place-items-center rounded-full bg-accent text-[0.8rem] font-semibold text-white">
-									{user.name.slice(0, 1).toUpperCase()}
-								</span>
+								<Avatar tone="solid" name={user.name} />
 								<span>{user.name}</span>
 								<span className="flex text-ink-faint">
 									<CaretIcon />
@@ -106,7 +105,7 @@ function TopBar() {
 									<Link
 										to="/account"
 										role="menuitem"
-										className="rounded-sm px-2.5 py-2 text-left text-[0.9rem] hover:bg-surface-2 hover:text-accent-ink"
+										className="rounded-sm px-2.5 py-2 text-left text-body hover:bg-surface-2 hover:text-accent-ink"
 									>
 										{copy.shell.accountSettings}
 									</Link>
@@ -117,7 +116,7 @@ function TopBar() {
 											await logOut();
 											navigate('/', { replace: true });
 										}}
-										className="cursor-pointer rounded-sm px-2.5 py-2 text-left text-[0.9rem] hover:bg-surface-2 hover:text-accent-ink"
+										className="cursor-pointer rounded-sm px-2.5 py-2 text-left text-body hover:bg-surface-2 hover:text-accent-ink"
 									>
 										{copy.shell.logOut}
 									</button>

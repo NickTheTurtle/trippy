@@ -39,11 +39,11 @@ export default function PlaceCard({
 			>
 				<Cover photo={p.photo} seed={p.name} category={p.category} />
 				<span className="flex min-w-0 flex-auto flex-col px-4 pt-3.5">
-					<span className="line-clamp-2 text-base font-semibold [overflow-wrap:anywhere] group-hover:underline">
+					<span className="line-clamp-2 text-lead font-semibold [overflow-wrap:anywhere] group-hover:underline">
 						{p.name}
 					</span>
 					{/* Absorbs the slack so everything below aligns across cards. */}
-					<span className="muted mt-1.5 mb-2.5 flex min-w-0 flex-auto flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[0.85rem]">
+					<span className="muted mt-1.5 mb-2.5 flex min-w-0 flex-auto flex-wrap items-baseline gap-x-2 gap-y-0.5 text-meta">
 						<MetaBits
 							rating={p.rating}
 							ratingCount={p.rating_count}
@@ -63,7 +63,7 @@ export default function PlaceCard({
 
 			<div className="flex flex-none flex-col px-4 pt-2.5 pb-3.5">
 				{p.linked > 0 && (
-					<p className="mb-2.5 text-[0.8rem] [overflow-wrap:anywhere] text-accent-ink">
+					<p className="mb-2.5 text-meta [overflow-wrap:anywhere] text-accent-ink">
 						{c.onCalendar(p.linked)}
 					</p>
 				)}

@@ -2,6 +2,8 @@ import type { SplitMode } from '@trippy/core/split';
 import { formatMoney, formatTimestamp } from '../../lib/format';
 import { IconButton } from '../../components/ui/buttons';
 import { PencilIcon, TrashIcon } from '../../components/ui/icons';
+import Avatar from '../../components/ui/Avatar';
+import Tag from '../../components/ui/Tag';
 import type { Expense } from './types';
 import { copy } from '../../copy';
 
@@ -32,36 +34,27 @@ export default function ExpenseRow({
 	const settled = e.settlement === 1;
 	return (
 		<li className="group flex items-center gap-3">
-			<span
-				className={`grid size-[30px] flex-none place-items-center rounded-full text-[0.82rem] font-semibold ${
-					credit ? 'bg-surface-2 text-ink-soft' : 'bg-accent-soft text-accent-ink'
-				}`}
-			>
-				{e.payer_name[0]}
-			</span>
+			<Avatar name={e.payer_name} tone={credit ? 'muted' : 'accent'} />
 			<div className="flex min-w-0 flex-col">
-				<span className="truncate text-[0.93rem] font-medium" title={e.description}>
+				<span className="truncate text-body font-medium" title={e.description}>
 					{e.description}
 					{/* A settlement is an expense in every way that matters to the maths,
 					    but it is not a cost anyone shared, so the ledger says which it is. */}
 					{(credit || settled) && (
-						<span className="ml-1 rounded-full border border-accent-soft px-1.5 py-px text-[0.66rem] font-semibold tracking-wider text-accent-ink uppercase">
+						<Tag tone="accent" outline className="ml-1">
 							{settled ? c.paymentTag : c.incomeTag}
-						</span>
+						</Tag>
 					)}
 					{/* Somebody on this row has left the trip and their share could not
 					    be re-divided. Marked rather than fixed: only the group can say
 					    who absorbs a stated amount. */}
 					{e.needsReview && (
-						<span
-							className="ml-1 rounded-full border border-warn px-1.5 py-px text-[0.66rem] font-semibold tracking-wider text-warn uppercase"
-							title={c.reviewTitle}
-						>
+						<Tag tone="warn" outline className="ml-1" title={c.reviewTitle}>
 							{c.reviewTag}
-						</span>
+						</Tag>
 					)}
 				</span>
-				<span className="muted truncate text-[0.8rem]">
+				<span className="muted truncate text-meta">
 					{/* The description of a settlement already names both sides, so
 					    repeating the payer and calling it a one-way split is noise. */}
 					{settled ? (
@@ -83,7 +76,7 @@ export default function ExpenseRow({
 					<>
 						{formatMoney(e.amount_cents, e.currency)}
 						{e.converted && (
-							<span className="muted text-[0.75rem] font-medium">
+							<span className="muted text-micro font-medium">
 								≈ {formatMoney(e.home_cents, home)}
 							</span>
 						)}
@@ -91,7 +84,7 @@ export default function ExpenseRow({
 				) : (
 					<>
 						{formatMoney(share, home)}
-						<span className="muted text-[0.75rem] font-medium">
+						<span className="muted text-micro font-medium">
 							{c.ofTotal(formatMoney(e.home_cents, home))}
 						</span>
 					</>

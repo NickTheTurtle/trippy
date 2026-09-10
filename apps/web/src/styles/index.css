@@ -28,6 +28,31 @@
 	--font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
 	--font-serif: 'Fraunces', ui-serif, Georgia, serif;
 
+	/*
+	 * The type scale.
+	 *
+	 * Every size used to be written at the point of use as an arbitrary value,
+	 * and the app had grown 27 of them. Four pairs differed by 0.01rem, which is
+	 * a sixth of a pixel: 0.9 / 0.92 / 0.93 / 0.94 were all "a row's title", and
+	 * 0.84 / 0.85 / 0.86 / 0.88 were all "the grey line under it". Nobody chose
+	 * that, and nobody could see it. What it did do is guarantee that any two
+	 * pages doing the same job disagreed, because each picked its own number.
+	 *
+	 * Eight steps, named for the job rather than the size, so the question at the
+	 * point of use is "what is this text" and not "how big should this be". Being
+	 * in `@theme` makes them real utilities: `text-body`, `text-meta` and so on.
+	 * Reach for a bare `text-[...]` only if none of these is the answer, which so
+	 * far has not happened.
+	 */
+	--text-hero: 2.6rem;
+	--text-title: 1.8rem;
+	--text-heading: 1.25rem;
+	--text-section: 1.1rem;
+	--text-lead: 1rem;
+	--text-body: 0.92rem;
+	--text-meta: 0.82rem;
+	--text-micro: 0.72rem;
+
 	--radius-sm: 6px;
 	/* Named `md`, not `DEFAULT`. Tailwind v4 does not emit a bare `--radius` for
 	   a `DEFAULT` key, so the plain-CSS rules below that referenced it fell back
@@ -163,7 +188,7 @@ h6 {
 	background: var(--color-surface);
 	color: var(--color-ink);
 	font: inherit;
-	font-size: 0.92rem;
+	font-size: var(--text-body);
 	font-weight: 500;
 	line-height: 1.4;
 	cursor: pointer;
@@ -191,7 +216,7 @@ h6 {
 	border: 1px solid var(--color-line);
 	border-radius: 999px;
 	background: var(--color-surface);
-	font-size: 0.78rem;
+	font-size: var(--text-meta);
 	font-weight: 500;
 }
 .chip.accent {
@@ -234,7 +259,7 @@ h6 {
 input.input,
 select.input {
 	height: var(--control-h);
-	font-size: 0.92rem;
+	font-size: var(--text-body);
 	line-height: 1.4;
 }
 /*
@@ -259,7 +284,7 @@ input[type='time'].input.compact {
    height and the control height is only a floor. */
 textarea.input {
 	min-height: var(--control-h);
-	font-size: 0.92rem;
+	font-size: var(--text-body);
 }
 .input:focus {
 	border-color: var(--color-accent);
@@ -275,7 +300,7 @@ textarea.input {
 .input.compact {
 	padding: 0.25rem 0.4rem;
 	border-radius: var(--radius-sm);
-	font-size: 0.85rem;
+	font-size: var(--text-meta);
 }
 input.input.compact,
 select.input.compact {
@@ -309,11 +334,11 @@ select.input.compact {
 	min-width: 0;
 	flex-direction: column;
 	gap: 0.35rem;
-	font-size: 0.82rem;
+	font-size: var(--text-meta);
 	color: var(--color-ink-soft);
 }
 .field > .fhint {
-	font-size: 0.75rem;
+	font-size: var(--text-micro);
 	color: var(--color-ink-faint);
 }
 /* The "(optional)" suffix on a label. A suffix, never a placeholder: the one
@@ -358,7 +383,7 @@ select.input.compact {
 .mtitle {
 	margin: 0;
 	font-family: var(--font-sans);
-	font-size: 1rem;
+	font-size: var(--text-lead);
 	font-weight: 600;
 	white-space: nowrap;
 	overflow: hidden;
@@ -367,7 +392,7 @@ select.input.compact {
 }
 .msub {
 	color: var(--color-ink-faint);
-	font-size: 0.85rem;
+	font-size: var(--text-meta);
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -483,7 +508,7 @@ select.input.compact {
 	border-radius: var(--radius-sm);
 	background: var(--color-surface);
 	font: inherit;
-	font-size: 0.92rem;
+	font-size: var(--text-body);
 	line-height: 1.4;
 	color: var(--color-ink);
 	cursor: pointer;
@@ -493,7 +518,7 @@ select.input.compact {
 .sel.compact .seltrigger {
 	height: var(--control-h-sm);
 	padding: 0.35rem 0.5rem;
-	font-size: 0.82rem;
+	font-size: var(--text-meta);
 }
 .seltrigger:hover {
 	border-color: var(--color-accent);
@@ -585,7 +610,7 @@ select.input.compact {
 	border-radius: var(--radius-md);
 	padding: 0.5rem 0.7rem;
 	font: inherit;
-	font-size: 0.92rem;
+	font-size: var(--text-body);
 	font-weight: 500;
 	color: var(--color-ink-soft);
 	cursor: pointer;
@@ -609,7 +634,7 @@ select.input.compact {
 }
 .sec .badge {
 	flex: 0 0 auto;
-	font-size: 0.75rem;
+	font-size: var(--text-micro);
 	font-weight: 500;
 	color: var(--color-ink-faint);
 	font-variant-numeric: tabular-nums;
@@ -641,7 +666,7 @@ select.input.compact {
 .btn.small {
 	--btn-h: var(--control-h-sm);
 	padding: 0.32rem 0.65rem;
-	font-size: 0.82rem;
+	font-size: var(--text-meta);
 }
 /*
  * Icon-only. Square by construction: the width is the variant's own height, so
@@ -713,7 +738,7 @@ select.input.compact {
 	border: 0;
 	padding: 0;
 	font: inherit;
-	font-size: 0.82rem;
+	font-size: var(--text-meta);
 	color: var(--color-ink-soft);
 	cursor: pointer;
 	text-decoration: underline;
@@ -742,7 +767,7 @@ select.input.compact {
 	display: block;
 }
 .cover .glyph {
-	font-size: 2.4rem;
+	font-size: var(--text-hero);
 	opacity: 0.4;
 	filter: saturate(0.35);
 }
@@ -843,7 +868,7 @@ select.input.compact {
 .sdropnote {
 	margin: 0;
 	padding: 0.4rem 0.5rem;
-	font-size: 0.82rem;
+	font-size: var(--text-meta);
 	color: var(--color-ink-faint);
 	overflow-wrap: anywhere;
 }
@@ -872,7 +897,7 @@ select.input.compact {
 }
 .msel.compact .mtrigger {
 	padding: 0.3rem 0.5rem;
-	font-size: 0.82rem;
+	font-size: var(--text-meta);
 }
 /*
  * Borderless until it is wanted, for a menu that repeats down a list. One
@@ -962,7 +987,7 @@ select.input.compact {
 	height: 16px;
 	border: 1px solid var(--color-line);
 	border-radius: 4px;
-	font-size: 0.7rem;
+	font-size: var(--text-micro);
 	color: #fff;
 	flex-shrink: 0;
 }
@@ -1005,7 +1030,7 @@ select.input.compact {
 
 .mempty {
 	padding: 0.4rem 0.5rem;
-	font-size: 0.82rem;
+	font-size: var(--text-meta);
 	color: var(--color-ink-faint);
 }
 
@@ -1025,7 +1050,7 @@ select.input.compact {
 	z-index: 0;
 }
 .nogeo {
-	font-size: 0.82rem;
+	font-size: var(--text-meta);
 	margin: 0.6rem 0 0;
 }
 .wp-pin span {

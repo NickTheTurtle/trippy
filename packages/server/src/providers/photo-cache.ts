@@ -36,9 +36,7 @@ const MAX_ROWS = 500;
 export function readPhoto(name: string, width: number): CachedPhoto | null {
 	const row = db
 		.prepare(`SELECT bytes, content_type FROM photo_cache WHERE key = ? AND expires_at > ?`)
-		.get(`${name}|${width}`, Date.now()) as
-		| { bytes: Uint8Array; content_type: string }
-		| undefined;
+		.get(`${name}|${width}`, Date.now()) as { bytes: Uint8Array; content_type: string } | undefined;
 	return row ? { bytes: row.bytes, contentType: row.content_type } : null;
 }
 
@@ -57,7 +55,8 @@ export function writePhoto(
 	).run(`${name}|${width}`, bytes, contentType, Date.now() + TTL_MS);
 
 	db.prepare(`DELETE FROM photo_cache WHERE expires_at <= ?`).run(Date.now());
-	// Oldest expiry first, which for a fixed TTL is oldest written first.
+	// Newest expiry first, then skip the ones worth keeping: for a fixed TTL,
+	// what is left past the cap is what was written longest ago.
 	db.prepare(
 		`DELETE FROM photo_cache WHERE key IN (
 		   SELECT key FROM photo_cache ORDER BY expires_at DESC LIMIT -1 OFFSET ?

@@ -46,8 +46,8 @@ export default function FormError({
 
 	const classes =
 		variant === 'footer'
-			? `mfoot-note m-0 text-[0.86rem] ${FOOTER_TONE[tone]}`
-			: `m-0 mb-4 rounded-lg px-3.5 py-2.5 text-[0.9rem] ${BANNER_TONE[tone]}`;
+			? `mfoot-note m-0 text-meta ${FOOTER_TONE[tone]}`
+			: `m-0 mb-4 rounded-lg px-3.5 py-2.5 text-body ${BANNER_TONE[tone]}`;
 
 	return (
 		<p role={tone === 'error' ? 'alert' : 'status'} className={`${classes} ${className}`.trim()}>

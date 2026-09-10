@@ -27,7 +27,7 @@ export default function Account() {
 	return (
 		<main className="mx-auto flex w-full max-w-[34rem] flex-col gap-5 px-6 pt-10 pb-16">
 			<header>
-				<h1 className="text-[1.7rem]">{ca.heading}</h1>
+				<h1 className="text-title">{ca.heading}</h1>
 			</header>
 
 			{error && <FormError message={error} variant="banner" />}
@@ -76,7 +76,7 @@ function Profile({ data, onSaved }: { data: AccountData; onSaved: () => void }) 
 
 	return (
 		<section className="card p-6">
-			<h2 className="mb-4 text-[1.15rem]">{ca.profile.heading}</h2>
+			<h2 className="mb-4 text-section">{ca.profile.heading}</h2>
 			<FormError message={save.error} variant="banner" />
 			<FormError
 				message={saved && !save.error ? ca.profile.saved : ''}
@@ -141,7 +141,7 @@ function Password() {
 
 	return (
 		<section className="card p-6">
-			<h2 className="mb-4 text-[1.15rem]">{ca.password.heading}</h2>
+			<h2 className="mb-4 text-section">{ca.password.heading}</h2>
 			<FormError message={save.error} variant="banner" />
 			<FormError
 				message={changed && !save.error ? ca.password.updated : ''}
@@ -175,7 +175,7 @@ function Password() {
 					onChange={(e) => setConfirm(e.target.value)}
 				/>
 				<button className="btn primary mt-1 self-start" type="submit" disabled={save.busy}>
-					{save.busy ? copy.common.working : ca.password.submitLabel}
+					{save.busy ? copy.common.saving : copy.common.save}
 				</button>
 			</form>
 		</section>

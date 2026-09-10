@@ -38,7 +38,7 @@ export default function EmptyState({
 	if (!graphic) {
 		return (
 			<div className={`flex flex-col items-start gap-2 py-6 ${className}`.trim()}>
-				<p className="muted m-0 text-[0.9rem]">{message}</p>
+				<p className="muted m-0 text-body">{message}</p>
 				{action}
 			</div>
 		);
@@ -47,7 +47,7 @@ export default function EmptyState({
 	return (
 		<div className={`flex flex-col items-center gap-3 py-12 text-center ${className}`.trim()}>
 			<EmptyMark />
-			<p className="muted m-0 text-[0.9rem]">{message}</p>
+			<p className="muted m-0 text-body">{message}</p>
 			{action}
 		</div>
 	);

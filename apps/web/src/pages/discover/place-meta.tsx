@@ -89,7 +89,7 @@ export function HitSummary({ hit, tz, loading }: { hit: PlaceHit; tz: string; lo
 	}
 	if (!hit.rating && hit.priceLevel == null && !hrs) return null;
 	return (
-		<p className="muted m-0 flex flex-wrap items-center gap-1.5 text-[0.8rem]">
+		<p className="muted m-0 flex flex-wrap items-center gap-1.5 text-meta">
 			<MetaBits
 				rating={hit.rating}
 				ratingCount={hit.ratingCount}

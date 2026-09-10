@@ -25,12 +25,12 @@ export default function SettleRow({
 	const mark = useMutation(onSettle, { fallback: c.fallback });
 
 	return (
-		<li className="flex flex-col gap-1 rounded-md bg-surface-2 px-2.5 py-2 text-[0.92rem]">
+		<li className="flex flex-col gap-1 rounded-md bg-surface-2 px-2.5 py-2 text-body">
 			<div className="flex items-center gap-2">
 				<span className="truncate font-semibold" title={t.from}>
 					{t.from}
 				</span>
-				<span className="shrink-0 text-[0.82rem] text-ink-faint">{c.pays}</span>
+				<span className="shrink-0 text-meta text-ink-faint">{c.pays}</span>
 				<span className="truncate" title={t.to}>
 					{t.to}
 				</span>
@@ -44,7 +44,7 @@ export default function SettleRow({
 					{mark.busy ? c.busyLabel : c.markPaid}
 				</button>
 			</div>
-			<FormError message={mark.error} className="text-[0.8rem]" />
+			<FormError message={mark.error} className="text-meta" />
 		</li>
 	);
 }

@@ -100,9 +100,6 @@ export const copy = {
 	// Trips list, the signed-in home page
 	trips: {
 		heading: 'Your trips',
-		newTrip: 'Add trip',
-		emptyMessage: 'No trips yet.',
-		emptyAction: 'Add trip',
 		cityCount: (cities: number) => `${cities} ${cities === 1 ? 'city' : 'cities'}`,
 		memberCount: (members: number) => `${members} ${members === 1 ? 'person' : 'people'}`,
 		newDialog: {
@@ -166,7 +163,7 @@ export const copy = {
 		noCities: {
 			heading: 'No cities yet',
 			body: 'Add a city to start planning.',
-			cta: 'Add a city',
+			cta: 'Add city',
 			memberNote: 'Waiting for an organizer to add the first stop...'
 		},
 		cityList: {
@@ -175,8 +172,7 @@ export const copy = {
 			removeLabel: (city: string) => `Delete ${city}`,
 			lastCityTitle: 'A trip needs at least one city',
 			deleteTitle: (city: string, region?: string | null) =>
-				`Delete ${region ? `${city}, ${region}` : city}?`,
-			deleteConfirm: 'Delete city'
+				`Delete ${region ? `${city}, ${region}` : city}?`
 		},
 		header: {
 			typeAriaLabel: 'Type',
@@ -320,10 +316,11 @@ export const copy = {
 		addExpense: 'Add',
 		tripTotal: 'Trip total',
 		perPerson: 'Per person',
-		allEven: 'Everyone is even.',
+		/** Empty-state captions carry no full stop, the same as `common.nothingAdded`. */
+		allEven: 'Everyone is even',
 		youTag: 'you',
 		formerTag: 'left the trip',
-		nothingToSettle: 'Nothing to settle.',
+		nothingToSettle: 'Nothing to settle',
 		deletePaymentTitle: (payment: string) => `Delete ${payment}?`,
 		deleteExpenseTitle: (expense: string) => `Delete ${expense}?`,
 		row: {
@@ -345,7 +342,7 @@ export const copy = {
 		},
 		settleRow: {
 			pays: 'pays',
-			busyLabel: 'Saving',
+			busyLabel: 'Saving...',
 			markPaid: 'Mark paid',
 			markPaidLabel: (from: string, to: string, amount: string) =>
 				`Record that ${from} paid ${to} ${amount}`,
@@ -387,7 +384,6 @@ export const copy = {
 	people: {
 		membersHeading: 'Members',
 		removeTitle: (name: string) => `Remove ${name}?`,
-		removeConfirm: 'Remove',
 		removeBusy: 'Removing...',
 		row: {
 			notJoined: (email: string) => `${email} (not joined yet)`,
@@ -408,7 +404,7 @@ export const copy = {
 			heading: 'Invite someone',
 			emailLabel: 'Email address',
 			busyLabel: 'Sending...',
-			submitLabel: 'Send invite',
+			submitLabel: 'Send',
 			fallback: 'Could not send that invite.'
 		}
 	},
@@ -433,7 +429,6 @@ export const copy = {
 			newLabel: 'New password',
 			newHint: 'At least 8 characters',
 			confirmLabel: 'Confirm new password',
-			submitLabel: 'Change password',
 			fallback: 'Could not change your password.'
 		}
 	},
@@ -445,7 +440,7 @@ export const copy = {
 			undone: 'Are you sure? This action cannot be undone.',
 			fallback: 'Could not do that.'
 		},
-		searchDropdown: { busyLabel: 'Searching' },
+		searchDropdown: { busyLabel: 'Searching...' },
 		select: { placeholder: 'Select...', ariaLabel: 'Select' },
 		multiSelect: {
 			placeholder: 'Anyone',
@@ -470,7 +465,14 @@ export const copy = {
 	common: {
 		add: 'Add',
 		cancel: 'Cancel',
+		/**
+		 * The verbs a confirmation offers. A confirm button repeats the verb its
+		 * title asked with and nothing else: "Delete Athens?" is answered by
+		 * "Delete", never by "Delete city". The title already named the thing.
+		 */
 		delete: 'Delete',
+		remove: 'Remove',
+		leave: 'Leave',
 		/** Every save button says this. The dialog title already names the thing. */
 		save: 'Save',
 		saving: 'Saving...',

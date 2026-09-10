@@ -6,6 +6,7 @@ import Cover from '../components/Cover';
 import EmptyState from '../components/ui/EmptyState';
 import FormError from '../components/ui/FormError';
 import TripFormDialog from '../components/TripFormDialog';
+import { PlusIcon } from '../components/ui/icons';
 import { copy } from '../copy';
 
 const c = copy.trips;
@@ -29,10 +30,11 @@ export default function Trips() {
 		<>
 			<section className="container flex items-end justify-between pt-12 pb-6">
 				<div>
-					<h1 className="text-[2rem]">{c.heading}</h1>
+					<h1 className="text-title">{c.heading}</h1>
 				</div>
-				<button className="btn primary" onClick={() => setShowNew(true)}>
-					{c.newTrip}
+				<button type="button" className="btn primary" onClick={() => setShowNew(true)}>
+					<PlusIcon />
+					{copy.common.add}
 				</button>
 			</section>
 
@@ -46,16 +48,7 @@ export default function Trips() {
 				{/* Only after a successful load, so an empty grid mid-fetch does not
 				    briefly claim the user has no trips. */}
 				{!loading && !error && data?.trips.length === 0 && (
-					<EmptyState
-						graphic
-						className="col-span-full"
-						message={c.emptyMessage}
-						action={
-							<button className="btn" type="button" onClick={() => setShowNew(true)}>
-								{c.emptyAction}
-							</button>
-						}
-					/>
+					<EmptyState graphic className="col-span-full" message={copy.common.nothingAdded} />
 				)}
 			</section>
 
@@ -87,15 +80,15 @@ function TripCard({ trip }: { trip: Trip }) {
 				</span>
 			</Cover>
 			<div className="px-6 pt-5 pb-6">
-				<h3 className="text-[1.15rem]">{trip.name}</h3>
+				<h2 className="text-section">{trip.name}</h2>
 				{/* The card carries how many cities, not which ones. The names were
 				    joined with a chevron, which read as an itinerary, but cities are
 				    stored as an unordered pool and the arrows implied a route nobody
 				    had chosen. */}
-				<p className="muted mt-1 mb-4 text-[0.9rem]">{trip.dates}</p>
+				<p className="muted mt-1 mb-4 text-body">{trip.dates}</p>
 				<span className="flex flex-wrap items-center gap-2.5">
 					<span className="chip accent capitalize">{trip.role}</span>
-					<span className="muted text-[0.85rem]">{c.memberCount(trip.memberCount)}</span>
+					<span className="muted text-meta">{c.memberCount(trip.memberCount)}</span>
 				</span>
 			</div>
 		</Link>

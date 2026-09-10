@@ -5,8 +5,7 @@ import { IconButton } from '../../components/ui/buttons';
 import { ChevronIcon, PencilIcon, TrashIcon } from '../../components/ui/icons';
 import type { CostItem } from './types';
 import { amountFor, isFor } from './shares';
-import { formatMoney } from '../../lib/format';
-import { cap } from './labels';
+import { formatMoney, cap } from '../../lib/format';
 import { copy } from '../../copy';
 
 const c = copy.preparation.costTable;
@@ -86,7 +85,7 @@ export default function CostList({
 							{/* An empty category has nothing to disclose, so it is a line of
 							    text rather than a control that opens onto nothing. */}
 							{rows.length === 0 ? (
-								<div className="flex items-center gap-3 bg-surface-2 px-5 py-2.5 text-[0.92rem] text-ink-faint">
+								<div className="flex items-center gap-3 bg-surface-2 px-5 py-2.5 text-body text-ink-faint">
 									<span className="size-3.5 flex-none" />
 									<span className="font-semibold">{cap(cat)}</span>
 									<span className="ml-auto tabular-nums">{fmt(0)}</span>
@@ -98,7 +97,7 @@ export default function CostList({
 									onClick={() => toggle(cat)}
 									aria-expanded={open}
 									aria-label={c.sectionLabel(cap(cat))}
-									className="flex w-full cursor-pointer items-center gap-3 border-0 bg-surface-2 px-5 py-2.5 text-left text-[0.92rem] font-semibold hover:bg-line"
+									className="flex w-full cursor-pointer items-center gap-3 border-0 bg-surface-2 px-5 py-2.5 text-left text-body font-semibold hover:bg-line"
 								>
 									<span
 										className={`flex-none text-ink-faint transition-transform ${open ? 'rotate-90' : ''}`}
@@ -116,10 +115,10 @@ export default function CostList({
 									{rows.map((it) => (
 										<li key={it.id} className="group flex items-center gap-3">
 											<div className="flex min-w-0 flex-col">
-												<span className="truncate text-[0.93rem] font-medium" title={it.label}>
+												<span className="truncate text-body font-medium" title={it.label}>
 													{it.label}
 												</span>
-												<span className="muted truncate text-[0.8rem]" title={who(it)}>
+												<span className="muted truncate text-meta" title={who(it)}>
 													{who(it)}
 												</span>
 											</div>
@@ -133,7 +132,7 @@ export default function CostList({
 												{viewAs ? (
 													<>
 														{fmt(amount(it))}
-														<span className="muted text-[0.75rem] font-medium">
+														<span className="muted text-micro font-medium">
 															{c.ofTotal(fmt(it.homeCents))}
 														</span>
 													</>
@@ -141,7 +140,7 @@ export default function CostList({
 													<>
 														{formatMoney(it.amountCents, it.currency || home, { whole: true })}
 														{converted(it) && (
-															<span className="muted text-[0.75rem] font-medium">
+															<span className="muted text-micro font-medium">
 																≈ {fmt(it.homeCents)}
 															</span>
 														)}
@@ -172,9 +171,9 @@ export default function CostList({
 			{/* The grand total shares the sections' tint, so it is set apart by
 			    weight and height instead: it is the one figure on the card that
 			    is not a part of something else. */}
-			<div className="flex items-center gap-3 border-t border-line bg-surface-2 px-5 py-3.5 text-[1rem] font-semibold">
+			<div className="flex items-center gap-3 border-t border-line bg-surface-2 px-5 py-3.5 text-lead font-semibold">
 				<span>{viewAs ? shareLabel(members, viewAs, me) : c.total}</span>
-				<span className="ml-auto text-[1.1rem] font-bold tabular-nums">{fmt(total)}</span>
+				<span className="ml-auto text-section font-bold tabular-nums">{fmt(total)}</span>
 				<ActionGutter />
 			</div>
 		</div>

@@ -71,7 +71,7 @@ export default function EditPlaceDialog({
 					{/* Read-only, so it sits after the fields: the count answers "is this
 					    popular?", which the card already told you. The names answer
 					    "whose evening am I cancelling?", which is why you opened this. */}
-					<p className="mt-3.5 border-t border-line pt-3.5 text-[0.85rem] leading-normal">
+					<p className="mt-3.5 border-t border-line pt-3.5 text-meta leading-normal">
 						<span className="font-semibold">{c.votes(p.votes)}</span>
 						<span className="muted">{c.voters(p.voters)}</span>
 					</p>

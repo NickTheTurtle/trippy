@@ -31,7 +31,7 @@ export default function NoCities({
 	return (
 		<div className="card mx-auto flex w-full max-w-[34rem] flex-col items-start gap-3 p-8">
 			<PinMark />
-			<h2 className="m-0 text-[1.35rem]">{c.heading}</h2>
+			<h2 className="m-0 text-heading">{c.heading}</h2>
 			<p className="muted m-0">{c.body}</p>
 			{isOrganizer ? (
 				<button type="button" className="btn primary mt-1" onClick={onAddCity}>
@@ -39,7 +39,7 @@ export default function NoCities({
 					{c.cta}
 				</button>
 			) : (
-				<p className="m-0 text-[0.84rem] text-ink-faint">{c.memberNote}</p>
+				<p className="m-0 text-meta text-ink-faint">{c.memberNote}</p>
 			)}
 		</div>
 	);

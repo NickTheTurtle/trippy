@@ -58,14 +58,12 @@ export function ensureDemoAccount(): void {
 
 export function findUserByEmail(email: string) {
 	return db.prepare(`SELECT * FROM users WHERE email = ?`).get(email.toLowerCase()) as
-		| { id: string; email: string; name: string; password_hash: string; home_tz: string }
-		| undefined;
+		{ id: string; email: string; name: string; password_hash: string; home_tz: string } | undefined;
 }
 
 export function findUserById(id: string) {
 	return db.prepare(`SELECT * FROM users WHERE id = ?`).get(id) as
-		| { id: string; email: string; name: string; password_hash: string; home_tz: string }
-		| undefined;
+		{ id: string; email: string; name: string; password_hash: string; home_tz: string } | undefined;
 }
 
 /** Update a user's display name, email, and home time zone. Email must stay unique. */
@@ -130,8 +128,7 @@ export function getSessionUser(sessionId: string): SessionUser | null {
 			 WHERE s.id = ?`
 		)
 		.get(sessionId) as
-		| { id: string; email: string; name: string; homeTz: string; expiresAt: number }
-		| undefined;
+		{ id: string; email: string; name: string; homeTz: string; expiresAt: number } | undefined;
 	if (!row) return null;
 	if (row.expiresAt < Date.now()) {
 		deleteSession(sessionId);
@@ -144,3 +141,25 @@ export function deleteSession(sessionId: string): void {
 	db.prepare(`DELETE FROM sessions WHERE id = ?`).run(sessionId);
 }
 
+/**
+ * Sign every *other* device out for this user, keeping the one that asked.
+ *
+ * Called on a password change. The usual reason to change a password is that
+ * someone else may know it, and a change that left their session alive would
+ * do nothing about that: sessions here are bearer credentials with a 30 day
+ * life and no link back to the password they were issued against.
+ */
+export function deleteOtherSessions(userId: string, keepSessionId: string | null): void {
+	db.prepare(`DELETE FROM sessions WHERE user_id = ? AND id IS NOT ?`).run(userId, keepSessionId);
+}
+
+/**
+ * Drop sessions that have already expired.
+ *
+ * `getSessionUser` only clears the one row it happens to look at, so an
+ * abandoned session is never read again and stays in the table forever. This
+ * sweeps the rest.
+ */
+export function purgeExpiredSessions(): void {
+	db.prepare(`DELETE FROM sessions WHERE expires_at < ?`).run(Date.now());
+}

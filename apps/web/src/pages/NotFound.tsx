@@ -13,7 +13,7 @@ export default function NotFound() {
 	const { status } = useAuth();
 	return (
 		<main className="mx-auto flex w-full max-w-[34rem] flex-col items-start gap-4 px-6 pt-16 pb-16">
-			<h1 className="text-[1.7rem]">{c.heading}</h1>
+			<h1 className="text-title">{c.heading}</h1>
 			<p className="muted">{c.body}</p>
 			<Link className="btn primary" to={status === 'authenticated' ? '/trips' : '/'}>
 				{status === 'authenticated' ? c.backAuthenticated : c.backAnonymous}

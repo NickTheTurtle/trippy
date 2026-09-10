@@ -56,7 +56,7 @@ export default function TaskList({
 					<li key={it.id}>
 						{/* `group` so the row's buttons can stay hidden until it is hovered
 						    without a hover-only stylesheet rule. */}
-						<div className="group flex min-w-0 items-center gap-3 rounded-md px-1.5 py-2 text-[0.94rem] hover:bg-surface-2">
+						<div className="group flex min-w-0 items-center gap-3 rounded-md px-1.5 py-2 text-body hover:bg-surface-2">
 							<Box
 								state={it.done ? 'on' : it.doneCount > 0 ? 'part' : 'off'}
 								label={
@@ -121,9 +121,9 @@ export default function TaskList({
  */
 export function ListTitle({ children }: { children: string }) {
 	return (
-		<h3 className="m-0 mb-2 text-[0.8rem] font-semibold tracking-wide text-ink-soft uppercase">
+		<h2 className="m-0 mb-2 text-meta font-semibold tracking-wider text-ink-soft uppercase">
 			{children}
-		</h3>
+		</h2>
 	);
 }
 

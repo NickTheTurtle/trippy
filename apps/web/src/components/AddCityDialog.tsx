@@ -218,11 +218,9 @@ function CitySearch({
 				renderItem={(s) => (
 					<span className="flex items-baseline gap-2">
 						<span className="min-w-0 truncate font-medium">{s.name}</span>
-						<span className="muted min-w-0 truncate text-[0.8rem]">
-							{detail(s.region, s.country)}
-						</span>
+						<span className="muted min-w-0 truncate text-meta">{detail(s.region, s.country)}</span>
 						{onTrip.has(key(s)) && (
-							<span className="muted ml-auto shrink-0 text-[0.75rem]">{c.alreadyAdded}</span>
+							<span className="muted ml-auto shrink-0 text-micro">{c.alreadyAdded}</span>
 						)}
 					</span>
 				)}
@@ -239,10 +237,10 @@ function CitySearch({
 					<span className="flex items-baseline gap-1.5">
 						<span className="truncate font-medium">{picked.name}</span>
 						{picked.region && (
-							<span className="muted min-w-0 truncate text-[0.78rem]">{picked.region}</span>
+							<span className="muted min-w-0 truncate text-meta">{picked.region}</span>
 						)}
 					</span>
-					<span className="muted truncate text-[0.78rem]">
+					<span className="muted truncate text-meta">
 						{detail(picked.country, picked.tz.replace(/_/g, ' '))}
 					</span>
 				</div>

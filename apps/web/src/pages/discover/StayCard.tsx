@@ -48,16 +48,16 @@ export default function StayCard({
 				<Cover photo={o.photo} seed={o.name} category="stay" />
 				<span className="flex min-w-0 flex-auto flex-col px-4 pt-3.5">
 					<span className="flex items-start justify-between gap-2">
-						<span className="line-clamp-2 min-w-0 text-base font-semibold [overflow-wrap:anywhere] group-hover:underline">
+						<span className="line-clamp-2 min-w-0 text-lead font-semibold [overflow-wrap:anywhere] group-hover:underline">
 							{o.name}
 						</span>
 						{o.locked ? <span className="chip accent flex-none">{c.locked}</span> : null}
 					</span>
-					<span className="muted mt-1.5 mb-2.5 flex-auto text-[0.85rem]">
+					<span className="muted mt-1.5 mb-2.5 flex-auto text-meta">
 						{o.tag ? `${o.tag} · ` : ''}
 						{formatPerNight(o.price_cents, o.currency || currency)}
 					</span>
-					{nights && <span className="mb-2.5 text-[0.8rem] text-accent-ink">🛏 {nights}</span>}
+					{nights && <span className="mb-2.5 text-meta text-accent-ink">🛏 {nights}</span>}
 				</span>
 			</button>
 

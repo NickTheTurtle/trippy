@@ -265,7 +265,6 @@ export default function Discover() {
 			<ConfirmDialog
 				open={!!deleteStay}
 				title={deleteStay ? cd.deleteStay.title(deleteStay.name) : ''}
-				confirmLabel={copy.common.delete}
 				busyLabel={copy.common.deleting}
 				onCancel={() => setDeleteStay(null)}
 				onConfirm={async () => {

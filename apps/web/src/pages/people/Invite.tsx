@@ -31,7 +31,7 @@ export default function Invite({
 
 	return (
 		<section className="card sticky top-4 px-5 py-5">
-			<h3 className="mb-3.5 text-[1.05rem]">{c.heading}</h3>
+			<h2 className="mb-3.5 text-section">{c.heading}</h2>
 			{/* Beside the box that was refused, not at the top of the page: the
 			    message is almost always about the address that was just typed. */}
 			<FormError message={invite.error} variant="banner" />

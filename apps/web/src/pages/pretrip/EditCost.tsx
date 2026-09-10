@@ -7,7 +7,7 @@ import Select from '../../components/ui/Select';
 import MultiSelect from '../../components/ui/MultiSelect';
 import { currencyOptions } from '../../lib/currencies';
 import type { Draft } from './types';
-import { cap } from './labels';
+import { cap } from '../../lib/format';
 import { copy } from '../../copy';
 
 const c = copy.preparation.costDialog;

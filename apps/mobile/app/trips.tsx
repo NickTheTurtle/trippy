@@ -48,7 +48,7 @@ export default function Trips() {
 				{loading && !data ? (
 					<Loading />
 				) : trips.length === 0 ? (
-					<EmptyState message={copy.trips.emptyMessage} />
+					<EmptyState message={copy.common.nothingAdded} />
 				) : (
 					<View style={{ gap: space.md }}>
 						{trips.map((trip) => (
@@ -66,7 +66,7 @@ export default function Trips() {
 					})}
 				>
 					<Text style={{ ...type.body, color: color.accent, fontWeight: '600' }}>
-						+ {copy.trips.newTrip}
+						+ {copy.common.add}
 					</Text>
 				</Pressable>
 			</Screen>

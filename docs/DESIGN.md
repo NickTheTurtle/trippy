@@ -417,6 +417,20 @@ these columns existed carry NULL and read live, as they always did.
 forecasts of money not yet spent, so they should follow today's rate; freezing a
 budget to a stale one would be the bug, not the fix.
 
+**One conversion, one read path.** The expenses endpoint builds every row's
+home-currency figure from `expenseShares`, the same division the balances are
+built from, rather than converting the amount a second time on the way out.
+Converting again would silently use *today's* rate for the row while the
+ledger underneath it used the locked one, so a euro dinner's "≈ $X" and the
+trip's total spend disagreed with the balances they were supposed to explain.
+The only rows that still convert live are those with no stored rate to use.
+
+**Changing a password signs the other devices out.** A session here is a bearer
+credential with a 30 day life and no link back to the password it was issued
+against, so without this the usual reason to change a password (somebody else
+may know it) would not be addressed by changing it. The device that made the
+change keeps its session; being logged out by your own action reads as failure.
+
 ---
 
 ## 5. Architecture & Stack
@@ -1586,6 +1600,41 @@ write into a trip being deleted returns a clean 404.
 These exist so five pages don't each invent their own version. Reach for them
 before adding page-local CSS.
 
+**One type scale, eight steps, named for their role.** The app had accumulated
+27 distinct font sizes in JSX alone, four of them within 0.01rem of each other:
+`0.9`, `0.92`, `0.93` and `0.94` were all "the title of a row", and `0.84`
+through `0.88` were all "the grey line under it". Nobody chose those
+differences; they are what happens when each component picks a number in
+isolation. The design system had tokens for colour, radius, shadow and control
+height but none for type, so type was the one axis with nowhere to put a
+decision. `@theme` now defines `--text-hero / title / heading / section / lead /
+body / meta / micro`, and the rule is the same as for colour: no arbitrary
+`text-[Nrem]` at the point of use. The names are roles rather than sizes so that
+retuning a step does not turn its name into a lie. `calendar.css` is exempt
+pending that page's redesign.
+
+**`Avatar` and `Tag` are the person-circle and the status-pill.** There were
+four hand-rolled avatars at 28, 30, 30 and 34px across three colour schemes,
+and two of them disagreed on whether to uppercase the initial, so the same
+member appeared as `A` on one page and `a` on another. Three hand-rolled pills
+had the same story. Both now have one implementation.
+
+**`useListbox` owns the dropdown keyboard.** `Select` and `MultiSelect` had
+about seventy identical lines each: open state, the active index and its
+mirroring ref, the outside-click and scroll-into-view effects, and the whole
+Escape / arrows / Home / End / Enter / Space handler. Two copies of a keyboard
+contract drift, and the drift is invisible until somebody tries the key that was
+only fixed in one of them. What is left in each component is what genuinely
+differs: `Select` starts on the current pick and closes when you choose,
+`MultiSelect` starts at the top and stays open because picking four people out
+of twenty should not be four trips through the trigger.
+
+`SearchDropdown` is deliberately left out. It is a combobox, not a listbox: the
+trigger is a text input, the caller owns `open`, rows can be disabled and
+skipped, and the highlight has to survive the result set changing underneath it.
+Folding it in would produce a hook that is mostly branches, which is worse than
+the duplication it removed.
+
 **A number field carries one stepper, not two.** The shares box in the expense
 split dialog had explicit `−` / `+` buttons *and* the browser's own spin arrows,
 which is two answers to the same question on one control. The labelled buttons
@@ -1622,6 +1671,23 @@ they describe real loss. Everything that merely restated its own label or the
 button beside it is gone, and `EmptyState` lost its `hint` prop entirely once no
 caller passed one. An empty Discover grid now shows nothing at all, because the
 primary "Add a place" button sits directly above it.
+
+**Wording rules that follow from that.** They are individually small and matter
+only because the app is read as a whole, so they are written down rather than
+re-derived:
+
+- A confirm button repeats the title's verb, bare: "Delete Athens?" is answered
+  by **Delete**, not "Delete city". The title already named the thing, and the
+  button that has to restate it is a button in a dialog that failed to say what
+  it was about. `ConfirmDialog` therefore defaults its label and callers pass
+  one only when the verb genuinely differs (Remove, Leave).
+- A button whose section heading already names the thing says **Add**, with no
+  noun after it. "Tasks / + Add Task" says task twice.
+- An empty list renders `EmptyState` with the shared graphic and "Nothing added
+  yet", with no full stop and no action button: it is a label, not a sentence,
+  and the section's own Add button is always visible above it.
+- A busy label ends in an ellipsis, because it names something still happening.
+- No em dashes anywhere.
 
 **Where a file goes in `apps/web/src`.** Sources are grouped by role: `hooks/`,
 `lib/`, `styles/`, `components/`, and `pages/`. The one boundary that needs a

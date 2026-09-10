@@ -174,19 +174,19 @@ export default function Expenses() {
 									    this for is "who am I paying", and a mixed list makes
 									    that harder to scan than two blocks does. */}
 									{[...owed, ...owes].map((b) => (
-										<li key={b.id} className="flex justify-between gap-2.5 text-[0.9rem]">
+										<li key={b.id} className="flex justify-between gap-2.5 text-body">
 											<span className="truncate" title={b.name}>
 												{b.name}
 												{/* The reader's own number is the one they came for, and
 												    twenty names in three columns is too many to find it in. */}
 												{b.id === data.me && (
-													<span className="muted ml-1.5 text-[0.75rem]">{ce.youTag}</span>
+													<span className="muted ml-1.5 text-micro">{ce.youTag}</span>
 												)}
 												{/* Someone who has left but still has money in the trip.
 												    Shown, because a ledger that quietly stops summing to
 												    zero is the worse of the two failures. */}
 												{b.former && (
-													<span className="ml-1.5 text-[0.75rem] text-warn">{ce.formerTag}</span>
+													<span className="ml-1.5 text-micro text-warn">{ce.formerTag}</span>
 												)}
 											</span>
 											<span
@@ -249,7 +249,6 @@ export default function Expenses() {
 							: ce.deleteExpenseTitle(pendingDelete.description)
 						: ''
 				}
-				confirmLabel={copy.common.delete}
 				busyLabel={copy.common.deleting}
 				onCancel={() => setPendingDelete(null)}
 				onConfirm={async () => {

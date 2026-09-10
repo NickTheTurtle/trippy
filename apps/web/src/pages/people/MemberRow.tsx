@@ -1,5 +1,7 @@
 import { IconButton } from '../../components/ui/buttons';
 import { PencilIcon, TrashIcon } from '../../components/ui/icons';
+import Avatar from '../../components/ui/Avatar';
+import UiTag from '../../components/ui/Tag';
 import type { Person } from './types';
 import { copy } from '../../copy';
 
@@ -28,9 +30,7 @@ export default function MemberRow({
 
 	return (
 		<li className="group flex items-center gap-3 rounded-sm p-2 hover:bg-surface-2">
-			<span className="grid size-[34px] shrink-0 place-items-center rounded-full bg-accent-soft font-semibold text-accent-ink">
-				{person.name[0]}
-			</span>
+			<Avatar name={person.name} size="lg" />
 			<span className="flex min-w-0 flex-1 flex-col">
 				<span className="flex min-w-0 items-center gap-1.5 font-medium">
 					<span className="truncate" title={person.name}>
@@ -44,7 +44,7 @@ export default function MemberRow({
 						person.seeded && <Tag kind="seed">{c.sampleTag}</Tag>
 					)}
 				</span>
-				<span className="muted truncate text-[0.82rem]">{sub}</span>
+				<span className="muted truncate text-meta">{sub}</span>
 			</span>
 			{/* The same drawn pencil and bin every other list in the app uses, on the
 			    row's hover, so removing a member is not the loudest thing on a page
@@ -66,17 +66,15 @@ export default function MemberRow({
 }
 
 function Tag({ kind, children }: { kind: 'you' | 'org' | 'seed' | 'invited'; children: string }) {
-	const style = {
-		org: 'bg-accent-soft text-accent-ink',
-		you: 'bg-line text-ink-soft',
-		seed: 'border border-line text-ink-faint',
-		invited: 'border border-accent-soft text-accent-ink'
-	}[kind];
+	const { tone, outline } = {
+		org: { tone: 'accent', outline: false },
+		you: { tone: 'neutral', outline: false },
+		seed: { tone: 'neutral', outline: true },
+		invited: { tone: 'accent', outline: true }
+	}[kind] as { tone: 'accent' | 'neutral'; outline: boolean };
 	return (
-		<span
-			className={`shrink-0 rounded-full px-1.5 py-px text-[0.68rem] font-semibold tracking-wider uppercase ${style}`}
-		>
+		<UiTag tone={tone} outline={outline}>
 			{children}
-		</span>
+		</UiTag>
 	);
 }

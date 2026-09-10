@@ -1242,7 +1242,7 @@ export default function Calendar() {
 			</div>
 
 			{notice && (
-				<p role="alert" className="mb-4 text-[0.9rem] text-danger-ink">
+				<p role="alert" className="mb-4 text-body text-danger-ink">
 					{notice}
 				</p>
 			)}
@@ -1639,7 +1639,7 @@ function AddEvent({
 				</div>
 				<div className="mfoot">
 					{err && (
-						<p role="alert" className="mfoot-note m-0 text-[0.86rem] text-danger-ink">
+						<p role="alert" className="mfoot-note m-0 text-meta text-danger-ink">
 							{err}
 						</p>
 					)}
@@ -1807,7 +1807,7 @@ function EventDetail({
 
 				<div className="mfoot">
 					{err && (
-						<p role="alert" className="mfoot-note m-0 text-[0.86rem] text-danger-ink">
+						<p role="alert" className="mfoot-note m-0 text-meta text-danger-ink">
 							{err}
 						</p>
 					)}

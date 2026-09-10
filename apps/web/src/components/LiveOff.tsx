@@ -19,7 +19,7 @@ export default function LiveOff() {
 	if (!events || events.status !== 'off') return null;
 
 	return (
-		<p className="muted mb-4 flex flex-wrap items-center gap-2 text-[0.82rem]">
+		<p className="muted mb-4 flex flex-wrap items-center gap-2 text-meta">
 			<span aria-hidden="true">•</span>
 			{copy.tripShell.liveOff}
 			<LinkButton onClick={events.retry}>{copy.tripShell.reconnect}</LinkButton>

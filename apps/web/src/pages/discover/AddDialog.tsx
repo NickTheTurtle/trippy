@@ -394,9 +394,7 @@ export default function AddDialog({
 							renderItem={(h) => (
 								<>
 									<span className="font-medium">{h.name}</span>
-									{h.address && (
-										<span className="muted line-clamp-1 text-[0.8rem]">{h.address}</span>
-									)}
+									{h.address && <span className="muted line-clamp-1 text-meta">{h.address}</span>}
 								</>
 							)}
 							empty={
@@ -410,7 +408,7 @@ export default function AddDialog({
 							}
 							footer={
 								/* The attribution has to sit with the data it describes. */
-								<p className="m-0 px-2 pt-1 text-right text-[0.68rem] text-ink-faint">
+								<p className="m-0 px-2 pt-1 text-right text-micro text-ink-faint">
 									{c.attribution(providerLabel)}
 								</p>
 							}

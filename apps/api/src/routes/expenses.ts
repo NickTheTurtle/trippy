@@ -113,13 +113,20 @@ expenses.get('/', (c) => {
 		currency: home,
 		currencies: knownCurrencies().sort(),
 		members: tripMembers(trip.id),
-		expenses: listExpenses(trip.id).map((e) => ({
-			...e,
-			home_cents: convertCents(e.amount_cents, e.currency, home),
-			converted: e.currency !== home,
-			shares: splits.get(e.id)?.shares ?? {},
-			parts: splits.get(e.id)?.parts ?? []
-		})),
+		expenses: listExpenses(trip.id).map((e) => {
+			const split = splits.get(e.id);
+			return {
+				...e,
+				// The rate the expense was recorded at, via the same division the
+				// balances are built from. Converting again here would use today's
+				// rate, so a euro dinner entered last month would show a home-currency
+				// total that its own shares, and the balances, disagreed with.
+				home_cents: split?.totalCents ?? convertCents(e.amount_cents, e.currency, home),
+				converted: e.currency !== home,
+				shares: split?.shares ?? {},
+				parts: split?.parts ?? []
+			};
+		}),
 		balances: balances(trip.id),
 		settlement: settlement(trip.id),
 		me: c.get('user').id

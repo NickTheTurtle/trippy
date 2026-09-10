@@ -100,7 +100,7 @@ export default function CityList({
 							>
 								<span className="lbl">
 									{c.name}
-									{c.region && <span className="muted ml-1.5 text-[0.78rem]">{c.region}</span>}
+									{c.region && <span className="muted ml-1.5 text-meta">{c.region}</span>}
 								</span>
 								{c.badge > 0 && <span className="badge">{c.badge}</span>}
 							</button>
@@ -131,7 +131,6 @@ export default function CityList({
 			<ConfirmDialog
 				open={!!pendingDelete}
 				title={pendingDelete ? cl.deleteTitle(pendingDelete.name, pendingDelete.region) : ''}
-				confirmLabel={cl.deleteConfirm}
 				busyLabel={copy.common.deleting}
 				onCancel={() => setPendingDelete(null)}
 				onConfirm={async () => {

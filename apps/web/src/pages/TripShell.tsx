@@ -7,6 +7,7 @@ import { TABS } from '../nav';
 import AddCityDialog from '../components/AddCityDialog';
 import TripFormDialog from '../components/TripFormDialog';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
+import UiAvatar from '../components/ui/Avatar';
 import LiveOff from '../components/LiveOff';
 import { copy } from '../copy';
 
@@ -115,14 +116,14 @@ export default function TripShell() {
 				<div className="container">
 					<Link
 						to="/trips"
-						className="inline-block pt-5 pb-2.5 text-[0.88rem] text-ink-faint hover:text-accent"
+						className="inline-block pt-5 pb-2.5 text-body text-ink-faint hover:text-accent"
 					>
 						{c.backToTrips}
 					</Link>
 
 					<div className="flex items-start justify-between gap-4">
 						<div className="min-w-0">
-							<h1 className="text-[1.9rem] [overflow-wrap:anywhere]">{trip.name}</h1>
+							<h1 className="text-title [overflow-wrap:anywhere]">{trip.name}</h1>
 							<p className="muted">{trip.dates}</p>
 						</div>
 
@@ -156,7 +157,7 @@ export default function TripShell() {
 								to={`${base}/${t.slug}`}
 								className={({ isActive }) =>
 									[
-										'border-b-2 px-3.5 py-2.5 text-[0.92rem] font-medium whitespace-nowrap',
+										'border-b-2 px-3.5 py-2.5 text-body font-medium whitespace-nowrap',
 										isActive
 											? 'border-accent text-accent-ink'
 											: 'border-transparent text-ink-soft hover:text-ink'
@@ -186,7 +187,7 @@ export default function TripShell() {
 				title={
 					confirming === 'leave' ? c.leaveDialog.title(trip.name) : c.deleteDialog.title(trip.name)
 				}
-				confirmLabel={confirming === 'leave' ? c.leaveTrip : c.deleteTrip}
+				confirmLabel={confirming === 'leave' ? copy.common.leave : copy.common.delete}
 				busyLabel={confirming === 'leave' ? copy.common.working : copy.common.deleting}
 				onCancel={() => {
 					const wasDelete = confirming === 'delete';
@@ -244,17 +245,14 @@ export default function TripShell() {
 
 function Avatar({ title, label, rest }: { title: string; label: string; rest?: boolean }) {
 	return (
-		<span
+		<UiAvatar
 			title={title}
-			className={[
-				'-ml-1.5 grid size-[30px] shrink-0 place-items-center rounded-full border-2 border-surface font-semibold',
-				rest
-					? 'cursor-help bg-surface-2 text-[0.72rem] text-ink-soft'
-					: 'bg-accent-soft text-[0.82rem] text-accent-ink'
-			].join(' ')}
-		>
-			{label}
-		</span>
+			label={label}
+			tone={rest ? 'muted' : 'accent'}
+			// Overlapped into a stack, and ringed in the page colour so the circles
+			// read as separate discs rather than one blob.
+			className={`-ml-1.5 border-2 border-surface ${rest ? 'cursor-help text-micro' : ''}`}
+		/>
 	);
 }
 

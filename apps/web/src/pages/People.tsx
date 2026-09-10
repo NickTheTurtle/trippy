@@ -50,9 +50,9 @@ export default function People() {
 				}
 			>
 				<section className="card px-5 py-5">
-					<h2 className="mb-3.5 flex items-baseline gap-2 text-[1.05rem]">
+					<h2 className="mb-3.5 flex items-baseline gap-2 text-section">
 						{cpl.membersHeading}
-						<span className="muted text-[0.82rem] font-normal">{data.people.length}</span>
+						<span className="muted text-meta font-normal">{data.people.length}</span>
 					</h2>
 					{/* Auto-fill columns rather than one long list: at 20 members a
 					    single column is mostly empty space on a wide screen. */}
@@ -93,7 +93,7 @@ export default function People() {
 			<ConfirmDialog
 				open={!!pendingRemove}
 				title={pendingRemove ? cpl.removeTitle(pendingRemove.name) : ''}
-				confirmLabel={cpl.removeConfirm}
+				confirmLabel={copy.common.remove}
 				busyLabel={cpl.removeBusy}
 				onCancel={() => setPendingRemove(null)}
 				onConfirm={async () => {

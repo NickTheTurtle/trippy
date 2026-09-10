@@ -7,7 +7,7 @@ import { auth } from './routes/auth';
 import { account } from './routes/account';
 import { trips } from './routes/trips';
 import { placePhoto } from './routes/place-photo';
-import { ensureDemoAccount } from '@trippy/server/auth';
+import { ensureDemoAccount, purgeExpiredSessions } from '@trippy/server/auth';
 import { closeAll } from '@trippy/server/events';
 import { searchCities } from '@trippy/server/geocode';
 
@@ -74,6 +74,11 @@ app.onError((err, c) => {
 });
 
 if (process.env.NODE_ENV !== 'production') ensureDemoAccount();
+
+// Expired sessions are otherwise only cleared when that exact session is looked
+// up again, which an abandoned one never is. Once at boot is enough for a table
+// whose rows live 30 days.
+purgeExpiredSessions();
 
 const port = Number(process.env.PORT ?? 5175);
 serve({ fetch: app.fetch, port }, (info) => {

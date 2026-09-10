@@ -1,9 +1,14 @@
 import { Hono } from 'hono';
-import { requireUser } from '../middleware';
+import { requireUser, sessionId } from '../middleware';
 import { body, rawStr, str } from '../parse';
 import { fail, ok } from '../respond';
 import type { Env } from '../types';
-import { changePassword, findUserById, updateProfile } from '@trippy/server/auth';
+import {
+	changePassword,
+	deleteOtherSessions,
+	findUserById,
+	updateProfile
+} from '@trippy/server/auth';
 
 export const account = new Hono<Env>();
 
@@ -67,5 +72,10 @@ account.post('/password', async (c) => {
 	}
 	const res = changePassword(c.get('user').id, rawStr(b.current), next);
 	if (!res.ok) return fail(c, 400, res.error);
+	// A password is usually changed because someone else may know it, so the
+	// other devices holding a session issued against the old one are signed out.
+	// This device keeps its session: being logged out by your own change reads
+	// as the change having failed.
+	deleteOtherSessions(c.get('user').id, sessionId(c));
 	return ok(c);
 });

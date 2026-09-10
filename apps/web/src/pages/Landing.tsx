@@ -15,8 +15,8 @@ export default function Landing() {
 	return (
 		<main className="container py-16">
 			<section className="max-w-2xl">
-				<h1 className="font-serif text-[2.6rem] leading-tight text-ink">{c.heading}</h1>
-				<p className="muted mt-4 text-[1.05rem]">{c.blurb}</p>
+				<h1 className="font-serif text-hero leading-tight text-ink">{c.heading}</h1>
+				<p className="muted mt-4 text-section">{c.blurb}</p>
 
 				<div className="mt-8 flex flex-wrap gap-3">
 					<Link to="/register" className="btn primary">
@@ -31,8 +31,8 @@ export default function Landing() {
 			<section className="mt-14 grid gap-5 md:grid-cols-2 lg:grid-cols-3">
 				{FEATURES.map((f) => (
 					<div key={f.title} className="card px-5 py-5">
-						<h2 className="text-[1.05rem]">{f.title}</h2>
-						<p className="muted mt-1.5 text-[0.92rem]">{f.body}</p>
+						<h2 className="text-section">{f.title}</h2>
+						<p className="muted mt-1.5 text-body">{f.body}</p>
 					</div>
 				))}
 			</section>

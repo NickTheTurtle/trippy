@@ -37,7 +37,7 @@ export default function ViewAsBar({
 
 	return (
 		<div className="flex flex-wrap items-center gap-2.5 border-b border-line px-4 py-3">
-			<span className="muted text-[0.8rem]">{c.label}</span>
+			<span className="muted text-meta">{c.label}</span>
 			<div className="w-44">
 				<Select
 					compact

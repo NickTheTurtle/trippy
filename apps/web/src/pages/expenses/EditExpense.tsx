@@ -249,13 +249,13 @@ export default function EditExpense({
 						</FieldShell>
 					</div>
 
-					<p className={`-mt-2 text-[0.82rem] ${income ? 'text-accent-ink' : 'text-ink-faint'}`}>
+					<p className={`-mt-2 text-meta ${income ? 'text-accent-ink' : 'text-ink-faint'}`}>
 						{income ? c.incomeNote : c.expenseNote}
 					</p>
 
 					<div className="flex flex-col gap-1.5 rounded-md border border-line bg-surface-2 px-3.5 py-3.5">
 						<div className="flex flex-wrap items-center justify-between gap-3">
-							<span className="text-[0.82rem] text-ink-soft">{c.splitLabel}</span>
+							<span className="text-meta text-ink-soft">{c.splitLabel}</span>
 							<div
 								role="group"
 								aria-label={c.splitAriaLabel}
@@ -268,7 +268,7 @@ export default function EditExpense({
 										aria-pressed={splitMode === o.value}
 										onClick={() => setMode(o.value)}
 										className={[
-											'cursor-pointer rounded-full border-none px-3.5 py-1.5 text-[0.85rem] whitespace-nowrap',
+											'cursor-pointer rounded-full border-none px-3.5 py-1.5 text-meta whitespace-nowrap',
 											splitMode === o.value
 												? 'bg-surface font-medium text-ink shadow-sm'
 												: 'bg-transparent text-ink-soft'
@@ -280,7 +280,7 @@ export default function EditExpense({
 							</div>
 						</div>
 						<div className="mt-2 mb-2 flex items-baseline justify-between gap-2.5">
-							<span className="muted min-w-0 truncate text-[0.85rem]">
+							<span className="muted min-w-0 truncate text-meta">
 								{c.selectedCount(chosen.length, members.length)}
 								{splitMode === 'exact' &&
 									totalCents !== 0 &&
@@ -313,7 +313,7 @@ export default function EditExpense({
 								const on = picked.has(m.id);
 								const money = on && totalCents !== 0 && preview.has(m.id) && (
 									<span
-										className={`w-[5.5rem] flex-none text-right text-[0.82rem] tabular-nums ${income ? 'text-accent-ink' : 'text-ink-faint'}`}
+										className={`w-[5.5rem] flex-none text-right text-meta tabular-nums ${income ? 'text-accent-ink' : 'text-ink-faint'}`}
 									>
 										{formatMoney(preview.get(m.id) ?? 0, currency)}
 									</span>
@@ -325,7 +325,7 @@ export default function EditExpense({
 										   input: without it the whole list jumps shorter the moment
 										   somebody switches to Evenly. */
 										className={[
-											'flex h-11 items-center gap-2.5 rounded-md px-3 text-[0.88rem]',
+											'flex h-11 items-center gap-2.5 rounded-md px-3 text-body',
 											on ? 'bg-surface shadow-[inset_0_0_0_1px_var(--color-line)]' : ''
 										].join(' ')}
 									>
@@ -373,7 +373,7 @@ export default function EditExpense({
 										)}
 										{on && splitMode === 'exact' && (
 											<span className="relative flex-none">
-												<span className="muted pointer-events-none absolute inset-y-0 left-2.5 flex items-center text-[0.8rem]">
+												<span className="muted pointer-events-none absolute inset-y-0 left-2.5 flex items-center text-meta">
 													{currencySymbol(currency)}
 												</span>
 												<input

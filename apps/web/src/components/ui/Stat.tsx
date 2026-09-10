@@ -14,8 +14,8 @@
 export default function Stat({ label, value }: { label: string; value: string }) {
 	return (
 		<div className="flex flex-col">
-			<span className="muted text-[0.72rem] leading-none">{label}</span>
-			<strong className="font-serif text-xl leading-[1.15]">{value}</strong>
+			<span className="muted text-micro leading-none">{label}</span>
+			<strong className="font-serif text-heading leading-[1.15]">{value}</strong>
 		</div>
 	);
 }

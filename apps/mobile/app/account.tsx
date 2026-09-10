@@ -125,7 +125,7 @@ export default function Account() {
 						</Text>
 					) : null}
 					<Button
-						label={copy.account.password.submitLabel}
+						label={copy.common.save}
 						onPress={() => {
 							setSavedPassword(false);
 							void savePassword.run();

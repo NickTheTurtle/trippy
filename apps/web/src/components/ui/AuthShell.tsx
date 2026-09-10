@@ -29,7 +29,7 @@ export function AuthShell({
 	return (
 		<div className="grid place-items-center px-6 py-16">
 			<div className="w-full max-w-sm rounded-lg border border-line bg-surface p-8 shadow-card">
-				<h2 className="text-[1.6rem]">{title}</h2>
+				<h1 className="text-title">{title}</h1>
 				<p className="mt-1.5 mb-6 text-ink-soft">{blurb}</p>
 
 				<FormError message={error} variant="banner" />
@@ -51,7 +51,7 @@ export function AuthShell({
 					</button>
 				</form>
 
-				<p className="mt-5 text-center text-[0.88rem] text-ink-soft">{footer}</p>
+				<p className="mt-5 text-center text-body text-ink-soft">{footer}</p>
 			</div>
 		</div>
 	);
