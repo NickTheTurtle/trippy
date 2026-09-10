@@ -1,3 +1,5 @@
+import { PlusIcon } from './card-controls';
+
 /**
  * Discover's first-run panel: the trip has no cities yet.
  *
@@ -12,9 +14,8 @@
  * Both roles get an honest answer. Adding a city is organizer-only on the
  * server, so a member gets no button rather than a disabled one.
  *
- * The button is the page's single call to action. The trip header carries no
- * itinerary link at all, so the only other way in is Discover's own sidebar
- * button, "Add or edit cities".
+ * The button is the page's single call to action, and carries the same plus as
+ * the sidebar's "Add city" so the two ways in read as one action.
  */
 export default function NoCities({
 	isOrganizer,
@@ -33,6 +34,7 @@ export default function NoCities({
 			</p>
 			{isOrganizer ? (
 				<button type="button" className="btn primary mt-1" onClick={onAddCity}>
+					<PlusIcon />
 					Add a city
 				</button>
 			) : (

@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, ApiError } from '../lib/api';
 import Modal from './ui/Modal';
-import { LinkButton } from './ui/buttons';
 import SearchDropdown from './ui/SearchDropdown';
-import type { Trip, TripCity } from '../pages/TripShell';
+import type { Trip } from '../pages/TripShell';
 
 /**
  * One `/citysearch` hit. Mirrors `CitySuggestion` in the geocoder.
@@ -41,13 +40,18 @@ function detail(...parts: (string | null | undefined)[]): string {
 }
 
 /**
- * The itinerary editor.
+ * The add-city dialog.
  *
  * Cities are what every other section is scoped to, so until this existed a
  * freshly created trip was a dead end: Discover told you to add a city and
- * nothing in the app could. Kept out of the Edit trip dialog on purpose, since
- * these controls take effect immediately and that form saves on submit; putting
- * both in one place makes it impossible to tell which is which.
+ * nothing in the app could.
+ *
+ * It adds, and does not list. The sidebar behind it already shows every city
+ * with its own delete button, so repeating that list here was the same data
+ * twice, one of the two copies stale the moment the other changed. Kept out of
+ * the Edit trip dialog on purpose, since this takes effect immediately and that
+ * form saves on submit; putting both in one place makes it impossible to tell
+ * which is which.
  */
 export default function Itinerary({
 	trip,
@@ -75,10 +79,10 @@ export default function Itinerary({
 	return (
 		<Modal
 			open
-			title="Itinerary"
+			title="Add city"
 			subtitle={trip.name}
-			// Focus stays on the close button so opening this list editor never
-			// sends a stray keystroke into the city search box.
+			// Focus stays on the close button so opening this never sends a stray
+			// keystroke into the city search box.
 			autoFocusField={false}
 			onClose={onClose}
 		>
@@ -87,21 +91,6 @@ export default function Itinerary({
 					<p role="alert" className="m-0 text-[0.88rem] text-warn">
 						{error}
 					</p>
-				)}
-
-				{trip.cities.length === 0 ? (
-					<p className="muted m-0 text-[0.88rem]">No cities yet. Add your first stop below.</p>
-				) : (
-					<ul className="m-0 flex list-none flex-col gap-2 p-0">
-						{trip.cities.map((city) => (
-							<CityRow
-								key={city.id}
-								city={city}
-								canRemove={trip.cities.length > 1}
-								onRemove={() => call(`/trips/${trip.id}/cities/${city.id}`, 'DELETE')}
-							/>
-						))}
-					</ul>
 				)}
 
 				<AddCity
@@ -114,50 +103,6 @@ export default function Itinerary({
 				</button>
 			</div>
 		</Modal>
-	);
-}
-
-/** One city in the itinerary. Dates live on the trip, not on the city row. */
-function CityRow({
-	city,
-	canRemove,
-	onRemove
-}: {
-	city: TripCity;
-	canRemove: boolean;
-	onRemove: () => void;
-}) {
-	return (
-		<li className="flex flex-wrap items-end gap-2.5 rounded-[10px] border border-line bg-surface-2 px-3 py-2.5">
-			<span className="flex min-w-0 flex-[1_1_140px] flex-col">
-				{/* The region rides with the name rather than joining the line below
-				    it: this column is about 190px, and region · country · zone on one
-				    line ellipsised the zone away on every row. Beside the name is
-				    also where it does its job, since the name is the ambiguous part.
-				    Nothing is rendered at all when there is no region. */}
-				<span className="flex items-baseline gap-1.5">
-					<span className="truncate font-medium">{city.name}</span>
-					{city.region && (
-						<span className="muted min-w-0 truncate text-[0.78rem]">{city.region}</span>
-					)}
-				</span>
-				<span className="muted truncate text-[0.78rem]">
-					{detail(city.country, city.tz.replace(/_/g, ' '))}
-				</span>
-			</span>
-			<LinkButton
-				danger
-				onClick={onRemove}
-				disabled={!canRemove}
-				aria-label={`Remove ${city.name}`}
-				// Disabled rather than hidden on the last city: the button vanishing
-				// as you delete down to one looks like a bug, and the title says why.
-				title={canRemove ? undefined : 'A trip needs at least one city'}
-				className="mb-1.5 disabled:cursor-not-allowed disabled:opacity-50"
-			>
-				Remove
-			</LinkButton>
-		</li>
 	);
 }
 
@@ -243,8 +188,8 @@ function AddCity({ onAdd }: { onAdd: (v: Record<string, unknown>) => Promise<boo
 		return (
 			<div className="flex flex-col gap-2.5 rounded-[10px] border border-accent-soft bg-accent-soft/40 px-3 py-3">
 				<span className="flex min-w-0 flex-col">
-					{/* Laid out like the saved rows below, so the card you confirm
-					    reads the same as the row it becomes. */}
+					{/* Laid out like the search result it came from, so the card you
+					    confirm reads the same as the row you picked. */}
 					<span className="flex items-baseline gap-1.5">
 						<span className="truncate font-medium">{picked.name}</span>
 						{picked.region && (
@@ -269,18 +214,18 @@ function AddCity({ onAdd }: { onAdd: (v: Record<string, unknown>) => Promise<boo
 
 	return (
 		<SearchDropdown
-			label="Add a city"
-			// Format is not the issue here; what the box wants is not obvious from
-			// "Add a city" alone, so the placeholder carries an example.
+			// The dialog's title already says "Add city", so the field is named for
+			// what it holds rather than repeating the action. The placeholder does
+			// the rest: what the box wants is examples, not a format.
+			label="City"
 			placeholder="Kyoto, Lisbon, Cusco..."
-			ariaLabel="Add a city"
 			value={query}
 			onChange={onQuery}
 			open={open}
 			onOpenChange={setOpen}
 			busy={searching}
-			// The results overlay the rows below rather than pushing them down the
-			// dialog, which is what typing here used to do on every keystroke.
+			// The results overlay rather than pushing the dialog's own controls
+			// down, which is what typing here used to do on every keystroke.
 			items={hits.slice(0, 6)}
 			itemKey={(s) => `${s.name}|${s.country}|${s.lat}`}
 			onPick={pick}

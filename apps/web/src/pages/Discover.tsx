@@ -149,7 +149,7 @@ export default function Discover() {
 				value={current.id}
 				onChange={setActiveCity}
 				isOrganizer={data.isOrganizer}
-				onEditItinerary={() => editItinerary(reload)}
+				onAddCity={() => editItinerary(reload)}
 				onChanged={() => {
 					// The itinerary lives on the trip and the pools live here, so both
 					// have to come back after a city is added or deleted.

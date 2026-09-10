@@ -34,8 +34,7 @@ export type CityRow = {
  * header dropdown.
  *
  * Alphabetical, not itinerary order: this is a lookup ("where is Kyoto?"), and
- * the itinerary's own order is already shown in the itinerary editor and on the
- * calendar.
+ * the itinerary's own order is what the calendar reads from.
  *
  * Adding and deleting a city are organizer-only *on the server*, so the
  * controls are hidden from everyone else rather than shown and refused.
@@ -46,7 +45,7 @@ export default function CityList({
 	value,
 	onChange,
 	isOrganizer,
-	onEditItinerary,
+	onAddCity,
 	onChanged
 }: {
 	trip: Trip;
@@ -55,14 +54,12 @@ export default function CityList({
 	onChange: (cityId: string) => void;
 	isOrganizer: boolean;
 	/**
-	 * Opens the itinerary dialog, which is now the only place cities are added.
-	 * This used to open a popup holding just `AddCity`, but that was the
-	 * itinerary editor with its list cut off: same search, same defaults, same
-	 * number of clicks to reach the field, minus the dates and the removals. One
-	 * dialog does the whole job.
+	 * Opens the add-city dialog. That dialog used to list the trip's cities and
+	 * offer removals too, which was this sidebar's job done a second time, so it
+	 * now only adds and this list stays the one place a city is deleted.
 	 */
-	onEditItinerary: () => void;
-	/** Reloads the trip and the page data after the itinerary changes. */
+	onAddCity: () => void;
+	/** Reloads the trip and the page data after a city is added. */
 	onChanged: () => void;
 }) {
 	const [pendingDelete, setPendingDelete] = useState<CityRow | null>(null);
@@ -77,10 +74,19 @@ export default function CityList({
 				{cities.map((c) => {
 					const on = c.id === value;
 					return (
-						<div key={c.id} className="group/card flex min-w-0 items-center gap-1">
+						// The delete button is overlaid rather than laid out beside the
+						// row, so a city button is exactly as wide as the Add city button
+						// under it. Given away as a column it cost every row 28px of an
+						// already narrow lane, and left the nav visibly out of line with
+						// the only other control in this sidebar.
+						<div key={c.id} className="group/card relative flex min-w-0 items-center">
 							<button
 								type="button"
-								className={on ? 'sec on' : 'sec'}
+								// The trailing room is reserved whether or not the button is
+								// showing, so revealing it on hover never reflows the label
+								// or nudges the badge sideways. Only organizers can delete,
+								// so only they pay for the space.
+								className={`${on ? 'sec on' : 'sec'}${isOrganizer ? ' pr-10' : ''}`}
 								aria-current={on ? 'true' : undefined}
 								// The region is set only when a same-named city is in the
 								// list, and the column is narrow enough to ellipsise it, so
@@ -103,7 +109,7 @@ export default function CityList({
 									onClick={() => setPendingDelete(c)}
 									disabled={!canDelete}
 									title={canDelete ? undefined : 'A trip needs at least one city'}
-									className="flex-none"
+									className="absolute top-1/2 right-1 -translate-y-1/2"
 								/>
 							)}
 						</div>
@@ -112,9 +118,9 @@ export default function CityList({
 			</nav>
 
 			{isOrganizer && (
-				<button type="button" className="btn small justify-center" onClick={onEditItinerary}>
+				<button type="button" className="btn small justify-center" onClick={onAddCity}>
 					<PlusIcon />
-					Add or edit cities
+					Add city
 				</button>
 			)}
 
