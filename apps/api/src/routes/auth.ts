@@ -11,7 +11,7 @@ import {
 	deleteSession,
 	type SessionUser
 } from '@trippy/server/auth';
-import { clearFailures, recordFailure, retryAfterMs } from '@trippy/server/throttle';
+import { clearFailures, recordFailure, REGISTER_ATTEMPTS, retryAfterMs } from '@trippy/server/throttle';
 
 type Env = { Variables: { user: SessionUser | null } };
 
@@ -118,7 +118,7 @@ auth.post('/register', async (c) => {
 
 	// Counted on success rather than on failure: one person signing up is one
 	// account, so it is the rate of real registrations that needs a ceiling.
-	recordFailure(key);
+	recordFailure(key, Date.now(), REGISTER_ATTEMPTS);
 	const user = createUser(email, name, password);
 	return c.json({ user, ...grant(c, user.id) }, 201);
 });

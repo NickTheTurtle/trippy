@@ -51,7 +51,10 @@ export default defineConfig({
 	],
 	webServer: [
 		{
-			command: `${setEnv('PORT', String(apiPort))} && ${setEnv('TRIPPY_DB', dbPath)} && npx tsx apps\\api\\src\\index.ts`,
+			// Every spec registers its own account from one address, which is exactly
+			// what the registration throttle exists to slow down. The limit is raised
+			// rather than switched off so the code path under test is the real one.
+			command: `${setEnv('PORT', String(apiPort))} && ${setEnv('TRIPPY_DB', dbPath)} && ${setEnv('TRIPPY_REGISTER_LIMIT', '10000')} && npx tsx apps\\api\\src\\index.ts`,
 			url: `${apiURL}/health`,
 			cwd: repoRoot,
 			reuseExistingServer: false,

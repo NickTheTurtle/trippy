@@ -23,6 +23,18 @@
 /** Failures allowed before any waiting starts. Covers ordinary mistyping. */
 const FREE_ATTEMPTS = 5;
 
+/**
+ * How many registrations one address gets before the same backoff applies.
+ *
+ * Signing up is not guessing, so the ceiling is about stopping bulk account
+ * creation rather than about protecting a secret, and it can be far looser than
+ * the login one. It is configurable because an end-to-end run legitimately
+ * creates an account per test from a single address, and a suite that has to
+ * sit out an exponential backoff to test anything else is a suite nobody runs.
+ * Raising it costs nothing an attacker could not already do more slowly.
+ */
+export const REGISTER_ATTEMPTS = Number(process.env.TRIPPY_REGISTER_LIMIT ?? 20);
+
 /** First penalty, doubling per failure after that. */
 const BASE_DELAY_MS = 2_000;
 
@@ -65,14 +77,20 @@ export function retryAfterMs(key: string, now = Date.now()): number {
 	return Math.max(0, a.blockedUntil - now);
 }
 
-/** Record a failed attempt and return how long this key must now wait. */
-export function recordFailure(key: string, now = Date.now()): number {
+/**
+ * Record a failed attempt and return how long this key must now wait.
+ *
+ * `free` is how many attempts this kind of key gets for nothing. It is a
+ * parameter rather than a constant because the endpoints differ in what an
+ * attempt means: a wrong password is a guess, a registration is a signup.
+ */
+export function recordFailure(key: string, now = Date.now(), free = FREE_ATTEMPTS): number {
 	prune(now);
 	const prev = attempts.get(key);
 	const fails = prev && now - prev.last <= RESET_AFTER_MS ? prev.fails + 1 : 1;
-	// The first `FREE_ATTEMPTS` cost nothing; each one after that doubles the
+	// The first `free` attempts cost nothing; each one after that doubles the
 	// wait, so guessing gets slow fast while a real person barely notices.
-	const over = fails - FREE_ATTEMPTS;
+	const over = fails - free;
 	const delay = over <= 0 ? 0 : Math.min(BASE_DELAY_MS * 2 ** (over - 1), MAX_DELAY_MS);
 	attempts.set(key, { fails, blockedUntil: now + delay, last: now });
 	return delay;
