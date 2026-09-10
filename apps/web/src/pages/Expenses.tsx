@@ -10,6 +10,7 @@ import EmptyState from '../components/ui/EmptyState';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 import Stat from '../components/ui/Stat';
 import ViewAsBar, { shareLabel } from '../components/ui/ViewAsBar';
+import { PlusIcon } from '../components/ui/icons';
 import type { Expense, ExpensesData } from './expenses/types';
 import ExpenseRow from './expenses/ExpenseRow';
 import SettleRow from './expenses/SettleRow';
@@ -124,7 +125,12 @@ export default function Expenses() {
 								</div>
 							}
 						>
-							<button className="btn primary" onClick={() => setEditing({ expense: null })}>
+							<button
+								type="button"
+								className="btn primary"
+								onClick={() => setEditing({ expense: null })}
+							>
+								<PlusIcon />
 								{ce.addExpense}
 							</button>
 						</Head>
@@ -161,7 +167,7 @@ export default function Expenses() {
 					<>
 						<div className="card px-5 py-5">
 							{unsettled === 0 ? (
-								<p className="muted m-0 text-[0.9rem]">{ce.allEven}</p>
+								<EmptyState message={ce.allEven} />
 							) : (
 								<ul className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-x-5 gap-y-1.5 p-0">
 									{/* Creditors first, then debtors: the question people open
@@ -201,7 +207,7 @@ export default function Expenses() {
 					<>
 						<div className="card px-5 py-5">
 							{data.settlement.length === 0 ? (
-								<p className="muted m-0 text-[0.9rem]">{ce.nothingToSettle}</p>
+								<EmptyState message={ce.nothingToSettle} />
 							) : (
 								<ul className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-1.5 p-0">
 									{data.settlement.map((t) => (

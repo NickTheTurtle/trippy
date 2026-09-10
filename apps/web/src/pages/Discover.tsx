@@ -49,6 +49,7 @@ export default function Discover() {
 	const [editPoi, setEditPoi] = useState<Poi | null>(null);
 	const [editStay, setEditStay] = useState<Stay | null>(null);
 	const [deletePoi, setDeletePoi] = useState<Poi | null>(null);
+	const [deleteStay, setDeleteStay] = useState<Stay | null>(null);
 
 	// One state machine per write, each reporting the server's own refusal. The
 	// API answers 400 / 403 / 404 for a write it declines where it used to
@@ -75,7 +76,7 @@ export default function Discover() {
 
 	const notice = votePlace.error || voteStay.error || removeStay.error;
 
-	if (!data) return error ? <p className="text-warn">{error}</p> : null;
+	if (!data) return error ? <FormError message={error} variant="banner" /> : null;
 
 	if (data.cities.length === 0) {
 		return <NoCities isOrganizer={trip.role === 'organizer'} onAddCity={() => addCity(reload)} />;
@@ -180,7 +181,7 @@ export default function Discover() {
 								pct={pct(o.votes)}
 								onEdit={() => setEditStay(o)}
 								onVote={() => void voteStay.run(o.id)}
-								onRemove={() => void removeStay.run(o.id)}
+								onRemove={() => setDeleteStay(o)}
 							/>
 						))}
 						{places.map((p) => (
@@ -259,6 +260,18 @@ export default function Discover() {
 					await api(`${base}/pois/${deletePoi.id}`, { method: 'DELETE' });
 					setDeletePoi(null);
 					reload();
+				}}
+			/>
+			<ConfirmDialog
+				open={!!deleteStay}
+				title={deleteStay ? cd.deleteStay.title(deleteStay.name) : ''}
+				confirmLabel={copy.common.delete}
+				busyLabel={copy.common.deleting}
+				onCancel={() => setDeleteStay(null)}
+				onConfirm={async () => {
+					if (!deleteStay) return;
+					await removeStay.run(deleteStay.id);
+					setDeleteStay(null);
 				}}
 			/>
 		</div>

@@ -3,6 +3,7 @@ import { formatDayRange, normalizeDay } from '@trippy/core/tz';
 import { db } from '../db';
 import { defaultPartyId } from './parties';
 import { publish, publishMany } from '../events';
+import { isOrganizer } from './membership';
 
 export interface TripRow {
 	id: string;
@@ -244,21 +245,7 @@ function tripLabel(start: string, end: string): string {
 	return formatDayRange(start, end);
 }
 
-function isOrganizer(tripId: string, userId: string): boolean {
-	const row = db
-		.prepare(`SELECT role FROM memberships WHERE trip_id = ? AND user_id = ?`)
-		.get(tripId, userId) as { role: string } | undefined;
-	return row?.role === 'organizer';
-}
-
 const TZ_RE = /^[A-Za-z]+\/[A-Za-z0-9_+-]+$/;
-
-/**
- * Human label for a date range. Kept as a named export because it is the trip
- * card's wording; the formatting itself lives in `@trippy/core/tz` so a client
- * can produce the identical string without a round trip.
- */
-export const formatDateRange = formatDayRange;
 
 export interface TripEdit {
 	name: string;
@@ -306,7 +293,7 @@ export function updateTrip(tripId: string, actorId: string, e: TripEdit): string
  *
  * Runs in one transaction: a failure between the trip and the placeholder sweep
  * would leave accounts nobody can see or clean up.
- */export function deleteTrip(tripId: string, actorId: string): boolean {
+ */ export function deleteTrip(tripId: string, actorId: string): boolean {
 	if (!isOrganizer(tripId, actorId)) return false;
 	const placeholders = db
 		.prepare(
@@ -431,8 +418,7 @@ export function addCity(tripId: string, actorId: string, c: CityInput): string |
 	const next =
 		((
 			db.prepare(`SELECT MAX(sort) AS m FROM cities WHERE trip_id = ?`).get(tripId) as
-				| { m: number | null }
-				| undefined
+				{ m: number | null } | undefined
 		)?.m ?? -1) + 1;
 	const id = randomUUID();
 	db.prepare(
@@ -456,12 +442,7 @@ export function addCity(tripId: string, actorId: string, c: CityInput): string |
 }
 
 /** Update an existing city. Organizer only. */
-export function updateCity(
-	tripId: string,
-	actorId: string,
-	cityId: string,
-	c: CityInput
-): boolean {
+export function updateCity(tripId: string, actorId: string, cityId: string, c: CityInput): boolean {
 	if (!isOrganizer(tripId, actorId)) return false;
 	if (!validCity(c)) return false;
 	if (cityOnTrip(tripId, c, cityId)) return false;
@@ -488,9 +469,10 @@ export function updateCity(
 export function removeCity(tripId: string, actorId: string, cityId: string): boolean {
 	if (!isOrganizer(tripId, actorId)) return false;
 	const count =
-		(db.prepare(`SELECT COUNT(*) AS n FROM cities WHERE trip_id = ?`).get(tripId) as
-			| { n: number }
-			| undefined)?.n ?? 0;
+		(
+			db.prepare(`SELECT COUNT(*) AS n FROM cities WHERE trip_id = ?`).get(tripId) as
+				{ n: number } | undefined
+		)?.n ?? 0;
 	if (count <= 1) return false;
 	const res = db.prepare(`DELETE FROM cities WHERE id = ? AND trip_id = ?`).run(cityId, tripId);
 	// Removing a city cascades into its places, stays, lodging votes and budget
@@ -499,4 +481,3 @@ export function removeCity(tripId: string, actorId: string, cityId: string): boo
 	if (res.changes > 0) publishMany(tripId, ['trip', 'pois', 'lodging', 'costs', 'schedule']);
 	return res.changes > 0;
 }
-

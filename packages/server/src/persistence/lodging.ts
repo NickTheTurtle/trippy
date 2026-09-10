@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { db } from '../db';
 import { publish, publishMany } from '../events';
+import { cityInTrip, homeCurrency, isMember, isOrganizer } from './membership';
 
 export interface LodgingOption {
 	id: string;
@@ -25,29 +26,7 @@ export interface CityLodging {
 	voted: number; // distinct members who voted in this city
 }
 
-function isMember(tripId: string, userId: string): boolean {
-	return !!db
-		.prepare(`SELECT 1 FROM memberships WHERE trip_id = ? AND user_id = ?`)
-		.get(tripId, userId);
-}
-
-function isOrganizer(tripId: string, userId: string): boolean {
-	const row = db
-		.prepare(`SELECT role FROM memberships WHERE trip_id = ? AND user_id = ?`)
-		.get(tripId, userId) as { role: string } | undefined;
-	return row?.role === 'organizer';
-}
-
-function cityInTrip(tripId: string, cityId: string): boolean {
-	return !!db.prepare(`SELECT 1 FROM cities WHERE id = ? AND trip_id = ?`).get(cityId, tripId);
-}
-
 /** The trip's home currency, used when a price arrives without one. */
-function homeCurrency(tripId: string): string {
-	const row = db.prepare(`SELECT home_currency FROM trips WHERE id = ?`).get(tripId) as
-		{ home_currency: string } | undefined;
-	return row?.home_currency ?? 'USD';
-}
 
 /** Cities of a trip with their lodging options, vote counts, and the viewer's pick. */
 export function cityLodging(tripId: string, userId: string): CityLodging[] {

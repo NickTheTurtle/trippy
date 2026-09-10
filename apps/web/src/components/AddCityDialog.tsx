@@ -93,12 +93,6 @@ export default function AddCityDialog({
 	return (
 		<Modal open title={c.title} subtitle={trip.name} onClose={onClose}>
 			<div className="mbody flex flex-col gap-4">
-				{error && (
-					<p role="alert" className="m-0 text-[0.88rem] text-warn">
-						{error}
-					</p>
-				)}
-
 				{/* The search stays put once a city is chosen, so changing your mind
 				    is another search rather than a button to undo the last one. */}
 				<CitySearch
@@ -114,6 +108,7 @@ export default function AddCityDialog({
 				onSubmit={() => void add()}
 				busy={busy}
 				disabled={!picked}
+				error={error}
 				busyLabel={copy.common.adding}
 				submitLabel={copy.common.add}
 			/>
@@ -238,7 +233,7 @@ function CitySearch({
 			/>
 
 			{picked && (
-				<div className="flex min-w-0 flex-col rounded-[10px] border border-accent-soft bg-accent-soft/40 px-3 py-2.5">
+				<div className="flex min-w-0 flex-col rounded-md border border-accent-soft bg-accent-soft/40 px-3 py-2.5">
 					{/* Laid out like the search result it came from, so what you are
 					    about to add reads the same as the row you picked. */}
 					<span className="flex items-baseline gap-1.5">

@@ -2,13 +2,9 @@ import { randomUUID } from 'node:crypto';
 import { db } from '../db';
 import { publish } from '../events';
 import { convertCents } from '../providers/fx';
+import { homeCurrency, isMember } from './membership';
 
 /** The trip's home currency, which an estimate with no currency of its own is in. */
-function homeCurrency(tripId: string): string {
-	const row = db.prepare(`SELECT home_currency FROM trips WHERE id = ?`).get(tripId) as
-		{ home_currency: string } | undefined;
-	return row?.home_currency ?? 'USD';
-}
 
 /** Stored as typed or not at all: blank stays blank, and blank means home. */
 function cleanCurrency(currency: string | undefined): string {
@@ -29,12 +25,6 @@ export interface Budget {
 	cities: BudgetCity[];
 	categoryTotals: Record<string, number>;
 	grandTotal: number;
-}
-
-function isMember(tripId: string, userId: string): boolean {
-	return !!db
-		.prepare(`SELECT 1 FROM memberships WHERE trip_id = ? AND user_id = ?`)
-		.get(tripId, userId);
 }
 
 export function getBudget(tripId: string): Budget {

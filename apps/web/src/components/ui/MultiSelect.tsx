@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import { useAnchor } from '../../lib/anchor';
 import type { Option } from './Select';
 import { copy } from '../../copy';
-import { CheckIcon } from './icons';
+import { CaretIcon, CheckIcon } from './icons';
 
 /**
  * The multi-pick sibling of `Select`, used wherever a field means "these people"
@@ -176,7 +176,9 @@ export default function MultiSelect({
 				<span className={chosen.length === 0 && !summaryOverride ? 'mlabel placeholder' : 'mlabel'}>
 					{summary}
 				</span>
-				<span className="mcaret">▾</span>
+				<span className="mcaret">
+					<CaretIcon />
+				</span>
 			</button>
 
 			{open && (

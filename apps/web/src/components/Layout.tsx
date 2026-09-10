@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, Outlet, useNavigate } from 'react-router';
 import { useAuth } from '../auth';
+import { CaretIcon } from './ui/icons';
 import { copy } from '../copy';
 
 /**
@@ -92,15 +93,15 @@ function TopBar() {
 									{user.name.slice(0, 1).toUpperCase()}
 								</span>
 								<span>{user.name}</span>
-								<span aria-hidden="true" className="text-[0.7rem] text-ink-faint">
-									▾
+								<span className="flex text-ink-faint">
+									<CaretIcon />
 								</span>
 							</button>
 
 							{menuOpen && (
 								<div
 									role="menu"
-									className="absolute right-0 top-[calc(100%+8px)] z-30 flex min-w-48 flex-col rounded border border-line bg-surface p-1.5 shadow-card"
+									className="absolute right-0 top-[calc(100%+8px)] z-30 flex min-w-48 flex-col rounded-sm border border-line bg-surface p-1.5 shadow-card"
 								>
 									<Link
 										to="/account"

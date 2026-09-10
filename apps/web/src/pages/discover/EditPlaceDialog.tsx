@@ -81,7 +81,7 @@ export default function EditPlaceDialog({
 					onClose={onClose}
 					busy={save.busy}
 					busyLabel={copy.common.saving}
-					submitLabel={c.submitLabel}
+					submitLabel={copy.common.save}
 				/>
 			</form>
 		</Modal>

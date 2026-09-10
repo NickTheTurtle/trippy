@@ -67,8 +67,3 @@ export function placeKinds(view: DiscoverView): PoiKind[] {
 export function toAddType(view: DiscoverView): AddType {
 	return view === ALL_VIEW ? 'attraction' : view;
 }
-
-/** Reads a stored or routed value back into a view, defaulting to everything. */
-export function toDiscoverView(v: string): DiscoverView {
-	return v === STAY_VIEW || v === ALL_VIEW || isPoiKind(v) ? (v as DiscoverView) : ALL_VIEW;
-}

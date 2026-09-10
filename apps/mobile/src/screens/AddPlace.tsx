@@ -122,7 +122,7 @@ export function AddPlace({
 	);
 
 	return (
-		<Sheet open={open} title={copy.discover.addDialog.title(city.name)} onClose={onClose}>
+		<Sheet open={open} title={copy.discover.addDialog.title} subtitle={city.name} onClose={onClose}>
 			{picked ? (
 				<View style={{ gap: space.xs }}>
 					<Text style={type.body}>{picked.name}</Text>
@@ -183,7 +183,7 @@ export function AddPlace({
 
 			<FormError message={submit.error} />
 			<Button
-				label={submit.busy ? copy.discover.addDialog.busyLabel : copy.discover.addDialog.submit}
+				label={submit.busy ? copy.common.adding : copy.common.add}
 				onPress={() => void submit.run()}
 				busy={submit.busy}
 				disabled={!picked && query.trim().length === 0}

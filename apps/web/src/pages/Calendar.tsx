@@ -5,6 +5,7 @@ import { useApi } from '../hooks/useApi';
 import { useLiveSection } from '../hooks/useTripEvents';
 import { useTrip } from './TripShell';
 import Modal from '../components/ui/Modal';
+import FormError from '../components/ui/FormError';
 import Select, { type Option } from '../components/ui/Select';
 import MultiSelect from '../components/ui/MultiSelect';
 import { Field, FieldShell } from '../components/ui/Field';
@@ -641,7 +642,7 @@ export default function Calendar() {
 		return local.minutes;
 	}
 
-	if (!data) return error ? <p className="text-warn">{error}</p> : null;
+	if (!data) return error ? <FormError message={error} variant="banner" /> : null;
 
 	const view = data.view;
 	const wide = view === '3day' || view === 'people' || view === 'agenda';

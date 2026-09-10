@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { db } from '../db';
 import { publish } from '../events';
 import { conflict, isStale, missing, written, type WriteResult } from './versioning';
+import { isMember } from './membership';
 
 export interface TaskPerson {
 	id: string;
@@ -23,12 +24,6 @@ export interface TaskRow {
 	doneCount: number;
 	/** Bumped by every edit. Send it back with a PUT to detect a lost update. */
 	version: number;
-}
-
-function isMember(tripId: string, userId: string): boolean {
-	return !!db
-		.prepare(`SELECT 1 FROM memberships WHERE trip_id = ? AND user_id = ?`)
-		.get(tripId, userId);
 }
 
 /**

@@ -5,6 +5,9 @@
  * endpoint (open.er-api.com). Conversion is synchronous and always available:
  * before the first refresh lands it uses the static fallback table below, so
  * balances never block on a network call.
+ *
+ * These rates are today's. A recorded transaction must not be revalued by
+ * them: see `rateTo`, and the `fx_rate` column expenses store it in.
  */
 
 // Units of each currency per 1 USD. Static fallback; refreshed at runtime.
@@ -68,9 +71,24 @@ function perUsd(currency: string): number {
 	return rates[currency] ?? FALLBACK[currency] ?? 1;
 }
 
+/**
+ * Today's rate: units of `to` for one unit of `from`.
+ *
+ * Exported so a transaction can record the rate it was entered at. Every pair
+ * goes through USD, which is the only column the upstream feed publishes.
+ */
+export function rateTo(from: string, to: string): number {
+	if (from === to) return 1;
+	return perUsd(to) / perUsd(from);
+}
+
+/** Apply a stored rate to an amount in minor units. */
+export function atRate(cents: number, rate: number): number {
+	return Math.round(cents * rate);
+}
+
 /** Convert an amount (in `from` minor units / cents) to `to` currency cents. */
 export function convertCents(cents: number, from: string, to: string): number {
 	if (from === to) return cents;
-	const usd = cents / perUsd(from);
-	return Math.round(usd * perUsd(to));
+	return atRate(cents, rateTo(from, to));
 }

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { api } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
 import Modal, { ModalFooter } from '../../components/ui/Modal';
+import { Field, FieldShell } from '../../components/ui/Field';
 import Select from '../../components/ui/Select';
 import MultiSelect from '../../components/ui/MultiSelect';
 import { currencyOptions } from '../../lib/currencies';
@@ -69,70 +70,66 @@ export default function EditCost({
 	return (
 		<Modal open size="sm" title={draft.id ? c.editTitle : c.addTitle} onClose={onClose}>
 			<form className="mform" onSubmit={save.submit}>
-				<div className="mbody flex flex-col gap-3">
-					<label className="field">
-						<span>{c.labelField}</span>
-						<input
+				<div className="mbody flex flex-col gap-4">
+					{/* The same 12-column grid as the expense dialog: both are a money
+					    line, so both lay their fields out the same way. */}
+					<div className="grid grid-cols-12 gap-x-2.5 gap-y-3.5">
+						<Field
+							className="col-span-12"
+							label={c.labelField}
 							autoFocus
 							required
 							value={label}
 							onChange={(e) => setLabel(e.target.value)}
-							className="input w-full"
 						/>
-					</label>
-					<div className="flex flex-wrap gap-2.5">
-						<label className="field flex-[0_1_110px]">
-							<span>{c.amountLabel}</span>
-							<input
-								type="number"
-								min="0"
-								step="1"
-								required
-								value={amount}
-								onChange={(e) => setAmount(e.target.value)}
-								className="input w-full"
-							/>
-						</label>
-						<label className="field flex-[0_1_110px]">
-							<span>{c.currencyLabel}</span>
+						<Field
+							className="col-span-4"
+							label={c.amountLabel}
+							type="number"
+							min="0"
+							step="0.01"
+							inputMode="decimal"
+							required
+							value={amount}
+							onChange={(e) => setAmount(e.target.value)}
+						/>
+						<FieldShell className="col-span-3" label={c.currencyLabel}>
 							<Select
 								options={currencyOptions(currencies)}
 								value={cur}
 								onChange={setCur}
-								ariaLabel={c.currencyAriaLabel}
+								ariaLabel={c.currencyLabel}
 							/>
-						</label>
-						<label className="field flex-[1_1_130px]">
-							<span>{c.categoryLabel}</span>
+						</FieldShell>
+						<FieldShell className="col-span-5" label={c.categoryLabel}>
 							<Select
 								options={categories.map((x) => ({ value: x, label: cap(x) }))}
 								value={category}
 								onChange={setCategory}
-								ariaLabel={c.categoryAriaLabel}
+								ariaLabel={c.categoryLabel}
 							/>
-						</label>
+						</FieldShell>
+						<FieldShell className="col-span-12" label={c.forLabel}>
+							<MultiSelect
+								options={members.map((m) => ({
+									value: m.id,
+									label: m.name + (m.id === me ? copy.preparation.youSuffix : '')
+								}))}
+								selected={[...assignees]}
+								onChange={(next) => setAssignees(new Set(next))}
+								ariaLabel={c.forLabel}
+								placeholder={c.forEveryone}
+							/>
+						</FieldShell>
 					</div>
-					<label className="field">
-						<span>{c.forLabel}</span>
-						<MultiSelect
-							options={members.map((m) => ({
-								value: m.id,
-								label: m.name + (m.id === me ? copy.preparation.youSuffix : '')
-							}))}
-							selected={[...assignees]}
-							onChange={(next) => setAssignees(new Set(next))}
-							ariaLabel={c.forLabel}
-							placeholder={c.forEveryone}
-						/>
-					</label>
 				</div>
 
 				<ModalFooter
 					error={save.error}
 					onClose={onClose}
 					busy={save.busy}
-					busyLabel={copy.common.saving}
-					submitLabel={draft.id ? copy.common.save : c.addLabel}
+					busyLabel={draft.id ? copy.common.saving : copy.common.adding}
+					submitLabel={draft.id ? copy.common.save : copy.common.add}
 				/>
 			</form>
 		</Modal>

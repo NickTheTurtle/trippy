@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { db } from './db';
+import { isMember } from './persistence/membership';
 
 /**
  * In-process publish/subscribe bus for live trip updates (the server half of SSE).
@@ -67,10 +67,6 @@ export const TRIP_TOPICS = [
 ] as const;
 
 export type TripTopic = (typeof TRIP_TOPICS)[number];
-
-export function isTripTopic(value: string): value is TripTopic {
-	return (TRIP_TOPICS as readonly string[]).includes(value);
-}
 
 /** One coarse invalidation. Never carries row data. */
 export interface TripEvent {
@@ -206,12 +202,6 @@ function prune(): void {
 	for (const [tripId, ch] of channels) {
 		if (ch.subs.size === 0 && ch.touched < cutoff) channels.delete(tripId);
 	}
-}
-
-function isMember(tripId: string, userId: string): boolean {
-	return !!db
-		.prepare(`SELECT 1 FROM memberships WHERE trip_id = ? AND user_id = ?`)
-		.get(tripId, userId);
 }
 
 function detach(sub: Sub, reason: CloseReason | null): void {

@@ -600,6 +600,28 @@ db.exec(
 addColumn('cost_items', 'currency', `TEXT NOT NULL DEFAULT ''`);
 
 /**
+ * The exchange rate an expense was recorded at, and the home currency it was
+ * recorded against.
+ *
+ * Balances used to be recomputed from today's rates on every read, so a €920
+ * dinner was worth a different number of dollars each time the page loaded and
+ * a settled-up trip could quietly fall back out of balance months later. Every
+ * expense tool locks the rate to the transaction instead, which is what these
+ * two columns do: `fx_rate` is units of home currency per unit of the expense's
+ * own currency, captured when the expense was written.
+ *
+ * `fx_home` records which currency the rate targets, because a trip's home
+ * currency can be changed after the fact. A stored rate is only used while it
+ * still matches; when it does not, the reader falls back to a live conversion
+ * and the next edit re-locks it.
+ *
+ * NULL on both for rows written before this existed, which read live as they
+ * always have.
+ */
+addColumn('expenses', 'fx_rate', 'REAL');
+addColumn('expenses', 'fx_home', 'TEXT');
+
+/**
  * Provider caches, on disk rather than in memory.
  *
  * Every provider call is billed, and the in-process cache these back is lost on

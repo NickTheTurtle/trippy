@@ -236,7 +236,7 @@ export default function EditExpense({
 								options={currencyOptions(currencies)}
 								value={currency}
 								onChange={setCurrency}
-								ariaLabel={c.currencyAriaLabel}
+								ariaLabel={c.currencyLabel}
 							/>
 						</FieldShell>
 						<FieldShell className="col-span-5" label={income ? c.receivedByLabel : c.paidByLabel}>
@@ -244,7 +244,7 @@ export default function EditExpense({
 								options={members.map((m) => ({ value: m.id, label: m.name }))}
 								value={payerId}
 								onChange={setPayerId}
-								ariaLabel={c.payerAriaLabel}
+								ariaLabel={income ? c.receivedByLabel : c.paidByLabel}
 							/>
 						</FieldShell>
 					</div>
@@ -253,7 +253,7 @@ export default function EditExpense({
 						{income ? c.incomeNote : c.expenseNote}
 					</p>
 
-					<div className="flex flex-col gap-1.5 rounded-[10px] border border-line bg-surface-2 px-3.5 py-3.5">
+					<div className="flex flex-col gap-1.5 rounded-md border border-line bg-surface-2 px-3.5 py-3.5">
 						<div className="flex flex-wrap items-center justify-between gap-3">
 							<span className="text-[0.82rem] text-ink-soft">{c.splitLabel}</span>
 							<div
@@ -403,8 +403,8 @@ export default function EditExpense({
 					onClose={onClose}
 					busy={save.busy}
 					disabled={!canSave}
-					busyLabel={copy.common.saving}
-					submitLabel={copy.common.save}
+					busyLabel={expense ? copy.common.saving : copy.common.adding}
+					submitLabel={expense ? copy.common.save : copy.common.add}
 				/>
 			</form>
 		</Modal>

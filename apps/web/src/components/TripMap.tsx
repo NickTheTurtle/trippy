@@ -54,7 +54,7 @@ export default function TripMap({ tracks }: { tracks: MapTrack[] }) {
 			const strong = document.createElement('strong');
 			strong.textContent = title;
 			const name = document.createElement('span');
-			name.style.color = '#4a5551';
+			name.style.color = 'var(--color-ink-soft)';
 			name.textContent = track;
 			wrap.append(strong, document.createElement('br'), name);
 			return wrap;

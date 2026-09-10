@@ -16,19 +16,17 @@ import type { ReactNode } from 'react';
  *  - `banner`, the tinted block above a form or a page section, which is where
  *    a result the user should notice after the fact belongs.
  */
-export type MessageTone = 'error' | 'success' | 'info';
+export type MessageTone = 'error' | 'success';
 export type MessageVariant = 'footer' | 'banner';
 
 const FOOTER_TONE: Record<MessageTone, string> = {
 	error: 'text-danger-ink',
-	success: 'text-accent-ink',
-	info: 'text-ink-soft'
+	success: 'text-accent-ink'
 };
 
 const BANNER_TONE: Record<MessageTone, string> = {
 	error: 'bg-danger-soft text-danger-ink',
-	success: 'bg-accent-soft text-accent-ink',
-	info: 'bg-surface-2 text-ink-soft'
+	success: 'bg-accent-soft text-accent-ink'
 };
 
 export default function FormError({

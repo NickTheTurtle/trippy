@@ -25,7 +25,7 @@ export default function SettleRow({
 	const mark = useMutation(onSettle, { fallback: c.fallback });
 
 	return (
-		<li className="flex flex-col gap-1 rounded-[10px] bg-surface-2 px-2.5 py-2 text-[0.92rem]">
+		<li className="flex flex-col gap-1 rounded-md bg-surface-2 px-2.5 py-2 text-[0.92rem]">
 			<div className="flex items-center gap-2">
 				<span className="truncate font-semibold" title={t.from}>
 					{t.from}

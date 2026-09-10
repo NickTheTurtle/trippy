@@ -10,7 +10,25 @@
  * up without per-icon nudging. No icon dependency was added.
  */
 
+/**
+ * The disclosure triangle on a dropdown trigger, pointing at the menu it opens.
+ */
 export function CaretIcon() {
+	return (
+		<svg viewBox="0 0 16 16" aria-hidden="true" className="size-3">
+			<path
+				d="M8 11.5l-4.5-6h9z"
+				fill="currentColor"
+				stroke="currentColor"
+				strokeWidth="1.2"
+				strokeLinejoin="round"
+			/>
+		</svg>
+	);
+}
+
+/** The vote arrow. Points up because a vote pushes an option up the list. */
+export function UpvoteIcon() {
 	return (
 		<svg viewBox="0 0 16 16" aria-hidden="true" className="size-3.5">
 			<path

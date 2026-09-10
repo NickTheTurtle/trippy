@@ -56,7 +56,7 @@ export default function TaskList({
 					<li key={it.id}>
 						{/* `group` so the row's buttons can stay hidden until it is hovered
 						    without a hover-only stylesheet rule. */}
-						<div className="group flex min-w-0 items-center gap-3 rounded-[10px] px-1.5 py-2 text-[0.94rem] hover:bg-surface-2">
+						<div className="group flex min-w-0 items-center gap-3 rounded-md px-1.5 py-2 text-[0.94rem] hover:bg-surface-2">
 							<Box
 								state={it.done ? 'on' : it.doneCount > 0 ? 'part' : 'off'}
 								label={

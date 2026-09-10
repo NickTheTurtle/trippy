@@ -24,7 +24,7 @@ import { routeTracks } from '@trippy/server/routing';
 import { savedPoisForTrip } from '@trippy/server/pois';
 import { lodgingForDay, lodgingOptionById } from '@trippy/server/lodging';
 import {
-	assignMembership,
+	assignMemberships,
 	createParty,
 	defaultPartyId,
 	deleteParty,
@@ -113,10 +113,8 @@ calendar.get('/', async (c) => {
 		// Per-crew city + lodging for the day: a party_day override wins, else the
 		// trip-wide city/lodging. Drives "view as" so a crew can be elsewhere.
 		const pdMap = partyDayMap(trip.id, d);
-		const partyCells: Record<
-			string,
-			{ city: typeof defaultCity; lodging: typeof defaultLodging }
-		> = {};
+		const partyCells: Record<string, { city: typeof defaultCity; lodging: typeof defaultLodging }> =
+			{};
 		for (const p of parties) {
 			const pd = pdMap.get(p.id);
 			const cityId = pd?.cityId ?? city?.id ?? null;
@@ -399,12 +397,10 @@ calendar.post('/crews/split', async (c) => {
 	// A crew id from the body, like a track's, has to be this trip's own.
 	if (!partyInTrip(trip.id, targetPartyId)) return fail(c, 400, 'Unknown crew');
 
-	for (const uid of userIds) {
+	if (!assignMemberships(trip.id, userId, targetPartyId, userIds, day, fromMin, 24 * 60)) {
 		// Everything it validates has been validated above, so a false here is a
 		// state change we did not expect rather than a normal refusal.
-		if (!assignMembership(trip.id, userId, targetPartyId, uid, day, fromMin, 24 * 60)) {
-			return fail(c, 400, 'Could not move everyone into that crew.');
-		}
+		return fail(c, 400, 'Could not move everyone into that crew.');
 	}
 
 	// Auto-travel bridge: only when splitting mid-day and the target crew has a
@@ -458,10 +454,8 @@ calendar.post('/crews/rejoin', async (c) => {
 	const fromMin = fromRaw === null ? 0 : Math.max(0, Math.min(fromRaw, 24 * 60));
 
 	const everyone = defaultPartyId(trip.id);
-	for (const uid of userIds) {
-		if (!assignMembership(trip.id, userId, everyone, uid, day, fromMin, 24 * 60)) {
-			return fail(c, 400, 'Could not bring everyone back.');
-		}
+	if (!assignMemberships(trip.id, userId, everyone, userIds, day, fromMin, 24 * 60)) {
+		return fail(c, 400, 'Could not bring everyone back.');
 	}
 	return ok(c);
 });

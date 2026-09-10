@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { api } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
 import Modal, { ModalFooter } from '../../components/ui/Modal';
+import { Field, FieldShell } from '../../components/ui/Field';
 import { LinkButton } from '../../components/ui/buttons';
 import MultiSelect from '../../components/ui/MultiSelect';
 import type { TaskDraft } from './types';
@@ -68,30 +69,29 @@ export default function EditTask({
 	return (
 		<Modal open size="sm" title={c.title(draft.kind, editing)} onClose={onClose}>
 			<form className="mform" onSubmit={save.submit}>
-				<div className="mbody flex flex-col gap-3">
-					<label className="field">
-						<span>{c.labelField}</span>
-						<input
-							autoFocus
-							required
-							value={label}
-							onChange={(e) => setLabel(e.target.value)}
-							className="input w-full"
-						/>
-					</label>
+				<div className="mbody flex flex-col gap-4">
+					<Field
+						label={c.labelField}
+						autoFocus
+						required
+						value={label}
+						onChange={(e) => setLabel(e.target.value)}
+					/>
 
 					{draft.kind === 'task' && (
 						<div className="flex flex-col gap-2">
-							<MultiSelect
-								options={members.map((m) => ({
-									value: m.id,
-									label: m.name + (m.id === me ? copy.preparation.youSuffix : '')
-								}))}
-								selected={[...assignees]}
-								onChange={(next) => setAssignees(new Set(next))}
-								ariaLabel={c.assignPlaceholder}
-								placeholder={members.length === 0 ? c.noMembers : c.assignPlaceholder}
-							/>
+							<FieldShell label={c.assignLabel}>
+								<MultiSelect
+									options={members.map((m) => ({
+										value: m.id,
+										label: m.name + (m.id === me ? copy.preparation.youSuffix : '')
+									}))}
+									selected={[...assignees]}
+									onChange={(next) => setAssignees(new Set(next))}
+									ariaLabel={c.assignLabel}
+									placeholder={members.length === 0 ? c.noMembers : c.assignPlaceholder}
+								/>
+							</FieldShell>
 							{members.length > 2 && (
 								<div className="flex gap-3 px-1">
 									<LinkButton onClick={() => setAssignees(new Set(members.map((m) => m.id)))}>
@@ -109,7 +109,7 @@ export default function EditTask({
 					onClose={onClose}
 					busy={save.busy}
 					busyLabel={editing ? copy.common.saving : copy.common.adding}
-					submitLabel={editing ? copy.common.save : c.addLabel}
+					submitLabel={editing ? copy.common.save : copy.common.add}
 				/>
 			</form>
 		</Modal>

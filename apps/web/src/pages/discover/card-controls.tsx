@@ -14,7 +14,7 @@
  * takes them from.
  */
 
-import { CaretIcon, CompassIcon, TrashIcon } from '../../components/ui/icons';
+import { CompassIcon, TrashIcon, UpvoteIcon } from '../../components/ui/icons';
 import { copy } from '../../copy';
 
 /** `.card` is the shared surface; the rest is this page's card geometry. The
@@ -49,7 +49,7 @@ export function VotePill({
 			disabled={disabled}
 			onClick={onVote}
 		>
-			<CaretIcon />
+			<UpvoteIcon />
 			<span className="font-semibold tabular-nums">{votes}</span>
 		</button>
 	);

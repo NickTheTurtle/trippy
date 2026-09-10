@@ -371,7 +371,7 @@ export default function AddDialog({
 	const query = name.trim();
 
 	return (
-		<Modal open title={c.title(city.name)} size="md" onClose={onClose}>
+		<Modal open size="md" title={c.title} subtitle={city.name} onClose={onClose}>
 			<form className="mform" onSubmit={submit}>
 				<div className="mbody">
 					<div className="flex flex-col gap-3">
@@ -478,8 +478,8 @@ export default function AddDialog({
 					onClose={onClose}
 					busy={detailLoading}
 					disabled={add.busy}
-					busyLabel={c.busyLabel}
-					submitLabel={c.submit}
+					busyLabel={copy.common.adding}
+					submitLabel={copy.common.add}
 				/>
 			</form>
 		</Modal>

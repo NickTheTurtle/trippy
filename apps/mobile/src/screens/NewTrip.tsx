@@ -73,7 +73,7 @@ export function NewTrip({
 			/>
 			<FormError message={submit.error} />
 			<Button
-				label={submit.busy ? copy.trips.newDialog.busyLabel : copy.trips.newDialog.submitLabel}
+				label={submit.busy ? copy.common.adding : copy.common.add}
 				onPress={() => void submit.run()}
 				busy={submit.busy}
 			/>

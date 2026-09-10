@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { db } from '../db';
 import { publish } from '../events';
+import { cityInTrip, isMember } from './membership';
 
 export interface Party {
 	id: string;
@@ -103,9 +104,7 @@ export function partyMemberIdsForDay(tripId: string, partyId: string, day: strin
 	if (!def) return [];
 	if (def.is_default) return tripMemberIds(tripId);
 	const rows = db
-		.prepare(
-			`SELECT DISTINCT user_id FROM party_membership WHERE party_id = ? AND day = ?`
-		)
+		.prepare(`SELECT DISTINCT user_id FROM party_membership WHERE party_id = ? AND day = ?`)
 		.all(partyId, day) as unknown as { user_id: string }[];
 	return rows.map((r) => r.user_id);
 }
@@ -137,21 +136,13 @@ export function partyDayMap(
 		city_id: string | null;
 		lodging_option_id: string | null;
 	}[];
-	return new Map(rows.map((r) => [r.party_id, { cityId: r.city_id, lodgingOptionId: r.lodging_option_id }]));
-}
-
-function isMember(tripId: string, userId: string): boolean {
-	return !!db
-		.prepare(`SELECT 1 FROM memberships WHERE trip_id = ? AND user_id = ?`)
-		.get(tripId, userId);
+	return new Map(
+		rows.map((r) => [r.party_id, { cityId: r.city_id, lodgingOptionId: r.lodging_option_id }])
+	);
 }
 
 function partyInTrip(tripId: string, partyId: string): boolean {
 	return !!db.prepare(`SELECT 1 FROM parties WHERE id = ? AND trip_id = ?`).get(partyId, tripId);
-}
-
-function cityInTrip(tripId: string, cityId: string): boolean {
-	return !!db.prepare(`SELECT 1 FROM cities WHERE id = ? AND trip_id = ?`).get(cityId, tripId);
 }
 
 /** The city a lodging option belongs to, but only if the option is this trip's. */
@@ -208,11 +199,11 @@ export function createParty(
 	isSolo = false
 ): string | null {
 	if (!isMember(tripId, actorId)) return null;
-	const count = (
-		db.prepare(`SELECT COUNT(*) AS n FROM parties WHERE trip_id = ?`).get(tripId) as
-			| { n: number }
-			| undefined
-	)?.n ?? 0;
+	const count =
+		(
+			db.prepare(`SELECT COUNT(*) AS n FROM parties WHERE trip_id = ?`).get(tripId) as
+				{ n: number } | undefined
+		)?.n ?? 0;
 	const id = randomUUID();
 	const color = PARTY_COLORS[count % PARTY_COLORS.length];
 	db.prepare(
@@ -247,7 +238,9 @@ export function editParty(
 	if (!sets.length) return false;
 	args.push(partyId, tripId);
 	const res = db
-		.prepare(`UPDATE parties SET ${sets.join(', ')} WHERE id = ? AND trip_id = ? AND is_default = 0`)
+		.prepare(
+			`UPDATE parties SET ${sets.join(', ')} WHERE id = ? AND trip_id = ? AND is_default = 0`
+		)
 		.run(...args);
 	if (res.changes > 0) publish(tripId, 'schedule');
 	return res.changes > 0;
@@ -316,6 +309,40 @@ export function assignMembership(
 	return true;
 }
 
+/**
+ * The same for a group of people at once, which is what a "split off" is.
+ *
+ * One transaction, because the callers were looping over `assignMembership` and
+ * stopping at the first refusal: a throw or a late refusal partway through left
+ * some of the group moved and the rest behind, which is a state the board has no
+ * way to show and the user has no way to undo. All or none.
+ */
+export function assignMemberships(
+	tripId: string,
+	actorId: string,
+	partyId: string,
+	userIds: string[],
+	day: string,
+	startMin: number,
+	endMin: number
+): boolean {
+	db.exec('BEGIN');
+	try {
+		for (const userId of userIds) {
+			if (!assignMembership(tripId, actorId, partyId, userId, day, startMin, endMin)) {
+				db.exec('ROLLBACK');
+				return false;
+			}
+		}
+		db.exec('COMMIT');
+	} catch (err) {
+		db.exec('ROLLBACK');
+		throw err;
+	}
+	publish(tripId, 'schedule');
+	return true;
+}
+
 const PARTY_COLORS = ['#b4682a', '#4a6d8c', '#8c5a86', '#2f6d5e', '#a0522d', '#556b2f'];
 
 /** The first track of a party on a day, if any (for placing auto-travel bridges). */
@@ -325,4 +352,3 @@ export function firstTrackOfParty(partyId: string, day: string): string | null {
 		.get(partyId, day) as { id: string } | undefined;
 	return row?.id ?? null;
 }
-

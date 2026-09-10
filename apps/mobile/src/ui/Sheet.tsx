@@ -23,11 +23,14 @@ import { color, radius, space, type } from '../theme';
 export function Sheet({
 	open,
 	title,
+	subtitle,
 	onClose,
 	children
 }: {
 	open: boolean;
 	title: string;
+	/** The context the dialog acts in, as on web: a city name, a trip name. */
+	subtitle?: string | null;
 	onClose: () => void;
 	children: ReactNode;
 }) {
@@ -42,7 +45,10 @@ export function Sheet({
 				<View style={s.sheet}>
 					<View style={s.grabber} />
 					<View style={s.head}>
-						<Text style={type.head}>{title}</Text>
+						<View style={{ flex: 1 }}>
+							<Text style={type.head}>{title}</Text>
+							{subtitle ? <Text style={type.faint}>{subtitle}</Text> : null}
+						</View>
 						<Pressable
 							accessibilityRole="button"
 							accessibilityLabel="Close"

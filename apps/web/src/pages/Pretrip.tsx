@@ -14,6 +14,7 @@ import TaskList, { ListTitle } from './pretrip/TaskList';
 import MyTasks, { isMine } from './pretrip/MyTasks';
 import CostList from './pretrip/CostList';
 import { shareLabel } from '../components/ui/ViewAsBar';
+import { PlusIcon } from '../components/ui/icons';
 import EditTask from './pretrip/EditTask';
 import EditCost from './pretrip/EditCost';
 import { totalFor } from './pretrip/shares';
@@ -180,6 +181,7 @@ export default function Pretrip() {
 									})
 						}
 					>
+						<PlusIcon />
 						{cp.add}
 					</button>
 				</div>

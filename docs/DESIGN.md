@@ -389,8 +389,33 @@ server independently re-checks and fails the action.
 
 ### 4.5 Currency
 
-- Daily FX snapshot cached in Redis (e.g. exchangerate.host). Store original
-  currency + amount; convert only for display and settlement.
+Rates come from the keyless `open.er-api.com` daily USD table, held **in memory**
+in `providers/fx.ts` (not Redis), refreshed in the background when older than 12
+hours and seeded from a static fallback so a conversion never blocks on the
+network. Every pair converts through USD, which is the only column the feed
+publishes.
+
+Store the original currency and amount; convert only for display and settlement.
+
+**A recorded expense is locked to the rate it was entered at.** Balances used to
+be rebuilt from today's rates on every read, which meant a euro dinner was worth
+a different number of dollars each time the page loaded, and a trip that had been
+settled to zero could drift back out of balance months later without anybody
+touching it. Every expense tool locks the rate to the transaction, and so does
+this one: `expenses.fx_rate` holds units of home currency per unit of the
+expense's own currency at the moment it was written, and `expenses.fx_home`
+records which currency that rate targets.
+
+`fx_home` exists because a trip's home currency can be changed after the fact. A
+stored rate is only trusted while it still matches the trip's current home
+currency; when it does not, the reader falls back to a live conversion and the
+next edit re-locks it. Editing an expense keeps its rate unless the currency
+itself changed, so correcting a typo cannot revalue the line. Rows written before
+these columns existed carry NULL and read live, as they always did.
+
+**Estimates deliberately do not lock.** `cost_items` and lodging prices are
+forecasts of money not yet spent, so they should follow today's rate; freezing a
+budget to a stale one would be the bug, not the fix.
 
 ---
 
@@ -1711,6 +1736,33 @@ Add and Edit remain **one component per thing**, not one per verb: `TripFormDial
 exception is Discover, where adding is a provider search that fills a form and
 editing is a form over a saved row; those stay separate components and share
 their fields through `place-fields` instead.
+
+#### Every dialog says the same kind of thing
+
+The dialogs had each been written to their own taste. Titles were variously a
+verb phrase (`Edit cost`), a noun (`New trip`), a verb with an article
+(`Add a task`) and a location (`Add to Athens`); submit buttons said `Add`,
+`Add cost` and `Create trip` for the same act; and the cost dialog asked its
+questions in prose (`What is it?`, `Who is it for?`) where every other form used
+a noun. Nothing was wrong on its own, and together they read as four different
+products. Three rules now hold, and they are worth keeping because each removes
+a decision rather than adding one:
+
+- **Title is `Add <thing>` or `Edit <thing>`**, lower case after the verb, no
+  article. Where the thing sits inside something the user needs named, that
+  context is the `subtitle`, never part of the title: `Add place` / _Athens_,
+  `Add city` / _trip name_. Confirmations keep their own shape, `Delete <name>?`.
+- **Submit says `Add` or `Save`, and nothing else.** The title already names the
+  thing, so repeating it in the button is noise. Busy text is `Adding...` or
+  `Saving...` to match the verb the button actually took.
+- **Field labels are short noun phrases**, never questions, and they come from
+  `Field` / `FieldShell` rather than hand-written `<label className="field">`.
+  Three dialogs still wrote that markup themselves and had drifted to a
+  different input width for it.
+
+The estimate dialog and the expense dialog are both a money line, so they now
+lay out on the same 12-column grid with the same fields in the same order:
+description across the top, then amount / currency / who.
 
 **Global styles live in `src/app.css`, not in page files.** Specifically: the
 `:focus-visible` ring, `:disabled` treatment, the `prefers-reduced-motion`

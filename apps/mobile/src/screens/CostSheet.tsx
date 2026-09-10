@@ -140,7 +140,7 @@ export function CostSheet({
 
 			<FormError message={save.error || remove.error} />
 			<Button
-				label={item ? copy.common.save : copy.preparation.costDialog.addLabel}
+				label={item ? copy.common.save : copy.common.add}
 				onPress={() => void save.run()}
 				busy={save.busy}
 				disabled={!label.trim()}

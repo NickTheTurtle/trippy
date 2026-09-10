@@ -100,20 +100,18 @@ export const copy = {
 	// Trips list, the signed-in home page
 	trips: {
 		heading: 'Your trips',
-		newTrip: 'New trip',
+		newTrip: 'Add trip',
 		emptyMessage: 'No trips yet.',
-		emptyAction: 'New trip',
+		emptyAction: 'Add trip',
 		cityCount: (cities: number) => `${cities} ${cities === 1 ? 'city' : 'cities'}`,
 		memberCount: (members: number) => `${members} ${members === 1 ? 'person' : 'people'}`,
 		newDialog: {
-			title: 'New trip',
-			submitLabel: 'Create trip',
-			busyLabel: 'Creating...',
+			title: 'Add trip',
 			fallback: 'Could not create the trip.'
 		}
 	},
 
-	// Trip form, shared by the New trip and Edit trip dialogs
+	// Trip form, shared by the Add trip and Edit trip dialogs
 	tripForm: {
 		nameLabel: 'Name',
 		startLabel: 'Start',
@@ -166,8 +164,8 @@ export const copy = {
 			stay: 'Stays'
 		},
 		noCities: {
-			heading: 'Getting Started',
-			body: 'Every great trip requires a destination. Add a city to start planning for your trip.',
+			heading: 'No cities yet',
+			body: 'Add a city to start planning.',
 			cta: 'Add a city',
 			memberNote: 'Waiting for an organizer to add the first stop...'
 		},
@@ -188,6 +186,9 @@ export const copy = {
 			title: (place: string) => `Delete ${place}?`,
 			confirmLabel: (linked: number) => `Delete and ${linked} event${linked === 1 ? '' : 's'}`
 		},
+		deleteStay: {
+			title: (stay: string) => `Delete ${stay}?`
+		},
 		errors: {
 			votePlace: 'Could not vote on that place.',
 			voteStay: 'Could not vote on that stay.',
@@ -200,12 +201,12 @@ export const copy = {
 		},
 		placeCard: {
 			onCalendar: (linked: number) => `🗓 On the calendar ×${linked}`,
-			removeLabel: (name: string) => `Remove ${name}`
+			removeLabel: (name: string) => `Delete ${name}`
 		},
 		stayCard: {
 			locked: 'Locked',
 			priceTbd: 'Price TBD',
-			removeLabel: (name: string) => `Remove ${name}`
+			removeLabel: (name: string) => `Delete ${name}`
 		},
 		placeFields: {
 			typeLabel: 'Type',
@@ -215,7 +216,7 @@ export const copy = {
 			linkPlaceholder: 'https://'
 		},
 		addDialog: {
-			title: (city: string) => `Add to ${city}`,
+			title: 'Add place',
 			nameLabel: 'Name',
 			keepTyping: 'Keep typing to search.',
 			searching: 'Searching...',
@@ -228,8 +229,6 @@ export const copy = {
 			currencyLabel: 'Currency',
 			activityLabel: 'Activity',
 			badPrice: 'Enter the nightly price as a number, or leave it blank.',
-			busyLabel: 'Loading...',
-			submit: 'Add',
 			fallback: 'Could not add that.'
 		},
 		editPlace: {
@@ -238,7 +237,6 @@ export const copy = {
 			votes: (votes: number) => (votes === 1 ? '1 vote' : `${votes} votes`),
 			voters: (voters: readonly string[]) =>
 				voters.length ? `: ${voters.join(', ')}` : ', nobody yet',
-			submitLabel: 'Save',
 			fallback: 'Could not save that place.'
 		},
 		editStay: {
@@ -258,7 +256,7 @@ export const copy = {
 	preparation: {
 		navAriaLabel: 'Preparation sections',
 		sections: { tasks: 'Tasks', packing: 'Packing', costs: 'Estimated costs' },
-		add: '+ Add',
+		add: 'Add',
 		tripTotal: 'Trip total',
 		perPerson: 'Per person',
 		youSuffix: ' (you)',
@@ -282,38 +280,35 @@ export const copy = {
 			doneSummary: (done: number, total: number) => `${done}/${total} done`,
 			doneMenuLabel: (label: string) => `Who has finished: ${label}`,
 			editLabel: (kind: string, label: string) => `Edit ${kind}: ${label}`,
-			removeLabel: (kind: string, label: string) => `Remove ${kind}: ${label}`
+			removeLabel: (kind: string, label: string) => `Delete ${kind}: ${label}`
 		},
 		taskDialog: {
 			title: (kind: 'task' | 'packing', editing: boolean) =>
-				`${editing ? 'Edit' : 'Add'} ${kind === 'packing' ? 'a packing item' : 'a task'}`,
+				`${editing ? 'Edit' : 'Add'} ${kind === 'packing' ? 'packing item' : 'task'}`,
 			labelField: 'Name',
-			assignPlaceholder: 'Assign to...',
+			assignLabel: 'Assigned to',
+			assignPlaceholder: 'Anyone',
 			noMembers: 'No members yet.',
 			selectEveryone: 'Select everyone',
 			clear: 'Clear',
-			addLabel: 'Add',
 			fallback: 'Could not save that.'
 		},
 		costTable: {
 			sectionLabel: (category: string) => `${category} estimates`,
 			editLabel: (label: string) => `Edit ${label}`,
-			removeLabel: (label: string) => `Remove ${label}`,
+			removeLabel: (label: string) => `Delete ${label}`,
 			ofTotal: (total: string) => `of ${total}`,
 			total: 'Total'
 		},
 		costDialog: {
 			editTitle: 'Edit cost',
 			addTitle: 'Add cost',
-			labelField: 'What is it?',
+			labelField: 'Description',
 			amountLabel: 'Amount',
 			currencyLabel: 'Currency',
-			currencyAriaLabel: 'Currency',
 			categoryLabel: 'Category',
-			categoryAriaLabel: 'Category',
-			forLabel: 'Who is it for?',
+			forLabel: 'For',
 			forEveryone: 'Everyone',
-			addLabel: 'Add cost',
 			fallback: 'Could not save that item.'
 		}
 	},
@@ -322,7 +317,7 @@ export const copy = {
 	expenses: {
 		navAriaLabel: 'Expense sections',
 		sections: { expenses: 'Expenses', balances: 'Balances', settle: 'Settle up' },
-		addExpense: '+ Add',
+		addExpense: 'Add',
 		tripTotal: 'Trip total',
 		perPerson: 'Per person',
 		allEven: 'Everyone is even.',
@@ -369,10 +364,8 @@ export const copy = {
 			descriptionLabel: 'Description',
 			amountLabel: 'Amount',
 			currencyLabel: 'Currency',
-			currencyAriaLabel: 'Currency',
 			receivedByLabel: 'Received by',
 			paidByLabel: 'Paid by',
-			payerAriaLabel: 'Paid by',
 			incomeNote: 'Saved as income: everyone selected is credited instead of charged.',
 			expenseNote: 'Use a negative amount for a refund or payout.',
 			splitLabel: 'Split',

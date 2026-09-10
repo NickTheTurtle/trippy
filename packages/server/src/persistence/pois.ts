@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { db } from '../db';
 import { publish, publishMany } from '../events';
 import { poiKindFromCategory, toPoiKind, type PoiKind } from '@trippy/core/types';
+import { cityInTrip, isMember } from './membership';
 
 export interface PoiRow {
 	id: string;
@@ -31,16 +32,6 @@ export interface CityPois {
 	lat: number | null;
 	lng: number | null;
 	pois: PoiRow[];
-}
-
-function isMember(tripId: string, userId: string): boolean {
-	return !!db
-		.prepare(`SELECT 1 FROM memberships WHERE trip_id = ? AND user_id = ?`)
-		.get(tripId, userId);
-}
-
-function cityInTrip(tripId: string, cityId: string): boolean {
-	return !!db.prepare(`SELECT 1 FROM cities WHERE id = ? AND trip_id = ?`).get(cityId, tripId);
 }
 
 export function cityPois(tripId: string, userId: string): CityPois[] {

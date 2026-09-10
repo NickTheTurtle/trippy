@@ -47,6 +47,7 @@ export default function Trips() {
 				    briefly claim the user has no trips. */}
 				{!loading && !error && data?.trips.length === 0 && (
 					<EmptyState
+						graphic
 						className="col-span-full"
 						message={c.emptyMessage}
 						action={
@@ -111,8 +112,8 @@ function NewTrip({ onClose, onCreated }: { onClose: () => void; onCreated: () =>
 	return (
 		<TripFormDialog
 			title={c.newDialog.title}
-			submitLabel={c.newDialog.submitLabel}
-			busyLabel={c.newDialog.busyLabel}
+			submitLabel={copy.common.add}
+			busyLabel={copy.common.adding}
 			fallback={c.newDialog.fallback}
 			onClose={onClose}
 			onSubmit={async (v) => {

@@ -45,19 +45,6 @@ export function currencySymbol(currency: string): string {
 }
 
 /**
- * The same, but null-tolerant: an unpriced thing is a real state, not a zero,
- * so the caller says what to render instead of it.
- */
-export function formatMoneyOr(
-	cents: number | null | undefined,
-	currency: string,
-	fallback: string,
-	options: { whole?: boolean } = {}
-): string {
-	return cents === null || cents === undefined ? fallback : formatMoney(cents, currency, options);
-}
-
-/**
  * A nightly rate. Non-breaking spaces around the slash so the price and its
  * unit wrap as one chunk rather than leaving "night" stranded on its own line
  * in a narrow card.

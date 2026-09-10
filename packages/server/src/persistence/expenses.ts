@@ -2,9 +2,10 @@ import { createHash, randomUUID } from 'node:crypto';
 import { db } from '../db';
 import { settle, type Balance, type Transaction } from '@trippy/core/settlement';
 import { splitByWeight, type SplitMode } from '@trippy/core/split';
-import { convertCents } from '../providers/fx';
+import { atRate, convertCents, rateTo } from '../providers/fx';
 import { publish } from '../events';
 import { conflict, isStale, missing, written, type WriteResult } from './versioning';
+import { homeCurrency, isMember } from './membership';
 
 export interface Member {
 	id: string;
@@ -88,12 +89,6 @@ export interface SettlementRow {
 	token: string;
 }
 
-function isMember(tripId: string, userId: string): boolean {
-	return !!db
-		.prepare(`SELECT 1 FROM memberships WHERE trip_id = ? AND user_id = ?`)
-		.get(tripId, userId);
-}
-
 export function tripMembers(tripId: string): Member[] {
 	return db
 		.prepare(
@@ -163,10 +158,22 @@ export function addExpense(
 	if (clean.length === 0 || !Number.isFinite(amountCents) || amountCents === 0) return null;
 
 	const id = randomUUID();
+	const home = homeCurrency(tripId);
 	db.prepare(
-		`INSERT INTO expenses (id, trip_id, payer_id, description, amount_cents, currency, split_mode, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-	).run(id, tripId, payerId, description, amountCents, currency, splitMode, Date.now());
+		`INSERT INTO expenses (id, trip_id, payer_id, description, amount_cents, currency, split_mode, fx_rate, fx_home, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	).run(
+		id,
+		tripId,
+		payerId,
+		description,
+		amountCents,
+		currency,
+		splitMode,
+		rateTo(currency || home, home),
+		home,
+		Date.now()
+	);
 	const insertPart = db.prepare(
 		`INSERT INTO expense_participants (expense_id, user_id, weight) VALUES (?, ?, ?)`
 	);
@@ -220,9 +227,18 @@ export function updateExpense(
 
 	const existing = db
 		.prepare(
-			`SELECT COALESCE(settlement, 0) AS settlement, version FROM expenses WHERE id = ? AND trip_id = ?`
+			`SELECT COALESCE(settlement, 0) AS settlement, version, currency, fx_rate, fx_home
+			   FROM expenses WHERE id = ? AND trip_id = ?`
 		)
-		.get(expenseId, tripId) as { settlement: number; version: number } | undefined;
+		.get(expenseId, tripId) as
+		| {
+				settlement: number;
+				version: number;
+				currency: string;
+				fx_rate: number | null;
+				fx_home: string | null;
+		  }
+		| undefined;
 	if (!existing || existing.settlement === 1) return missing;
 	if (isStale(expectedVersion, existing.version)) return conflict;
 
@@ -235,12 +251,32 @@ export function updateExpense(
 	if (clean.length === 0 || !Number.isFinite(amountCents) || amountCents === 0) return missing;
 
 	const next = existing.version + 1;
+	const home = homeCurrency(tripId);
+	// Correcting a typo must not revalue the expense, so the rate it was
+	// recorded at is kept. It is only re-locked when there is nothing usable to
+	// keep: a row from before the column existed, one locked against a home
+	// currency the trip has since changed, or a genuine change of currency.
+	const keepRate =
+		existing.fx_rate !== null && existing.fx_home === home && existing.currency === currency;
+	const fxRate = keepRate ? existing.fx_rate : rateTo(currency || home, home);
+
 	db.exec('BEGIN');
 	try {
 		db.prepare(
-			`UPDATE expenses SET payer_id = ?, description = ?, amount_cents = ?, currency = ?, split_mode = ?, version = ?
+			`UPDATE expenses SET payer_id = ?, description = ?, amount_cents = ?, currency = ?, split_mode = ?, version = ?, fx_rate = ?, fx_home = ?
 			 WHERE id = ? AND trip_id = ?`
-		).run(payerId, description, amountCents, currency, splitMode, next, expenseId, tripId);
+		).run(
+			payerId,
+			description,
+			amountCents,
+			currency,
+			splitMode,
+			next,
+			fxRate,
+			home,
+			expenseId,
+			tripId
+		);
 		db.prepare(`DELETE FROM expense_participants WHERE expense_id = ?`).run(expenseId);
 		const insertPart = db.prepare(
 			`INSERT INTO expense_participants (expense_id, user_id, weight) VALUES (?, ?, ?)`
@@ -351,23 +387,26 @@ export function deleteExpense(tripId: string, actorId: string, expenseId: string
  * whole cents: no division into major units happens on the way. `balances` and
  * the ledger's per-person view both read from here, so what a row says a member
  * owes and what their balance is built from can never be two different numbers.
+ *
+ * The conversion uses the rate stored on the expense, so a past transaction is
+ * worth the same today as it was when it was entered. Only a row with no usable
+ * stored rate falls back to today's.
  */
 export function expenseShares(tripId: string): Map<string, ExpenseSplit> {
-	const home =
-		(
-			db.prepare(`SELECT home_currency FROM trips WHERE id = ?`).get(tripId) as
-				{ home_currency: string } | undefined
-		)?.home_currency ?? 'USD';
+	const home = homeCurrency(tripId);
 
 	const rows = db
 		.prepare(
-			`SELECT e.id, e.payer_id, e.amount_cents, e.currency FROM expenses e WHERE e.trip_id = ?`
+			`SELECT e.id, e.payer_id, e.amount_cents, e.currency, e.fx_rate, e.fx_home
+			   FROM expenses e WHERE e.trip_id = ?`
 		)
 		.all(tripId) as unknown as {
 		id: string;
 		payer_id: string;
 		amount_cents: number;
 		currency: string;
+		fx_rate: number | null;
+		fx_home: string | null;
 	}[];
 
 	const partsOf = db.prepare(
@@ -379,7 +418,10 @@ export function expenseShares(tripId: string): Map<string, ExpenseSplit> {
 		const parts = partsOf.all(e.id) as unknown as { user_id: string; weight: number }[];
 		if (parts.length === 0) continue;
 
-		const totalCents = convertCents(e.amount_cents, e.currency ?? home, home);
+		const totalCents =
+			e.fx_rate !== null && e.fx_home === home
+				? atRate(e.amount_cents, e.fx_rate)
+				: convertCents(e.amount_cents, e.currency || home, home);
 		const cents = splitByWeight(
 			totalCents,
 			parts.map((p) => p.weight ?? 1)

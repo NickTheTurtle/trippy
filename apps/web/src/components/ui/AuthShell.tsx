@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import FormError from './FormError';
 import { copy } from '../../copy';
 
 /**
@@ -31,13 +32,7 @@ export function AuthShell({
 				<h2 className="text-[1.6rem]">{title}</h2>
 				<p className="mt-1.5 mb-6 text-ink-soft">{blurb}</p>
 
-				{error && (
-					// Announced politely so a screen reader hears the failure without
-					// the user having to go looking for it.
-					<p role="alert" className="mb-4 rounded bg-warn-soft px-3 py-2 text-sm text-warn">
-						{error}
-					</p>
-				)}
+				<FormError message={error} variant="banner" />
 
 				<form
 					className="flex flex-col gap-3.5"

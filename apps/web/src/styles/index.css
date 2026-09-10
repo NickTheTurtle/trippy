@@ -507,7 +507,7 @@ select.input.compact {
 	color: var(--color-ink-faint);
 }
 .selcaret {
-	font-size: 0.7rem;
+	display: flex;
 	color: var(--color-ink-faint);
 	flex-shrink: 0;
 }
@@ -549,8 +549,8 @@ select.input.compact {
 	text-overflow: ellipsis;
 }
 .selcheck {
+	display: flex;
 	color: var(--color-accent-ink);
-	font-size: 0.8rem;
 	flex: 0 0 auto;
 }
 .selopt:hover {
@@ -909,7 +909,7 @@ select.input.compact {
 	color: var(--color-ink-faint);
 }
 .mcaret {
-	font-size: 0.7rem;
+	display: flex;
 	color: var(--color-ink-faint);
 	flex-shrink: 0;
 }

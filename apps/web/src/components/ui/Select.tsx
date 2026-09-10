@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import { useAnchor } from '../../lib/anchor';
+import { CaretIcon, CheckIcon } from './icons';
 import { copy } from '../../copy';
 
 export type Option = { value: string; label: string };
@@ -161,7 +162,9 @@ export default function Select({
 				<span className={selected ? 'sellabel' : 'sellabel placeholder'}>
 					{selected?.label ?? placeholder}
 				</span>
-				<span className="selcaret">▾</span>
+				<span className="selcaret">
+					<CaretIcon />
+				</span>
 			</button>
 
 			{open && (
@@ -197,7 +200,11 @@ export default function Select({
 							}}
 						>
 							<span className="selopttext">{o.label}</span>
-							{o.value === value && <span className="selcheck">✓</span>}
+							{o.value === value && (
+								<span className="selcheck">
+									<CheckIcon />
+								</span>
+							)}
 						</li>
 					))}
 				</ul>
