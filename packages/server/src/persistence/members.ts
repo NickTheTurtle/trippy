@@ -80,8 +80,7 @@ export function inviteToTrip(tripId: string, actorId: string, email: string): In
 	if (!clean || !clean.includes('@')) return 'invalid';
 
 	const user = db.prepare(`SELECT id FROM users WHERE email = ?`).get(clean) as
-		| { id: string }
-		| undefined;
+		{ id: string } | undefined;
 	if (user) {
 		const existing = membership(tripId, user.id);
 		if (existing) return 'exists';
@@ -138,6 +137,40 @@ export function inviteToTrip(tripId: string, actorId: string, email: string): In
 }
 
 /**
+ * Rename a member of the trip. Organizers only.
+ *
+ * Only people who cannot log in can be renamed here: an invited placeholder,
+ * whose name the app invented from their email address, and a seeded sample
+ * companion. A registered member's name is their own account's, shared with
+ * every other trip they are on, so it is theirs to change in Account and not
+ * the organizer's to change from here.
+ */
+export function renameMember(
+	tripId: string,
+	actorId: string,
+	userId: string,
+	name: string
+): boolean {
+	if (!isOrganizer(tripId, actorId)) return false;
+	if (!membership(tripId, userId)) return false;
+	const clean = name.trim();
+	if (!clean || clean.length > 80) return false;
+
+	const user = db.prepare(`SELECT password_hash FROM users WHERE id = ?`).get(userId) as
+		{ password_hash: string } | undefined;
+	if (!user) return false;
+	const editable =
+		user.password_hash.startsWith('placeholder:') || user.password_hash.startsWith('seed:');
+	if (!editable) return false;
+
+	db.prepare(`UPDATE users SET name = ? WHERE id = ?`).run(clean, userId);
+	// The name is on rows all over the trip: expenses name their payer, tasks and
+	// estimates name who they are for, and the header draws initials.
+	publishMany(tripId, ['members', 'expenses', 'schedule', 'pois', 'lodging', 'tasks', 'costs']);
+	return true;
+}
+
+/**
  * Remove a member. Organizers only; the organizer cannot be removed.
  *
  * This is also how an invite is revoked: a pending invite always has a
@@ -166,8 +199,7 @@ export function removeMember(tripId: string, actorId: string, userId: string): b
 	const target = membership(tripId, userId);
 	if (!target || target.role === 'organizer') return false;
 	const user = db.prepare(`SELECT password_hash FROM users WHERE id = ?`).get(userId) as
-		| { password_hash: string }
-		| undefined;
+		{ password_hash: string } | undefined;
 	// A placeholder exists only for this trip, so removing it deletes the user,
 	// which cascades to its membership and votes. The invite row does not
 	// cascade: its placeholder_id is ON DELETE SET NULL, so it would survive as

@@ -7,6 +7,7 @@ import FormError from '../components/ui/FormError';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 import type { Person, PeopleData } from './people/types';
 import MemberRow from './people/MemberRow';
+import RenameMember from './people/RenameMember';
 import Invite from './people/Invite';
 import { copy } from '../copy';
 
@@ -24,6 +25,7 @@ export default function People() {
 	useLiveSection(['members'], reload);
 	const [notice, setNotice] = useState('');
 	const [pendingRemove, setPendingRemove] = useState<Person | null>(null);
+	const [renaming, setRenaming] = useState<Person | null>(null);
 
 	// The header shows the member avatars, so anything that changes the roster
 	// has to refresh the shell too, not just this page.
@@ -61,6 +63,7 @@ export default function People() {
 								person={p}
 								me={data.me}
 								organizer={data.organizer}
+								onRename={p.placeholder || p.seeded ? () => setRenaming(p) : null}
 								onRemove={() => setPendingRemove(p)}
 							/>
 						))}
@@ -77,6 +80,15 @@ export default function People() {
 					/>
 				)}
 			</div>
+
+			{renaming && (
+				<RenameMember
+					person={renaming}
+					tripId={trip.id}
+					onClose={() => setRenaming(null)}
+					onSaved={refresh}
+				/>
+			)}
 
 			<ConfirmDialog
 				open={!!pendingRemove}

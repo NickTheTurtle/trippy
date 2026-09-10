@@ -37,6 +37,8 @@ export interface ExpenseSplit {
 	totalCents: number;
 	/** Home-currency minor units per participant, summing to `totalCents`. */
 	shares: Record<string, number>;
+	/** The stored stakes, as typed: what an edit form has to prefill from. */
+	parts: SplitPart[];
 }
 
 export interface BalanceRow {
@@ -148,6 +150,73 @@ export function addExpense(
 	return id;
 }
 
+/**
+ * Rewrite one expense: its description, amount, currency, payer and division.
+ *
+ * Any member may edit any expense, the same rule deletion already follows: a
+ * shared ledger is corrected by whoever spots the mistake, and every change is
+ * visible to everyone on the same screen.
+ *
+ * A settlement is refused. It is not a cost anybody divided but a record that
+ * money moved between two people, and the dialog that would edit it has no
+ * concept of that; it is deleted and re-recorded instead.
+ *
+ * The row and its participants are replaced together in one transaction, so no
+ * reader can catch an amount that has been updated while the stakes it is
+ * divided between still belong to the old one.
+ */
+export function updateExpense(
+	tripId: string,
+	actorId: string,
+	expenseId: string,
+	payerId: string,
+	description: string,
+	amountCents: number,
+	currency: string,
+	parts: SplitPart[],
+	splitMode: SplitMode = 'even'
+): boolean {
+	if (!isMember(tripId, actorId)) return false;
+	if (!isMember(tripId, payerId)) return false;
+
+	const existing = db
+		.prepare(
+			`SELECT COALESCE(settlement, 0) AS settlement FROM expenses WHERE id = ? AND trip_id = ?`
+		)
+		.get(expenseId, tripId) as { settlement: number } | undefined;
+	if (!existing || existing.settlement === 1) return false;
+
+	const seen = new Set<string>();
+	const clean = parts.filter((p) => {
+		if (seen.has(p.userId) || !isMember(tripId, p.userId)) return false;
+		seen.add(p.userId);
+		return true;
+	});
+	if (clean.length === 0 || !Number.isFinite(amountCents) || amountCents === 0) return false;
+
+	db.exec('BEGIN');
+	try {
+		db.prepare(
+			`UPDATE expenses SET payer_id = ?, description = ?, amount_cents = ?, currency = ?, split_mode = ?
+			 WHERE id = ? AND trip_id = ?`
+		).run(payerId, description, amountCents, currency, splitMode, expenseId, tripId);
+		db.prepare(`DELETE FROM expense_participants WHERE expense_id = ?`).run(expenseId);
+		const insertPart = db.prepare(
+			`INSERT INTO expense_participants (expense_id, user_id, weight) VALUES (?, ?, ?)`
+		);
+		for (const p of clean) {
+			insertPart.run(expenseId, p.userId, Number.isFinite(p.weight) && p.weight > 0 ? p.weight : 0);
+		}
+		db.exec('COMMIT');
+	} catch (err) {
+		db.exec('ROLLBACK');
+		throw err;
+	}
+
+	publish(tripId, 'expenses'); // after COMMIT
+	return true;
+}
+
 export function deleteExpense(tripId: string, actorId: string, expenseId: string): boolean {
 	if (!isMember(tripId, actorId)) return false;
 	const res = db
@@ -203,7 +272,12 @@ export function expenseShares(tripId: string): Map<string, ExpenseSplit> {
 		parts.forEach((p, i) => {
 			shares[p.user_id] = cents[i];
 		});
-		out.set(e.id, { payerId: e.payer_id, totalCents, shares });
+		out.set(e.id, {
+			payerId: e.payer_id,
+			totalCents,
+			shares,
+			parts: parts.map((p) => ({ userId: p.user_id, weight: p.weight ?? 1 }))
+		});
 	}
 	return out;
 }

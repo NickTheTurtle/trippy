@@ -3,9 +3,13 @@ import { copy } from '../../copy';
 
 const c = copy.viewAs;
 
-/** The display name for a "view as" selection; '' or an unknown id gives ''. */
-export const nameOf = (members: { id: string; name: string }[], id: string) =>
-	members.find((m) => m.id === id)?.name ?? '';
+/**
+ * What a total belongs to, once the list is being read as one person. The app
+ * speaks to the reader in the second person everywhere else, so their own share
+ * says "Your share" rather than repeating their name back at them.
+ */
+export const shareLabel = (members: { id: string; name: string }[], id: string, me: string) =>
+	id === me ? c.yourShare : c.share(members.find((m) => m.id === id)?.name ?? '');
 
 /**
  * "View as": read a money list as one member rather than as the whole trip.

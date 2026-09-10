@@ -33,6 +33,16 @@ export function formatMoney(
 }
 
 /**
+ * The bare currency symbol, for prefixing an input the user types a number
+ * into. Taken from `Intl` rather than a table, so it follows the reader's
+ * locale the way every other figure on the page does.
+ */
+export function currencySymbol(currency: string): string {
+	const parts = new Intl.NumberFormat(undefined, { style: 'currency', currency }).formatToParts(0);
+	return parts.find((p) => p.type === 'currency')?.value ?? currency;
+}
+
+/**
  * The same, but null-tolerant: an unpriced thing is a real state, not a zero,
  * so the caller says what to render instead of it.
  */

@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { requireMember } from '../middleware';
 import { body, int, num, record, str, strList } from '../parse';
 import { fail, okOr } from '../respond';
@@ -11,7 +11,8 @@ import {
 	listExpenses,
 	recordSettlement,
 	settlement,
-	tripMembers
+	tripMembers,
+	updateExpense
 } from '@trippy/server/expenses';
 import { convertCents, ensureRatesFresh, knownCurrencies } from '@trippy/server/fx';
 import { isSplitMode, type SplitMode } from '@trippy/core/split';
@@ -20,36 +21,27 @@ export const expenses = new Hono<Env>();
 
 expenses.use('*', requireMember);
 
-expenses.get('/', (c) => {
-	const trip = c.get('trip');
-	ensureRatesFresh();
-	const home = trip.home_currency;
-	// The same division the balances are built from, so a row read as one person
-	// and that person's balance can never disagree.
-	const splits = expenseShares(trip.id);
+interface ParsedExpense {
+	description: string;
+	cents: number;
+	currency: string;
+	payerId: string;
+	splitMode: SplitMode;
+	parts: { userId: string; weight: number }[];
+}
 
-	return c.json({
-		currency: home,
-		currencies: knownCurrencies().sort(),
-		members: tripMembers(trip.id),
-		expenses: listExpenses(trip.id).map((e) => ({
-			...e,
-			home_cents: convertCents(e.amount_cents, e.currency, home),
-			converted: e.currency !== home,
-			shares: splits.get(e.id)?.shares ?? {}
-		})),
-		balances: balances(trip.id),
-		settlement: settlement(trip.id),
-		me: c.get('user').id
-	});
-});
-
-expenses.post('/', async (c) => {
-	const trip = c.get('trip');
+/**
+ * Reads and checks the body an expense is written from. Adding and editing take
+ * exactly the same shape, so they share the rules rather than drifting apart.
+ */
+async function parseExpense(
+	c: Context<Env>,
+	home: string
+): Promise<ParsedExpense | { error: string }> {
 	const b = await body(c);
 
 	const description = str(b.description);
-	if (!description) return fail(c, 400, 'Add a description.');
+	if (!description) return { error: 'Add a description.' };
 
 	const amount = num(b.amount);
 	// Income is the same record with the sign flipped: a negative amount means
@@ -57,13 +49,11 @@ expenses.post('/', async (c) => {
 	// credited rather than charged. The sign comes from the amount itself; there
 	// is no separate "this is income" flag to get out of step with it. Zero is
 	// the one value that says nothing either way, so it is rejected.
-	if (amount === null || Math.round(amount * 100) === 0) {
-		return fail(c, 400, 'Enter an amount.');
-	}
+	if (amount === null || Math.round(amount * 100) === 0) return { error: 'Enter an amount.' };
 	const cents = Math.round(amount * 100);
 
 	const participantIds = strList(b.participantIds);
-	if (!participantIds.length) return fail(c, 400, 'Pick who shares this.');
+	if (!participantIds.length) return { error: 'Pick who shares this.' };
 
 	const rawMode = str(b.splitMode) || 'even';
 	const splitMode: SplitMode = isSplitMode(rawMode) ? rawMode : 'even';
@@ -83,37 +73,96 @@ expenses.post('/', async (c) => {
 	});
 
 	if (splitMode !== 'even' && !parts.some((p) => p.weight > 0)) {
-		return fail(
-			c,
-			400,
-			splitMode === 'exact' ? 'Enter at least one amount.' : 'Enter at least one share.'
-		);
+		return {
+			error: splitMode === 'exact' ? 'Enter at least one amount.' : 'Enter at least one share.'
+		};
 	}
 	if (splitMode === 'exact') {
 		const sum = parts.reduce((a, p) => a + Math.max(0, p.weight), 0);
 		if (sum !== Math.abs(cents)) {
-			return fail(
-				c,
-				400,
-				`Amounts add up to ${(sum / 100).toFixed(2)}, but the total is ${Math.abs(
+			return {
+				error: `Amounts add up to ${(sum / 100).toFixed(2)}, but the total is ${Math.abs(
 					cents / 100
 				).toFixed(2)}.`
-			);
+			};
 		}
 	}
+
+	return {
+		description,
+		cents,
+		currency: str(b.currency) || home,
+		payerId: str(b.payerId),
+		splitMode,
+		parts
+	};
+}
+
+expenses.get('/', (c) => {
+	const trip = c.get('trip');
+	ensureRatesFresh();
+	const home = trip.home_currency;
+	// The same division the balances are built from, so a row read as one person
+	// and that person's balance can never disagree.
+	const splits = expenseShares(trip.id);
+
+	return c.json({
+		currency: home,
+		currencies: knownCurrencies().sort(),
+		members: tripMembers(trip.id),
+		expenses: listExpenses(trip.id).map((e) => ({
+			...e,
+			home_cents: convertCents(e.amount_cents, e.currency, home),
+			converted: e.currency !== home,
+			shares: splits.get(e.id)?.shares ?? {},
+			parts: splits.get(e.id)?.parts ?? []
+		})),
+		balances: balances(trip.id),
+		settlement: settlement(trip.id),
+		me: c.get('user').id
+	});
+});
+
+expenses.post('/', async (c) => {
+	const trip = c.get('trip');
+	const parsed = await parseExpense(c, trip.home_currency);
+	if ('error' in parsed) return fail(c, 400, parsed.error);
 
 	const id = addExpense(
 		trip.id,
 		c.get('user').id,
-		str(b.payerId),
-		description,
-		cents,
-		str(b.currency) || trip.home_currency,
-		parts,
-		splitMode
+		parsed.payerId,
+		parsed.description,
+		parsed.cents,
+		parsed.currency,
+		parsed.parts,
+		parsed.splitMode
 	);
 	if (!id) return fail(c, 400, 'Could not add expense.');
 	return c.json({ id }, 201);
+});
+
+expenses.put('/:expenseId', async (c) => {
+	const trip = c.get('trip');
+	const parsed = await parseExpense(c, trip.home_currency);
+	if ('error' in parsed) return fail(c, 400, parsed.error);
+
+	return okOr(
+		c,
+		updateExpense(
+			trip.id,
+			c.get('user').id,
+			c.req.param('expenseId'),
+			parsed.payerId,
+			parsed.description,
+			parsed.cents,
+			parsed.currency,
+			parsed.parts,
+			parsed.splitMode
+		),
+		404,
+		'Could not save that expense.'
+	);
 });
 
 /**

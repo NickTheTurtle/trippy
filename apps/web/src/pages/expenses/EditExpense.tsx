@@ -2,34 +2,33 @@ import { useState } from 'react';
 import { splitByWeight, type SplitMode } from '@trippy/core/split';
 import { api } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
-import { formatMoney } from '../../lib/format';
+import { currencySymbol, formatMoney } from '../../lib/format';
 import { currencyOptions } from '../../lib/currencies';
 import Modal, { ModalFooter } from '../../components/ui/Modal';
 import Select from '../../components/ui/Select';
 import { FieldShell } from '../../components/ui/Field';
-import { LinkButton } from '../../components/ui/buttons';
+import { IconButton, LinkButton } from '../../components/ui/buttons';
+import { MinusIcon, PlusIcon } from '../../components/ui/icons';
 import { CheckBox } from '../../components/ui/CheckBox';
-import type { Member } from './types';
+import type { Expense, Member } from './types';
 import { copy } from '../../copy';
 
 const c = copy.expenses.addDialog;
 
-const MODES: { value: SplitMode; label: string; hint: string }[] = [
-	{ value: 'even', label: c.modes.even.label, hint: c.modes.even.hint },
-	{
-		value: 'shares',
-		label: c.modes.shares.label,
-		hint: c.modes.shares.hint
-	},
-	{ value: 'exact', label: c.modes.exact.label, hint: c.modes.exact.hint }
+const MODES: { value: SplitMode; label: string }[] = [
+	{ value: 'even', label: c.modes.even.label },
+	{ value: 'shares', label: c.modes.shares.label },
+	{ value: 'exact', label: c.modes.exact.label }
 ];
 
 /**
- * Logs one expense: the amount, who paid it, and how it is divided. The three
- * split modes and the live per-person preview are the bulk of it.
+ * Adds or edits one expense: the amount, who paid it, and how it is divided.
+ * The three split modes and the live per-person preview are the bulk of it.
+ * `expense` null means adding.
  */
-export default function AddExpense({
+export default function EditExpense({
 	tripId,
+	expense,
 	members,
 	currencies,
 	home,
@@ -37,21 +36,36 @@ export default function AddExpense({
 	onSaved
 }: {
 	tripId: string;
+	expense: Expense | null;
 	members: Member[];
 	currencies: string[];
 	home: string;
 	onClose: () => void;
 	onSaved: () => void;
 }) {
-	const [description, setDescription] = useState('');
-	const [amount, setAmount] = useState('');
-	const [currency, setCurrency] = useState(home);
-	const [payerId, setPayerId] = useState(members[0]?.id ?? '');
-	const [splitMode, setSplitMode] = useState<SplitMode>('even');
+	const [description, setDescription] = useState(expense?.description ?? '');
+	const [amount, setAmount] = useState(expense ? (expense.amount_cents / 100).toFixed(2) : '');
+	const [currency, setCurrency] = useState(expense?.currency ?? home);
+	const [payerId, setPayerId] = useState(expense?.payer_id ?? members[0]?.id ?? '');
+	const [splitMode, setSplitMode] = useState<SplitMode>(expense?.split_mode ?? 'even');
 	/** Who is in on this expense. Everyone is included by default. */
-	const [picked, setPicked] = useState<Set<string>>(new Set(members.map((m) => m.id)));
+	const [picked, setPicked] = useState<Set<string>>(
+		new Set(expense ? expense.parts.map((p) => p.userId) : members.map((m) => m.id))
+	);
 	/** Per-person share count (`shares` mode) or amount (`exact` mode), as typed. */
-	const [weights, setWeights] = useState<Record<string, string>>({});
+	const [weights, setWeights] = useState<Record<string, string>>(() =>
+		// Stored weights are share counts in `shares` and cents in `exact`, which
+		// is what the two inputs expect back in their own units. `even` has no
+		// input, and its stored 1s would be meaningless in either.
+		expense && expense.split_mode !== 'even'
+			? Object.fromEntries(
+					expense.parts.map((p) => [
+						p.userId,
+						expense.split_mode === 'exact' ? (p.weight / 100).toFixed(2) : String(p.weight)
+					])
+				)
+			: {}
+	);
 
 	const totalCents = Math.round((Number(amount) || 0) * 100);
 	/** A negative amount is money coming back to the group: a refund or payout. */
@@ -93,19 +107,49 @@ export default function AddExpense({
 			(splitMode === 'shares' && chosen.some((m) => weightOf(m.id) > 0)) ||
 			(splitMode === 'exact' && exactOff === 0));
 
-	/** A share count and an amount are not interchangeable, so start clean on a mode change. */
+	/**
+	 * Switching mode seeds every selected person, so the form is valid and says
+	 * something true the moment it is switched into.
+	 *
+	 * A share count and a money amount are not interchangeable, so nothing typed
+	 * in one mode carries into another. Starting blank instead was the worse of
+	 * the two: `shares` read "everyone is in" while dividing by nothing, and
+	 * `exact` opened on a form that had to be filled in before it would save.
+	 * One share each and an even slice each are both exactly what `Evenly`
+	 * already does, so the switch changes nothing until something is typed.
+	 */
 	function setMode(mode: SplitMode) {
 		if (mode === splitMode) return;
 		setSplitMode(mode);
-		setWeights({});
+		if (mode === 'even') return setWeights({});
+		if (mode === 'shares') {
+			return setWeights(Object.fromEntries(chosen.map((m) => [m.id, '1'])));
+		}
+		const each = splitByWeight(Math.abs(totalCents), new Array(chosen.length).fill(1));
+		setWeights(Object.fromEntries(chosen.map((m, i) => [m.id, (each[i] / 100).toFixed(2)])));
 	}
 
 	function toggle(id: string) {
+		const on = picked.has(id);
 		setPicked((prev) => {
 			const next = new Set(prev);
-			if (next.has(id)) next.delete(id);
+			if (on) next.delete(id);
 			else next.add(id);
 			return next;
+		});
+		// Somebody ticked on in `shares` starts on one share rather than on none:
+		// a ticked box that charges nothing is the trap this whole seeding avoids.
+		if (!on && splitMode === 'shares' && !weights[id]) {
+			setWeights((prev) => ({ ...prev, [id]: '1' }));
+		}
+	}
+
+	/** Step one person's share count, never below one. */
+	function bumpShares(id: string, by: number) {
+		setWeights((prev) => {
+			const now = Number(prev[id]);
+			const next = Math.max(1, (Number.isFinite(now) && now > 0 ? now : 1) + by);
+			return { ...prev, [id]: String(next) };
 		});
 	}
 
@@ -124,8 +168,8 @@ export default function AddExpense({
 
 	const save = useMutation(
 		async () => {
-			await api(`/trips/${tripId}/expenses`, {
-				method: 'POST',
+			await api(`/trips/${tripId}/expenses${expense ? `/${expense.id}` : ''}`, {
+				method: expense ? 'PUT' : 'POST',
 				body: {
 					description,
 					amount: Number(amount),
@@ -145,7 +189,19 @@ export default function AddExpense({
 	);
 
 	return (
-		<Modal open title={income ? c.incomeTitle : c.expenseTitle} onClose={onClose}>
+		<Modal
+			open
+			title={
+				expense
+					? income
+						? c.editIncomeTitle
+						: c.editExpenseTitle
+					: income
+						? c.incomeTitle
+						: c.expenseTitle
+			}
+			onClose={onClose}
+		>
 			<form className="mform" onSubmit={save.submit}>
 				<div className="mbody flex flex-col gap-4">
 					{/* A 12-column grid, so the four top fields keep their proportions
@@ -219,11 +275,7 @@ export default function AddExpense({
 								))}
 							</div>
 						</div>
-						<p className="m-0 text-[0.82rem] text-ink-faint">
-							{MODES.find((o) => o.value === splitMode)?.hint}
-						</p>
-
-						<div className="mt-1.5 mb-1.5 flex items-baseline justify-between gap-2.5">
+						<div className="mt-2 mb-2 flex items-baseline justify-between gap-2.5">
 							<span className="muted min-w-0 truncate text-[0.85rem]">
 								{c.selectedCount(chosen.length, members.length)}
 								{splitMode === 'exact' &&
@@ -243,42 +295,87 @@ export default function AddExpense({
 							</span>
 						</div>
 
-						<ul className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(230px,1fr))] gap-x-4 gap-y-0.5 p-0">
+						{/* One column as soon as a row carries an input: a stepper or a
+						    money field beside a name cannot be squeezed into a 230px
+						    track without the name truncating to nothing. */}
+						<ul
+							className={`m-0 grid list-none gap-x-4 gap-y-1.5 p-0 ${
+								splitMode === 'even'
+									? 'grid-cols-[repeat(auto-fill,minmax(230px,1fr))]'
+									: 'grid-cols-1'
+							}`}
+						>
 							{members.map((m) => {
 								const on = picked.has(m.id);
 								return (
 									<li
 										key={m.id}
+										/* A fixed height, because only two of the three modes draw an
+										   input: without it the whole list jumps shorter the moment
+										   somebody switches to Evenly. */
 										className={[
-											'flex items-center gap-2 rounded-sm px-1.5 py-1 text-[0.88rem]',
+											'flex h-11 items-center gap-2.5 rounded-md px-3 text-[0.88rem]',
 											on ? 'bg-surface shadow-[inset_0_0_0_1px_var(--color-line)]' : ''
 										].join(' ')}
 									>
-										<label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 select-none">
+										<label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 select-none">
 											<CheckBox checked={on} onChange={() => toggle(m.id)} />
 											<span className="truncate" title={m.name}>
 												{m.name}
 											</span>
 										</label>
-										{on && splitMode !== 'even' && (
-											<input
-												type="number"
-												min="0"
-												step={splitMode === 'exact' ? '0.01' : '1'}
-												aria-label={c.weightLabel(splitMode === 'exact', m.name)}
-												value={weights[m.id] ?? ''}
-												onChange={(e) =>
-													setWeights((prev) => ({
-														...prev,
-														[m.id]: e.target.value
-													}))
-												}
-												className="input compact w-[4.6rem] flex-none text-right"
-											/>
+										{/* Shares are stepped, not typed: the common edits are "one
+										    more" and "double", and a bare number box asked for a
+										    keyboard to say either. */}
+										{on && splitMode === 'shares' && (
+											<span className="flex flex-none items-center gap-1">
+												<IconButton
+													label={c.fewerShares(m.name)}
+													onClick={() => bumpShares(m.id, -1)}
+												>
+													<MinusIcon />
+												</IconButton>
+												<input
+													type="number"
+													min="1"
+													step="1"
+													aria-label={c.weightLabel(false, m.name)}
+													value={weights[m.id] ?? ''}
+													onChange={(e) =>
+														setWeights((prev) => ({ ...prev, [m.id]: e.target.value }))
+													}
+													className="input compact w-[3.2rem] text-center"
+												/>
+												<IconButton
+													label={c.moreShares(m.name)}
+													onClick={() => bumpShares(m.id, 1)}
+												>
+													<PlusIcon />
+												</IconButton>
+											</span>
+										)}
+										{on && splitMode === 'exact' && (
+											<span className="relative flex-none">
+												<span className="muted pointer-events-none absolute inset-y-0 left-2.5 flex items-center text-[0.8rem]">
+													{currencySymbol(currency)}
+												</span>
+												<input
+													type="number"
+													min="0"
+													step="0.01"
+													inputMode="decimal"
+													aria-label={c.weightLabel(true, m.name)}
+													value={weights[m.id] ?? ''}
+													onChange={(e) =>
+														setWeights((prev) => ({ ...prev, [m.id]: e.target.value }))
+													}
+													className="input compact w-[6.5rem] pl-7 text-right"
+												/>
+											</span>
 										)}
 										{on && totalCents !== 0 && preview.has(m.id) && (
 											<span
-												className={`flex-none text-[0.78rem] tabular-nums ${income ? 'text-accent-ink' : 'text-ink-faint'}`}
+												className={`w-[5.5rem] flex-none text-right text-[0.82rem] tabular-nums ${income ? 'text-accent-ink' : 'text-ink-faint'}`}
 											>
 												{formatMoney(preview.get(m.id) ?? 0, currency)}
 											</span>
@@ -296,7 +393,7 @@ export default function AddExpense({
 					busy={save.busy}
 					disabled={!canSave}
 					busyLabel={copy.common.saving}
-					submitLabel={income ? c.saveIncome : c.saveExpense}
+					submitLabel={expense ? c.saveChanges : income ? c.saveIncome : c.saveExpense}
 				/>
 			</form>
 		</Modal>

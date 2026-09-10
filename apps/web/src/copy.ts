@@ -93,13 +93,13 @@ export const copy = {
 	notFound: {
 		heading: 'Page not found',
 		body: 'That link does not point at anything in this app.',
-		backAuthenticated: 'Back to my trips',
+		backAuthenticated: 'Back to your trips',
 		backAnonymous: 'Back to the start'
 	},
 
 	// Trips list, the signed-in home page
 	trips: {
-		heading: 'My trips',
+		heading: 'Your trips',
 		newTrip: 'New trip',
 		emptyMessage: 'No trips yet.',
 		emptyAction: 'New trip',
@@ -192,9 +192,7 @@ export const copy = {
 		errors: {
 			votePlace: 'Could not vote on that place.',
 			voteStay: 'Could not vote on that stay.',
-			lockStay: 'Could not lock that stay.',
-			removeStay: 'Could not remove that stay.',
-			saveDates: 'Could not save those dates.'
+			removeStay: 'Could not remove that stay.'
 		},
 		card: {
 			voteLabel: (youVoted: boolean, subject: string) =>
@@ -208,15 +206,7 @@ export const copy = {
 		stayCard: {
 			locked: 'Locked',
 			priceTbd: 'Price TBD',
-			removeLabel: (name: string) => `Remove ${name}`,
-			editDates: 'Edit dates',
-			setDates: 'Set dates',
-			lockLabel: (locked: boolean) => (locked ? 'Unlock' : 'Lock as choice'),
-			lockAriaLabel: (locked: boolean, name: string) =>
-				`${locked ? 'Unlock' : 'Lock as choice'}: ${name}`,
-			checkInLabel: 'In',
-			checkOutLabel: 'Out',
-			saveDates: 'Save'
+			removeLabel: (name: string) => `Remove ${name}`
 		},
 		placeFields: {
 			typeLabel: 'Type',
@@ -270,7 +260,7 @@ export const copy = {
 			title: (estimate: string) => `Delete ${estimate}?`
 		},
 		myTasks: {
-			title: 'Assigned to me',
+			title: 'Assigned to you',
 			othersTitle: 'Other tasks'
 		},
 		taskList: {
@@ -323,10 +313,8 @@ export const copy = {
 		addExpense: '+ Add',
 		tripTotal: 'Trip total',
 		perPerson: 'Per person',
-		balancesHead: (currency: string) => `Net position per person, in ${currency}.`,
 		allEven: 'Everyone is even.',
 		youTag: 'you',
-		settleHead: 'Minimum transfers to clear all balances.',
 		nothingToSettle: 'Nothing to settle.',
 		deletePaymentTitle: (payment: string) => `Delete ${payment}?`,
 		deleteExpenseTitle: (expense: string) => `Delete ${expense}?`,
@@ -342,7 +330,8 @@ export const copy = {
 				if (mode === 'exact') return `split by amount, ${people}`;
 				return `split ${people}`;
 			},
-			deleteLabel: (description: string) => `Delete ${description}`
+			deleteLabel: (description: string) => `Delete ${description}`,
+			editLabel: (description: string) => `Edit ${description}`
 		},
 		settleRow: {
 			pays: 'pays',
@@ -354,12 +343,14 @@ export const copy = {
 		},
 		addDialog: {
 			modes: {
-				even: { label: 'Evenly', hint: 'Everyone selected pays the same.' },
-				shares: { label: 'By shares', hint: 'Weight each person: 2 shares pays double.' },
-				exact: { label: 'By amount', hint: 'Type what each person owes.' }
+				even: { label: 'Evenly' },
+				shares: { label: 'By shares' },
+				exact: { label: 'By amount' }
 			},
 			incomeTitle: 'Add income',
 			expenseTitle: 'Add expense',
+			editIncomeTitle: 'Edit income',
+			editExpenseTitle: 'Edit expense',
 			descriptionLabel: 'Description',
 			amountLabel: 'Amount',
 			currencyLabel: 'Currency',
@@ -378,8 +369,11 @@ export const copy = {
 			all: 'All',
 			none: 'None',
 			weightLabel: (exact: boolean, name: string) => `${exact ? 'Amount' : 'Shares'} for ${name}`,
+			fewerShares: (name: string) => `One share fewer for ${name}`,
+			moreShares: (name: string) => `One share more for ${name}`,
 			saveIncome: 'Save income',
 			saveExpense: 'Save expense',
+			saveChanges: 'Save changes',
 			fallback: 'Could not save that expense.'
 		}
 	},
@@ -397,8 +391,14 @@ export const copy = {
 			organizerTag: 'organizer',
 			invitedTag: 'invited',
 			sampleTag: 'sample',
-			remove: 'Remove',
-			removeLabel: (name: string) => `Remove ${name}`
+			removeLabel: (name: string) => `Remove ${name}`,
+			renameLabel: (name: string) => `Rename ${name}`
+		},
+		rename: {
+			title: 'Edit name',
+			nameLabel: 'Display name',
+			saveLabel: 'Save changes',
+			fallback: 'Could not rename that member.'
 		},
 		invite: {
 			heading: 'Invite someone',
@@ -480,6 +480,7 @@ export const copy = {
 	viewAs: {
 		label: 'View as',
 		everyone: 'Everyone',
+		yourShare: 'Your share',
 		share: (name: string) => `${name}'s share`
 	}
 } as const;

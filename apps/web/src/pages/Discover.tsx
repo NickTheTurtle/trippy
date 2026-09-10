@@ -47,7 +47,6 @@ export default function Discover() {
 	const [adding, setAdding] = useState(false);
 	const [editPoi, setEditPoi] = useState<Poi | null>(null);
 	const [deletePoi, setDeletePoi] = useState<Poi | null>(null);
-	const [datesFor, setDatesFor] = useState<string | null>(null);
 
 	// One state machine per write, each reporting the server's own refusal. The
 	// API answers 400 / 403 / 404 for a write it declines where it used to
@@ -64,13 +63,6 @@ export default function Discover() {
 			onSuccess: reload
 		}
 	);
-	const lockStay = useMutation<[string]>(
-		(id) => api(`${base}/stays/${id}/lock`, { method: 'POST' }),
-		{
-			fallback: cd.errors.lockStay,
-			onSuccess: reload
-		}
-	);
 	const removeStay = useMutation<[string]>(
 		(id) => api(`${base}/stays/${id}`, { method: 'DELETE' }),
 		{
@@ -78,20 +70,8 @@ export default function Discover() {
 			onSuccess: reload
 		}
 	);
-	const saveStayDates = useMutation<[string, string | null, string | null]>(
-		(id, checkIn, checkOut) =>
-			api(`${base}/stays/${id}/dates`, { method: 'PATCH', body: { checkIn, checkOut } }),
-		{
-			fallback: cd.errors.saveDates,
-			onSuccess: () => {
-				setDatesFor(null);
-				reload();
-			}
-		}
-	);
 
-	const notice =
-		votePlace.error || voteStay.error || lockStay.error || removeStay.error || saveStayDates.error;
+	const notice = votePlace.error || voteStay.error || removeStay.error;
 
 	if (!data) return error ? <p className="text-warn">{error}</p> : null;
 
@@ -196,13 +176,8 @@ export default function Discover() {
 								stay={o}
 								currency={data.currency}
 								pct={pct(o.votes)}
-								isOrganizer={data.isOrganizer}
-								editingDates={datesFor === o.id}
-								onToggleDates={() => setDatesFor((v) => (v === o.id ? null : o.id))}
 								onVote={() => void voteStay.run(o.id)}
-								onLock={() => void lockStay.run(o.id)}
 								onRemove={() => void removeStay.run(o.id)}
-								onSaveDates={(checkIn, checkOut) => void saveStayDates.run(o.id, checkIn, checkOut)}
 							/>
 						))}
 						{places.map((p) => (

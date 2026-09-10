@@ -1183,6 +1183,27 @@ first and split the converted total, so the shares still sum to the expense
 exactly and the balances still net to zero. Settlements keep showing their full
 amount rather than a share: a transfer is not a cost anybody divided.
 
+### 5.0.9a The People tab
+
+**Renaming is offered only to people who cannot log in.** An invited placeholder
+is named after the local part of the email it was invited with, and a seeded
+sample companion was named by the seeder, so both names are the trip's to fix. A
+registered member's name is their account's: it is theirs to change in Account,
+it follows them onto every other trip, and no organizer of one trip should get to
+rewrite it. The alternative, a per-trip nickname on `memberships`, was rejected
+because every query that reads a name would then have to resolve two of them.
+
+`renameMember` refuses anything else: a non-organizer caller, a member of another
+trip, a blank or over-long name, and any user whose `password_hash` is neither a
+`placeholder:` nor a `seed:` marker. It republishes members, expenses, schedule,
+places, lodging, tasks and estimates, because the name is drawn on rows all over
+the trip and not just on the roster.
+
+**The row controls are the drawn pencil and bin the rest of the app uses,** on
+the row's hover, replacing a text "Remove" link. On a two-column roster that link
+read as the row's main action, which removing somebody is not; the weight belongs
+in the confirmation, which still spells out what is destroyed.
+
 ### 5.0.10 The trip list
 
 **A trip card leads with its first city's photograph.** The cards were flat

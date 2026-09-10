@@ -428,6 +428,27 @@ describe('member removal cascade', () => {
 		expect(tableCount('expense_participants', 'expense_id = ?', paidByPlaceholder)).toBe(0);
 	});
 
+	it('renames a placeholder but not a member who owns their own account', () => {
+		const f = createTripFixture('rename');
+		expect(members.inviteToTrip(f.tripId, f.organizer, 'guest@example.test')).toBe('invited');
+		const placeholder = members.listPeople(f.tripId).find((p) => p.placeholder)!;
+
+		expect(members.renameMember(f.tripId, f.organizer, placeholder.id, '  Aunt Mei  ')).toBe(true);
+		expect(members.listPeople(f.tripId).find((p) => p.id === placeholder.id)!.name).toBe(
+			'Aunt Mei'
+		);
+
+		// A registered member's name is their account's, shared with every other
+		// trip they are on, so nobody else's organizer gets to change it.
+		expect(members.renameMember(f.tripId, f.organizer, f.member, 'Nickname')).toBe(false);
+		// And a member who is not the organizer cannot rename anyone.
+		expect(members.renameMember(f.tripId, f.member, placeholder.id, 'Someone else')).toBe(false);
+		expect(members.renameMember(f.tripId, f.organizer, placeholder.id, '   ')).toBe(false);
+		expect(members.listPeople(f.tripId).find((p) => p.id === placeholder.id)!.name).toBe(
+			'Aunt Mei'
+		);
+	});
+
 	it('removes only the membership row for a registered member', () => {
 		const f = createTripFixture('registered');
 		const expenseId = expenses.addExpense(f.tripId, f.organizer, f.member, 'Tickets', 1200, 'USD', [

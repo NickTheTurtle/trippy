@@ -20,6 +20,8 @@ export type Expense = {
 	converted: boolean;
 	/** Home-currency cents this expense charges each participant, keyed by user id. */
 	shares: Record<string, number>;
+	/** The stored stakes, as typed, so the edit dialog can prefill them. */
+	parts: { userId: string; weight: number }[];
 };
 export type ExpensesData = {
 	currency: string;

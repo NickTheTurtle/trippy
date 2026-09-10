@@ -17,5 +17,16 @@ export const env = {
 	},
 	get GOOGLE_MAPS_KEY(): string | undefined {
 		return process.env.GOOGLE_MAPS_KEY;
+	},
+	get RESEND_API_KEY(): string | undefined {
+		return process.env.RESEND_API_KEY;
+	},
+	/** The From address invites are sent as. Its domain must be verified with the provider. */
+	get MAIL_FROM(): string | undefined {
+		return process.env.MAIL_FROM;
+	},
+	/** Where an invite's link points. The web app, not the API. */
+	get APP_URL(): string {
+		return process.env.APP_URL ?? 'http://localhost:5174';
 	}
 };

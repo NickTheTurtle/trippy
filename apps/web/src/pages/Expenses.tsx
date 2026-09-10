@@ -9,11 +9,11 @@ import FormError from '../components/ui/FormError';
 import EmptyState from '../components/ui/EmptyState';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 import Stat from '../components/ui/Stat';
-import ViewAsBar, { nameOf } from '../components/ui/ViewAsBar';
+import ViewAsBar, { shareLabel } from '../components/ui/ViewAsBar';
 import type { Expense, ExpensesData } from './expenses/types';
 import ExpenseRow from './expenses/ExpenseRow';
 import SettleRow from './expenses/SettleRow';
-import AddExpense from './expenses/AddExpense';
+import EditExpense from './expenses/EditExpense';
 import { copy } from '../copy';
 
 const ce = copy.expenses;
@@ -31,7 +31,8 @@ export default function Expenses() {
 	// Balances move when the roster does, not only when an expense changes.
 	useLiveSection(['expenses', 'members', 'trip'], reload);
 	const [section, setSection] = useState('expenses');
-	const [showAdd, setShowAdd] = useState(false);
+	/** Open dialog: `{ expense: null }` adds, `{ expense }` edits. Null is closed. */
+	const [editing, setEditing] = useState<{ expense: Expense | null } | null>(null);
 	const [pendingDelete, setPendingDelete] = useState<Expense | null>(null);
 	/** Whose money the ledger is read as. '' is the whole trip. */
 	const [viewAs, setViewAs] = useState('');
@@ -106,13 +107,13 @@ export default function Expenses() {
 								<div className="flex min-w-0 flex-wrap items-end gap-6">
 									<Stat label={ce.tripTotal} value={fmt(spent)} />
 									<Stat
-										label={viewAs ? copy.viewAs.share(nameOf(data.members, viewAs)) : ce.perPerson}
+										label={viewAs ? shareLabel(data.members, viewAs, data.me) : ce.perPerson}
 										value={fmt(viewAs ? mine : perPerson)}
 									/>
 								</div>
 							}
 						>
-							<button className="btn primary" onClick={() => setShowAdd(true)}>
+							<button className="btn primary" onClick={() => setEditing({ expense: null })}>
 								{ce.addExpense}
 							</button>
 						</Head>
@@ -135,6 +136,7 @@ export default function Expenses() {
 											expense={e}
 											home={data.currency}
 											share={viewAs && e.settlement !== 1 ? (e.shares[viewAs] ?? 0) : undefined}
+											onEdit={e.settlement === 1 ? null : () => setEditing({ expense: e })}
 											onRemove={() => setPendingDelete(e)}
 										/>
 									))}
@@ -146,7 +148,7 @@ export default function Expenses() {
 
 				{section === 'balances' && (
 					<>
-						<Head text={ce.balancesHead(data.currency)} />
+						<Head />
 						<div className="card px-5 py-5">
 							{unsettled === 0 ? (
 								<p className="muted m-0 text-[0.9rem]">{ce.allEven}</p>
@@ -181,7 +183,7 @@ export default function Expenses() {
 
 				{section === 'settle' && (
 					<>
-						<Head text={ce.settleHead} />
+						<Head />
 						<div className="card px-5 py-5">
 							{data.settlement.length === 0 ? (
 								<p className="muted m-0 text-[0.9rem]">{ce.nothingToSettle}</p>
@@ -202,13 +204,14 @@ export default function Expenses() {
 				)}
 			</div>
 
-			{showAdd && (
-				<AddExpense
+			{editing && (
+				<EditExpense
 					tripId={trip.id}
+					expense={editing.expense}
 					members={data.members}
 					currencies={data.currencies}
 					home={data.currency}
-					onClose={() => setShowAdd(false)}
+					onClose={() => setEditing(null)}
 					onSaved={reload}
 				/>
 			)}

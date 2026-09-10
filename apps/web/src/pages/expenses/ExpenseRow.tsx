@@ -1,6 +1,7 @@
 import type { SplitMode } from '@trippy/core/split';
 import { formatMoney, formatTimestamp } from '../../lib/format';
 import { IconButton } from '../../components/ui/buttons';
+import { PencilIcon, TrashIcon } from '../../components/ui/icons';
 import type { Expense } from './types';
 import { copy } from '../../copy';
 
@@ -13,6 +14,7 @@ export default function ExpenseRow({
 	expense: e,
 	home,
 	share,
+	onEdit,
 	onRemove
 }: {
 	expense: Expense;
@@ -22,12 +24,14 @@ export default function ExpenseRow({
 	 * as. Undefined when it is being read as the whole trip.
 	 */
 	share?: number;
+	/** Null for a settlement, which is deleted and re-recorded rather than edited. */
+	onEdit: (() => void) | null;
 	onRemove: () => void;
 }) {
 	const credit = e.amount_cents < 0;
 	const settled = e.settlement === 1;
 	return (
-		<li className="flex items-center gap-3">
+		<li className="group flex items-center gap-3">
 			<span
 				className={`grid size-[30px] flex-none place-items-center rounded-full text-[0.82rem] font-semibold ${
 					credit ? 'bg-surface-2 text-ink-soft' : 'bg-accent-soft text-accent-ink'
@@ -82,14 +86,20 @@ export default function ExpenseRow({
 					</>
 				)}
 			</span>
-			<IconButton
-				label={c.deleteLabel(e.description)}
-				danger
-				className="flex-none"
-				onClick={onRemove}
-			>
-				×
-			</IconButton>
+			{/* A payment cannot be edited, but its bin has to land in the same column
+			    as every other row's, so the missing pencil leaves its slot behind. */}
+			<span className="flex flex-none gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
+				{onEdit ? (
+					<IconButton label={c.editLabel(e.description)} onClick={onEdit}>
+						<PencilIcon />
+					</IconButton>
+				) : (
+					<span className="w-[var(--control-h-sm)]" aria-hidden />
+				)}
+				<IconButton label={c.deleteLabel(e.description)} danger onClick={onRemove}>
+					<TrashIcon />
+				</IconButton>
+			</span>
 		</li>
 	);
 }

@@ -1,19 +1,23 @@
-import { LinkButton } from '../../components/ui/buttons';
+import { IconButton } from '../../components/ui/buttons';
+import { PencilIcon, TrashIcon } from '../../components/ui/icons';
 import type { Person } from './types';
 import { copy } from '../../copy';
 
 const c = copy.people.row;
 
-/** One member of the roster, with the remove control an organizer sees. */
+/** One member of the roster, with the controls an organizer sees. */
 export default function MemberRow({
 	person,
 	me,
 	organizer,
+	onRename,
 	onRemove
 }: {
 	person: Person;
 	me: string;
 	organizer: boolean;
+	/** Null when this person's name is their own account's, not the trip's. */
+	onRename: (() => void) | null;
 	onRemove: () => void;
 }) {
 	const sub = person.placeholder
@@ -23,7 +27,7 @@ export default function MemberRow({
 			: person.email;
 
 	return (
-		<li className="flex items-center gap-3 rounded-sm p-2 hover:bg-surface-2">
+		<li className="group flex items-center gap-3 rounded-sm p-2 hover:bg-surface-2">
 			<span className="grid size-[34px] shrink-0 place-items-center rounded-full bg-accent-soft font-semibold text-accent-ink">
 				{person.name[0]}
 			</span>
@@ -42,19 +46,21 @@ export default function MemberRow({
 				</span>
 				<span className="muted truncate text-[0.82rem]">{sub}</span>
 			</span>
-			{organizer && person.role !== 'organizer' && (
-				/* A text control rather than a bordered button: on every row of a
-				   two-column roster a button would read as the row's main action,
-				   which it is not. The weight belongs in the confirmation. */
-				<LinkButton
-					danger
-					className="flex-none"
-					onClick={onRemove}
-					aria-label={c.removeLabel(person.name)}
-				>
-					{c.remove}
-				</LinkButton>
-			)}
+			{/* The same drawn pencil and bin every other list in the app uses, on the
+			    row's hover, so removing a member is not the loudest thing on a page
+			    that is mostly about who is coming. */}
+			<span className="flex flex-none gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
+				{organizer && onRename && (
+					<IconButton label={c.renameLabel(person.name)} onClick={onRename}>
+						<PencilIcon />
+					</IconButton>
+				)}
+				{organizer && person.role !== 'organizer' && (
+					<IconButton label={c.removeLabel(person.name)} danger onClick={onRemove}>
+						<TrashIcon />
+					</IconButton>
+				)}
+			</span>
 		</li>
 	);
 }
