@@ -11,6 +11,9 @@ import type { PlaceHit, PlaceHitDetails } from '../../lib/api-types';
 import { HitSummary, MIN_QUERY, hitKey } from './place-meta';
 import { LinkField, NotesField, TypeField } from './place-fields';
 import { VIEW_OPTIONS, isStayView, type DiscoverView } from './views';
+import { copy } from '../../copy';
+
+const c = copy.discover.addDialog;
 
 /** The activity input, refocused after each add. One dialog, so one fixed id. */
 const ACTIVITY_ID = 'discover-add-activity';
@@ -35,7 +38,6 @@ export default function AddDialog({
 	base,
 	city,
 	tz,
-	currency,
 	provider,
 	initialView,
 	onClose,
@@ -46,8 +48,6 @@ export default function AddDialog({
 	city: { id: string; name: string };
 	/** The city's IANA zone, for the opening-hours line on a result. */
 	tz: string;
-	/** Trip home currency, which a nightly price is denominated in. */
-	currency: string;
 	provider: 'google' | 'osm';
 	initialView: DiscoverView;
 	onClose: () => void;
@@ -74,7 +74,7 @@ export default function AddDialog({
 	const [addedCount, setAddedCount] = useState(0);
 
 	const stay = isStayView(view);
-	const providerLabel = provider === 'google' ? 'Google Maps' : 'OpenStreetMap';
+	const providerLabel = provider === 'google' ? c.providerGoogle : c.providerOsm;
 
 	const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 	/** Lets a new search cancel the one before it. */
@@ -258,7 +258,7 @@ export default function AddDialog({
 			});
 		},
 		{
-			fallback: 'Could not add that.',
+			fallback: c.fallback,
 			onSuccess: () => {
 				onAdded(view);
 				// A stay is added once. A place can legitimately be added several
@@ -286,7 +286,7 @@ export default function AddDialog({
 		}
 		const cents = parseMoneyToCents(price);
 		if (cents === 'bad') {
-			add.setError('Enter the nightly price as a number, or leave it blank.');
+			add.setError(c.badPrice);
 			return;
 		}
 		void add.run(cents);
@@ -296,7 +296,7 @@ export default function AddDialog({
 	const busy = add.busy || detailLoading;
 
 	return (
-		<Modal open title={`Add to ${city.name}`} size="md" onClose={onClose}>
+		<Modal open title={c.title(city.name)} size="md" onClose={onClose}>
 			<form className="mform" onSubmit={submit}>
 				<div className="mbody">
 					<div className="flex flex-col gap-3">
@@ -305,8 +305,7 @@ export default function AddDialog({
 						    six rather than scrolled, as it was in flow; the dropdown only
 						    scrolls when the window is too short for six. */}
 						<SearchDropdown
-							label="Name"
-							hint={`Search ${stay ? 'hotels and rentals' : 'places'} in ${city.name}, or just type the name.`}
+							label={c.nameLabel}
 							autoFocus
 							required
 							value={name}
@@ -327,17 +326,17 @@ export default function AddDialog({
 							)}
 							empty={
 								query.length < MIN_QUERY
-									? 'Keep typing to search.'
+									? c.keepTyping
 									: searching
-										? 'Searching...'
+										? c.searching
 										: searched
-											? `No matches for "${query}". Add it by hand instead.`
-											: 'Keep typing to search.'
+											? c.noMatches(query)
+											: c.keepTyping
 							}
 							footer={
 								/* The attribution has to sit with the data it describes. */
 								<p className="m-0 px-2 pt-1 text-right text-[0.68rem] text-ink-faint">
-									Powered by {providerLabel}
+									{c.attribution(providerLabel)}
 								</p>
 							}
 						/>
@@ -349,16 +348,15 @@ export default function AddDialog({
 									<p className="muted m-0 text-[0.85rem] [overflow-wrap:anywhere]">{hit.address}</p>
 								)}
 								<LinkButton className="mt-1.5" onClick={unpick}>
-									Not this one
+									{c.notThisOne}
 								</LinkButton>
 							</div>
 						)}
 
 						{stay ? (
 							<Field
-								label="Price / night"
+								label={c.priceLabel}
 								optional
-								hint={`Per night, in ${currency}.`}
 								type="number"
 								min="0"
 								step="1"
@@ -369,9 +367,8 @@ export default function AddDialog({
 						) : (
 							<Field
 								id={ACTIVITY_ID}
-								label="Activity"
+								label={c.activityLabel}
 								optional
-								hint="Becomes the card title, so one place can appear once per activity."
 								value={activity}
 								onChange={(e) => setActivity(e.target.value)}
 								inputClassName="w-full"
@@ -388,18 +385,15 @@ export default function AddDialog({
 				<div className="mfoot">
 					<FormError message={add.error} />
 					{!add.error && addedCount > 0 && (
-						<FormError
-							tone="success"
-							message={`Added${addedCount > 1 ? ` \u00d7${addedCount}` : ''}. Add another activity for the same place, or close.`}
-						/>
+						<FormError tone="success" message={c.added(addedCount)} />
 					)}
 					<button className="btn" type="button" onClick={onClose}>
-						Close
+						{c.close}
 					</button>
 					{/* Submitting mid-fetch would save the place without its rating or
 					    photo, and nothing backfills a rating later. */}
 					<button className="btn primary" type="submit" disabled={busy}>
-						{detailLoading ? 'Loading...' : stay ? 'Add stay' : 'Add place'}
+						{detailLoading ? c.busyLabel : stay ? c.submitStay : c.submitPlace}
 					</button>
 				</div>
 			</form>

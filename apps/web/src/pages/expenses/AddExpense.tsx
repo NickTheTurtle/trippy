@@ -10,15 +10,18 @@ import { FieldShell } from '../../components/ui/Field';
 import FormError from '../../components/ui/FormError';
 import { LinkButton } from '../../components/ui/buttons';
 import type { Member } from './types';
+import { copy } from '../../copy';
+
+const c = copy.expenses.addDialog;
 
 const MODES: { value: SplitMode; label: string; hint: string }[] = [
-	{ value: 'even', label: 'Evenly', hint: 'Everyone selected pays the same.' },
+	{ value: 'even', label: c.modes.even.label, hint: c.modes.even.hint },
 	{
 		value: 'shares',
-		label: 'By shares',
-		hint: 'Weight each person: 2 shares pays double.'
+		label: c.modes.shares.label,
+		hint: c.modes.shares.hint
 	},
-	{ value: 'exact', label: 'By amount', hint: 'Type what each person owes.' }
+	{ value: 'exact', label: c.modes.exact.label, hint: c.modes.exact.hint }
 ];
 
 /**
@@ -138,17 +141,17 @@ export default function AddExpense({
 			onSaved();
 			onClose();
 		},
-		{ fallback: 'Could not save that expense.' }
+		{ fallback: c.fallback }
 	);
 
 	return (
-		<Modal open title={income ? 'Add income' : 'Add expense'} onClose={onClose}>
+		<Modal open title={income ? c.incomeTitle : c.expenseTitle} onClose={onClose}>
 			<form className="mform" onSubmit={save.submit}>
 				<div className="mbody flex flex-col gap-4">
 					{/* A 12-column grid, so the four top fields keep their proportions
 					    instead of wrapping at hard pixel widths as the modal narrows. */}
 					<div className="grid grid-cols-12 gap-x-2.5 gap-y-3.5">
-						<FieldShell className="col-span-12" label="Description">
+						<FieldShell className="col-span-12" label={c.descriptionLabel}>
 							<input
 								autoFocus
 								required
@@ -157,7 +160,7 @@ export default function AddExpense({
 								className="input"
 							/>
 						</FieldShell>
-						<FieldShell className="col-span-4" label="Amount">
+						<FieldShell className="col-span-4" label={c.amountLabel}>
 							<input
 								type="number"
 								step="0.01"
@@ -168,36 +171,34 @@ export default function AddExpense({
 								className="input"
 							/>
 						</FieldShell>
-						<FieldShell className="col-span-3" label="Currency">
+						<FieldShell className="col-span-3" label={c.currencyLabel}>
 							<Select
 								options={currencyOptions(currencies)}
 								value={currency}
 								onChange={setCurrency}
-								ariaLabel="Currency"
+								ariaLabel={c.currencyAriaLabel}
 							/>
 						</FieldShell>
-						<FieldShell className="col-span-5" label={income ? 'Received by' : 'Paid by'}>
+						<FieldShell className="col-span-5" label={income ? c.receivedByLabel : c.paidByLabel}>
 							<Select
 								options={members.map((m) => ({ value: m.id, label: m.name }))}
 								value={payerId}
 								onChange={setPayerId}
-								ariaLabel="Paid by"
+								ariaLabel={c.payerAriaLabel}
 							/>
 						</FieldShell>
 					</div>
 
 					<p className={`-mt-2 text-[0.82rem] ${income ? 'text-accent-ink' : 'text-ink-faint'}`}>
-						{income
-							? 'Saved as income: everyone selected is credited instead of charged.'
-							: 'Use a negative amount for a refund or payout.'}
+						{income ? c.incomeNote : c.expenseNote}
 					</p>
 
 					<div className="flex flex-col gap-1.5 rounded-[10px] border border-line bg-surface-2 px-3.5 py-3.5">
 						<div className="flex flex-wrap items-center justify-between gap-3">
-							<span className="text-[0.82rem] text-ink-soft">Split</span>
+							<span className="text-[0.82rem] text-ink-soft">{c.splitLabel}</span>
 							<div
 								role="group"
-								aria-label="Split method"
+								aria-label={c.splitAriaLabel}
 								className="flex w-fit max-w-full flex-wrap gap-1 rounded-full border border-line bg-surface-2 p-1"
 							>
 								{MODES.map((o) => (
@@ -224,21 +225,21 @@ export default function AddExpense({
 
 						<div className="mt-1.5 mb-1.5 flex items-baseline justify-between gap-2.5">
 							<span className="muted min-w-0 truncate text-[0.85rem]">
-								{chosen.length} of {members.length} selected
+								{c.selectedCount(chosen.length, members.length)}
 								{splitMode === 'exact' &&
 									totalCents !== 0 &&
 									(exactOff === 0
-										? ' · fully allocated'
-										: ` · ${formatMoney(Math.abs(exactOff), currency)} ${exactOff > 0 ? 'left' : 'over'}`)}
+										? c.fullyAllocated
+										: c.remainder(formatMoney(Math.abs(exactOff), currency), exactOff > 0))}
 							</span>
 							<span className="flex flex-none gap-3">
 								{splitMode === 'exact' && (
-									<LinkButton onClick={autofillExact}>Split the rest</LinkButton>
+									<LinkButton onClick={autofillExact}>{c.splitTheRest}</LinkButton>
 								)}
 								<LinkButton onClick={() => setPicked(new Set(members.map((m) => m.id)))}>
-									All
+									{c.all}
 								</LinkButton>
-								<LinkButton onClick={() => setPicked(new Set())}>None</LinkButton>
+								<LinkButton onClick={() => setPicked(new Set())}>{c.none}</LinkButton>
 							</span>
 						</div>
 
@@ -269,7 +270,7 @@ export default function AddExpense({
 												type="number"
 												min="0"
 												step={splitMode === 'exact' ? '0.01' : '1'}
-												aria-label={`${splitMode === 'exact' ? 'Amount' : 'Shares'} for ${m.name}`}
+												aria-label={c.weightLabel(splitMode === 'exact', m.name)}
 												value={weights[m.id] ?? ''}
 												onChange={(e) =>
 													setWeights((prev) => ({
@@ -297,10 +298,10 @@ export default function AddExpense({
 				<div className="mfoot">
 					<FormError message={save.error} />
 					<button className="btn" type="button" onClick={onClose}>
-						Cancel
+						{copy.common.cancel}
 					</button>
 					<button className="btn primary" type="submit" disabled={!canSave || save.busy}>
-						{save.busy ? 'Saving...' : income ? 'Save income' : 'Save expense'}
+						{save.busy ? copy.common.saving : income ? c.saveIncome : c.saveExpense}
 					</button>
 				</div>
 			</form>

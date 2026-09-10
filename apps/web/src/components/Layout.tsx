@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, Outlet, useNavigate } from 'react-router';
 import { useAuth } from '../auth';
+import { copy } from '../copy';
 
 /**
  * The app frame: sticky top bar over whatever route is showing. It is a layout
@@ -45,7 +46,7 @@ function TopBar() {
 					className="flex items-center gap-2 font-serif text-[1.25rem] font-[560]"
 				>
 					<span className="text-[1.4rem] text-accent">◍</span>
-					<span>Trippy</span>
+					<span>{copy.shell.brand}</span>
 				</Link>
 
 				<nav className="flex items-center gap-6 text-[0.92rem] font-medium">
@@ -106,7 +107,7 @@ function TopBar() {
 										role="menuitem"
 										className="rounded-sm px-2.5 py-2 text-left text-[0.9rem] hover:bg-surface-2 hover:text-accent-ink"
 									>
-										Account settings
+										{copy.shell.accountSettings}
 									</Link>
 									<button
 										type="button"
@@ -117,7 +118,7 @@ function TopBar() {
 										}}
 										className="cursor-pointer rounded-sm px-2.5 py-2 text-left text-[0.9rem] hover:bg-surface-2 hover:text-accent-ink"
 									>
-										Log out
+										{copy.shell.logOut}
 									</button>
 								</div>
 							)}
@@ -129,10 +130,10 @@ function TopBar() {
 						status === 'anonymous' && (
 							<>
 								<Link to="/login" className="hover:text-accent">
-									Log in
+									{copy.shell.logIn}
 								</Link>
 								<Link to="/register" className="btn primary">
-									Start planning
+									{copy.shell.register}
 								</Link>
 							</>
 						)

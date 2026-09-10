@@ -3,6 +3,9 @@ import { Link, Navigate, useLocation } from 'react-router';
 import { AuthShell } from '../components/ui/AuthShell';
 import { Field } from '../components/ui/Field';
 import { useAuth } from '../auth';
+import { copy } from '../copy';
+
+const c = copy.auth.login;
 
 export default function Login() {
 	const { status, logIn } = useAuth();
@@ -30,30 +33,30 @@ export default function Login() {
 			await logIn(email, password);
 			// No navigate here on purpose. See the redirect above.
 		} catch (err) {
-			setError(err instanceof Error ? err.message : 'Could not log in.');
+			setError(err instanceof Error ? err.message : c.fallback);
 			setSubmitting(false);
 		}
 	}
 
 	return (
 		<AuthShell
-			title="Welcome back"
-			blurb="Log in to keep planning."
+			title={c.title}
+			blurb={c.blurb}
 			error={error}
 			onSubmit={submit}
 			submitting={submitting}
-			submitLabel="Log in"
+			submitLabel={c.submitLabel}
 			footer={
 				<>
-					New here?{' '}
+					{c.footerPrompt}{' '}
 					<Link to="/register" className="font-medium text-accent-ink">
-						Create an account
+						{c.footerLink}
 					</Link>
 				</>
 			}
 		>
 			<Field
-				label="Email"
+				label={c.emailLabel}
 				type="email"
 				name="email"
 				autoComplete="email"
@@ -61,7 +64,7 @@ export default function Login() {
 				onChange={(e) => setEmail(e.target.value)}
 			/>
 			<Field
-				label="Password"
+				label={c.passwordLabel}
 				type="password"
 				name="password"
 				autoComplete="current-password"

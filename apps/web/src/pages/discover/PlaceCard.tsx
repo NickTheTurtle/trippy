@@ -2,6 +2,9 @@ import Cover from '../../components/Cover';
 import type { Poi } from '../../lib/api-types';
 import { CARD, OpenLink, RemoveCardButton, VotePill, VoteRule } from './card-controls';
 import { MetaBits, parseHours, todayHours } from './place-meta';
+import { copy } from '../../copy';
+
+const c = copy.discover.placeCard;
 
 /**
  * One discovered place.
@@ -61,7 +64,7 @@ export default function PlaceCard({
 			<div className="flex flex-none flex-col px-4 pt-2.5 pb-3.5">
 				{p.linked > 0 && (
 					<p className="mb-2.5 text-[0.8rem] [overflow-wrap:anywhere] text-accent-ink">
-						🗓 On the calendar ×{p.linked}
+						{c.onCalendar(p.linked)}
 					</p>
 				)}
 				{/* Two controls, left aligned. The gap that used to sit here was
@@ -69,7 +72,7 @@ export default function PlaceCard({
 				<div className="flex flex-wrap items-center gap-1.5">
 					<VotePill votes={p.votes} youVoted={!!p.you_voted} subject={p.name} onVote={onVote} />
 					{p.url && <OpenLink url={p.url} name={p.name} />}
-					<RemoveCardButton label={`Remove ${p.name}`} onClick={onRemove} className="ml-auto" />
+					<RemoveCardButton label={c.removeLabel(p.name)} onClick={onRemove} className="ml-auto" />
 				</div>
 			</div>
 

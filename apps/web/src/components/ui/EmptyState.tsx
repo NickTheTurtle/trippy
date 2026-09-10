@@ -6,7 +6,7 @@ import type { ReactNode } from 'react';
  * Six places had written their own, at four different text sizes and three
  * different paddings, and a couple of them stated the emptiness without saying
  * what to do about it. One component keeps the tone consistent: say what is
- * missing, then offer the way out.
+ * missing, then offer the way out with an action.
  *
  * Rendered as a `<p>` with an optional action underneath rather than as a card,
  * because every current caller already sits inside a `.card` or a grid cell and
@@ -14,14 +14,11 @@ import type { ReactNode } from 'react';
  */
 export default function EmptyState({
 	message,
-	hint,
 	action,
 	className = ''
 }: {
 	/** The one-line statement of what is not there yet. */
 	message: ReactNode;
-	/** Optional second line, for why it matters or what to do first. */
-	hint?: ReactNode;
 	/** Optional button or link. Style it with the shared `.btn` classes. */
 	action?: ReactNode;
 	className?: string;
@@ -29,7 +26,6 @@ export default function EmptyState({
 	return (
 		<div className={`flex flex-col items-start gap-2 py-6 ${className}`.trim()}>
 			<p className="muted m-0 text-[0.9rem]">{message}</p>
-			{hint && <p className="m-0 text-[0.84rem] text-ink-faint">{hint}</p>}
 			{action}
 		</div>
 	);

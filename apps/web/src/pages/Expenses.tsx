@@ -12,6 +12,9 @@ import type { Expense, ExpensesData } from './expenses/types';
 import ExpenseRow from './expenses/ExpenseRow';
 import SettleRow from './expenses/SettleRow';
 import AddExpense from './expenses/AddExpense';
+import { copy } from '../copy';
+
+const ce = copy.expenses;
 
 /**
  * Expenses: the ledger, the balances it nets out to, and the transfers that
@@ -39,13 +42,13 @@ export default function Expenses() {
 	const fmt = (cents: number) => formatMoney(cents, data.currency);
 
 	const sections: SectionItem[] = [
-		{ id: 'expenses', label: 'Expenses', badge: data.expenses.length },
+		{ id: 'expenses', label: ce.sections.expenses, badge: data.expenses.length },
 		{
 			id: 'balances',
-			label: 'Balances',
+			label: ce.sections.balances,
 			badge: unsettled === 0 ? '✓' : unsettled
 		},
-		{ id: 'settle', label: 'Settle up', badge: data.settlement.length || '✓' }
+		{ id: 'settle', label: ce.sections.settle, badge: data.settlement.length || '✓' }
 	];
 
 	/**
@@ -71,25 +74,24 @@ export default function Expenses() {
 				items={sections}
 				value={section}
 				onChange={setSection}
-				ariaLabel="Expense sections"
+				ariaLabel={ce.navAriaLabel}
 			/>
 
 			<div className="min-w-0">
 				{section === 'expenses' && (
 					<>
-						<Head text="Log who paid. Use a negative amount for a refund or payout.">
+						<Head text={ce.ledgerHead}>
 							<button className="btn primary" onClick={() => setShowAdd(true)}>
-								+ Add expense
+								{ce.addExpense}
 							</button>
 						</Head>
 						<div className="card px-5 py-5">
 							{data.expenses.length === 0 ? (
 								<EmptyState
-									message="No expenses yet."
-									hint="Log the first one."
+									message={ce.emptyMessage}
 									action={
 										<button className="btn" type="button" onClick={() => setShowAdd(true)}>
-											Add expense
+											{ce.emptyAction}
 										</button>
 									}
 								/>
@@ -111,10 +113,10 @@ export default function Expenses() {
 
 				{section === 'balances' && (
 					<>
-						<Head text={`Net position per person, in ${data.currency}.`} />
+						<Head text={ce.balancesHead(data.currency)} />
 						<div className="card px-5 py-5">
 							{unsettled === 0 ? (
-								<p className="muted m-0 text-[0.9rem]">Everyone is even.</p>
+								<p className="muted m-0 text-[0.9rem]">{ce.allEven}</p>
 							) : (
 								<ul className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-x-5 gap-y-1.5 p-0">
 									{/* Creditors first, then debtors: the question people open
@@ -127,7 +129,7 @@ export default function Expenses() {
 												{/* The reader's own number is the one they came for, and
 												    twenty names in three columns is too many to find it in. */}
 												{b.id === data.me && (
-													<span className="muted ml-1.5 text-[0.75rem]">you</span>
+													<span className="muted ml-1.5 text-[0.75rem]">{ce.youTag}</span>
 												)}
 											</span>
 											<span
@@ -146,10 +148,10 @@ export default function Expenses() {
 
 				{section === 'settle' && (
 					<>
-						<Head text="Minimum transfers to clear all balances." />
+						<Head text={ce.settleHead} />
 						<div className="card px-5 py-5">
 							{data.settlement.length === 0 ? (
-								<p className="muted m-0 text-[0.9rem]">Nothing to settle.</p>
+								<p className="muted m-0 text-[0.9rem]">{ce.nothingToSettle}</p>
 							) : (
 								<ul className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-1.5 p-0">
 									{data.settlement.map((t) => (
@@ -183,9 +185,9 @@ export default function Expenses() {
 			    The dialog both asks and is where the refusal lands. */}
 			<ConfirmDialog
 				open={!!pendingDelete}
-				title={pendingDelete?.settlement === 1 ? 'Delete this payment?' : 'Delete this expense?'}
-				confirmLabel="Delete"
-				busyLabel="Deleting..."
+				title={pendingDelete?.settlement === 1 ? ce.deletePaymentTitle : ce.deleteExpenseTitle}
+				confirmLabel={copy.common.delete}
+				busyLabel={copy.common.deleting}
 				body={pendingDelete && <DeleteBody expense={pendingDelete} home={data.currency} />}
 				onCancel={() => setPendingDelete(null)}
 				onConfirm={async () => {
@@ -209,12 +211,14 @@ function DeleteBody({ expense: e, home }: { expense: Expense; home: string }) {
 		<>
 			<p className="m-0 mb-2 font-semibold [overflow-wrap:anywhere]">{e.description}</p>
 			<p className="m-0 text-[0.9rem]">
-				{formatMoney(e.amount_cents, e.currency)}
-				{e.converted ? ` (≈ ${formatMoney(e.home_cents, home)})` : ''}, {e.payer_name}
-				{e.amount_cents < 0 ? ' received' : ' paid'}, {formatTimestamp(e.created_at)}.{' '}
-				{e.settlement === 1
-					? 'The balance it cleared comes back.'
-					: 'Everyone on it has their balance recalculated.'}
+				{ce.deleteBody(
+					formatMoney(e.amount_cents, e.currency),
+					e.converted ? formatMoney(e.home_cents, home) : null,
+					e.payer_name,
+					e.amount_cents < 0,
+					formatTimestamp(e.created_at),
+					e.settlement === 1
+				)}
 			</p>
 		</>
 	);

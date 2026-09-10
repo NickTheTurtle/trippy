@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import 'leaflet/dist/leaflet.css';
 import type { Map as LMap, Layer } from 'leaflet';
 import type { MapTrack } from './GoogleMap';
+import { copy } from '../copy';
 
 /**
  * The keyless fallback map, on OpenStreetMap tiles.
@@ -121,9 +122,7 @@ export default function TripMap({ tracks }: { tracks: MapTrack[] }) {
 	return (
 		<>
 			<div ref={elRef} className="mapbox" />
-			{!hasPoints && (
-				<p className="nogeo muted">Schedule places with locations to see them on the map.</p>
-			)}
+			{!hasPoints && <p className="nogeo muted">{copy.ui.tripMap.noPoints}</p>}
 		</>
 	);
 }

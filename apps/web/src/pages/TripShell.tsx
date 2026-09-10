@@ -7,6 +7,9 @@ import { TABS } from '../nav';
 import AddCityDialog from '../components/AddCityDialog';
 import TripFormDialog from '../components/TripFormDialog';
 import LiveOff from '../components/LiveOff';
+import { copy } from '../copy';
+
+const c = copy.tripShell;
 
 export type TripCity = {
 	id: string;
@@ -84,9 +87,9 @@ export default function TripShell() {
 		return (
 			<main className="container py-8">
 				<p>
-					Trip not found.{' '}
+					{c.notFound}{' '}
 					<Link to="/trips" className="text-accent-ink underline">
-						Back to trips
+						{c.notFoundLink}
 					</Link>
 				</p>
 			</main>
@@ -104,7 +107,7 @@ export default function TripShell() {
 						to="/trips"
 						className="inline-block pt-5 pb-2.5 text-[0.88rem] text-ink-faint hover:text-accent"
 					>
-						← All trips
+						{c.backToTrips}
 					</Link>
 
 					<div className="flex items-start justify-between gap-4">
@@ -122,7 +125,7 @@ export default function TripShell() {
 							)}
 							{trip.role === 'organizer' && (
 								<button type="button" className="btn small ml-3" onClick={() => setShowEdit(true)}>
-									Edit trip
+									{c.editTrip}
 								</button>
 							)}
 						</div>
@@ -220,11 +223,10 @@ function EditTrip({
 }) {
 	return (
 		<TripFormDialog
-			title="Edit trip"
-			submitLabel="Save changes"
-			busyLabel="Saving..."
-			note="The dates in the header come from these. Currency is what totals and estimates are shown in."
-			fallback="Could not save."
+			title={c.editDialog.title}
+			submitLabel={c.editDialog.submitLabel}
+			busyLabel={copy.common.saving}
+			fallback={c.editDialog.fallback}
 			initial={{
 				name: trip.name,
 				startDate: trip.start_date ?? '',

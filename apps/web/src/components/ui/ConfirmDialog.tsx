@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import Modal from './Modal';
 import FormError from './FormError';
+import { copy } from '../../copy';
 
 /**
  * The shared confirmation dialog.
@@ -19,8 +20,8 @@ export default function ConfirmDialog({
 	open,
 	title,
 	body,
-	confirmLabel = 'Delete',
-	cancelLabel = 'Cancel',
+	confirmLabel = copy.common.delete,
+	cancelLabel = copy.common.cancel,
 	busyLabel,
 	destructive = true,
 	size = 'sm',
@@ -50,7 +51,7 @@ export default function ConfirmDialog({
 		try {
 			await onConfirm();
 		} catch (err) {
-			setError(err instanceof Error ? err.message : 'Could not do that.');
+			setError(err instanceof Error ? err.message : copy.ui.confirmDialog.fallback);
 		} finally {
 			setBusy(false);
 		}
@@ -69,7 +70,9 @@ export default function ConfirmDialog({
 		>
 			<div className="mbody">
 				{body}
-				{destructive && <p className="muted m-0 mt-2 text-[0.9rem]">This cannot be undone.</p>}
+				{destructive && (
+					<p className="muted m-0 mt-2 text-[0.9rem]">{copy.ui.confirmDialog.undone}</p>
+				)}
 			</div>
 			<div className="mfoot">
 				<FormError message={error} />
@@ -82,7 +85,7 @@ export default function ConfirmDialog({
 					disabled={busy}
 					onClick={confirm}
 				>
-					{busy ? (busyLabel ?? 'Working...') : confirmLabel}
+					{busy ? (busyLabel ?? copy.common.working) : confirmLabel}
 				</button>
 			</div>
 		</Modal>

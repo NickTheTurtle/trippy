@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { copy } from '../../copy';
 
 /**
  * The frame shared by log in and register: centred card, heading, error slot,
@@ -51,7 +52,7 @@ export function AuthShell({
 						disabled={submitting}
 						className="btn primary mt-1 w-full justify-center"
 					>
-						{submitting ? 'Working...' : submitLabel}
+						{submitting ? copy.common.working : submitLabel}
 					</button>
 				</form>
 

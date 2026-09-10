@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import { useAnchor } from '../../lib/anchor';
+import { copy } from '../../copy';
 
 export type Option = { value: string; label: string };
 
@@ -17,8 +18,8 @@ export default function Select({
 	options,
 	value,
 	onChange,
-	placeholder = 'Select...',
-	ariaLabel = 'Select',
+	placeholder = copy.ui.select.placeholder,
+	ariaLabel = copy.ui.select.ariaLabel,
 	compact = false
 }: {
 	options: Option[];

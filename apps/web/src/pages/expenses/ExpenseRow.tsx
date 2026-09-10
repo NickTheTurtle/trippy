@@ -2,13 +2,11 @@ import type { SplitMode } from '@trippy/core/split';
 import { formatMoney, formatTimestamp } from '../../lib/format';
 import { IconButton } from '../../components/ui/buttons';
 import type { Expense } from './types';
+import { copy } from '../../copy';
 
-function splitLabel(mode: SplitMode, n: number): string {
-	const people = `${n} ${n === 1 ? 'way' : 'ways'}`;
-	if (mode === 'shares') return `split by shares, ${people}`;
-	if (mode === 'exact') return `split by amount, ${people}`;
-	return `split ${people}`;
-}
+const c = copy.expenses.row;
+
+const splitLabel = (mode: SplitMode, n: number): string => c.splitLabel(mode, n);
 
 /** One line of the ledger: who paid, how it was split, and what it cost. */
 export default function ExpenseRow({
@@ -38,7 +36,7 @@ export default function ExpenseRow({
 					    but it is not a cost anyone shared, so the ledger says which it is. */}
 					{(credit || settled) && (
 						<span className="ml-1 rounded-full border border-accent-soft px-1.5 py-px text-[0.66rem] font-semibold tracking-wider text-accent-ink uppercase">
-							{settled ? 'payment' : 'income'}
+							{settled ? c.paymentTag : c.incomeTag}
 						</span>
 					)}
 				</span>
@@ -49,7 +47,7 @@ export default function ExpenseRow({
 						formatTimestamp(e.created_at)
 					) : (
 						<>
-							{e.payer_name} {credit ? 'received' : 'paid'} ·{' '}
+							{e.payer_name} {credit ? c.received : c.paid} ·{' '}
 							{splitLabel(e.split_mode, e.participants)} · {formatTimestamp(e.created_at)}
 						</>
 					)}
@@ -65,7 +63,12 @@ export default function ExpenseRow({
 					</span>
 				)}
 			</span>
-			<IconButton label={`Delete ${e.description}`} danger className="flex-none" onClick={onRemove}>
+			<IconButton
+				label={c.deleteLabel(e.description)}
+				danger
+				className="flex-none"
+				onClick={onRemove}
+			>
 				×
 			</IconButton>
 		</li>

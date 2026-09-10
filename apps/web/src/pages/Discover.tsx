@@ -5,7 +5,6 @@ import { useLiveSection } from '../hooks/useTripEvents';
 import { useMutation } from '../hooks/useMutation';
 import { useTrip } from './TripShell';
 import Select from '../components/ui/Select';
-import EmptyState from '../components/ui/EmptyState';
 import FormError from '../components/ui/FormError';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 import type { DiscoverData, Poi } from '../lib/api-types';
@@ -16,7 +15,10 @@ import AddDialog from './discover/AddDialog';
 import EditPlaceDialog from './discover/EditPlaceDialog';
 import NoCities from './discover/NoCities';
 import { PlusIcon } from './discover/card-controls';
-import { VIEW_LABEL, VIEW_OPTIONS, isStayView, type DiscoverView } from './discover/views';
+import { VIEW_OPTIONS, isStayView, type DiscoverView } from './discover/views';
+import { copy } from '../copy';
+
+const cd = copy.discover;
 
 /**
  * Discover: the pool of places and stays a group is choosing between.
@@ -50,26 +52,26 @@ export default function Discover() {
 	// gets told rather than shown a change that never happened.
 	const votePlace = useMutation<[string]>(
 		(id) => api(`${base}/pois/${id}/vote`, { method: 'POST' }),
-		{ fallback: 'Could not vote on that place.', onSuccess: reload }
+		{ fallback: cd.errors.votePlace, onSuccess: reload }
 	);
 	const voteStay = useMutation<[string]>(
 		(id) => api(`${base}/stays/${id}/vote`, { method: 'POST' }),
 		{
-			fallback: 'Could not vote on that stay.',
+			fallback: cd.errors.voteStay,
 			onSuccess: reload
 		}
 	);
 	const lockStay = useMutation<[string]>(
 		(id) => api(`${base}/stays/${id}/lock`, { method: 'POST' }),
 		{
-			fallback: 'Could not lock that stay.',
+			fallback: cd.errors.lockStay,
 			onSuccess: reload
 		}
 	);
 	const removeStay = useMutation<[string]>(
 		(id) => api(`${base}/stays/${id}`, { method: 'DELETE' }),
 		{
-			fallback: 'Could not remove that stay.',
+			fallback: cd.errors.removeStay,
 			onSuccess: reload
 		}
 	);
@@ -77,7 +79,7 @@ export default function Discover() {
 		(id, checkIn, checkOut) =>
 			api(`${base}/stays/${id}/dates`, { method: 'PATCH', body: { checkIn, checkOut } }),
 		{
-			fallback: 'Could not save those dates.',
+			fallback: cd.errors.saveDates,
 			onSuccess: () => {
 				setDatesFor(null);
 				reload();
@@ -91,9 +93,6 @@ export default function Discover() {
 	if (!data) return error ? <p className="text-warn">{error}</p> : null;
 
 	if (data.cities.length === 0) {
-		// A whole blank page, so it gets a panel rather than the in-card
-		// `EmptyState` line, which was written to sit inside a box and read as a
-		// stray sentence when it was the only thing here.
 		return <NoCities isOrganizer={trip.role === 'organizer'} onAddCity={() => addCity(reload)} />;
 	}
 
@@ -165,7 +164,7 @@ export default function Discover() {
 							options={VIEW_OPTIONS}
 							value={view}
 							onChange={(v) => setView(v as DiscoverView)}
-							ariaLabel="Type"
+							ariaLabel={cd.header.typeAriaLabel}
 						/>
 					</div>
 
@@ -173,13 +172,13 @@ export default function Discover() {
 					    switching view never changes the height above the cards. */}
 					{stay && (
 						<span className="muted text-[0.85rem] whitespace-nowrap">
-							{data.staysVoted[current.id] ?? 0} of {data.memberCount} voted
+							{cd.header.voted(data.staysVoted[current.id] ?? 0, data.memberCount)}
 						</span>
 					)}
 
 					<button type="button" className="btn primary ml-auto" onClick={() => setAdding(true)}>
 						<PlusIcon />
-						{stay ? 'Add a stay' : 'Add a place'}
+						{stay ? cd.header.addStay : cd.header.addPlace}
 					</button>
 				</div>
 
@@ -203,18 +202,6 @@ export default function Discover() {
 									}
 								/>
 							))}
-							{stays.length === 0 && (
-								<EmptyState
-									className="col-span-full"
-									message={`No stays for ${current.name} yet.`}
-									hint="Add one for the group to vote on."
-									action={
-										<button type="button" className="btn" onClick={() => setAdding(true)}>
-											Add a stay
-										</button>
-									}
-								/>
-							)}
 						</>
 					) : (
 						<>
@@ -229,18 +216,6 @@ export default function Discover() {
 									onRemove={() => setDeletePoi(p)}
 								/>
 							))}
-							{places.length === 0 && (
-								<EmptyState
-									className="col-span-full"
-									message={`Nothing under ${VIEW_LABEL[view]} in ${current.name} yet.`}
-									hint="Add one, or switch the type above."
-									action={
-										<button type="button" className="btn" onClick={() => setAdding(true)}>
-											Add a place
-										</button>
-									}
-								/>
-							)}
 						</>
 					)}
 				</div>
@@ -251,7 +226,6 @@ export default function Discover() {
 					base={base}
 					city={{ id: current.id, name: current.name }}
 					tz={tzOf(current.id)}
-					currency={data.currency}
 					provider={data.provider}
 					initialView={view}
 					onClose={() => setAdding(false)}
@@ -278,24 +252,23 @@ export default function Discover() {
 
 			<ConfirmDialog
 				open={!!deletePoi}
-				title="Delete this place?"
+				title={cd.deletePlace.title}
 				confirmLabel={
 					deletePoi && deletePoi.linked > 0
-						? `Delete and ${deletePoi.linked} event${deletePoi.linked === 1 ? '' : 's'}`
-						: 'Delete'
+						? cd.deletePlace.confirmLabel(deletePoi.linked)
+						: copy.common.delete
 				}
-				busyLabel="Deleting..."
+				busyLabel={copy.common.deleting}
 				body={
 					deletePoi && (
 						<>
 							<p className="m-0 mb-2 font-semibold [overflow-wrap:anywhere]">{deletePoi.name}</p>
 							{deletePoi.linked > 0 ? (
 								<p className="m-0 text-[0.9rem] text-warn">
-									{deletePoi.linked} scheduled {deletePoi.linked === 1 ? 'event' : 'events'} linked
-									to this place {deletePoi.linked === 1 ? 'is' : 'are'} deleted too.
+									{cd.deletePlace.linkedBody(deletePoi.linked)}
 								</p>
 							) : (
-								<p className="muted m-0 text-[0.9rem]">Nothing on the calendar is linked to it.</p>
+								<p className="muted m-0 text-[0.9rem]">{cd.deletePlace.unlinkedBody}</p>
 							)}
 						</>
 					)

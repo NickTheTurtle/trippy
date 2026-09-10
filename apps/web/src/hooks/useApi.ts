@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError } from '../lib/api';
+import { copy } from '../copy';
 
 /**
  * Loads one GET endpoint and re-loads on demand.
@@ -39,7 +40,7 @@ export function useApi<T>(path: string | null): Loadable<T> {
 				// An abort means this request was superseded, so its outcome is not
 				// news. Reporting it would overwrite the newer request's state.
 				if (ac.signal.aborted) return;
-				setError(err instanceof ApiError ? err.message : 'Could not load this page.');
+				setError(err instanceof ApiError ? err.message : copy.api.loadFailed);
 			})
 			.finally(() => {
 				if (!ac.signal.aborted) setLoading(false);

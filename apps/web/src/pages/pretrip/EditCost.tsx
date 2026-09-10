@@ -6,6 +6,9 @@ import Select from '../../components/ui/Select';
 import FormError from '../../components/ui/FormError';
 import type { Draft } from './types';
 import { cap } from './labels';
+import { copy } from '../../copy';
+
+const c = copy.preparation.costDialog;
 
 /** Adds or edits one cost estimate; the draft it opens on decides which. */
 export default function EditCost({
@@ -42,15 +45,15 @@ export default function EditCost({
 			onSaved();
 			onClose();
 		},
-		{ fallback: 'Could not save that item.' }
+		{ fallback: c.fallback }
 	);
 
 	return (
-		<Modal open size="sm" title={draft.id ? 'Edit cost' : 'Add cost'} onClose={onClose}>
+		<Modal open size="sm" title={draft.id ? c.editTitle : c.addTitle} onClose={onClose}>
 			<form className="mform" onSubmit={save.submit}>
 				<div className="mbody flex flex-col gap-3">
 					<label className="field">
-						<span>What is it?</span>
+						<span>{c.labelField}</span>
 						<input
 							autoFocus
 							required
@@ -61,7 +64,7 @@ export default function EditCost({
 					</label>
 					<div className="flex flex-wrap gap-2.5">
 						<label className="field flex-[0_1_130px]">
-							<span>Amount ({currency})</span>
+							<span>{c.amountLabel(currency)}</span>
 							<input
 								type="number"
 								min="0"
@@ -73,24 +76,24 @@ export default function EditCost({
 							/>
 						</label>
 						<label className="field flex-[1_1_130px]">
-							<span>Category</span>
+							<span>{c.categoryLabel}</span>
 							<Select
-								options={categories.map((c) => ({ value: c, label: cap(c) }))}
+								options={categories.map((x) => ({ value: x, label: cap(x) }))}
 								value={category}
 								onChange={setCategory}
-								ariaLabel="Category"
+								ariaLabel={c.categoryAriaLabel}
 							/>
 						</label>
 						<label className="field flex-[1_1_130px]">
-							<span>City</span>
+							<span>{c.cityLabel}</span>
 							<Select
 								options={[
-									{ value: '', label: 'All / general' },
-									...cities.map((c) => ({ value: c.id, label: c.name }))
+									{ value: '', label: c.anyCity },
+									...cities.map((x) => ({ value: x.id, label: x.name }))
 								]}
 								value={cityId}
 								onChange={setCityId}
-								ariaLabel="City"
+								ariaLabel={c.cityAriaLabel}
 							/>
 						</label>
 					</div>
@@ -99,10 +102,10 @@ export default function EditCost({
 				<div className="mfoot">
 					<FormError message={save.error} />
 					<button className="btn" type="button" onClick={onClose}>
-						Cancel
+						{copy.common.cancel}
 					</button>
 					<button className="btn primary" type="submit" disabled={save.busy}>
-						{save.busy ? 'Saving...' : draft.id ? 'Save changes' : 'Add cost'}
+						{save.busy ? copy.common.saving : draft.id ? c.saveLabel : c.addLabel}
 					</button>
 				</div>
 			</form>

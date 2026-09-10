@@ -8,6 +8,9 @@ import { Field } from '../../components/ui/Field';
 import type { Poi } from '../../lib/api-types';
 import { LinkField, NotesField, TypeField } from './place-fields';
 import { VIEW_LABEL } from './views';
+import { copy } from '../../copy';
+
+const c = copy.discover.editPlace;
 
 /**
  * Edit the traveller-authored half of a place.
@@ -42,16 +45,16 @@ export default function EditPlaceDialog({
 				method: 'PATCH',
 				body: { name: name.trim(), notes: notes.trim(), url: url.trim(), kind }
 			}),
-		{ fallback: 'Could not save that place.', onSuccess: onSaved }
+		{ fallback: c.fallback, onSuccess: onSaved }
 	);
 
 	return (
-		<Modal open title="Edit place" size="md" onClose={onClose}>
+		<Modal open title={c.title} size="md" onClose={onClose}>
 			<form className="mform" onSubmit={save.submit}>
 				<div className="mbody">
 					<div className="flex flex-col gap-3">
 						<Field
-							label="Name"
+							label={c.nameLabel}
 							autoFocus
 							required
 							value={name}
@@ -70,19 +73,17 @@ export default function EditPlaceDialog({
 					    popular?", which the card already told you. The names answer
 					    "whose evening am I cancelling?", which is why you opened this. */}
 					<p className="mt-3.5 border-t border-line pt-3.5 text-[0.85rem] leading-normal">
-						<span className="font-semibold">{p.votes === 1 ? '1 vote' : `${p.votes} votes`}</span>
-						<span className="muted">
-							{p.voters.length ? `: ${p.voters.join(', ')}` : ', nobody yet'}
-						</span>
+						<span className="font-semibold">{c.votes(p.votes)}</span>
+						<span className="muted">{c.voters(p.voters)}</span>
 					</p>
 				</div>
 				<div className="mfoot">
 					<FormError message={save.error} />
 					<button className="btn" type="button" onClick={onClose}>
-						Cancel
+						{copy.common.cancel}
 					</button>
 					<button className="btn primary" type="submit" disabled={save.busy}>
-						{save.busy ? 'Saving...' : 'Save'}
+						{save.busy ? copy.common.saving : c.submitLabel}
 					</button>
 				</div>
 			</form>

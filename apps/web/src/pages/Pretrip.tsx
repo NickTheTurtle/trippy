@@ -14,6 +14,9 @@ import TaskList from './pretrip/TaskList';
 import CostTable from './pretrip/CostTable';
 import AddTask from './pretrip/AddTask';
 import EditCost from './pretrip/EditCost';
+import { copy } from '../copy';
+
+const cp = copy.preparation;
 
 /**
  * Preparation: the tasks, the packing list and the cost estimates.
@@ -42,7 +45,7 @@ export default function Pretrip() {
 	// banner instead of being thrown into nothing.
 	const act = useMutation<[() => Promise<unknown>]>((fn) => fn(), {
 		onSuccess: reload,
-		fallback: 'Could not save that.'
+		fallback: cp.saveFallback
 	});
 
 	if (!data) return error ? <FormError message={error} variant="banner" /> : null;
@@ -54,15 +57,15 @@ export default function Pretrip() {
 	const sections = [
 		{
 			id: 'tasks',
-			label: 'Tasks',
+			label: cp.sections.tasks,
 			badge: data.tasks.length - doneCount || null
 		},
 		{
 			id: 'packing',
-			label: 'Packing',
+			label: cp.sections.packing,
 			badge: data.packing.length - packedCount || null
 		},
-		{ id: 'costs', label: 'Estimated costs', badge: null }
+		{ id: 'costs', label: cp.sections.costs, badge: null }
 	];
 
 	// Whole units: these are estimates, and the cents on a guessed number are
@@ -78,7 +81,7 @@ export default function Pretrip() {
 				items={sections}
 				value={section}
 				onChange={setSection}
-				ariaLabel="Preparation sections"
+				ariaLabel={cp.navAriaLabel}
 			/>
 
 			<div className="min-w-0">
@@ -89,12 +92,12 @@ export default function Pretrip() {
 				<div className="mb-4 flex min-h-phead flex-wrap items-center justify-end gap-4">
 					{section === 'tasks' && (
 						<button className="btn primary" onClick={() => setAdding('task')}>
-							+ Add task
+							{cp.addTask}
 						</button>
 					)}
 					{section === 'packing' && (
 						<button className="btn primary" onClick={() => setAdding('packing')}>
-							+ Add item
+							{cp.addPackingItem}
 						</button>
 					)}
 					{section === 'costs' && (
@@ -110,7 +113,7 @@ export default function Pretrip() {
 								})
 							}
 						>
-							+ Add cost
+							{cp.addCost}
 						</button>
 					)}
 				</div>
@@ -121,7 +124,7 @@ export default function Pretrip() {
 							items={section === 'tasks' ? data.tasks : data.packing}
 							kind={section === 'tasks' ? 'task' : 'packing'}
 							me={data.me}
-							empty={section === 'tasks' ? 'No tasks yet.' : 'No packing items yet.'}
+							empty={section === 'tasks' ? cp.emptyTasks : cp.emptyPacking}
 							onToggle={(taskId, userId) =>
 								void act.run(() =>
 									api(`/trips/${trip.id}/pretrip/tasks/${taskId}/toggle`, {
@@ -142,8 +145,8 @@ export default function Pretrip() {
 				) : (
 					<>
 						<div className="mb-4 flex min-w-0 flex-wrap items-end gap-6">
-							<Stat label="Trip total" value={fmt(grand)} />
-							<Stat label="Per person" value={fmt(perPerson)} />
+							<Stat label={cp.tripTotal} value={fmt(grand)} />
+							<Stat label={cp.perPerson} value={fmt(perPerson)} />
 						</div>
 
 						<div className="mb-4 flex flex-wrap gap-2.5">
@@ -206,8 +209,10 @@ export default function Pretrip() {
 			    on it, which is the part that is not obvious from the row itself. */}
 			<ConfirmDialog
 				open={!!pendingTask}
-				title={pendingTask?.kind === 'packing' ? 'Delete this packing item?' : 'Delete this task?'}
-				busyLabel="Deleting..."
+				title={
+					pendingTask?.kind === 'packing' ? cp.deleteTask.packingTitle : cp.deleteTask.taskTitle
+				}
+				busyLabel={copy.common.deleting}
 				body={pendingTask && <DeleteTaskBody task={pendingTask.task} />}
 				onCancel={() => setPendingTask(null)}
 				onConfirm={async () => {
@@ -222,16 +227,18 @@ export default function Pretrip() {
 
 			<ConfirmDialog
 				open={!!pendingCost}
-				title="Delete this estimate?"
-				busyLabel="Deleting..."
+				title={cp.deleteCost.title}
+				busyLabel={copy.common.deleting}
 				body={
 					pendingCost && (
 						<>
 							<p className="m-0 mb-2 font-semibold [overflow-wrap:anywhere]">{pendingCost.label}</p>
 							<p className="m-0 text-[0.9rem]">
-								{fmt(pendingCost.amountCents)} under {cap(pendingCost.category)}
-								{pendingCost.cityName ? ` in ${pendingCost.cityName}` : ''}. The trip total and the
-								per-person figure drop by it. Logged expenses are not affected.
+								{cp.deleteCost.body(
+									fmt(pendingCost.amountCents),
+									cap(pendingCost.category),
+									pendingCost.cityName
+								)}
 							</p>
 						</>
 					)
@@ -255,10 +262,8 @@ function DeleteTaskBody({ task }: { task: Task }) {
 			<p className="m-0 mb-2 font-semibold [overflow-wrap:anywhere]">{task.label}</p>
 			<p className="m-0 text-[0.9rem]">
 				{task.people.length > 0
-					? `Assigned to ${task.people.length} ${
-							task.people.length === 1 ? 'person' : 'people'
-						}, ${task.doneCount} of whom have ticked it off. The row and everyone's ticks go.`
-					: 'The row goes, along with whether it was ticked off.'}
+					? cp.deleteTask.assignedBody(task.people.length, task.doneCount)
+					: cp.deleteTask.unassignedBody}
 			</p>
 		</>
 	);

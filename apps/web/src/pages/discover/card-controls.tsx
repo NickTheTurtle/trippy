@@ -14,6 +14,8 @@
  * the one it had (`Modal`'s close button). No icon dependency was added.
  */
 
+import { copy } from '../../copy';
+
 /** `.card` is the shared surface; the rest is this page's card geometry. The
     old string also carried an `.opt` class that no stylesheet defines. */
 export const CARD = 'card flex flex-col overflow-hidden';
@@ -101,7 +103,7 @@ export function VotePill({
 			type="button"
 			className={youVoted ? 'btn small primary' : 'btn small'}
 			aria-pressed={youVoted}
-			aria-label={`${youVoted ? 'Remove your vote from' : 'Vote for'} ${subject}`}
+			aria-label={copy.discover.card.voteLabel(youVoted, subject)}
 			disabled={disabled}
 			onClick={onVote}
 		>
@@ -116,7 +118,7 @@ export function OpenLink({ url, name }: { url: string; name: string }) {
 	return (
 		<a className="btn small" href={url} target="_blank" rel="noopener">
 			<CompassIcon />
-			<span className="sr-only">Open {name} (opens in a new tab)</span>
+			<span className="sr-only">{copy.discover.card.openLabel(name)}</span>
 		</a>
 	);
 }

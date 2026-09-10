@@ -980,6 +980,33 @@ cannot use it.
 These exist so five pages don't each invent their own version. Reach for them
 before adding page-local CSS.
 
+**All user-facing text lives in `apps/web/src/copy.ts`.** One `export const
+copy` object, nested to mirror the surfaces and ordered by user journey. The
+point is not localization, which is not planned; it is that the owner can read
+and edit the app's entire voice in one file without opening 48 components. A
+key is named for the role the string plays, not for the words it currently
+contains, so rewording never forces a rename. Strings that interpolate become
+functions, and any existing pluralization moves inside them, so the sentence
+stays whole rather than being reassembled at the call site.
+
+Only authored prose moves. Icon glyphs, CSS classes, route and API paths, query
+keys, SSE event names, currency codes and IANA zone names stay put: they are
+identifiers that happen to be strings. Developer-only throws and `console`
+messages stay too, since no user reads them. `Calendar.tsx` is excluded while it
+is frozen; its strings fold in during its redesign.
+
+**Helper text is the exception, not the default.** The app had drifted into
+explaining itself: a hint under a field repeating the field label, an empty
+state whose message, hint and button all said "add one" beside a button that
+already said it. The rule now is that a hint earns its place only by stating a
+non-obvious constraint or a consequence the user cannot see. "At least 8
+characters" stays because it is a rule the form will enforce. "This cannot be
+undone" and the delete confirmations that name what is destroyed stay because
+they describe real loss. Everything that merely restated its own label or the
+button beside it is gone, and `EmptyState` lost its `hint` prop entirely once no
+caller passed one. An empty Discover grid now shows nothing at all, because the
+primary "Add a place" button sits directly above it.
+
 **Where a file goes in `apps/web/src`.** Sources are grouped by role: `hooks/`,
 `lib/`, `styles/`, `components/`, and `pages/`. The one boundary that needs a
 rule is `components/ui/` versus `components/`: a `ui/` component is generic and

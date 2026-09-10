@@ -1,3 +1,5 @@
+import { copy } from '../copy';
+
 /**
  * The single place the client talks to the API.
  *
@@ -38,7 +40,7 @@ export async function api<T>(path: string, options: Options = {}): Promise<T> {
 	} catch (err) {
 		// An abort is the caller deliberately cancelling, not a failure to report.
 		if (err instanceof DOMException && err.name === 'AbortError') throw err;
-		throw new ApiError(0, 'Could not reach the server. Check your connection.');
+		throw new ApiError(0, copy.api.unreachable);
 	}
 
 	// A 204 has no body to parse, and an error page from a proxy will not be JSON.
@@ -50,7 +52,7 @@ export async function api<T>(path: string, options: Options = {}): Promise<T> {
 			typeof payload === 'object' &&
 			typeof (payload as { error?: unknown }).error === 'string'
 				? (payload as { error: string }).error
-				: 'Could not complete that. Try again.';
+				: copy.api.requestFailed;
 		throw new ApiError(res.status, message);
 	}
 

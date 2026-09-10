@@ -5,6 +5,9 @@ import type { Stay } from '../../lib/api-types';
 import { formatNights, formatPerNight } from '../../lib/format';
 import { LinkButton } from '../../components/ui/buttons';
 import { CARD, OpenLink, RemoveCardButton, VotePill, VoteRule } from './card-controls';
+import { copy } from '../../copy';
+
+const c = copy.discover.stayCard;
 
 /**
  * One proposed stay.
@@ -51,7 +54,7 @@ export default function StayCard({
 			<div className="flex min-w-0 flex-auto flex-col px-4 pt-3.5 pb-3.5">
 				<div className="flex items-start justify-between gap-2">
 					<h4 className="m-0 line-clamp-2 min-w-0 text-base [overflow-wrap:anywhere]">{o.name}</h4>
-					{o.locked ? <span className="chip accent flex-none">Locked</span> : null}
+					{o.locked ? <span className="chip accent flex-none">{c.locked}</span> : null}
 				</div>
 				<p className="muted mt-1.5 mb-2.5 flex-auto text-[0.85rem]">
 					{o.tag ? `${o.tag} · ` : ''}
@@ -62,21 +65,18 @@ export default function StayCard({
 				<div className="flex flex-wrap items-center gap-1.5">
 					<VotePill votes={o.votes} youVoted={!!o.you_voted} subject={o.name} onVote={onVote} />
 					{o.url && <OpenLink url={o.url} name={o.name} />}
-					<RemoveCardButton label={`Remove ${o.name}`} onClick={onRemove} className="ml-auto" />
+					<RemoveCardButton label={c.removeLabel(o.name)} onClick={onRemove} className="ml-auto" />
 				</div>
 
 				<div className="mt-3 flex flex-wrap items-center gap-3.5 border-t border-line pt-3">
 					<LinkButton aria-expanded={editingDates} onClick={onToggleDates}>
-						{editingDates ? 'Cancel' : nights ? 'Edit dates' : 'Set dates'}
+						{editingDates ? copy.common.cancel : nights ? c.editDates : c.setDates}
 					</LinkButton>
 					{/* Locking is organizer-only on the server, so a member seeing this
 					    button would only ever get a refusal out of it. */}
 					{isOrganizer && (
-						<LinkButton
-							onClick={onLock}
-							aria-label={`${o.locked ? 'Unlock' : 'Lock as choice'}: ${o.name}`}
-						>
-							{o.locked ? 'Unlock' : 'Lock as choice'}
+						<LinkButton onClick={onLock} aria-label={c.lockAriaLabel(!!o.locked, o.name)}>
+							{c.lockLabel(!!o.locked)}
 						</LinkButton>
 					)}
 				</div>
@@ -111,7 +111,7 @@ function StayDates({
 	return (
 		<div className="mt-3 flex flex-wrap items-end gap-2">
 			<Field
-				label="In"
+				label={c.checkInLabel}
 				optional
 				className="flex-[0_1_150px]"
 				inputClassName="compact w-full"
@@ -120,7 +120,7 @@ function StayDates({
 				onChange={(e) => setCheckIn(e.target.value)}
 			/>
 			<Field
-				label="Out"
+				label={c.checkOutLabel}
 				optional
 				className="flex-[0_1_150px]"
 				inputClassName="compact w-full"
@@ -133,7 +133,7 @@ function StayDates({
 				type="button"
 				onClick={() => onSave(checkIn || null, checkOut || null)}
 			>
-				Save
+				{c.saveDates}
 			</button>
 		</div>
 	);

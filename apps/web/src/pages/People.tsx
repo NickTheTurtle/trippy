@@ -9,6 +9,9 @@ import type { Person, PeopleData } from './people/types';
 import MemberRow from './people/MemberRow';
 import RemoveBody from './people/RemoveBody';
 import Invite from './people/Invite';
+import { copy } from '../copy';
+
+const cpl = copy.people;
 
 /**
  * People: who is on the trip, and the invite that adds one.
@@ -34,10 +37,6 @@ export default function People() {
 
 	return (
 		<>
-			<div className="mb-5">
-				<p className="muted m-0">Who is coming, and who still needs an invite.</p>
-			</div>
-
 			{/* Only ever a success line: an invite that is refused reports inside the
 			    form that was refused, not at the top of the page. */}
 			<FormError message={notice} tone="success" variant="banner" />
@@ -51,7 +50,7 @@ export default function People() {
 			>
 				<section className="card px-5 py-5">
 					<h3 className="mb-3.5 flex items-baseline gap-2 text-[1.05rem]">
-						Members
+						{cpl.membersHeading}
 						<span className="muted text-[0.82rem] font-normal">{data.people.length}</span>
 					</h3>
 					{/* Auto-fill columns rather than one long list: at 20 members a
@@ -82,9 +81,9 @@ export default function People() {
 
 			<ConfirmDialog
 				open={!!pendingRemove}
-				title={pendingRemove ? `Remove ${pendingRemove.name}?` : ''}
-				confirmLabel="Remove"
-				busyLabel="Removing..."
+				title={pendingRemove ? cpl.removeTitle(pendingRemove.name) : ''}
+				confirmLabel={cpl.removeConfirm}
+				busyLabel={cpl.removeBusy}
 				body={pendingRemove && <RemoveBody tripId={trip.id} person={pendingRemove} />}
 				onCancel={() => setPendingRemove(null)}
 				onConfirm={async () => {

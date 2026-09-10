@@ -1,5 +1,8 @@
 import { Link } from 'react-router';
 import { useAuth } from '../auth';
+import { copy } from '../copy';
+
+const c = copy.notFound;
 
 /**
  * The catch-all route. It offers a way back rather than only stating the
@@ -10,10 +13,10 @@ export default function NotFound() {
 	const { status } = useAuth();
 	return (
 		<main className="mx-auto flex w-full max-w-[34rem] flex-col items-start gap-4 px-6 pt-16 pb-16">
-			<h1 className="text-[1.7rem]">Page not found</h1>
-			<p className="muted">That link does not point at anything in this app.</p>
+			<h1 className="text-[1.7rem]">{c.heading}</h1>
+			<p className="muted">{c.body}</p>
 			<Link className="btn primary" to={status === 'authenticated' ? '/trips' : '/'}>
-				{status === 'authenticated' ? 'Back to my trips' : 'Back to the start'}
+				{status === 'authenticated' ? c.backAuthenticated : c.backAnonymous}
 			</Link>
 		</main>
 	);

@@ -1,3 +1,5 @@
+import { copy } from './copy';
+
 /**
  * The five tabs under /trips/:tripId, in the order the tab bar shows them.
  *
@@ -8,11 +10,11 @@
  * header, which has no page of its own.
  */
 export const TABS = [
-	{ slug: 'discover', label: 'Discover' },
-	{ slug: 'pretrip', label: 'Preparation' },
-	{ slug: 'calendar', label: 'Schedule' },
-	{ slug: 'expenses', label: 'Expenses' },
-	{ slug: 'people', label: 'People' }
+	{ slug: 'discover', label: copy.nav.discover },
+	{ slug: 'pretrip', label: copy.nav.pretrip },
+	{ slug: 'calendar', label: copy.nav.calendar },
+	{ slug: 'expenses', label: copy.nav.expenses },
+	{ slug: 'people', label: copy.nav.people }
 ] as const;
 
 /**

@@ -1,5 +1,8 @@
 import Select from '../../components/ui/Select';
 import { Field, FieldShell } from '../../components/ui/Field';
+import { copy } from '../../copy';
+
+const c = copy.discover.placeFields;
 
 /**
  * The field rows the add and the edit popup genuinely share.
@@ -28,8 +31,8 @@ export function TypeField({
 	onChange: (value: string) => void;
 }) {
 	return (
-		<FieldShell label="Type">
-			<Select options={options} value={value} onChange={onChange} ariaLabel="Type" />
+		<FieldShell label={c.typeLabel}>
+			<Select options={options} value={value} onChange={onChange} ariaLabel={c.typeAriaLabel} />
 		</FieldShell>
 	);
 }
@@ -42,7 +45,7 @@ export function NotesField({
 	onChange: (value: string) => void;
 }) {
 	return (
-		<FieldShell label="Notes" optional>
+		<FieldShell label={c.notesLabel} optional>
 			<textarea
 				rows={3}
 				value={value}
@@ -62,10 +65,10 @@ export function LinkField({
 }) {
 	return (
 		<Field
-			label="Link"
+			label={c.linkLabel}
 			optional
 			type="url"
-			placeholder="https://"
+			placeholder={c.linkPlaceholder}
 			value={value}
 			onChange={(e) => onChange(e.target.value)}
 			inputClassName="w-full"

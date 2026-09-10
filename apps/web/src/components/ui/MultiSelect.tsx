@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import { useAnchor } from '../../lib/anchor';
 import type { Option } from './Select';
+import { copy } from '../../copy';
 
 /**
  * The multi-pick sibling of `Select`, used wherever a field means "these people"
@@ -16,10 +17,10 @@ export default function MultiSelect({
 	options,
 	selected,
 	onChange,
-	placeholder = 'Anyone',
-	ariaLabel = 'Assign people',
+	placeholder = copy.ui.multiSelect.placeholder,
+	ariaLabel = copy.ui.multiSelect.ariaLabel,
 	compact = false,
-	summaryLabel = (count: number) => `${count} people`
+	summaryLabel = copy.ui.multiSelect.summaryLabel
 }: {
 	options: Option[];
 	selected: string[];
@@ -195,7 +196,7 @@ export default function MultiSelect({
 							<span className="mopttext">{o.label}</span>
 						</li>
 					))}
-					{options.length === 0 && <li className="mempty">No members yet</li>}
+					{options.length === 0 && <li className="mempty">{copy.ui.multiSelect.empty}</li>}
 				</ul>
 			)}
 		</div>

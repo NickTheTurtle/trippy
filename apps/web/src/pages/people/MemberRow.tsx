@@ -1,5 +1,8 @@
 import { LinkButton } from '../../components/ui/buttons';
 import type { Person } from './types';
+import { copy } from '../../copy';
+
+const c = copy.people.row;
 
 /** One member of the roster, with the remove control an organizer sees. */
 export default function MemberRow({
@@ -14,9 +17,9 @@ export default function MemberRow({
 	onRemove: () => void;
 }) {
 	const sub = person.placeholder
-		? `${person.email} (not joined yet)`
+		? c.notJoined(person.email)
 		: person.seeded
-			? 'Sample companion'
+			? c.sampleCompanion
 			: person.email;
 
 	return (
@@ -29,12 +32,12 @@ export default function MemberRow({
 					<span className="truncate" title={person.name}>
 						{person.name}
 					</span>
-					{person.id === me && <Tag kind="you">you</Tag>}
-					{person.role === 'organizer' && <Tag kind="org">organizer</Tag>}
+					{person.id === me && <Tag kind="you">{c.youTag}</Tag>}
+					{person.role === 'organizer' && <Tag kind="org">{c.organizerTag}</Tag>}
 					{person.placeholder ? (
-						<Tag kind="invited">invited</Tag>
+						<Tag kind="invited">{c.invitedTag}</Tag>
 					) : (
-						person.seeded && <Tag kind="seed">sample</Tag>
+						person.seeded && <Tag kind="seed">{c.sampleTag}</Tag>
 					)}
 				</span>
 				<span className="muted truncate text-[0.82rem]">{sub}</span>
@@ -47,9 +50,9 @@ export default function MemberRow({
 					danger
 					className="flex-none"
 					onClick={onRemove}
-					aria-label={`Remove ${person.name}`}
+					aria-label={c.removeLabel(person.name)}
 				>
-					Remove
+					{c.remove}
 				</LinkButton>
 			)}
 		</li>

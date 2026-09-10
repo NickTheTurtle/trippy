@@ -3,6 +3,9 @@ import { api } from '../../lib/api';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
 import type { Trip } from '../TripShell';
 import { PlusIcon, RemoveCardButton } from './card-controls';
+import { copy } from '../../copy';
+
+const cl = copy.discover.cityList;
 
 export type CityRow = {
 	id: string;
@@ -70,7 +73,7 @@ export default function CityList({
 
 	return (
 		<div className="flex min-w-0 flex-col gap-2">
-			<nav className="secnav" aria-label="Cities">
+			<nav className="secnav" aria-label={cl.navLabel}>
 				{cities.map((c) => {
 					const on = c.id === value;
 					return (
@@ -105,10 +108,10 @@ export default function CityList({
 								// vanishes as you delete down to one reads as a bug, and the
 								// title says why it cannot be pressed.
 								<RemoveCardButton
-									label={`Delete ${c.name}`}
+									label={cl.removeLabel(c.name)}
 									onClick={() => setPendingDelete(c)}
 									disabled={!canDelete}
-									title={canDelete ? undefined : 'A trip needs at least one city'}
+									title={canDelete ? undefined : cl.lastCityTitle}
 									className="absolute top-1/2 right-1 -translate-y-1/2"
 								/>
 							)}
@@ -120,15 +123,15 @@ export default function CityList({
 			{isOrganizer && (
 				<button type="button" className="btn small justify-center" onClick={onAddCity}>
 					<PlusIcon />
-					Add city
+					{cl.addCity}
 				</button>
 			)}
 
 			<ConfirmDialog
 				open={!!pendingDelete}
-				title={pendingDelete ? `Delete ${pendingDelete.name}?` : ''}
-				confirmLabel="Delete city"
-				busyLabel="Deleting..."
+				title={pendingDelete ? cl.deleteTitle(pendingDelete.name) : ''}
+				confirmLabel={cl.deleteConfirm}
+				busyLabel={copy.common.deleting}
 				body={pendingDelete && <DeleteBody city={pendingDelete} />}
 				onCancel={() => setPendingDelete(null)}
 				onConfirm={async () => {
@@ -164,11 +167,6 @@ export default function CityList({
  *    assume it is true here.
  */
 function DeleteBody({ city }: { city: CityRow }) {
-	const bits = [
-		city.places > 0 ? `${city.places} ${city.places === 1 ? 'place' : 'places'}` : '',
-		city.stays > 0 ? `${city.stays} ${city.stays === 1 ? 'stay' : 'stays'}` : ''
-	].filter(Boolean);
-
 	return (
 		<>
 			{/* Carries the region when the sidebar had to disambiguate, because
@@ -178,17 +176,8 @@ function DeleteBody({ city }: { city: CityRow }) {
 				{city.name}
 				{city.region && <span className="muted ml-1.5 text-[0.78rem]">{city.region}</span>}
 			</p>
-			<p className="m-0 mb-2 text-[0.9rem]">
-				{bits.length > 0
-					? `Deletes ${bits.join(' and ')} in ${city.name}, every vote on them, and the city's estimated costs.`
-					: `Nothing has been added to ${city.name} yet. Only the stop and its estimated costs go.`}
-			</p>
-			{city.linked > 0 && (
-				<p className="muted m-0 text-[0.9rem]">
-					{city.linked} scheduled {city.linked === 1 ? 'event stays' : 'events stay'} on the
-					calendar, but {city.linked === 1 ? 'loses' : 'lose'} the link back to the place.
-				</p>
-			)}
+			<p className="m-0 mb-2 text-[0.9rem]">{cl.deleteBody(city.places, city.stays, city.name)}</p>
+			{city.linked > 0 && <p className="muted m-0 text-[0.9rem]">{cl.deleteLinked(city.linked)}</p>}
 		</>
 	);
 }

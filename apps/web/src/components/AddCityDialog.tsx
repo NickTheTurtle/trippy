@@ -3,6 +3,9 @@ import { api, ApiError } from '../lib/api';
 import Modal from './ui/Modal';
 import SearchDropdown from './ui/SearchDropdown';
 import type { Trip } from '../pages/TripShell';
+import { copy } from '../copy';
+
+const c = copy.addCity;
 
 /**
  * One `/citysearch` hit. Mirrors `CitySuggestion` in the geocoder.
@@ -71,13 +74,13 @@ export default function AddCityDialog({
 			onChanged();
 			return true;
 		} catch (err) {
-			setError(err instanceof ApiError ? err.message : (fallback ?? 'Could not save that.'));
+			setError(err instanceof ApiError ? err.message : (fallback ?? c.saveFallback));
 			return false;
 		}
 	}
 
 	return (
-		<Modal open title="Add city" subtitle={trip.name} onClose={onClose}>
+		<Modal open title={c.title} subtitle={trip.name} onClose={onClose}>
 			<div className="mbody flex flex-col gap-4">
 				{error && (
 					<p role="alert" className="m-0 text-[0.88rem] text-warn">
@@ -85,13 +88,11 @@ export default function AddCityDialog({
 					</p>
 				)}
 
-				<CitySearch
-					onAdd={(v) => call(`/trips/${trip.id}/cities`, 'POST', v, 'Could not add that city.')}
-				/>
+				<CitySearch onAdd={(v) => call(`/trips/${trip.id}/cities`, 'POST', v, c.addFallback)} />
 			</div>
 			<div className="mfoot">
 				<button className="btn" type="button" onClick={onClose}>
-					Done
+					{c.done}
 				</button>
 			</div>
 		</Modal>
@@ -194,10 +195,10 @@ function CitySearch({ onAdd }: { onAdd: (v: Record<string, unknown>) => Promise<
 				</span>
 				<div className="flex gap-2">
 					<button className="btn small primary" type="button" disabled={busy} onClick={add}>
-						{busy ? 'Adding...' : `Add ${picked.name}`}
+						{busy ? copy.common.adding : c.addPicked(picked.name)}
 					</button>
 					<button className="btn small" type="button" onClick={() => setPicked(null)}>
-						Cancel
+						{copy.common.cancel}
 					</button>
 				</div>
 			</div>
@@ -209,8 +210,8 @@ function CitySearch({ onAdd }: { onAdd: (v: Record<string, unknown>) => Promise<
 			// The dialog's title already says "Add city", so the field is named for
 			// what it holds rather than repeating the action. The placeholder does
 			// the rest: what the box wants is examples, not a format.
-			label="City"
-			placeholder="Kyoto, Lisbon, Cusco..."
+			label={c.searchLabel}
+			placeholder={c.searchPlaceholder}
 			value={query}
 			onChange={onQuery}
 			open={open}
@@ -236,13 +237,7 @@ function CitySearch({ onAdd }: { onAdd: (v: Record<string, unknown>) => Promise<
 			)}
 			// Nothing to say yet on one letter, so the popup stays shut until the
 			// query is long enough to have searched.
-			empty={
-				query.trim().length < MIN_QUERY
-					? null
-					: searching
-						? 'Searching...'
-						: 'No cities matched that.'
-			}
+			empty={query.trim().length < MIN_QUERY ? null : searching ? c.searching : c.noMatches}
 		/>
 	);
 }

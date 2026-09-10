@@ -4,6 +4,9 @@ import { useMutation } from '../../hooks/useMutation';
 import Modal from '../../components/ui/Modal';
 import FormError from '../../components/ui/FormError';
 import { LinkButton } from '../../components/ui/buttons';
+import { copy } from '../../copy';
+
+const c = copy.preparation.addTaskDialog;
 
 /** Adds one task or one packing item, with who has to do it. */
 export default function AddTask({
@@ -33,20 +36,15 @@ export default function AddTask({
 			onSaved();
 			onClose();
 		},
-		{ fallback: 'Could not add that.' }
+		{ fallback: c.fallback }
 	);
 
 	return (
-		<Modal
-			open
-			size="sm"
-			title={kind === 'task' ? 'Add a task' : 'Add a packing item'}
-			onClose={onClose}
-		>
+		<Modal open size="sm" title={kind === 'task' ? c.taskTitle : c.packingTitle} onClose={onClose}>
 			<form className="mform" onSubmit={save.submit}>
 				<div className="mbody flex flex-col gap-3">
 					<label className="field">
-						<span>What needs doing?</span>
+						<span>{c.labelField}</span>
 						<input
 							autoFocus
 							required
@@ -57,11 +55,7 @@ export default function AddTask({
 					</label>
 
 					<fieldset className="m-0 min-w-0 rounded-[10px] border border-line px-3 py-3">
-						<legend className="px-1 text-[0.8rem] text-ink-soft">Who has to do it?</legend>
-						<p className="muted m-0 mb-2 text-[0.78rem] text-pretty">
-							Pick more than one and each person ticks their own box. Leave it empty for a one-off
-							the group only needs once.
-						</p>
+						<legend className="px-1 text-[0.8rem] text-ink-soft">{c.assigneesLegend}</legend>
 						<div className="grid max-h-48 grid-cols-[repeat(auto-fill,minmax(min(9rem,100%),1fr))] gap-0.5 overflow-y-auto overscroll-contain">
 							{members.map((m) => (
 								<label
@@ -83,18 +77,18 @@ export default function AddTask({
 									/>
 									<span className="min-w-0 truncate">
 										{m.name}
-										{m.id === me ? ' (you)' : ''}
+										{m.id === me ? copy.preparation.youSuffix : ''}
 									</span>
 								</label>
 							))}
-							{members.length === 0 && <p className="muted text-[0.9rem]">No members yet.</p>}
+							{members.length === 0 && <p className="muted text-[0.9rem]">{c.noMembers}</p>}
 						</div>
 						{members.length > 2 && (
 							<div className="flex gap-3 px-1 pt-2">
 								<LinkButton onClick={() => setAssignees(new Set(members.map((m) => m.id)))}>
-									Select everyone
+									{c.selectEveryone}
 								</LinkButton>
-								<LinkButton onClick={() => setAssignees(new Set())}>Clear</LinkButton>
+								<LinkButton onClick={() => setAssignees(new Set())}>{c.clear}</LinkButton>
 							</div>
 						)}
 					</fieldset>
@@ -103,10 +97,10 @@ export default function AddTask({
 				<div className="mfoot">
 					<FormError message={save.error} />
 					<button className="btn" type="button" onClick={onClose}>
-						Cancel
+						{copy.common.cancel}
 					</button>
 					<button className="btn primary" type="submit" disabled={save.busy}>
-						{save.busy ? 'Adding...' : 'Add'}
+						{save.busy ? copy.common.adding : c.submitLabel}
 					</button>
 				</div>
 			</form>

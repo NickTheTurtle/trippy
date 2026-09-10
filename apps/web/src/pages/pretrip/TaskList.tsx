@@ -2,6 +2,9 @@ import { useState } from 'react';
 import EmptyState from '../../components/ui/EmptyState';
 import { IconButton } from '../../components/ui/buttons';
 import type { Task } from './types';
+import { copy } from '../../copy';
+
+const c = copy.preparation.taskList;
 
 /**
  * The tasks and the packing list are the same rows with different words, so
@@ -32,14 +35,9 @@ export default function TaskList({
 			<EmptyState
 				className="py-2"
 				message={empty}
-				hint={
-					kind === 'task'
-						? 'Add one and assign who has to do it.'
-						: 'Add what everyone needs to bring.'
-				}
 				action={
 					<button type="button" className="btn small" onClick={onAdd}>
-						{kind === 'task' ? 'Add task' : 'Add item'}
+						{kind === 'task' ? c.taskAction : c.packingAction}
 					</button>
 				}
 			/>
@@ -58,13 +56,13 @@ export default function TaskList({
 							{it.people.length === 0 ? (
 								<Box
 									on={it.shared}
-									label={`${it.shared ? 'Mark not done' : 'Mark done'}: ${it.label}`}
+									label={c.sharedBoxLabel(it.shared, it.label)}
 									onClick={() => onToggle(it.id)}
 								/>
 							) : mine ? (
 								<Box
 									on={mine.done}
-									label={`${mine.done ? 'Mark not done for you' : 'Mark done for you'}: ${it.label}`}
+									label={c.yourBoxLabel(mine.done, it.label)}
 									onClick={() => onToggle(it.id)}
 								/>
 							) : (
@@ -72,10 +70,8 @@ export default function TaskList({
 								   whether the task got done, or the row reads as struck through
 								   and unchecked at the same time. */
 								<span
-									title={
-										it.done ? 'Done by the people it is assigned to' : 'Assigned to other people'
-									}
-									aria-label={`${it.label} is assigned to other people and is ${it.done ? 'done' : 'not done yet'}`}
+									title={c.othersTitle(it.done)}
+									aria-label={c.othersLabel(it.label, it.done)}
 									className={`grid size-[18px] flex-none place-items-center rounded-[5px] border border-dashed text-[0.72rem] ${
 										it.done
 											? 'border-accent bg-accent-soft text-accent-ink'
@@ -110,7 +106,7 @@ export default function TaskList({
 										<button
 											type="button"
 											aria-expanded={openRoster === it.id}
-											title="Who still has to do this"
+											title={c.rosterTitle}
 											onClick={() => setOpenRoster((v) => (v === it.id ? null : it.id))}
 											className="flex cursor-pointer items-center gap-1.5 rounded-full border border-line bg-surface py-0.5 pr-2 pl-1.5 text-[0.74rem] text-ink-soft hover:border-accent"
 										>
@@ -133,14 +129,14 @@ export default function TaskList({
 												mine.done ? 'bg-accent-soft text-accent-ink' : 'bg-surface-2 text-ink-faint'
 											}`}
 										>
-											{mine.done ? 'You: done' : 'You: to do'}
+											{mine.done ? c.youDone : c.youToDo}
 										</span>
 									)}
 								</div>
 							)}
 
 							<IconButton
-								label={`Remove ${kind}: ${it.label}`}
+								label={c.removeLabel(kind, it.label)}
 								danger
 								className="flex-none opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
 								onClick={() => onRemove(it)}
@@ -169,7 +165,7 @@ export default function TaskList({
 											</span>
 											<span className="min-w-0 truncate" title={p.name}>
 												{p.name}
-												{isMe ? ' (you)' : ''}
+												{isMe ? copy.preparation.youSuffix : ''}
 											</span>
 										</>
 									);
@@ -180,7 +176,7 @@ export default function TaskList({
 													type="button"
 													className={cls}
 													onClick={() => onToggle(it.id)}
-													aria-label={`${p.done ? 'Mark not done' : 'Mark done'} for you: ${it.label}`}
+													aria-label={c.rosterToggleLabel(p.done, it.label)}
 												>
 													{inner}
 												</button>

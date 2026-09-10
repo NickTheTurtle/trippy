@@ -1,3 +1,5 @@
+import { copy } from '../../copy';
+
 export type SectionItem = {
 	id: string;
 	label: string;
@@ -17,7 +19,7 @@ export default function SectionNav({
 	items,
 	value,
 	onChange,
-	ariaLabel = 'Sections'
+	ariaLabel = copy.ui.sectionNav.ariaLabel
 }: {
 	items: SectionItem[];
 	value: string;

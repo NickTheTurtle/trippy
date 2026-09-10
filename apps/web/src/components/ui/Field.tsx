@@ -11,6 +11,7 @@
  * widget needs. `Field` is the common case of a plain text input.
  */
 import type React from 'react';
+import { copy } from '../../copy';
 
 export function FieldShell({
 	label,
@@ -33,7 +34,7 @@ export function FieldShell({
 		<label htmlFor={htmlFor} className={`field ${className}`}>
 			<span>
 				{label}
-				{optional && <span className="foptional"> (optional)</span>}
+				{optional && <span className="foptional">{copy.ui.field.optionalSuffix}</span>}
 			</span>
 			{children}
 			{/* A hint is for a rule the value has to keep satisfying, which is

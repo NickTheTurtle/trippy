@@ -1,4 +1,7 @@
 import { Link } from 'react-router';
+import { copy } from '../copy';
+
+const c = copy.landing;
 
 /**
  * The signed-out front page.
@@ -12,20 +15,15 @@ export default function Landing() {
 	return (
 		<main className="container py-16">
 			<section className="max-w-2xl">
-				<h1 className="font-serif text-[2.6rem] leading-tight text-ink">
-					Plan the trip together, not in twelve group chats.
-				</h1>
-				<p className="muted mt-4 text-[1.05rem]">
-					Trippy keeps a group's places, days, beds and money in one place, in every time zone the
-					trip passes through.
-				</p>
+				<h1 className="font-serif text-[2.6rem] leading-tight text-ink">{c.heading}</h1>
+				<p className="muted mt-4 text-[1.05rem]">{c.blurb}</p>
 
 				<div className="mt-8 flex flex-wrap gap-3">
 					<Link to="/register" className="btn primary">
-						Start planning
+						{c.primaryCta}
 					</Link>
 					<Link to="/login" className="btn">
-						Log in
+						{c.secondaryCta}
 					</Link>
 				</div>
 			</section>
@@ -47,29 +45,4 @@ export default function Landing() {
  * page that promises more than the tool delivers is a bug report waiting to be
  * filed.
  */
-const FEATURES = [
-	{
-		title: 'Collect the places',
-		body: 'Search a city and everyone adds what they want to see. Vote, so the shortlist picks itself.'
-	},
-	{
-		title: 'Build the days',
-		body: 'Put places on a calendar with the travel time between them already worked out.'
-	},
-	{
-		title: 'Split the group',
-		body: 'Run parallel tracks when half the group wants the museum and half wants the beach.'
-	},
-	{
-		title: 'Pick where to sleep',
-		body: 'Put the options up with prices and nights, let the group vote, then lock the choice.'
-	},
-	{
-		title: 'Know what it costs',
-		body: 'Estimate before you go, log what was actually spent, in whichever currency it was spent in.'
-	},
-	{
-		title: 'Settle up at the end',
-		body: 'The fewest transfers that clear everyone, and a button to record each one as paid.'
-	}
-];
+const FEATURES = c.features;

@@ -1,4 +1,5 @@
 import { POI_KINDS, isPoiKind, type PoiKind } from '@trippy/core/types';
+import { copy } from '../../copy';
 
 /**
  * What the Discover type dropdown offers.
@@ -17,13 +18,13 @@ export const STAY_VIEW = 'stay';
 export type DiscoverView = PoiKind | typeof STAY_VIEW;
 
 const KIND_LABEL: Record<PoiKind, string> = {
-	attraction: 'Attractions',
-	food: 'Food & Drink'
+	attraction: copy.discover.types.attraction,
+	food: copy.discover.types.food
 };
 
 export const VIEW_LABEL: Record<DiscoverView, string> = {
 	...KIND_LABEL,
-	[STAY_VIEW]: 'Stays'
+	[STAY_VIEW]: copy.discover.types.stay
 };
 
 export const VIEW_OPTIONS = [

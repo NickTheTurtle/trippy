@@ -5,6 +5,9 @@ import Modal from './ui/Modal';
 import Select from './ui/Select';
 import FormError from './ui/FormError';
 import { Field, FieldShell } from './ui/Field';
+import { copy } from '../copy';
+
+const c = copy.tripForm;
 
 export type TripFormValues = {
 	name: string;
@@ -47,7 +50,7 @@ export default function TripFormDialog({
 	/** Shown on the submit button while the write is in flight. */
 	busyLabel: string;
 	/** The line under the fields, which says different true things per caller. */
-	note: string;
+	note?: string;
 	/** Omitted fields start empty, which is what the create case wants. */
 	initial?: Partial<TripFormValues>;
 	/** Used when the failure is not an ApiError. */
@@ -73,10 +76,10 @@ export default function TripFormDialog({
 			<form className="mform" noValidate onSubmit={save.submit}>
 				<div className="mbody flex flex-col gap-3">
 					<FormError message={save.error} variant="banner" className="mb-0" />
-					<Field label="Trip name" value={name} onChange={(e) => setName(e.target.value)} />
+					<Field label={c.nameLabel} value={name} onChange={(e) => setName(e.target.value)} />
 					<div className="flex flex-wrap gap-2.5">
 						<Field
-							label="Start"
+							label={c.startLabel}
 							optional
 							className="flex-[1_1_130px]"
 							type="date"
@@ -84,7 +87,7 @@ export default function TripFormDialog({
 							onChange={(e) => setStartDate(e.target.value)}
 						/>
 						<Field
-							label="End"
+							label={c.endLabel}
 							optional
 							className="flex-[1_1_130px]"
 							type="date"
@@ -94,20 +97,20 @@ export default function TripFormDialog({
 							value={endDate}
 							onChange={(e) => setEndDate(e.target.value)}
 						/>
-						<FieldShell label="Currency" className="flex-[0_1_130px]">
+						<FieldShell label={c.currencyLabel} className="flex-[0_1_130px]">
 							<Select
-								ariaLabel="Home currency"
+								ariaLabel={c.currencyAriaLabel}
 								value={currency}
 								onChange={setCurrency}
 								options={currencyOptions()}
 							/>
 						</FieldShell>
 					</div>
-					<p className="muted m-0 text-[0.78rem] leading-relaxed">{note}</p>
+					{note && <p className="muted m-0 text-[0.78rem] leading-relaxed">{note}</p>}
 				</div>
 				<div className="mfoot">
 					<button className="btn" type="button" onClick={onClose}>
-						Cancel
+						{copy.common.cancel}
 					</button>
 					<button className="btn primary" type="submit" disabled={save.busy}>
 						{save.busy ? busyLabel : submitLabel}

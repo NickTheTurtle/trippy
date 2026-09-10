@@ -3,6 +3,9 @@ import { Link, Navigate } from 'react-router';
 import { AuthShell } from '../components/ui/AuthShell';
 import { Field } from '../components/ui/Field';
 import { useAuth } from '../auth';
+import { copy } from '../copy';
+
+const c = copy.auth.register;
 
 export default function Register() {
 	const { status, register } = useAuth();
@@ -23,30 +26,30 @@ export default function Register() {
 		try {
 			await register(name, email, password);
 		} catch (err) {
-			setError(err instanceof Error ? err.message : 'Could not create the account.');
+			setError(err instanceof Error ? err.message : c.fallback);
 			setSubmitting(false);
 		}
 	}
 
 	return (
 		<AuthShell
-			title="Create your account"
-			blurb="Start planning your first trip."
+			title={c.title}
+			blurb={c.blurb}
 			error={error}
 			onSubmit={submit}
 			submitting={submitting}
-			submitLabel="Create account"
+			submitLabel={c.submitLabel}
 			footer={
 				<>
-					Already have an account?{' '}
+					{c.footerPrompt}{' '}
 					<Link to="/login" className="font-medium text-accent-ink">
-						Log in
+						{c.footerLink}
 					</Link>
 				</>
 			}
 		>
 			<Field
-				label="Name"
+				label={c.nameLabel}
 				type="text"
 				name="name"
 				autoComplete="name"
@@ -54,7 +57,7 @@ export default function Register() {
 				onChange={(e) => setName(e.target.value)}
 			/>
 			<Field
-				label="Email"
+				label={c.emailLabel}
 				type="email"
 				name="email"
 				autoComplete="email"
@@ -62,11 +65,11 @@ export default function Register() {
 				onChange={(e) => setEmail(e.target.value)}
 			/>
 			<Field
-				label="Password"
+				label={c.passwordLabel}
 				type="password"
 				name="password"
 				autoComplete="new-password"
-				hint="At least 8 characters"
+				hint={c.passwordHint}
 				value={password}
 				onChange={(e) => setPassword(e.target.value)}
 			/>

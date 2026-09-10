@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useAnchor } from '../../lib/anchor';
 import { FieldShell } from './Field';
+import { copy } from '../../copy';
 
 /**
  * A labelled search box whose results hang off it as an overlay.
@@ -203,7 +204,7 @@ export default function SearchDropdown<T>({
 					<div
 						className={`progress pointer-events-none absolute right-3 bottom-px left-3 h-0.5 overflow-hidden rounded-full ${busy ? 'on' : ''}`}
 						role="progressbar"
-						aria-label="Searching"
+						aria-label={copy.ui.searchDropdown.busyLabel}
 						aria-busy={busy}
 					>
 						<span />

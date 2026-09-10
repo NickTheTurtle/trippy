@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { ApiError } from '../lib/api';
+import { copy } from '../copy';
 
 /**
  * The one write-side state machine.
@@ -75,7 +76,7 @@ export function useMutation<A extends unknown[] = []>(
 				setError(
 					err instanceof ApiError
 						? err.message
-						: (optionsRef.current.fallback ?? 'Could not save that.')
+						: (optionsRef.current.fallback ?? copy.api.saveFallback)
 				);
 			}
 			return false;

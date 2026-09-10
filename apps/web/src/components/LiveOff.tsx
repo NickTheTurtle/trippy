@@ -1,5 +1,6 @@
 import { useLiveStatus } from '../hooks/useTripEvents';
 import { LinkButton } from './ui/buttons';
+import { copy } from '../copy';
 
 /**
  * The only thing the live stream ever says out loud.
@@ -20,8 +21,8 @@ export default function LiveOff() {
 	return (
 		<p className="muted mb-4 flex flex-wrap items-center gap-2 text-[0.82rem]">
 			<span aria-hidden="true">•</span>
-			Live updates are off, so you will not see other people's changes.
-			<LinkButton onClick={events.retry}>Reconnect</LinkButton>
+			{copy.tripShell.liveOff}
+			<LinkButton onClick={events.retry}>{copy.tripShell.reconnect}</LinkButton>
 		</p>
 	);
 }

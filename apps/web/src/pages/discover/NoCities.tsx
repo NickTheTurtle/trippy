@@ -1,4 +1,7 @@
 import { PlusIcon } from './card-controls';
+import { copy } from '../../copy';
+
+const c = copy.discover.noCities;
 
 /**
  * Discover's first-run panel: the trip has no cities yet.
@@ -28,19 +31,15 @@ export default function NoCities({
 	return (
 		<div className="card mx-auto flex w-full max-w-[34rem] flex-col items-start gap-3 p-8">
 			<PinMark />
-			<h2 className="m-0 text-[1.35rem]">Getting Started</h2>
-			<p className="muted m-0">
-				Every great trip requires a destination. Add a city to start planning for your trip.
-			</p>
+			<h2 className="m-0 text-[1.35rem]">{c.heading}</h2>
+			<p className="muted m-0">{c.body}</p>
 			{isOrganizer ? (
 				<button type="button" className="btn primary mt-1" onClick={onAddCity}>
 					<PlusIcon />
-					Add a city
+					{c.cta}
 				</button>
 			) : (
-				<p className="m-0 text-[0.84rem] text-ink-faint">
-					Waiting for an organizer to add the first stop...
-				</p>
+				<p className="m-0 text-[0.84rem] text-ink-faint">{c.memberNote}</p>
 			)}
 		</div>
 	);

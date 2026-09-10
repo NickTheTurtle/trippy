@@ -6,6 +6,9 @@ import { useAuth } from '../auth';
 import Select from '../components/ui/Select';
 import FormError from '../components/ui/FormError';
 import { Field, FieldShell } from '../components/ui/Field';
+import { copy } from '../copy';
+
+const ca = copy.account;
 
 type AccountData = {
 	profile: { name: string; email: string; homeTz: string };
@@ -24,12 +27,11 @@ export default function Account() {
 	return (
 		<main className="mx-auto flex w-full max-w-[34rem] flex-col gap-5 px-6 pt-10 pb-16">
 			<header>
-				<h1 className="text-[1.7rem]">Account settings</h1>
-				<p className="muted mt-1">Manage how you sign in and how times are shown to you.</p>
+				<h1 className="text-[1.7rem]">{ca.heading}</h1>
 			</header>
 
 			{error && <FormError message={error} variant="banner" />}
-			{loading && !data && <p className="muted">Loading...</p>}
+			{loading && !data && <p className="muted">{ca.loading}</p>}
 
 			{data && (
 				<>
@@ -69,21 +71,21 @@ function Profile({ data, onSaved }: { data: AccountData; onSaved: () => void }) 
 			await refresh();
 			onSaved();
 		},
-		{ fallback: 'Could not save your profile.' }
+		{ fallback: ca.profile.fallback }
 	);
 
 	return (
 		<section className="card p-6">
-			<h2 className="mb-4 text-[1.15rem]">Profile</h2>
+			<h2 className="mb-4 text-[1.15rem]">{ca.profile.heading}</h2>
 			<FormError message={save.error} variant="banner" />
 			<FormError
-				message={saved && !save.error ? 'Profile saved.' : ''}
+				message={saved && !save.error ? ca.profile.saved : ''}
 				tone="success"
 				variant="banner"
 			/>
 			<form className="flex flex-col gap-3.5" onSubmit={save.submit}>
 				<Field
-					label="Name"
+					label={ca.profile.nameLabel}
 					type="text"
 					autoComplete="name"
 					required
@@ -91,18 +93,23 @@ function Profile({ data, onSaved }: { data: AccountData; onSaved: () => void }) 
 					onChange={(e) => setName(e.target.value)}
 				/>
 				<Field
-					label="Email"
+					label={ca.profile.emailLabel}
 					type="email"
 					autoComplete="email"
 					required
 					value={email}
 					onChange={(e) => setEmail(e.target.value)}
 				/>
-				<FieldShell label="Home time zone">
-					<Select value={homeTz} onChange={setHomeTz} options={zones} ariaLabel="Home time zone" />
+				<FieldShell label={ca.profile.timeZoneLabel}>
+					<Select
+						value={homeTz}
+						onChange={setHomeTz}
+						options={zones}
+						ariaLabel={ca.profile.timeZoneAriaLabel}
+					/>
 				</FieldShell>
 				<button className="btn primary mt-1 self-start" type="submit" disabled={save.busy}>
-					{save.busy ? 'Saving...' : 'Save profile'}
+					{save.busy ? copy.common.saving : ca.profile.submitLabel}
 				</button>
 			</form>
 		</section>
@@ -129,21 +136,21 @@ function Password() {
 			setNext('');
 			setConfirm('');
 		},
-		{ fallback: 'Could not change your password.' }
+		{ fallback: ca.password.fallback }
 	);
 
 	return (
 		<section className="card p-6">
-			<h2 className="mb-4 text-[1.15rem]">Password</h2>
+			<h2 className="mb-4 text-[1.15rem]">{ca.password.heading}</h2>
 			<FormError message={save.error} variant="banner" />
 			<FormError
-				message={changed && !save.error ? 'Password updated.' : ''}
+				message={changed && !save.error ? ca.password.updated : ''}
 				tone="success"
 				variant="banner"
 			/>
 			<form className="flex flex-col gap-3.5" onSubmit={save.submit}>
 				<Field
-					label="Current password"
+					label={ca.password.currentLabel}
 					type="password"
 					autoComplete="current-password"
 					required
@@ -151,16 +158,16 @@ function Password() {
 					onChange={(e) => setCurrent(e.target.value)}
 				/>
 				<Field
-					label="New password"
+					label={ca.password.newLabel}
 					type="password"
 					autoComplete="new-password"
-					hint="At least 8 characters"
+					hint={ca.password.newHint}
 					required
 					value={next}
 					onChange={(e) => setNext(e.target.value)}
 				/>
 				<Field
-					label="Confirm new password"
+					label={ca.password.confirmLabel}
 					type="password"
 					autoComplete="new-password"
 					required
@@ -168,7 +175,7 @@ function Password() {
 					onChange={(e) => setConfirm(e.target.value)}
 				/>
 				<button className="btn primary mt-1 self-start" type="submit" disabled={save.busy}>
-					{save.busy ? 'Working...' : 'Change password'}
+					{save.busy ? copy.common.working : ca.password.submitLabel}
 				</button>
 			</form>
 		</section>

@@ -17,6 +17,8 @@
  * particular layout, which is not domain logic.
  */
 
+import { copy } from '../copy';
+
 /** A whole-cent amount in `currency`, e.g. "$1,240.00" (or "$1,240" when whole). */
 export function formatMoney(
 	cents: number,
@@ -49,7 +51,7 @@ export function formatMoneyOr(
  * in a narrow card.
  */
 export function formatPerNight(cents: number | null | undefined, currency: string): string {
-	if (cents === null || cents === undefined) return 'Price TBD';
+	if (cents === null || cents === undefined) return copy.discover.stayCard.priceTbd;
 	return `${formatMoney(cents, currency)}\u00a0/\u00a0night`;
 }
 

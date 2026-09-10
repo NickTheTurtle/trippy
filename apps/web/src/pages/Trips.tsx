@@ -6,6 +6,9 @@ import Cover from '../components/Cover';
 import EmptyState from '../components/ui/EmptyState';
 import FormError from '../components/ui/FormError';
 import TripFormDialog from '../components/TripFormDialog';
+import { copy } from '../copy';
+
+const c = copy.trips;
 
 type City = { id: string; name: string; photo: string | null };
 type Trip = {
@@ -26,11 +29,10 @@ export default function Trips() {
 		<>
 			<section className="container flex items-end justify-between pt-12 pb-6">
 				<div>
-					<h1 className="text-[2rem]">My trips</h1>
-					<p className="muted">Trips you organize or belong to.</p>
+					<h1 className="text-[2rem]">{c.heading}</h1>
 				</div>
 				<button className="btn primary" onClick={() => setShowNew(true)}>
-					New trip
+					{c.newTrip}
 				</button>
 			</section>
 
@@ -46,11 +48,10 @@ export default function Trips() {
 				{!loading && !error && data?.trips.length === 0 && (
 					<EmptyState
 						className="col-span-full"
-						message="No trips yet."
-						hint="Create your first one."
+						message={c.emptyMessage}
 						action={
 							<button className="btn" type="button" onClick={() => setShowNew(true)}>
-								New trip
+								{c.emptyAction}
 							</button>
 						}
 					/>
@@ -81,20 +82,18 @@ function TripCard({ trip }: { trip: Trip }) {
 				background={first?.photo ? undefined : trip.cover}
 			>
 				<span className="chip absolute top-4 left-4 border-none bg-white/85">
-					{trip.cities.length} {trip.cities.length === 1 ? 'city' : 'cities'}
+					{c.cityCount(trip.cities.length)}
 				</span>
 			</Cover>
 			<div className="px-6 pt-5 pb-6">
 				<h3 className="text-[1.15rem]">{trip.name}</h3>
 				<p className="muted mt-1 mb-3 text-[0.9rem]">{trip.dates}</p>
 				<p className="mb-4 text-[0.95rem] text-ink-soft">
-					{trip.cities.length ? trip.cities.map((c) => c.name).join('  ›  ') : 'No cities yet'}
+					{trip.cities.length ? trip.cities.map((x) => x.name).join('  ›  ') : c.noCities}
 				</p>
 				<span className="flex flex-wrap items-center gap-2.5">
 					<span className="chip accent capitalize">{trip.role}</span>
-					<span className="muted text-[0.85rem]">
-						{trip.memberCount} {trip.memberCount === 1 ? 'person' : 'people'}
-					</span>
+					<span className="muted text-[0.85rem]">{c.memberCount(trip.memberCount)}</span>
 				</span>
 			</div>
 		</Link>
@@ -110,11 +109,11 @@ function NewTrip({ onClose, onCreated }: { onClose: () => void; onCreated: () =>
 	const navigate = useNavigate();
 	return (
 		<TripFormDialog
-			title="New trip"
-			submitLabel="Create trip"
-			busyLabel="Creating..."
-			note="Dates are optional and can be filled in later. Currency is what totals and estimates are shown in."
-			fallback="Could not create the trip."
+			title={c.newDialog.title}
+			submitLabel={c.newDialog.submitLabel}
+			busyLabel={c.newDialog.busyLabel}
+			note={c.newDialog.note}
+			fallback={c.newDialog.fallback}
 			onClose={onClose}
 			onSubmit={async (v) => {
 				// No `dates`: the label on the card is derived by the server from the

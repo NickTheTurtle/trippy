@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, type ReactNode } from 'react';
 import { lockScroll } from '../../lib/scroll-lock';
+import { copy } from '../../copy';
 
 /**
  * The one dialog used across the app.
@@ -135,7 +136,12 @@ export default function Modal({
 								{subtitle}
 							</span>
 						)}
-						<button type="button" className="mclose" aria-label="Close" onClick={onClose}>
+						<button
+							type="button"
+							className="mclose"
+							aria-label={copy.ui.modal.closeLabel}
+							onClick={onClose}
+						>
 							<svg viewBox="0 0 16 16" aria-hidden="true">
 								<path
 									d="M4 4l8 8M12 4l-8 8"
