@@ -271,11 +271,12 @@ auto-travel bridge.
     (a one-off the group needs once, e.g. "collect everyone's flight numbers").
   - `trip_tasks.assignee` (a comma-joined name string) is now display-only legacy;
     do not read it for logic.
-  - **Completion is personal**: `toggleTask` refuses any `targetId` that is not the
-    actor, and the action returns 403. Other people's boxes render as inert `<span>`s,
-    never buttons, but the server check is what actually enforces it.
-- Row affordance scales with the roster: one assignee shows their name, several show
-  a `13/20` progress pill that expands to per-person chips.
+  - **Anyone may tick anyone's box**: `toggleTask` takes a `targetId` and accepts
+    any assignee of the task, from any member of the trip. The row records who the
+    task is *for*, not who pressed the button. It still refuses a non-member, and a
+    target the task is not assigned to.
+- Every assignee is a chip on the row, and every chip is the control that ticks that
+  person off.
 - **Estimated costs live here too** (see M5): planning what a trip will cost is the
   same job as preparing for it, and splitting them across two tabs meant bouncing
   between them. `/costs` 307-redirects here.
@@ -694,20 +695,33 @@ wording, so the difference is data: the section descriptor carries the kind, the
 empty-state sentence and the add-button label. Two near-identical components
 would have drifted the first time a row gained a feature.
 
-**A task's status is per person, and the row has to show three things at once.**
-Whether *you* are done, how far *everyone* is, and whether the task as a whole is
-finished. Cramming twenty names into a row is unreadable, so the roster collapses
-to a progress bar plus a `done/total` count, and only expands when clicked. One
-roster is open at a time, because these lists run to twenty people. Your own
-state is pulled out into a separate "You: done" / "You: to do" tag so you never
-have to expand a roster to find yourself.
+**A row is a box, a label, and a chip per person.** The earlier row carried four
+different things on its right, and which ones appeared depended on the task: a
+bare name for one assignee, or a progress bar that expanded a roster for several,
+plus a "You: to do" tag, plus a leading box that was a button, an inert dashed
+box or a shared tick depending on whether the task was yours. Five rows of that
+were five different layouts, and the answer to "who still has to do this" was
+behind a click.
 
-**Boxes you cannot tick look different rather than being hidden.** A task
-assigned to other people still shows a box, dashed and inert, because the row
-would otherwise look misaligned and it would not be obvious *why* you cannot tick
-it. The server enforces this independently: `POST /tasks/:id/toggle` returns 403
-for any `userId` that is not the caller, verified directly against the API rather
-than only through the UI.
+The chips replaced all of it. They are always visible, so the roster and the
+progress count say nothing the row does not already show, and each one is the
+control that ticks that person off. Yours is marked "(you)", which is the whole
+of what the separate tag was for. Long rosters wrap onto a second line, which is
+the honest cost: a twenty-person task is a big row. That is better than hiding
+nineteen of them behind a bar.
+
+**Anyone can tick anyone's box.** The old rule was that completion is personal
+and the server refused any target but the caller. It was wrong about how a group
+trip works: people say "I've done mine" out loud, and one person is holding the
+phone. Refusing the tick did not make the list more accurate, it just left it
+stale. The chip is a button for everyone.
+
+**The leading box is the whole task, including a third state.** On an unassigned
+task it toggles the shared flag. On an assigned one it brings the entire roster
+to the same state, walking the per-person endpoint, because the API has no bulk
+call and inventing one for a button would put the same rule in two places. It
+shows a dash when some but not all are done: without that, two people out of
+three finished looks exactly like nobody having started.
 
 **Deleting is on hover, not always visible.** Every row carrying a permanent ×
 makes a long list feel hostile and invites misclicks. The button is revealed by
@@ -725,12 +739,6 @@ label is noise that also disappears the moment you type. This follows the
 convention already used in People: labels always, placeholders only where
 the *format* is not obvious.
 
-**A task done by other people has to look done.** The tick box shows *your*
-state, and the title is struck through when the task is done overall, so a task
-assigned only to someone else who finished it rendered as struck through next to
-an empty box: a contradiction that read as a bug. The not-yours marker is not a
-control and stays a dashed outline, but it now carries the task's own state, a
-faint tick when everyone assigned has finished.
 
 ### 5.0.5 Discover: places, stays and the search
 

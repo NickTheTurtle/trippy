@@ -277,18 +277,11 @@ export const copy = {
 			packingAction: 'Add item',
 			sharedBoxLabel: (done: boolean, label: string) =>
 				`${done ? 'Mark not done' : 'Mark done'}: ${label}`,
-			yourBoxLabel: (done: boolean, label: string) =>
-				`${done ? 'Mark not done for you' : 'Mark done for you'}: ${label}`,
-			othersTitle: (done: boolean) =>
-				done ? 'Done by the people it is assigned to' : 'Assigned to other people',
-			othersLabel: (label: string, done: boolean) =>
-				`${label} is assigned to other people and is ${done ? 'done' : 'not done yet'}`,
-			rosterTitle: 'Who still has to do this',
-			youDone: 'You: done',
-			youToDo: 'You: to do',
-			removeLabel: (kind: string, label: string) => `Remove ${kind}: ${label}`,
-			rosterToggleLabel: (done: boolean, label: string) =>
-				`${done ? 'Mark not done' : 'Mark done'} for you: ${label}`
+			allBoxLabel: (done: boolean, label: string) =>
+				`${done ? 'Mark not done for everyone' : 'Mark done for everyone'}: ${label}`,
+			personBoxLabel: (done: boolean, name: string, label: string) =>
+				`${done ? 'Mark not done' : 'Mark done'} for ${name}: ${label}`,
+			removeLabel: (kind: string, label: string) => `Remove ${kind}: ${label}`
 		},
 		addTaskDialog: {
 			taskTitle: 'Add a task',

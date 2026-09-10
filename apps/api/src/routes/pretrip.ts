@@ -45,16 +45,16 @@ pretrip.post('/tasks', async (c) => {
 });
 
 /**
- * Ticks one person's box. `userId` is optional and defaults to the caller;
- * tasks.ts refuses to complete someone else's share regardless.
+ * Ticks one person's box. `userId` is optional and defaults to the caller; any
+ * member may tick any assignee's box.
  */
 pretrip.post('/tasks/:taskId/toggle', async (c) => {
 	const userId = optStr((await body(c)).userId) ?? undefined;
 	return okOr(
 		c,
 		toggleTask(c.get('trip').id, c.get('user').id, c.req.param('taskId'), userId),
-		403,
-		'You can only tick your own box.'
+		404,
+		'Could not tick that box.'
 	);
 });
 

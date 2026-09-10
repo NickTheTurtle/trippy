@@ -219,6 +219,36 @@ describe('schedule authorization and trip scoping', () => {
 	});
 });
 
+describe('ticking a task box', () => {
+	function assignedTask(label: string) {
+		const f = createTripFixture(label);
+		const taskId = tasks.addTask(f.tripId, f.organizer, 'prep', 'Book the ferry', [f.member], null)!;
+		return { f, taskId };
+	}
+
+	function row(tripId: string, taskId: string) {
+		return tasks.listTasks(tripId, 'prep').find((t) => t.id === taskId)!;
+	}
+
+	// Completion records who the task is for, not who pressed the button: a trip
+	// gets planned out loud, and the phone is not always in the assignee's hand.
+	it('lets any member tick a box for someone else', () => {
+		const { f, taskId } = assignedTask('toggle-other');
+		expect(tasks.toggleTask(f.tripId, f.organizer, taskId, f.member)).toBe(true);
+		expect(row(f.tripId, taskId).done).toBe(true);
+
+		expect(tasks.toggleTask(f.tripId, f.organizer, taskId, f.member)).toBe(true);
+		expect(row(f.tripId, taskId).done).toBe(false);
+	});
+
+	it('refuses a non-member, and a target the task is not assigned to', () => {
+		const { f, taskId } = assignedTask('toggle-refuse');
+		expect(tasks.toggleTask(f.tripId, f.outsider, taskId, f.member)).toBe(false);
+		expect(tasks.toggleTask(f.tripId, f.organizer, taskId, f.organizer)).toBe(false);
+		expect(row(f.tripId, taskId).doneCount).toBe(0);
+	});
+});
+
 describe('member removal cascade', () => {
 	it('deletes a placeholder and everything that cascades from their user row', () => {
 		const f = createTripFixture('placeholder');

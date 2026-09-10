@@ -1,7 +1,6 @@
-import { useState } from 'react';
 import EmptyState from '../../components/ui/EmptyState';
 import { IconButton } from '../../components/ui/buttons';
-import type { Task } from './types';
+import type { Task, Person } from './types';
 import { copy } from '../../copy';
 
 const c = copy.preparation.taskList;
@@ -9,23 +8,36 @@ const c = copy.preparation.taskList;
 /**
  * The tasks and the packing list are the same rows with different words, so
  * they are one component switched by `kind`.
+ *
+ * One row is one line: a box, the label, then a chip per person it is for.
+ *
+ * The row used to carry four separate things on its right: a name, or a
+ * progress bar that expanded a roster, plus a "You: to do" pill, plus a
+ * different leading box depending on whether the task was yours. Five rows of
+ * that is five different layouts, and the answer to "who still has to do this"
+ * was behind a click. The chips are now always shown and are the control: the
+ * roster and the pill said what a row of chips says on its own.
+ *
+ * Every chip is pressable by anyone. A trip gets planned out loud, and the
+ * person holding the phone is not always the person whose box it is.
  */
 export default function TaskList({
 	items,
 	kind,
 	me,
 	onToggle,
+	onToggleAll,
 	onRemove
 }: {
 	items: Task[];
 	kind: 'task' | 'packing';
 	me: string;
+	/** Tick one person's box, or the shared box when the task has nobody on it. */
 	onToggle: (taskId: string, userId?: string) => void;
+	/** Bring every assignee to the same state in one press of the leading box. */
+	onToggleAll: (task: Task) => void;
 	onRemove: (task: Task) => void;
 }) {
-	/** Which task's roster is expanded. Only one at a time, because these lists are long. */
-	const [openRoster, setOpenRoster] = useState<string | null>(null);
-
 	if (items.length === 0) {
 		// No button here: every section that renders this list already carries its
 		// own Add in the header a few pixels above, and two of the same action on
@@ -36,40 +48,19 @@ export default function TaskList({
 	return (
 		<ul className="m-0 flex list-none flex-col gap-0.5 p-0">
 			{items.map((it) => {
-				const mine = it.people.find((p) => p.id === me) ?? null;
+				const assigned = it.people.length > 0;
 				return (
 					<li key={it.id}>
 						{/* `group` so the delete button can stay hidden until the row is
 						    hovered without a hover-only stylesheet rule. */}
-						<div className="group flex min-w-0 items-center gap-2.5 rounded-[10px] px-1.5 py-2 text-[0.94rem] hover:bg-surface-2">
-							{it.people.length === 0 ? (
-								<Box
-									on={it.shared}
-									label={c.sharedBoxLabel(it.shared, it.label)}
-									onClick={() => onToggle(it.id)}
-								/>
-							) : mine ? (
-								<Box
-									on={mine.done}
-									label={c.yourBoxLabel(mine.done, it.label)}
-									onClick={() => onToggle(it.id)}
-								/>
-							) : (
-								/* Not yours to tick, so it is not a control. It still has to show
-								   whether the task got done, or the row reads as struck through
-								   and unchecked at the same time. */
-								<span
-									title={c.othersTitle(it.done)}
-									aria-label={c.othersLabel(it.label, it.done)}
-									className={`grid size-[18px] flex-none place-items-center rounded-[5px] border border-dashed text-[0.72rem] ${
-										it.done
-											? 'border-accent bg-accent-soft text-accent-ink'
-											: 'border-line bg-surface-2'
-									}`}
-								>
-									{it.done ? '✓' : ''}
-								</span>
-							)}
+						<div className="group flex min-w-0 items-center gap-3 rounded-[10px] px-1.5 py-2 text-[0.94rem] hover:bg-surface-2">
+							<Box
+								state={it.done ? 'on' : it.doneCount > 0 ? 'part' : 'off'}
+								label={
+									assigned ? c.allBoxLabel(it.done, it.label) : c.sharedBoxLabel(it.done, it.label)
+								}
+								onClick={() => (assigned ? onToggleAll(it) : onToggle(it.id))}
+							/>
 
 							<span
 								className={`min-w-0 flex-1 truncate ${it.done ? 'text-ink-faint line-through' : ''}`}
@@ -80,47 +71,17 @@ export default function TaskList({
 
 							{it.flag && <span className="chip flex-none border-warn text-warn">{it.flag}</span>}
 
-							{it.people.length > 0 && (
-								<div className="flex min-w-0 flex-none items-center gap-1.5">
-									{it.people.length === 1 ? (
-										<span
-											className="max-w-36 truncate text-[0.74rem] text-ink-soft"
-											title={it.people[0].name}
-										>
-											{it.people[0].name}
-										</span>
-									) : (
-										/* The bar carries the at-a-glance signal, the count is the
-										   accessible text, and the whole thing expands the roster. */
-										<button
-											type="button"
-											aria-expanded={openRoster === it.id}
-											title={c.rosterTitle}
-											onClick={() => setOpenRoster((v) => (v === it.id ? null : it.id))}
-											className="flex cursor-pointer items-center gap-1.5 rounded-full border border-line bg-surface py-0.5 pr-2 pl-1.5 text-[0.74rem] text-ink-soft hover:border-accent"
-										>
-											<span className="block h-1 w-[34px] flex-none overflow-hidden rounded-full bg-line">
-												<span
-													className="block h-full bg-accent"
-													style={{
-														width: `${(it.doneCount / it.people.length) * 100}%`
-													}}
-												/>
-											</span>
-											<span className="tabular-nums whitespace-nowrap">
-												{it.doneCount}/{it.people.length}
-											</span>
-										</button>
-									)}
-									{mine && (
-										<span
-											className={`flex-none rounded-full px-2 py-0.5 text-[0.72rem] whitespace-nowrap ${
-												mine.done ? 'bg-accent-soft text-accent-ink' : 'bg-surface-2 text-ink-faint'
-											}`}
-										>
-											{mine.done ? c.youDone : c.youToDo}
-										</span>
-									)}
+							{assigned && (
+								<div className="flex min-w-0 flex-wrap justify-end gap-1">
+									{it.people.map((p) => (
+										<Chip
+											key={p.id}
+											person={p}
+											isMe={p.id === me}
+											onClick={() => onToggle(it.id, p.id)}
+											label={c.personBoxLabel(p.done, p.name, it.label)}
+										/>
+									))}
 								</div>
 							)}
 
@@ -133,50 +94,6 @@ export default function TaskList({
 								×
 							</IconButton>
 						</div>
-
-						{openRoster === it.id && (
-							<ul className="flex list-none flex-row flex-wrap gap-1.5 pt-0.5 pr-1.5 pb-2.5 pl-8">
-								{it.people.map((p) => {
-									const isMe = p.id === me;
-									const cls = [
-										'inline-flex max-w-44 items-center gap-1.5 rounded-full border px-2 py-0.5 text-[0.76rem]',
-										p.done
-											? 'border-transparent bg-accent-soft text-accent-ink'
-											: 'border-line bg-surface text-ink-soft',
-										isMe ? 'cursor-pointer' : 'cursor-default'
-									].join(' ');
-									const inner = (
-										<>
-											<span
-												className={`grid size-3 flex-none place-items-center rounded-[4px] border border-current text-[0.6rem] ${p.done ? '' : 'opacity-70'}`}
-											>
-												{p.done ? '✓' : ''}
-											</span>
-											<span className="min-w-0 truncate" title={p.name}>
-												{p.name}
-												{isMe ? copy.preparation.youSuffix : ''}
-											</span>
-										</>
-									);
-									return (
-										<li key={p.id} className="min-w-0">
-											{isMe ? (
-												<button
-													type="button"
-													className={cls}
-													onClick={() => onToggle(it.id)}
-													aria-label={c.rosterToggleLabel(p.done, it.label)}
-												>
-													{inner}
-												</button>
-											) : (
-												<span className={cls}>{inner}</span>
-											)}
-										</li>
-									);
-								})}
-							</ul>
-						)}
 					</li>
 				);
 			})}
@@ -184,17 +101,70 @@ export default function TaskList({
 	);
 }
 
-function Box({ on, label, onClick }: { on: boolean; label: string; onClick: () => void }) {
+/** One person's share of a task, and the control that ticks it. */
+function Chip({
+	person,
+	isMe,
+	label,
+	onClick
+}: {
+	person: Person;
+	isMe: boolean;
+	label: string;
+	onClick: () => void;
+}) {
 	return (
 		<button
 			type="button"
 			onClick={onClick}
+			aria-pressed={person.done}
 			aria-label={label}
-			className={`grid size-[18px] flex-none cursor-pointer place-items-center rounded-[5px] border p-0 text-[0.72rem] text-white ${
-				on ? 'border-accent bg-accent' : 'border-line bg-surface'
+			title={label}
+			className={`inline-flex max-w-44 cursor-pointer items-center gap-1 rounded-full border py-0.5 pr-2.5 text-[0.76rem] ${
+				person.done
+					? 'border-transparent bg-accent-soft pl-1.5 text-accent-ink'
+					: 'border-line bg-surface pl-2.5 text-ink-soft hover:border-accent'
 			}`}
 		>
-			{on ? '✓' : ''}
+			{person.done && <span aria-hidden="true">✓</span>}
+			<span className="min-w-0 truncate">
+				{person.name}
+				{isMe ? copy.preparation.youSuffix : ''}
+			</span>
+		</button>
+	);
+}
+
+/**
+ * The leading box. `part` is some but not all of the roster: without it a task
+ * two people out of three have finished looks identical to one nobody has
+ * started.
+ */
+function Box({
+	state,
+	label,
+	onClick
+}: {
+	state: 'on' | 'part' | 'off';
+	label: string;
+	onClick: () => void;
+}) {
+	return (
+		<button
+			type="button"
+			onClick={onClick}
+			aria-pressed={state === 'on'}
+			aria-label={label}
+			title={label}
+			className={`grid size-[18px] flex-none cursor-pointer place-items-center rounded-[5px] border p-0 text-[0.72rem] ${
+				state === 'on'
+					? 'border-accent bg-accent text-white'
+					: state === 'part'
+						? 'border-accent bg-accent-soft text-accent-ink'
+						: 'border-line bg-surface text-white hover:border-accent'
+			}`}
+		>
+			{state === 'on' ? '✓' : state === 'part' ? '–' : ''}
 		</button>
 	);
 }

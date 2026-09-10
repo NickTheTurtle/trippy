@@ -149,9 +149,14 @@ export function addTask(
 /**
  * Tick or untick one person's box.
  *
- * `targetId` defaults to the actor: you complete your own share, not someone
- * else's. A task with no assignees has no per-person rows, so it toggles the
- * shared flag instead.
+ * `targetId` defaults to the actor, but any member may tick any assignee's box.
+ * A trip is planned by people standing next to each other: whoever is holding
+ * the phone is the one who ticks, and a rule that only the assignee may say a
+ * thing is done just leaves the list wrong. The row records who the task is
+ * for, not who pressed the button.
+ *
+ * A task with no assignees has no per-person rows, so it toggles the shared
+ * flag instead.
  */
 export function toggleTask(
 	tripId: string,
@@ -165,11 +170,10 @@ export function toggleTask(
 		.get(taskId, tripId) as { id: string } | undefined;
 	if (!task) return false;
 
-	// Completion is personal. `targetId` exists only so the form can be explicit
-	// about whose box it is; it is never permission to tick someone else's.
-	if (targetId && targetId !== actorId) return false;
-
 	const who = targetId ?? actorId;
+	// Membership of the target is not checked separately: the assignee lookup
+	// below only matches rows that were written through `addTask`, which takes
+	// members.
 	const assigned = !!db
 		.prepare(`SELECT 1 FROM task_assignees WHERE task_id = ? AND user_id = ?`)
 		.get(taskId, who);

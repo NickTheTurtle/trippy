@@ -132,6 +132,22 @@ export default function Pretrip() {
 									})
 								)
 							}
+							// The API ticks one box at a time, so the leading box walks the
+							// roster. Only the people who disagree with the target state are
+							// touched, and it runs inside one mutation so a refusal halts the
+							// rest instead of leaving the row half ticked.
+							onToggleAll={(task) =>
+								void act.run(async () => {
+									const target = !task.done;
+									for (const p of task.people) {
+										if (p.done === target) continue;
+										await api(`/trips/${trip.id}/pretrip/tasks/${task.id}/toggle`, {
+											method: 'POST',
+											body: { userId: p.id }
+										});
+									}
+								})
+							}
 							onRemove={(task) =>
 								setPendingTask({
 									kind: section === 'tasks' ? 'task' : 'packing',
