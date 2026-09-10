@@ -311,6 +311,13 @@ export default function EditExpense({
 						>
 							{members.map((m) => {
 								const on = picked.has(m.id);
+								const money = on && totalCents !== 0 && preview.has(m.id) && (
+									<span
+										className={`w-[5.5rem] flex-none text-right text-[0.82rem] tabular-nums ${income ? 'text-accent-ink' : 'text-ink-faint'}`}
+									>
+										{formatMoney(preview.get(m.id) ?? 0, currency)}
+									</span>
+								);
 								return (
 									<li
 										key={m.id}
@@ -328,6 +335,12 @@ export default function EditExpense({
 												{m.name}
 											</span>
 										</label>
+										{/* In shares mode the money reads as the answer to the share
+										    count, so it sits before the stepper: left to right the row
+										    says who, how much, and then the control that changes it.
+										    The other modes have nothing to read it against and keep it
+										    at the end of the row. */}
+										{splitMode === 'shares' && money}
 										{/* Shares are stepped, not typed: the common edits are "one
 										    more" and "double", and a bare number box asked for a
 										    keyboard to say either. */}
@@ -377,13 +390,7 @@ export default function EditExpense({
 												/>
 											</span>
 										)}
-										{on && totalCents !== 0 && preview.has(m.id) && (
-											<span
-												className={`w-[5.5rem] flex-none text-right text-[0.82rem] tabular-nums ${income ? 'text-accent-ink' : 'text-ink-faint'}`}
-											>
-												{formatMoney(preview.get(m.id) ?? 0, currency)}
-											</span>
-										)}
+										{splitMode !== 'shares' && money}
 									</li>
 								);
 							})}
