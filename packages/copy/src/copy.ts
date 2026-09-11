@@ -412,7 +412,7 @@ export const copy = {
 		}
 	},
 
-	// People > roster, invite panel, removal confirmation
+	// People > roster, add and edit dialogs, removal confirmation
 	people: {
 		membersHeading: 'Members',
 		removeTitle: (name: string) => `Remove ${name}?`,
@@ -430,15 +430,12 @@ export const copy = {
 			title: 'Edit person',
 			nameLabel: 'Display name',
 			emailLabel: 'Email',
-			emailHint: 'We will email them an invite',
-			emailResendHint: 'Save to send the invite again',
 			fallback: 'Could not save that person.'
 		},
 		add: {
 			title: 'Add person',
 			nameLabel: 'Display name',
 			emailLabel: 'Email',
-			emailHint: 'We will email them an invite',
 			fallback: 'Could not add that person.'
 		}
 	},

@@ -58,7 +58,6 @@ export default function AddPersonDialog({
 						type="email"
 						optional
 						autoComplete="off"
-						hint={c.emailHint}
 						value={email}
 						onChange={(e) => setEmail(e.target.value)}
 					/>

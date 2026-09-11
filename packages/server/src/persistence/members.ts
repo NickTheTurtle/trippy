@@ -77,6 +77,11 @@ export type InviteResult = 'added' | 'invited' | 'created' | 'exists' | 'invalid
  *    is not going to use the app. They can be split with, assigned to and
  *    settled up with like anyone else, and an address can be added later.
  *
+ * Nothing is emailed in any of the three cases. The address is a key, not a
+ * notification: it is what a later registration is matched against, so the
+ * person who signs up at it arrives as themselves rather than as a stranger the
+ * organizer then has to reconcile with the placeholder they already made.
+ *
  * The email used to be the whole of an invite, which meant the roster was
  * populated with names guessed from the local part of an address ("Jamie Lee"
  * out of jamie.lee@) and anybody without an address could not be represented at
@@ -96,8 +101,7 @@ export function addPerson(
 
 	if (clean) {
 		const user = db.prepare(`SELECT id FROM users WHERE email = ?`).get(clean) as
-			| { id: string }
-			| undefined;
+			{ id: string } | undefined;
 		if (user) {
 			if (membership(tripId, user.id)) return 'exists';
 			db.prepare(`INSERT INTO memberships (trip_id, user_id, role) VALUES (?, ?, 'member')`).run(
@@ -179,8 +183,7 @@ export function setMemberEmail(
 	if (!isOrganizer(tripId, actorId)) return 'forbidden';
 	if (!membership(tripId, userId)) return 'missing';
 	const user = db.prepare(`SELECT password_hash FROM users WHERE id = ?`).get(userId) as
-		| { password_hash: string }
-		| undefined;
+		{ password_hash: string } | undefined;
 	if (!user?.password_hash.startsWith('placeholder:')) return 'forbidden';
 
 	const clean = email.trim().toLowerCase();
@@ -223,9 +226,6 @@ export function setMemberEmail(
 	publish(tripId, 'members');
 	return clean ? 'ok' : 'cleared';
 }
-
-
-
 
 /**
  * Rename a member of the trip. Organizers only.

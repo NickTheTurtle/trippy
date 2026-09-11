@@ -554,22 +554,39 @@ Three outcomes, because there are three kinds of person being named:
 | Result | What was typed | What happens |
 |---|---|---|
 | `added` | an address with an account behind it | membership only; the typed name is discarded, because their name is their account's and is shared with every trip they are on |
-| `invited` | an address with no account | placeholder member plus a `trip_invites` row, and an invite in the post |
-| `created` | a name and nothing else | placeholder member, no invite, nothing sent |
+| `invited` | an address with no account | placeholder member plus a `trip_invites` row, waiting for them to register |
+| `created` | a name and nothing else | placeholder member, no `trip_invites` row |
 
 A `created` person is a full member id: they can pay, owe, be assigned, be
-voted for and be settled with. They carry no "invited" tag, because nothing was
-sent and nothing is being waited on.
+voted for and be settled with. They carry no "invited" tag, because there is no
+address and so nothing is being waited on.
+
+**Nobody is emailed.** An invite email was built and then scrapped. The address
+on a person is a **key, not a notification**: it is the thing a later
+registration is matched against, so whoever signs up at it arrives as
+themselves rather than as a stranger the organizer has to reconcile with the
+placeholder they already made. The mail added nothing to that, and it added a
+failure mode (a message the app claims to have sent, to somebody who never
+asked, at an address the organizer may have mistyped) to a step that otherwise
+cannot fail. Groups that plan a trip together already have a way to tell each
+other about it. `providers/mail.ts` now sends only the two messages that belong
+to signing in, verification and password reset, and neither is optional.
+
+The consequence worth knowing: **adding a person is silent to that person.**
+They find out they are on the trip when they register, or when somebody tells
+them. If that ever needs fixing, the fix is a share link, not a mail: one URL
+the organizer sends however they like, which is both cheaper and the thing they
+were going to do by hand anyway.
 
 **The organizer, and only the organizer, can set the address of somebody who
 has not registered.** For anybody else the address is their own account's: it
 is how they sign in and it belongs to every other trip they are on. A seeded
 sample companion is excluded for the opposite reason, that it is not a person.
 
-Re-sending an invite is the same call with the same address rather than a
-button of its own. The organizer's intent is one thing, "reach this person
-here", and two controls that differ only in whether the value happened to
-change is a distinction the reader would have to make for us.
+Saving an unchanged address does nothing, and the dialog does not send it.
+While the mail existed, saving the same value again was how an invite was
+re-sent, so it deliberately did fire; with nothing to re-send, a write that
+changes no row and a notice reporting it are both noise.
 
 The address lives in two places, `trip_invites.email` and the
 `placeholder:<email>` password hash, so `setMemberEmail` moves both in one
@@ -2031,10 +2048,13 @@ Two further rules fell out of the person dialogs, which arrived later and drifte
 in exactly the ways the first three had not covered:
 
 - **A hint under a field is a fragment, not a sentence**, so it takes no full
-  stop: `At least 8 characters`, `We will email them an invite`. A hint that
-  needs two sentences is a hint that is saying too much, and the success notice
-  usually already says the second one. A hint never says `Optional` either: the
-  label already carries that, in the muted suffix described above.
+  stop: `At least 8 characters`. A hint that needs two sentences is a hint that
+  is saying too much, and it never says `Optional` either, because the label
+  already carries that in the muted suffix described above. The only hints left
+  in the app are the three password rules; the person dialogs had one on the
+  email field explaining what the address was for, and it went, because a field
+  labelled `Email (optional)` under a dialog titled `Add person` has already
+  said everything the organizer has to decide.
 - **`required` carries an empty field; the submit button is not disabled for
   it.** A greyed-out button states no reason, and the user is left comparing
   fields to guess which one it is waiting on. Pressing it and getting the

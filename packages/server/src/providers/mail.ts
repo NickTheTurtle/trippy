@@ -11,10 +11,15 @@ import { signPost } from '../infra/sigv4';
  * set: `AWS_ACCESS_KEY_ID` may well be in the environment for other reasons,
  * but `MAIL_FROM` on a domain SES has verified is not an accident.
  *
- * With nothing configured, sending is skipped rather than failed. A trip still
- * works end to end without email (the invitee is added to the roster the moment
- * they are invited, and the invite is consumed when they register), so a
- * missing key must not turn inviting somebody into an error. In development the
+ * Only two messages go out, and both belong to signing in: the link that turns
+ * a pending registration into an account, and the one that resets a password.
+ * Adding somebody to a trip deliberately sends nothing. They are on the roster
+ * the moment they are added and are linked to their account when they register
+ * at the address recorded for them, so an email would announce a thing that had
+ * already happened without it.
+ *
+ * With nothing configured, sending is skipped rather than failed, so a fresh
+ * clone can register and sign in with no keys at all. In development the
  * message is logged instead, so the copy can still be read.
  */
 export type MailResult = 'sent' | 'skipped' | 'failed';
@@ -87,7 +92,11 @@ async function sendViaSes(mail: Mail): Promise<MailResult> {
 		headers: { 'content-type': 'application/json' }
 	});
 
-	const res = await fetch(signed.url, { method: 'POST', headers: signed.headers, body: signed.body });
+	const res = await fetch(signed.url, {
+		method: 'POST',
+		headers: signed.headers,
+		body: signed.body
+	});
 	if (!res.ok) return logRefusal('ses', res.status, await res.text());
 	return 'sent';
 }
@@ -137,9 +146,9 @@ const esc = (s: string) =>
 	s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 /**
- * The one HTML shell all three messages use, so a change of voice or colour
- * happens once. `lead` and `tail` are already-escaped fragments, because both
- * carry markup of their own.
+ * The one HTML shell both messages use, so a change of voice or colour happens
+ * once. `lead` and `tail` are already-escaped fragments, because both carry
+ * markup of their own.
  */
 function layout(args: { lead: string; url: string; action: string; tail: string }): string {
 	return `<div style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;font-size:15px;line-height:1.5;color:#1f2421">
@@ -147,40 +156,6 @@ function layout(args: { lead: string; url: string; action: string; tail: string 
   <p><a href="${esc(args.url)}" style="display:inline-block;background:#2f6d5e;color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px">${esc(args.action)}</a></p>
   <p style="color:#6b7280;font-size:13px">${args.tail}</p>
 </div>`;
-}
-
-/**
- * The invite itself.
- *
- * The link goes to the sign-up page, because an invite is consumed by
- * registering with the invited address: there is no separate accept step to
- * send somebody to, and a token would be a second way to join that the roster
- * already covers.
- */
-export function tripInviteMail(args: {
-	to: string;
-	tripName: string;
-	inviterName: string;
-	dates: string | null;
-}): Mail {
-	const url = `${env.APP_URL}/register?email=${encodeURIComponent(args.to)}`;
-	const when = args.dates ? ` (${args.dates})` : '';
-	const subject = `${args.inviterName} invited you to ${args.tripName}`;
-
-	const text = [
-		`${args.inviterName} added you to ${args.tripName}${when} on Trippy.`,
-		'',
-		`Sign up with this address to join: ${url}`
-	].join('\n');
-
-	const html = layout({
-		lead: `${esc(args.inviterName)} added you to <strong>${esc(args.tripName)}</strong>${esc(when)} on Trippy.`,
-		url,
-		action: 'Join the trip',
-		tail: `Sign up with ${esc(args.to)} and the trip will be waiting for you.`
-	});
-
-	return { to: args.to, subject, text, html };
 }
 
 /**

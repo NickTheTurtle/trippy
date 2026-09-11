@@ -47,20 +47,16 @@ export default function EditMember({
 			if (name.trim() !== person.name) {
 				await api(`/trips/${tripId}/people/${person.id}`, { method: 'PATCH', body: { name } });
 			}
-			// Sent whenever the box was touched, including back to the same address:
-			// re-sending a lost invite is the same intent as setting one, so it is
-			// the same control rather than a second button that looks identical.
-			if (editableEmail && email.trim()) {
+			// Only when it actually changed. Nothing is emailed, so saving the same
+			// address again would be a write that does nothing and a notice saying
+			// so. The server lower-cases what it stores, so the comparison does too.
+			const next = email.trim().toLowerCase();
+			if (editableEmail && next !== (person.invitedEmail ?? '')) {
 				const { message } = await api<{ message: string }>(
 					`/trips/${tripId}/people/${person.id}/email`,
-					{ method: 'PATCH', body: { email } }
+					{ method: 'PATCH', body: { email: next } }
 				);
 				onDone(message);
-			} else if (editableEmail && person.invitedEmail) {
-				await api(`/trips/${tripId}/people/${person.id}/email`, {
-					method: 'PATCH',
-					body: { email: '' }
-				});
 			}
 			onSaved();
 			onClose();
@@ -86,7 +82,6 @@ export default function EditMember({
 							type="email"
 							optional
 							autoComplete="off"
-							hint={person.invitedEmail ? c.emailResendHint : c.emailHint}
 							value={email}
 							onChange={(e) => setEmail(e.target.value)}
 						/>

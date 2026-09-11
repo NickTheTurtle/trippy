@@ -11,7 +11,6 @@ import {
 	renameMember,
 	setMemberEmail
 } from '@trippy/server/members';
-import { sendMail, tripInviteMail } from '@trippy/server/mail';
 
 export const people = new Hono<Env>();
 
@@ -32,39 +31,22 @@ people.get('/', (c) => {
 });
 
 people.post('/invites', async (c) => {
-	const trip = c.get('trip');
 	const payload = await body(c);
 	const name = str(payload.name);
 	const email = str(payload.email);
-	const result = addPerson(trip.id, c.get('user').id, name, email);
+	const result = addPerson(c.get('trip').id, c.get('user').id, name, email);
 
 	switch (result) {
 		case 'created':
 			return c.json({ message: `${name} is on the trip.` });
 		case 'added':
-		case 'invited': {
-			// Sent after the roster write, and awaited: the invitee is on the trip
-			// either way, so a mail failure must not undo it, but the organizer is
-			// told which of the two happened rather than being promised an email
-			// that no key was configured to send.
-			const sent = await sendMail(
-				tripInviteMail({
-					to: email,
-					tripName: trip.name,
-					inviterName: c.get('user').name,
-					dates: trip.dates ?? null
-				})
-			);
-			if (result === 'added') {
-				return c.json({ message: `${email} was added to the trip.` });
-			}
-			return c.json({
-				message:
-					sent === 'sent'
-						? `Invite emailed to ${email}. They'll join when they register.`
-						: `${email} is on the trip. They'll join when they register.`
-			});
-		}
+			return c.json({ message: `${email} is on the trip.` });
+		case 'invited':
+			// Nothing is emailed. The address is kept so that whoever registers at
+			// it later is linked to this person rather than arriving as a stranger,
+			// which is the whole of what it is for, so the message promises only
+			// that.
+			return c.json({ message: `${email} is on the trip. They'll join when they register.` });
 		case 'exists':
 			return fail(c, 409, 'That person is already a member or invited.');
 		case 'forbidden':
@@ -75,35 +57,22 @@ people.post('/invites', async (c) => {
 });
 
 /**
- * Set, change, clear or re-send the address an invited person was invited at.
+ * Set, change or clear the address an invited person will be recognised by.
  *
- * Re-sending is the same call with the same address rather than a route of its
- * own, because the organizer's intent is one thing ("reach this person here")
- * and the two would otherwise differ only in whether the value happened to
- * change.
+ * Nobody is emailed. The address is what `consumeInvites` matches a new
+ * registration against, so editing it is editing who this person will turn out
+ * to be.
  */
 people.patch('/:userId/email', async (c) => {
-	const trip = c.get('trip');
 	const userId = c.req.param('userId');
 	const email = str((await body(c)).email);
-	const result = setMemberEmail(trip.id, c.get('user').id, userId, email);
+	const result = setMemberEmail(c.get('trip').id, c.get('user').id, userId, email);
 
 	switch (result) {
 		case 'cleared':
 			return c.json({ message: 'Email removed.' });
-		case 'ok': {
-			const sent = await sendMail(
-				tripInviteMail({
-					to: email,
-					tripName: trip.name,
-					inviterName: c.get('user').name,
-					dates: trip.dates ?? null
-				})
-			);
-			return c.json({
-				message: sent === 'sent' ? `Invite emailed to ${email}.` : `Invite saved for ${email}.`
-			});
-		}
+		case 'ok':
+			return c.json({ message: "Saved. They'll join when they register." });
 		case 'taken':
 			return fail(c, 409, 'That person is already a member or invited.');
 		case 'invalid':
