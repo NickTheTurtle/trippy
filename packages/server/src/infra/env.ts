@@ -21,6 +21,25 @@ export const env = {
 	get RESEND_API_KEY(): string | undefined {
 		return process.env.RESEND_API_KEY;
 	},
+	/**
+	 * Amazon SES, used in preference to Resend when both are configured. Read
+	 * from the conventional AWS names rather than app-specific ones so a machine
+	 * that already exports credentials for the CLI needs nothing added.
+	 */
+	get AWS_ACCESS_KEY_ID(): string | undefined {
+		return process.env.AWS_ACCESS_KEY_ID;
+	},
+	get AWS_SECRET_ACCESS_KEY(): string | undefined {
+		return process.env.AWS_SECRET_ACCESS_KEY;
+	},
+	/** Only set when the credentials are temporary ones from STS. */
+	get AWS_SESSION_TOKEN(): string | undefined {
+		return process.env.AWS_SESSION_TOKEN;
+	},
+	/** The region the SES identity is verified in. Not necessarily the app's. */
+	get SES_REGION(): string {
+		return process.env.SES_REGION ?? process.env.AWS_REGION ?? 'us-east-1';
+	},
 	/** The From address invites are sent as. Its domain must be verified with the provider. */
 	get MAIL_FROM(): string | undefined {
 		return process.env.MAIL_FROM;

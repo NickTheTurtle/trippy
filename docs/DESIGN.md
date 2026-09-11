@@ -457,6 +457,35 @@ profile email consumes any invites waiting at the new address, the same way
 registering does. Without it, somebody invited at their work address who then
 corrected their profile would simply never appear in the trip.
 
+### 4.6 Outbound email
+
+Two providers, Amazon SES and Resend, both over plain `fetch`. SES is preferred
+when both are configured: `AWS_ACCESS_KEY_ID` may be in the environment for
+unrelated reasons, but a `MAIL_FROM` on a domain SES has verified is not an
+accident.
+
+**SigV4 is hand-rolled** in `infra/sigv4.ts` rather than reached through
+`@aws-sdk/client-sesv2`. The SDK brings a credential-provider chain, a retry
+strategy and a middleware stack to do what this app needs four HMACs and a
+string for, and the mail module's whole premise is a provider it can talk to
+with no dependency and no socket to keep alive. The cost is that a signing bug
+is indistinguishable from a wrong secret, since both come back as an opaque
+403, so `sigv4.test.ts` checks the signer against AWS's own published vectors
+(`awslabs/aws-c-auth`, `tests/aws-signing-test-suite/v4`) rather than against
+what the implementation happens to produce. The signer deliberately covers
+headers only, one string body and no query string, and throws on a query string
+rather than canonicalising it the wrong way: every unsupported case is a case
+that cannot be silently wrong.
+
+The `host` header is derived from the URL rather than accepted from the caller,
+because a host header that disagrees with where the request actually goes is
+the one mismatch AWS cannot catch, seeing only the header.
+
+**With no provider configured, sending is skipped rather than failed.** A trip
+works end to end without email, so a missing key must not turn inviting
+somebody into an error. This is load-bearing beyond convenience: it is what
+lets the E2E suite and a fresh clone register accounts without an SES identity.
+
 ---
 
 ## 5. Architecture & Stack
