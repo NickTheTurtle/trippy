@@ -1884,6 +1884,17 @@ re-derived:
 - A busy label ends in an ellipsis, because it names something still happening.
 - No em dashes anywhere.
 
+**Two faces, and the display serif never renders data.** Fraunces for headings
+and the wordmark, Inter for everything else. The split is not only taste:
+Fraunces ships no `tnum` feature, so its figures cannot be made to share a
+width, and `1` measures two thirds of `0`. A headline total set in it shifts on
+the line every time the number changes, and two of them side by side never line
+up. The `Stat` figure on Preparation and Expenses was the one place this
+happened; it is sans and `tabular-nums` now, which also matches the section
+total further down the same page. Every other money figure in the app already
+set `tabular-nums`. If a number wants emphasis it gets size and weight, not the
+serif.
+
 **Where a file goes in `apps/web/src`.** Sources are grouped by role: `hooks/`,
 `lib/`, `styles/`, `components/`, and `pages/`. The one boundary that needs a
 rule is `components/ui/` versus `components/`: a `ui/` component is generic and
