@@ -374,6 +374,70 @@ describe('removing someone who still has money in the trip', () => {
 		expect(netsToZero(p.tripId)).toBe(0);
 	});
 
+	it('keeps an invited member who owes money, instead of deleting their expenses with them', () => {
+		const p = party();
+		expect(members.inviteToTrip(p.tripId, p.alice, 'invited@example.test')).toBe('invited');
+		const placeholder = members.listPeople(p.tripId).find((x) => x.placeholder)!;
+
+		// Alice paid, and the invitee was charged a stated amount. Deleting the
+		// placeholder user would cascade that share away and silently hand it to
+		// whoever is left, so removal has to take the tombstone path instead.
+		expenses.addExpense(
+			p.tripId,
+			p.alice,
+			p.alice,
+			'Their museum ticket',
+			5000,
+			'USD',
+			[
+				{ userId: p.alice, weight: 2000 },
+				{ userId: placeholder.id, weight: 3000 }
+			],
+			'exact'
+		);
+
+		expect(members.removeMember(p.tripId, p.alice, placeholder.id)).toBe(true);
+
+		const row = expenses.listExpenses(p.tripId).find((e) => e.description === 'Their museum ticket');
+		expect(row).toBeTruthy();
+		expect(row!.amount_cents).toBe(5000);
+		// The point of keeping them: the row can say a human needs to look at it.
+		expect(row!.needsReview).toBe(true);
+		expect(members.listPeople(p.tripId).some((x) => x.id === placeholder.id)).toBe(false);
+		expect(netsToZero(p.tripId)).toBe(0);
+	});
+
+	it('keeps an expense an invited member paid for, rather than deleting it outright', () => {
+		const p = party();
+		expect(members.inviteToTrip(p.tripId, p.alice, 'payer@example.test')).toBe('invited');
+		const placeholder = members.listPeople(p.tripId).find((x) => x.placeholder)!;
+
+		expenses.addExpense(p.tripId, p.alice, placeholder.id, 'They paid the deposit', 9000, 'USD', [
+			{ userId: p.alice, weight: 1 },
+			{ userId: p.bob, weight: 1 }
+		]);
+
+		members.removeMember(p.tripId, p.alice, placeholder.id);
+
+		const row = expenses.listExpenses(p.tripId).find((e) => e.description === 'They paid the deposit');
+		expect(row).toBeTruthy();
+		expect(row!.needsReview).toBe(true);
+		expect(netsToZero(p.tripId)).toBe(0);
+	});
+
+	it('still deletes an invited member who never touched the money', () => {
+		const p = party();
+		expect(members.inviteToTrip(p.tripId, p.alice, 'nobody@example.test')).toBe('invited');
+		const placeholder = members.listPeople(p.tripId).find((x) => x.placeholder)!;
+
+		expect(members.removeMember(p.tripId, p.alice, placeholder.id)).toBe(true);
+
+		// Nothing references them, so there is nothing to preserve and no reason to
+		// leave a row behind. Re-inviting the same address must also still work.
+		expect(auth.findUserById(placeholder.id)).toBeFalsy();
+		expect(members.inviteToTrip(p.tripId, p.alice, 'nobody@example.test')).toBe('invited');
+	});
+
 	it('does not flag an expense the departed member was never on', () => {
 		const p = party();
 		expenses.addExpense(

@@ -419,13 +419,58 @@ test.describe('expenses', () => {
 		}
 	});
 
+	test('removing an invited member who owes money keeps the expense and marks it for review', async ({
+		page,
+		request
+	}) => {
+		const fixture = await createApiFixture(request);
+		try {
+			// An invited placeholder is deleted outright when nothing points at
+			// them, and that delete cascades. Naming them on an expense has to
+			// change the answer: the cascade would take a row the group already
+			// agreed, so they are kept off the trip but on the ledger instead.
+			const members = await seedMembers(request, fixture, ['Ghost']);
+			const ghostId = members['Ghost'];
+			await addExpense(request, fixture, fixture.tripId, {
+				description: 'Shared taxi',
+				amount: 50,
+				payerId: fixture.userId,
+				splitMode: 'exact',
+				participantIds: [fixture.userId, ghostId],
+				weights: { [fixture.userId]: 20, [ghostId]: 30 }
+			});
+
+			const removed = await request.delete(
+				`${apiURL}/trips/${fixture.tripId}/people/${ghostId}`,
+				{ headers: { cookie: fixture.sessionCookie } }
+			);
+			expect(removed.status()).toBe(200);
+
+			const data = await expensesData(request, fixture);
+			const taxi = data.expenses.find((e) => e.description === 'Shared taxi');
+			// The expense is still there and still worth what it was.
+			expect(taxi).toBeTruthy();
+			expect(taxi!.amount_cents).toBe(5000);
+			expect((taxi as { needsReview?: boolean }).needsReview).toBe(true);
+			expect(data.balances.reduce((n, b) => n + b.netCents, 0)).toBe(0);
+
+			// And the row says so on screen, as a sign rather than a sentence.
+			await signIn(page, fixture.sessionCookie);
+			await page.goto(`/trips/${fixture.tripId}/expenses`);
+			const row = page.getByRole('listitem').filter({ hasText: 'Shared taxi' }).first();
+			await expect(row.getByRole('img', { name: ce.row.reviewTitle })).toBeVisible();
+		} finally {
+			fixture.teardown();
+		}
+	});
+
 	test('removing a member with money in the ledger re-divides even splits and flags exact ones', async ({
 		request
 	}) => {
 		const fixture = await createApiFixture(request);
-		// Bob is a real account, not a placeholder: a placeholder's rows cascade
-		// away on removal, so only a joined member exercises the re-division and
-		// review-flagging path this asserts.
+		// Bob is a real account rather than a placeholder, so this covers the
+		// ordinary member path. The placeholder path is covered separately below,
+		// since it reaches the same outcome by a different route.
 		const bob = await registerUser(request, { name: 'Bob' });
 		try {
 			const members = await seedMembers(request, fixture, ['Alice']);

@@ -1,7 +1,7 @@
 import type { SplitMode } from '@trippy/core/split';
 import { formatMoney, formatTimestamp } from '../../lib/format';
 import { IconButton } from '../../components/ui/buttons';
-import { PencilIcon, TrashIcon } from '../../components/ui/icons';
+import { PencilIcon, TrashIcon, WarningIcon } from '../../components/ui/icons';
 import Avatar from '../../components/ui/Avatar';
 import Tag from '../../components/ui/Tag';
 import type { Expense } from './types';
@@ -47,11 +47,18 @@ export default function ExpenseRow({
 					)}
 					{/* Somebody on this row has left the trip and their share could not
 					    be re-divided. Marked rather than fixed: only the group can say
-					    who absorbs a stated amount. */}
+					    who absorbs a stated amount. A sign rather than a word, because
+					    it has to read as an exception at a glance in a list where every
+					    other row is fine. */}
 					{e.needsReview && (
-						<Tag tone="warn" outline className="ml-1" title={c.reviewTitle}>
-							{c.reviewTag}
-						</Tag>
+						<span
+							role="img"
+							aria-label={c.reviewTitle}
+							title={c.reviewTitle}
+							className="ml-1 inline-flex translate-y-0.5 align-text-bottom text-warn"
+						>
+							<WarningIcon />
+						</span>
 					)}
 				</span>
 				<span className="muted truncate text-meta">

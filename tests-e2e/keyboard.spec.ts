@@ -171,9 +171,11 @@ test.describe('keyboard', () => {
 	test('a dialog moves focus into itself and returns it to the trigger on close', async ({ page, request }) => {
 		const fixture = await createApiFixture(request);
 		try {
-			// A seeded expense gives a delete control whose ConfirmDialog stays
-			// mounted and toggles open, so the native dialog runs close() and
-			// restores focus. (Dialogs that unmount on close skip that restore.)
+			// A seeded expense gives both dialog shapes to check against the same
+			// row: the delete ConfirmDialog stays mounted and toggles `open`, and
+			// the edit dialog is rendered conditionally and unmounts on close. The
+			// second shape is the one the native restore misses, so both are
+			// asserted rather than assuming one stands for the other.
 			await addExpense(request, fixture, fixture.tripId, {
 				description: 'Solo lunch',
 				amount: 20,
@@ -204,6 +206,24 @@ test.describe('keyboard', () => {
 			await dialog.getByRole('button', { name: copy.common.cancel }).click();
 			await expect(dialog).toBeHidden();
 			await expect(trigger).toBeFocused();
+
+			// The same promise, from a dialog that unmounts instead of closing.
+			// React tears its DOM down after the close effect runs, so nothing
+			// native fires and focus lands on <body> unless the app puts it back.
+			const editTrigger = page.getByRole('button', { name: ce.row.editLabel('Solo lunch') });
+			await editTrigger.click();
+			const editDialog = page.getByRole('dialog');
+			await expect(editDialog).toBeVisible();
+			await editDialog.getByRole('button', { name: copy.common.cancel }).click();
+			await expect(editDialog).toBeHidden();
+			await expect(editTrigger).toBeFocused();
+
+			// Escape is the other way out, and has to restore focus too.
+			await editTrigger.click();
+			await expect(page.getByRole('dialog')).toBeVisible();
+			await page.keyboard.press('Escape');
+			await expect(page.getByRole('dialog')).toBeHidden();
+			await expect(editTrigger).toBeFocused();
 		} finally {
 			fixture.teardown();
 		}

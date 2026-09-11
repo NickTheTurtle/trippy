@@ -288,6 +288,10 @@ export function updateTrip(tripId: string, actorId: string, e: TripEdit): string
  *    `users` row is not owned by the trip and would be left behind with no
  *    membership, invisible and unreachable. A placeholder exists only for the
  *    trip that invited it, so any that has no membership left is deleted too.
+ *    The sweep looks for them through the ledger as well as through
+ *    memberships, because a placeholder who was removed while owing money is
+ *    kept as a tombstone with no membership at all, and searching only the
+ *    membership table would walk straight past it.
  *  - **Registered members** keep their accounts, obviously, and their rows in
  *    this trip are simply gone with it.
  *
@@ -298,10 +302,14 @@ export function updateTrip(tripId: string, actorId: string, e: TripEdit): string
 	const placeholders = db
 		.prepare(
 			`SELECT u.id FROM users u
-			 JOIN memberships m ON m.user_id = u.id
-			 WHERE m.trip_id = ? AND u.password_hash LIKE 'placeholder:%'`
+			 WHERE u.password_hash LIKE 'placeholder:%'
+			   AND (EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id AND m.trip_id = ?)
+			        OR EXISTS (SELECT 1 FROM expenses e WHERE e.trip_id = ? AND e.payer_id = u.id)
+			        OR EXISTS (SELECT 1 FROM expense_participants p
+			                     JOIN expenses e ON e.id = p.expense_id
+			                    WHERE e.trip_id = ? AND p.user_id = u.id))`
 		)
-		.all(tripId) as unknown as { id: string }[];
+		.all(tripId, tripId, tripId) as unknown as { id: string }[];
 
 	let deleted = false;
 	db.exec('BEGIN');

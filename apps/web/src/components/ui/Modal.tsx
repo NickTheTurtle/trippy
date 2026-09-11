@@ -78,14 +78,53 @@ export default function Modal({
 	// Tracks whether the press that may become a click started on the backdrop,
 	// so a drag that merely *ends* outside the panel does not close it.
 	const downOutside = useRef(false);
+	// What had focus when the dialog opened. <dialog> restores focus itself, but
+	// only when `close()` actually runs on a connected element. Most callers
+	// render this component as `{editing && <Modal/>}`, so React unmounts the
+	// whole dialog before the close effect can fire and the native restore never
+	// happens: focus falls to <body> and a keyboard user is dropped at the top of
+	// the page. Remembering the trigger here covers both shapes.
+	const opener = useRef<HTMLElement | null>(null);
 
 	useEffect(() => {
 		const d = ref.current;
 		if (!d) return;
 		if (open && !d.open) {
+			opener.current = document.activeElement as HTMLElement | null;
 			d.showModal();
 			focusFirstField(d);
 		} else if (!open && d.open) d.close();
+	}, [open]);
+
+	// Closing on unmount is what makes the focus restore below possible at all.
+	// A modal <dialog> makes the rest of the document inert, and React unmounts
+	// this component without ever calling close(), so the page would be left
+	// inert for as long as it takes the node to be removed: any focus() aimed at
+	// the trigger in that window is silently dropped. Mount-scoped on purpose, so
+	// it fires only for the real teardown and not on every `open` change.
+	useEffect(() => {
+		const d = ref.current;
+		return () => {
+			if (d?.open) d.close();
+		};
+	}, []);
+
+	// Runs when `open` goes false *and* when an open dialog is unmounted, which
+	// is the case the native behaviour misses. Deferred to a microtask because
+	// React tears the DOM down after running this cleanup: focusing here
+	// directly works, and is then undone a moment later when the still-focused
+	// dialog is removed and the browser falls back to <body>. Guarded on
+	// `isConnected` because the trigger is often a row the dialog just deleted.
+	useEffect(() => {
+		if (!open) return;
+		return () => {
+			const trigger = opener.current;
+			opener.current = null;
+			if (!trigger) return;
+			queueMicrotask(() => {
+				if (trigger.isConnected) trigger.focus();
+			});
+		};
 	}, [open]);
 
 	// The page behind must not scroll with the dialog; without this you get the

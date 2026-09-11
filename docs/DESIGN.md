@@ -606,8 +606,8 @@ places, stays, votes, schedule, crews, expenses, budget and tasks. The one thing
 that does not cascade is a **placeholder user**, the account an invite creates
 before that person registers. It is owned by the trip that invited it but lives
 in `users`, so deleting the trip would strand it with no membership, invisible
-and unreachable forever. `deleteTrip` sweeps up any placeholder left without a
-membership, in the same transaction.
+and unreachable forever. `deleteTrip` sweeps up any placeholder the trip leaves
+behind, in the same transaction.
 
 The confirmation is the shared `ConfirmDialog`, and deleting closes the edit
 dialog rather than opening on top of it: two stacked modals mean two scroll
@@ -623,14 +623,42 @@ into the title: _Delete Kyoto in Spring?_, _Remove Sam?_, _Delete Hotel
 deposit?_. `ConfirmDialog` therefore takes no `body` prop at all, which is what
 stops the explanations growing back one page at a time.
 
-The cost is real and was accepted deliberately: removing an invited-but-never-
-registered member deletes the expenses they paid and moves everyone's balances,
-and the dialog no longer says so. The rule that the wording is identical
-everywhere was judged worth more than the one screen where a warning helped. The
+The cost is real and was accepted deliberately: the dialog no longer names what
+a removal moves. The rule that the wording is identical everywhere was judged
+worth more than the one screen where a warning helped. The
 `GET /people/:userId/removal-impact` endpoint, its client type, and the
 `removalImpact` query that fed those counts are gone with the copy; the cascade
 they documented is now recorded on `removeMember` itself, which is where it
 actually happens.
+
+**A placeholder who is named on an expense is kept as a tombstone, not
+deleted.** Removing an invited-but-never-registered member used to delete their
+`users` row outright, and that row is what `expenses.payer_id` and
+`expense_participants.user_id` point at. Both cascade, so removing someone
+deleted the whole expense they had paid for and silently moved everyone else's
+balance: real money left the trip with a name. `removeMember` now asks first
+whether that person appears anywhere in the ledger, as a payer or as a
+participant. If they do not, they are deleted as before. If they do, they are
+treated exactly like a registered member who leaves: the membership goes, the
+`users` row stays, and the expenses stand. The invite row is deleted either way,
+so the address can always be invited again.
+
+Keeping the row costs nothing elsewhere. A placeholder's email is the synthetic
+`placeholder-<uuid>@waypoint.invalid`, so a tombstone never occupies the real
+address and never blocks that person registering later. It has no invite row
+left, so `consumeInvites` will not quietly re-add them on registration, which is
+the correct reading of a removal. `deleteTrip`'s placeholder sweep now looks for
+placeholders by membership **or** by ledger presence, because a tombstone has no
+membership and would otherwise be the one row a deleted trip left behind.
+
+**A flagged expense shows a sign, not a word.** An expense whose payer or
+participant is no longer a member is flagged `needsReview`, which `listExpenses`
+derives rather than stores: a tombstone is exactly what makes it light up. The
+flag used to render as a `Tag` reading "check", which competed with the
+description for the same line and read as a label on the expense rather than a
+problem with it. It is now a warning triangle beside the description, with the
+explanation on `aria-label` and `title` so the sentence is available on hover and
+to a screen reader without being printed on every flagged row.
 
 **An empty list draws a fly, not an explanation.** The places in a city, the
 task list, and the packing list all start out empty, and the old treatment was a
@@ -1792,10 +1820,29 @@ file they touched. `npm run format` and `npm run format:check` cover
 
 **Modals: `src/components/ui/Modal.tsx`.** Every dialog in the app uses it.
 It wraps the native `<dialog>` element with `showModal()`, which gives focus
-trapping, Escape-to-close, focus restore, background inertness and top-layer
-rendering (immune to z-index and `transform` clipping) for free. The one thing
+trapping, Escape-to-close, background inertness and top-layer rendering (immune
+to z-index and `transform` clipping) for free. The one thing
 `<dialog>` does _not_ do is lock body scroll, so the component does that
 explicitly; that was the actual cause of the double-scrollbar bug.
+
+**Focus restore is the app's job, not the browser's.** The native restore only
+fires when the dialog is closed while still in the document, which covers the
+always-mounted shape (`ConfirmDialog`, which toggles `open`) but not the
+conditionally-mounted one: most edit dialogs are simply removed from the tree,
+so `close()` never happens and focus falls to `<body>`. The keyboard user loses
+their place on the page every time they cancel an edit. `Modal` therefore
+records `document.activeElement` immediately before `showModal()` and puts
+focus back itself.
+
+Two details make it work, and both were found the hard way. A **mount-scoped
+effect calls `close()` on unmount**, because a modal `<dialog>` makes the rest
+of the document inert: calling `focus()` on the trigger while the dialog is
+still open is silently ignored. And the restore is **deferred with
+`queueMicrotask`**, because React runs effect cleanups before it removes the
+DOM, so focusing at cleanup time aims at a node that is about to be detached.
+The close effect is declared before the restore effect so it runs first; that
+ordering is load-bearing. The restore is guarded on `isConnected`, since a
+trigger that unmounted along with its row has nowhere to give focus back to.
 
 Layout contract for consumers:
 

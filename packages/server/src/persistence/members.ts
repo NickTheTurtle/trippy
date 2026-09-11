@@ -172,25 +172,54 @@ export function renameMember(
 }
 
 /**
+ * Does this person appear anywhere in the trip's money?
+ *
+ * Either as the payer of an expense or as somebody charged a share of one.
+ * Votes, assignments and completions deliberately do not count: those can be
+ * recast or reassigned, whereas a ledger entry is a record of what was agreed.
+ */
+function inLedger(tripId: string, userId: string): boolean {
+	const row = db
+		.prepare(
+			`SELECT EXISTS (
+			   SELECT 1 FROM expenses WHERE trip_id = ? AND payer_id = ?
+			   UNION ALL
+			   SELECT 1 FROM expense_participants p
+			     JOIN expenses e ON e.id = p.expense_id
+			    WHERE e.trip_id = ? AND p.user_id = ?
+			 ) AS present`
+		)
+		.get(tripId, userId, tripId, userId) as { present: number } | undefined;
+	return !!row?.present;
+}
+
+/**
  * Remove a member. Organizers only; the organizer cannot be removed.
  *
  * This is also how an invite is revoked: a pending invite always has a
  * placeholder member, so removing that row is the same operation.
  *
- * It does two completely different things depending on who it is pointed at,
- * and only one of them is destructive:
+ * What it does depends on who it is pointed at, and only one of the three is
+ * destructive:
  *
- *  - **A placeholder** (invited, never registered) has no life outside the
- *    invite, so the `users` row itself is deleted. Every foreign key that
- *    references `users(id)` with ON DELETE CASCADE then fires, and the rows are
- *    gone with no undo. Derived from `db.ts`, those are:
- *    `sessions.user_id`, `trips.organizer_id` (the whole trip),
- *    `memberships.user_id`, `trip_invites.invited_by`, `expenses.payer_id`
- *    (the expense and all of its shares), `expense_participants.user_id`,
- *    `lodging_votes.user_id`, `poi_votes.user_id`, `item_assignees.user_id`,
- *    `task_assignees.user_id`, `task_done.user_id`, `party_membership.user_id`.
+ *  - **A placeholder who never touched the money** (invited, never registered,
+ *    named on no expense) has no life outside the invite, so the `users` row
+ *    itself is deleted. Every foreign key that references `users(id)` with ON
+ *    DELETE CASCADE then fires, and the rows are gone with no undo. Derived
+ *    from `db.ts`, those are: `sessions.user_id`, `trips.organizer_id` (the
+ *    whole trip), `memberships.user_id`, `trip_invites.invited_by`,
+ *    `expenses.payer_id` (the expense and all of its shares),
+ *    `expense_participants.user_id`, `lodging_votes.user_id`,
+ *    `poi_votes.user_id`, `item_assignees.user_id`, `task_assignees.user_id`,
+ *    `task_done.user_id`, `party_membership.user_id`.
  *    `trip_invites.placeholder_id` is ON DELETE SET NULL, so it does NOT
  *    cascade; this function deletes that row explicitly instead.
+ *  - **A placeholder who is named on an expense** is treated as a member
+ *    instead, because that cascade would take real money with it: an expense
+ *    they paid would vanish from the trip entirely, and a share they were
+ *    charged would silently be absorbed by whoever remains. The membership goes
+ *    and the `users` row stays as a tombstone, so the ledger still reads and
+ *    the expense can be flagged for a human.
  *  - **A registered member** loses only their `memberships` row. Nothing
  *    cascades: the expenses, votes, assignments and completions all survive,
  *    attached to a user who is no longer on the trip.
@@ -201,13 +230,12 @@ export function removeMember(tripId: string, actorId: string, userId: string): b
 	if (!target || target.role === 'organizer') return false;
 	const user = db.prepare(`SELECT password_hash FROM users WHERE id = ?`).get(userId) as
 		{ password_hash: string } | undefined;
-	// A placeholder exists only for this trip, so removing it deletes the user,
-	// which cascades to its membership and votes. The invite row does not
-	// cascade: its placeholder_id is ON DELETE SET NULL, so it would survive as
-	// an orphan. That matters because trip_invites is UNIQUE (trip_id, email),
-	// so the stale row would permanently reject re-inviting that address while
-	// being invisible in the UI, and would still turn into a membership if the
-	// person later registered.
+	// Revoking an invite always means deleting its trip_invites row, whichever
+	// branch the placeholder takes below. It does not cascade: placeholder_id is
+	// ON DELETE SET NULL, so it would survive as an orphan. That matters because
+	// trip_invites is UNIQUE (trip_id, email), so the stale row would permanently
+	// reject re-inviting that address while being invisible in the UI, and would
+	// still turn into a membership if the person later registered.
 	if (user?.password_hash.startsWith('placeholder:')) {
 		// Delete the invite before the user: trip_invites is UNIQUE (trip_id,
 		// email), so this row is unambiguous, and deleting it first avoids
@@ -216,11 +244,23 @@ export function removeMember(tripId: string, actorId: string, userId: string): b
 			tripId,
 			user.password_hash.slice('placeholder:'.length)
 		);
-		db.prepare(`DELETE FROM users WHERE id = ?`).run(userId);
-		// The cascade reaches expense shares, expenses they paid, both vote
-		// tables, item and task assignments and crew segments, so every section
-		// that could have shown them is invalidated. `removalImpact` reports the
-		// same set as counts, before the fact.
+		// Deleting the user is only safe while they owe and are owed nothing. The
+		// cascade would take expenses they paid and shares they were charged with
+		// them, which silently rewrites what the group already agreed and is the
+		// one thing removal is not allowed to do. A placeholder with money against
+		// their name is therefore kept as a tombstone: membership gone, row left
+		// behind so the ledger still reads and `needsReview` can point at it.
+		// Their synthetic @waypoint.invalid address means keeping it never blocks
+		// the real address from registering later.
+		if (inLedger(tripId, userId)) {
+			db.prepare(`DELETE FROM memberships WHERE trip_id = ? AND user_id = ?`).run(tripId, userId);
+			detachMemberFromLedger(tripId, userId);
+		} else {
+			db.prepare(`DELETE FROM users WHERE id = ?`).run(userId);
+		}
+		// Either branch can touch votes, assignments, crew segments and the
+		// ledger, so every section that could have shown this person is
+		// invalidated rather than guessing which ones moved.
 		publishMany(tripId, ['members', 'expenses', 'schedule', 'pois', 'lodging', 'tasks']);
 		return true;
 	}
@@ -262,8 +302,7 @@ export function consumeInvites(userId: string, email: string): void {
 	// This list must cover every foreign key that references `users(id)` ON
 	// DELETE CASCADE and carries trip history, because anything still pointing at
 	// the placeholder when its `users` row is deleted below is destroyed by that
-	// cascade with no undo. The authoritative set is in `db.ts`; `removalImpact`
-	// enumerates the same one.
+	// cascade with no undo. The authoritative set is in `db.ts`.
 	//
 	// Conflict handling is per table, not blanket. Every join table below has a
 	// composite primary key containing `user_id`, so the real account can already

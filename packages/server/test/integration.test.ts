@@ -363,7 +363,7 @@ describe('who an estimate is for', () => {
 });
 
 describe('member removal cascade', () => {
-	it('deletes a placeholder and everything that cascades from their user row', () => {
+	it('keeps a placeholder who is named on an expense, so their money does not leave with them', () => {
 		const f = createTripFixture('placeholder');
 		expect(members.inviteToTrip(f.tripId, f.organizer, 'guest@example.test')).toBe('invited');
 		const placeholder = members.listPeople(f.tripId).find((p) => p.placeholder)!;
@@ -420,12 +420,56 @@ describe('member removal cascade', () => {
 
 		expect(members.removeMember(f.tripId, f.organizer, placeholder.id)).toBe(true);
 
+		// They are off the trip, but the `users` row stays. Deleting it would
+		// cascade, and that cascade takes the expense they paid and the shares
+		// other people were charged on it: 999 cents and two other members'
+		// portions would disappear from a ledger the group had already agreed.
+		// An invitee who owes money is therefore removed the same way a
+		// registered member is.
+		expect(auth.findUserById(placeholder.id)).toBeTruthy();
+		expect(members.listPeople(f.tripId).some((p) => p.id === placeholder.id)).toBe(false);
+
+		const after = snapshotRemovalCounts(f.tripId, placeholder.id);
+		expect(after.expensesPaid).toBe(1);
+		expect(after.expensesPaidCents).toBe(999);
+		expect(after.otherPeopleSharesLost).toBe(2);
+		expect(db.prepare(`SELECT 1 FROM expenses WHERE id = ?`).get(paidByPlaceholder)).toBeTruthy();
+		expect(tableCount('expense_participants', 'expense_id = ?', paidByPlaceholder)).toBe(3);
+
+		// Nothing was guessed at on their behalf, so every row they are still on
+		// says a human needs to look at it.
+		for (const row of expenses.listExpenses(f.tripId)) expect(row.needsReview).toBe(true);
+		expect(expenses.balances(f.tripId).reduce((n, b) => n + b.netCents, 0)).toBe(0);
+	});
+
+	it('deletes a placeholder who is on no expense, and everything that cascades from their user row', () => {
+		const f = createTripFixture('placeholder-clean');
+		expect(members.inviteToTrip(f.tripId, f.organizer, 'ghost@example.test')).toBe('invited');
+		const placeholder = members.listPeople(f.tripId).find((p) => p.placeholder)!;
+
+		const poiId = pois.addPoi(
+			f.tripId,
+			f.organizer,
+			f.cityId,
+			'Agora',
+			'Sights',
+			null,
+			null,
+			null,
+			null
+		)!;
+		expect(pois.toggleVote(f.tripId, placeholder.id, poiId)).toBe(true);
+		const stayId = lodging.addOption(f.tripId, f.organizer, f.cityId, 'Hostel')!;
+		expect(lodging.vote(f.tripId, placeholder.id, stayId)).toBe(true);
+		const taskId = tasks.addTask(f.tripId, f.organizer, 'prep', 'Pack', [placeholder.id], null)!;
+		expect(tasks.toggleTask(f.tripId, placeholder.id, taskId).ok).toBe(true);
+
+		expect(members.removeMember(f.tripId, f.organizer, placeholder.id)).toBe(true);
+
+		// Nothing financial points at them, so there is nothing to preserve and a
+		// row left behind would be invisible and unreachable.
 		expect(auth.findUserById(placeholder.id)).toBeUndefined();
 		expect(snapshotRemovalCounts(f.tripId, placeholder.id)).toEqual(zeroCounts());
-		expect(
-			db.prepare(`SELECT 1 FROM expenses WHERE id = ?`).get(paidByPlaceholder)
-		).toBeUndefined();
-		expect(tableCount('expense_participants', 'expense_id = ?', paidByPlaceholder)).toBe(0);
 	});
 
 	it('renames a placeholder but not a member who owns their own account', () => {

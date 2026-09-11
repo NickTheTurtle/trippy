@@ -337,7 +337,6 @@ export const copy = {
 			},
 			deleteLabel: (description: string) => `Delete ${description}`,
 			editLabel: (description: string) => `Edit ${description}`,
-			reviewTag: 'check',
 			reviewTitle: 'Someone on this expense has left the trip. Edit it to reassign their share.'
 		},
 		settleRow: {

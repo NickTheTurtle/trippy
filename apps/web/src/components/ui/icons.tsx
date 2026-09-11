@@ -142,3 +142,26 @@ export function MinusIcon() {
 		</svg>
 	);
 }
+
+/** Something needs a person to look at it. Not an error: nothing has gone wrong yet. */
+export function WarningIcon() {
+	return (
+		<svg viewBox="0 0 16 16" aria-hidden="true" className="size-4">
+			<path
+				d="M8 2.6L14.5 13.4H1.5L8 2.6z"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="1.5"
+				strokeLinejoin="round"
+			/>
+			<path
+				d="M8 6.6v3"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="1.5"
+				strokeLinecap="round"
+			/>
+			<circle cx="8" cy="11.6" r="0.85" fill="currentColor" />
+		</svg>
+	);
+}
