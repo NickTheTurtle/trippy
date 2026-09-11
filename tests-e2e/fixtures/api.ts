@@ -76,6 +76,60 @@ export async function readTrip(request: APIRequestContext, fixture: ApiFixture):
 	});
 }
 
+export interface RegisteredUser {
+	email: string;
+	password: string;
+	name: string;
+	userId: string;
+	sessionCookie: string;
+	teardown: () => void;
+}
+
+/**
+ * Registers a fresh account and hands back its cookie, without creating a trip.
+ * Used where a spec needs a second real person (collaboration, invites that
+ * auto-join), as opposed to the placeholder members `seedMembers` invites.
+ */
+export async function registerUser(
+	request: APIRequestContext,
+	overrides: { email?: string; name?: string; password?: string } = {}
+): Promise<RegisteredUser> {
+	const runId = randomUUID();
+	const email = overrides.email ?? `e2e-${runId}@example.test`;
+	const password = overrides.password ?? `password-${runId}`;
+	const name = overrides.name ?? 'E2E User';
+
+	const register = await request.post(`${apiURL}/auth/register`, {
+		data: { email, name, password }
+	});
+	expect(register.status(), await register.text()).toBe(201);
+	const registered = (await register.json()) as { user: { id: string } };
+
+	const dbPath = requireThrowawayDbPath();
+	return {
+		email,
+		password,
+		name,
+		userId: registered.user.id,
+		sessionCookie: cookieHeader(register),
+		teardown: () => removeUserRows(dbPath, registered.user.id)
+	};
+}
+
+/** The bare `session` cookie value, for handing to `context.addCookies`. */
+export function sessionValue(sessionCookie: string): string {
+	return sessionCookie.split('session=')[1]?.split(';')[0] ?? '';
+}
+
+/**
+ * Deletes a user (and, by foreign-key cascade, their trips and rows) from the
+ * throwaway database. For a spec that registers through the UI and so never got
+ * a `teardown` from a fixture, but still must not leave the account behind.
+ */
+export function deleteUser(userId: string): void {
+	removeUserRows(requireThrowawayDbPath(), userId);
+}
+
 function cookieHeader(response: APIResponse): string {
 	const setCookie = response.headersArray().filter((h) => h.name.toLowerCase() === 'set-cookie');
 	return setCookie.map((h) => h.value.split(';', 1)[0]).join('; ');
