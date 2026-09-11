@@ -6,6 +6,8 @@ export type Person = {
 	role: string;
 	placeholder: boolean;
 	seeded: boolean;
+	/** The address an invite was sent to, for a placeholder that has one. */
+	invitedEmail?: string | null;
 };
 
 export type PeopleData = { me: string; organizer: boolean; people: Person[] };

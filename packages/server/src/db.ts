@@ -199,9 +199,39 @@ db.exec(`
 		created_at INTEGER NOT NULL
 	);
 
+	-- A registration that has been asked for but not yet proven. The account
+	-- does not exist until the emailed link is opened, so an address nobody
+	-- controls can never own one. Keyed by email rather than by id, so asking
+	-- twice replaces the first attempt instead of leaving two live links.
+	--
+	-- Only the token's SHA-256 is stored. A stolen database then yields no
+	-- usable link, which matters more here than anywhere else in the schema:
+	-- this token mints an account, and the reset token below takes one over.
+	CREATE TABLE IF NOT EXISTS pending_registrations (
+		email         TEXT PRIMARY KEY,
+		name          TEXT NOT NULL,
+		password_hash TEXT NOT NULL,
+		token_hash    TEXT NOT NULL,
+		home_tz       TEXT NOT NULL DEFAULT 'UTC',
+		expires_at    INTEGER NOT NULL,
+		created_at    INTEGER NOT NULL
+	);
+
+	-- A password reset in flight. Not keyed by user, because asking twice from
+	-- two devices should leave both links working: the row is consumed on use,
+	-- and every row for the user is dropped once one of them succeeds.
+	CREATE TABLE IF NOT EXISTS password_resets (
+		token_hash TEXT PRIMARY KEY,
+		user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		expires_at INTEGER NOT NULL,
+		created_at INTEGER NOT NULL
+	);
+
 	CREATE INDEX IF NOT EXISTS idx_memberships_user ON memberships(user_id);
 	CREATE INDEX IF NOT EXISTS idx_cities_trip ON cities(trip_id);
 	CREATE INDEX IF NOT EXISTS idx_invites_email ON trip_invites(email);
+	CREATE INDEX IF NOT EXISTS idx_resets_user ON password_resets(user_id);
+	CREATE INDEX IF NOT EXISTS idx_pending_token ON pending_registrations(token_hash);
 	CREATE INDEX IF NOT EXISTS idx_tracks_trip_day ON tracks(trip_id, day);
 	CREATE INDEX IF NOT EXISTS idx_items_track ON schedule_items(track_id);
 	CREATE INDEX IF NOT EXISTS idx_expenses_trip ON expenses(trip_id);

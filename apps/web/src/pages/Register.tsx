@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Link, Navigate } from 'react-router';
-import { AuthShell } from '../components/ui/AuthShell';
+import { Link, Navigate, useSearchParams } from 'react-router';
+import { AuthNotice, AuthShell } from '../components/ui/AuthShell';
 import { Field } from '../components/ui/Field';
 import { useAuth } from '../auth';
 import { copy } from '../copy';
@@ -9,10 +9,14 @@ const c = copy.auth.register;
 
 export default function Register() {
 	const { status, register } = useAuth();
+	const [params] = useSearchParams();
 
+	// An invite link carries the address it was sent to, so the one field that
+	// has to match exactly for the invite to be consumed is filled in already.
 	const [name, setName] = useState('');
-	const [email, setEmail] = useState('');
+	const [email, setEmail] = useState(params.get('email') ?? '');
 	const [password, setPassword] = useState('');
+	const [pending, setPending] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [submitting, setSubmitting] = useState(false);
 
@@ -24,12 +28,17 @@ export default function Register() {
 		setSubmitting(true);
 		setError(null);
 		try {
-			await register(name, email, password);
+			// 'pending' means the account does not exist yet and a confirmation link
+			// is in the post. The signed-in case redirects above, so only this one
+			// needs anything rendered for it.
+			if ((await register(name, email, password)) === 'pending') setPending(true);
 		} catch (err) {
 			setError(err instanceof Error ? err.message : c.fallback);
 			setSubmitting(false);
 		}
 	}
+
+	if (pending) return <AuthNotice title={c.sentTitle} blurb={c.sentBlurb} />;
 
 	return (
 		<AuthShell

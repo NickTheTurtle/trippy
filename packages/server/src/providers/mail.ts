@@ -137,6 +137,19 @@ const esc = (s: string) =>
 	s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 /**
+ * The one HTML shell all three messages use, so a change of voice or colour
+ * happens once. `lead` and `tail` are already-escaped fragments, because both
+ * carry markup of their own.
+ */
+function layout(args: { lead: string; url: string; action: string; tail: string }): string {
+	return `<div style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;font-size:15px;line-height:1.5;color:#1f2421">
+  <p>${args.lead}</p>
+  <p><a href="${esc(args.url)}" style="display:inline-block;background:#2f6d5e;color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px">${esc(args.action)}</a></p>
+  <p style="color:#6b7280;font-size:13px">${args.tail}</p>
+</div>`;
+}
+
+/**
  * The invite itself.
  *
  * The link goes to the sign-up page, because an invite is consumed by
@@ -160,11 +173,64 @@ export function tripInviteMail(args: {
 		`Sign up with this address to join: ${url}`
 	].join('\n');
 
-	const html = `<div style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;font-size:15px;line-height:1.5;color:#1f2421">
-  <p>${esc(args.inviterName)} added you to <strong>${esc(args.tripName)}</strong>${esc(when)} on Trippy.</p>
-  <p><a href="${esc(url)}" style="display:inline-block;background:#2f6d5e;color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px">Join the trip</a></p>
-  <p style="color:#6b7280;font-size:13px">Sign up with ${esc(args.to)} and the trip will be waiting for you.</p>
-</div>`;
+	const html = layout({
+		lead: `${esc(args.inviterName)} added you to <strong>${esc(args.tripName)}</strong>${esc(when)} on Trippy.`,
+		url,
+		action: 'Join the trip',
+		tail: `Sign up with ${esc(args.to)} and the trip will be waiting for you.`
+	});
 
 	return { to: args.to, subject, text, html };
+}
+
+/**
+ * The link that turns a pending registration into an account.
+ *
+ * It says plainly that nothing exists yet, because that is the honest state and
+ * it also tells somebody who did not ask that there is nothing to undo.
+ */
+export function verifyEmailMail(args: { to: string; name: string; token: string }): Mail {
+	const url = `${env.APP_URL}/verify?token=${encodeURIComponent(args.token)}`;
+	const text = [
+		`Hi ${args.name},`,
+		'',
+		'Confirm this address to finish setting up your Trippy account:',
+		url,
+		'',
+		'The link works for 24 hours. If you did not ask for an account, ignore this and nothing is created.'
+	].join('\n');
+
+	const html = layout({
+		lead: `Hi ${esc(args.name)}, confirm this address to finish setting up your Trippy account.`,
+		url,
+		action: 'Confirm my email',
+		tail: 'The link works for 24 hours. If you did not ask for an account, ignore this and nothing is created.'
+	});
+
+	return { to: args.to, subject: 'Confirm your email for Trippy', text, html };
+}
+
+/**
+ * The reset link. Shorter-lived than the verification one, and says so, because
+ * this one opens an account that already exists.
+ */
+export function passwordResetMail(args: { to: string; name: string; token: string }): Mail {
+	const url = `${env.APP_URL}/reset?token=${encodeURIComponent(args.token)}`;
+	const text = [
+		`Hi ${args.name},`,
+		'',
+		'Use this link to set a new Trippy password:',
+		url,
+		'',
+		'The link works for one hour. If you did not ask for it, ignore this and your password stays as it is.'
+	].join('\n');
+
+	const html = layout({
+		lead: `Hi ${esc(args.name)}, use the button below to set a new Trippy password.`,
+		url,
+		action: 'Set a new password',
+		tail: 'The link works for one hour. If you did not ask for it, ignore this and your password stays as it is.'
+	});
+
+	return { to: args.to, subject: 'Reset your Trippy password', text, html };
 }

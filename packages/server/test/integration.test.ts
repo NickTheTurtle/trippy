@@ -88,7 +88,7 @@ function createTripFixture(label = 'trip'): Fixture {
 		endDate: '2026-10-03',
 		homeCurrency: 'USD'
 	}).id!;
-	expect(members.inviteToTrip(tripId, organizer, auth.findUserById(member)!.email)).toBe('added');
+	expect(members.addPerson(tripId, organizer, 'Guest', auth.findUserById(member)!.email)).toBe('added');
 	const cityId = trips.addCity(tripId, organizer, {
 		name: 'Athens',
 		country: 'Greece',
@@ -365,7 +365,7 @@ describe('who an estimate is for', () => {
 describe('member removal cascade', () => {
 	it('keeps a placeholder who is named on an expense, so their money does not leave with them', () => {
 		const f = createTripFixture('placeholder');
-		expect(members.inviteToTrip(f.tripId, f.organizer, 'guest@example.test')).toBe('invited');
+		expect(members.addPerson(f.tripId, f.organizer, 'Guest', 'guest@example.test')).toBe('invited');
 		const placeholder = members.listPeople(f.tripId).find((p) => p.placeholder)!;
 		const paidByPlaceholder = expenses.addExpense(
 			f.tripId,
@@ -444,7 +444,7 @@ describe('member removal cascade', () => {
 
 	it('deletes a placeholder who is on no expense, and everything that cascades from their user row', () => {
 		const f = createTripFixture('placeholder-clean');
-		expect(members.inviteToTrip(f.tripId, f.organizer, 'ghost@example.test')).toBe('invited');
+		expect(members.addPerson(f.tripId, f.organizer, 'Guest', 'ghost@example.test')).toBe('invited');
 		const placeholder = members.listPeople(f.tripId).find((p) => p.placeholder)!;
 
 		const poiId = pois.addPoi(
@@ -474,7 +474,7 @@ describe('member removal cascade', () => {
 
 	it('renames a placeholder but not a member who owns their own account', () => {
 		const f = createTripFixture('rename');
-		expect(members.inviteToTrip(f.tripId, f.organizer, 'guest@example.test')).toBe('invited');
+		expect(members.addPerson(f.tripId, f.organizer, 'Guest', 'guest@example.test')).toBe('invited');
 		const placeholder = members.listPeople(f.tripId).find((p) => p.placeholder)!;
 
 		expect(members.renameMember(f.tripId, f.organizer, placeholder.id, '  Aunt Mei  ')).toBe(true);
@@ -549,7 +549,7 @@ describe('invite consumption relinks placeholder history', () => {
 	 */
 	function placeholderWithFullHistory(f: Fixture): Placeholder {
 		const email = `invitee-${crypto.randomUUID()}@example.test`;
-		expect(members.inviteToTrip(f.tripId, f.organizer, email)).toBe('invited');
+		expect(members.addPerson(f.tripId, f.organizer, 'Guest', email)).toBe('invited');
 		const id = members.listPeople(f.tripId).find((p) => p.placeholder)!.id;
 
 		const expenseId = expenses.addExpense(f.tripId, f.organizer, id, 'Deposit', 900, 'USD', [
@@ -660,10 +660,10 @@ describe('invite consumption relinks placeholder history', () => {
 		const f = createTripFixture('relink-collide');
 		const email = `rejoin-${crypto.randomUUID()}@example.test`;
 		const real = auth.createUser(email, 'Rejoiner', 'password123');
-		expect(members.inviteToTrip(f.tripId, f.organizer, email)).toBe('added');
+		expect(members.addPerson(f.tripId, f.organizer, 'Guest', email)).toBe('added');
 
 		const ghost = `ghost-${crypto.randomUUID()}@example.test`;
-		expect(members.inviteToTrip(f.tripId, f.organizer, ghost)).toBe('invited');
+		expect(members.addPerson(f.tripId, f.organizer, 'Guest', ghost)).toBe('invited');
 		const phId = members.listPeople(f.tripId).find((p) => p.placeholder)!.id;
 
 		// Identical rows under both identities, one per composite-key table.
@@ -788,9 +788,9 @@ describe('invite consumption relinks placeholder history', () => {
 		const f = createTripFixture('relink-parties');
 		const email = `crew-${crypto.randomUUID()}@example.test`;
 		const real = auth.createUser(email, 'Crewmate', 'password123');
-		expect(members.inviteToTrip(f.tripId, f.organizer, email)).toBe('added');
+		expect(members.addPerson(f.tripId, f.organizer, 'Guest', email)).toBe('added');
 		const ghost = `ghost-${crypto.randomUUID()}@example.test`;
-		expect(members.inviteToTrip(f.tripId, f.organizer, ghost)).toBe('invited');
+		expect(members.addPerson(f.tripId, f.organizer, 'Guest', ghost)).toBe('invited');
 		const phId = members.listPeople(f.tripId).find((p) => p.placeholder)!.id;
 
 		const crew = parties.createParty(f.tripId, f.organizer, 'Crew')!;
@@ -1369,7 +1369,7 @@ describe('money paths', () => {
 	it('keeps uneven integer-cent splits zero-sum and settles exactly', () => {
 		const f = createTripFixture('money');
 		const third = createUser('third');
-		expect(members.inviteToTrip(f.tripId, f.organizer, auth.findUserById(third)!.email)).toBe(
+		expect(members.addPerson(f.tripId, f.organizer, 'Guest', auth.findUserById(third)!.email)).toBe(
 			'added'
 		);
 		const [extraCentOwer, regularOwer, payer] = [f.organizer, f.member, third].sort();
@@ -1406,7 +1406,7 @@ describe('money paths', () => {
 	it('divides an expense into per-person shares that sum to it and match the balances', () => {
 		const f = createTripFixture('shares-view');
 		const third = createUser('shares-third');
-		expect(members.inviteToTrip(f.tripId, f.organizer, auth.findUserById(third)!.email)).toBe(
+		expect(members.addPerson(f.tripId, f.organizer, 'Guest', auth.findUserById(third)!.email)).toBe(
 			'added'
 		);
 
@@ -1443,7 +1443,7 @@ describe('money paths', () => {
 			endDate: '2026-10-02',
 			homeCurrency: 'EUR'
 		}).id!;
-		expect(members.inviteToTrip(tripId, organizer, auth.findUserById(member)!.email)).toBe('added');
+		expect(members.addPerson(tripId, organizer, 'Guest', auth.findUserById(member)!.email)).toBe('added');
 
 		expenses.addExpense(tripId, organizer, organizer, 'USD meal', 1000, 'USD', [
 			{ userId: organizer, weight: 1 },
@@ -1464,7 +1464,7 @@ describe('zero-weight participants', () => {
 	function threeWayFixture(label: string): ThreeWay {
 		const f = createTripFixture(label);
 		const payer = createUser(`${label}-payer`);
-		expect(members.inviteToTrip(f.tripId, f.organizer, auth.findUserById(payer)!.email)).toBe(
+		expect(members.addPerson(f.tripId, f.organizer, 'Guest', auth.findUserById(payer)!.email)).toBe(
 			'added'
 		);
 		return { ...f, payer };
@@ -1546,7 +1546,7 @@ describe('zero-weight participants', () => {
 	it('normalizes negative, NaN and Infinity weights to 0', () => {
 		const f = threeWayFixture('bad-weights');
 		const fourth = createUser('bad-weights-fourth');
-		expect(members.inviteToTrip(f.tripId, f.organizer, auth.findUserById(fourth)!.email)).toBe(
+		expect(members.addPerson(f.tripId, f.organizer, 'Guest', auth.findUserById(fourth)!.email)).toBe(
 			'added'
 		);
 

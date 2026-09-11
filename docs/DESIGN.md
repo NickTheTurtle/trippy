@@ -486,6 +486,101 @@ works end to end without email, so a missing key must not turn inviting
 somebody into an error. This is load-bearing beyond convenience: it is what
 lets the E2E suite and a fresh clone register accounts without an SES identity.
 
+### 4.7 Emailed links: confirming an address, and forgetting a password
+
+Both flows are one credential in two requests, and both keep that credential in
+`infra/tokens.ts`: 32 random bytes, base64url, compared by SHA-256 and stored
+only as that hash. A table of live links is a table of ways into accounts, so
+it holds nothing that can be replayed if it is read.
+
+**Registration confirms before it creates, not after.** The attempt is parked
+in `pending_registrations` and no `users` row exists until the link is spent.
+The alternative, an account marked unverified, writes a real row holding an
+address its owner never agreed to, and `users.email` is UNIQUE, so that row
+denies the real owner the account permanently. An unproven address should cost
+a row that expires and nothing else.
+
+Consequences the code has to carry, and does:
+
+- The password is hashed at the *first* step, so the plaintext never outlives
+  the request that carried it.
+- Asking twice replaces the first attempt rather than adding a second, and
+  voids its link. Two live links to one address is one more than anyone needs.
+- The address can be claimed by somebody else while the link is in the post, so
+  `completeRegistration` re-checks and refuses. The pending row is already
+  deleted at that point, because retrying could never succeed.
+- Confirming signs them in. They proved the address and typed the password
+  minutes ago; a login form here would ask them to prove it twice.
+
+**Resetting drops every session, not just the other ones.** Whoever is resetting
+is not holding a session, which is why they are here, so there is none worth
+keeping, and the person this defends against may well have one. For the same
+reason a reset does *not* hand back a session: the link arrived by email, and
+signing in from it would undo the clear-out in exactly the case it exists for.
+Resets live one hour against registration's twenty-four, because this one opens
+an account that already exists.
+
+A link is spent whether or not it turns out to be in date, so a stale one
+cannot be retried and a live one cannot be replayed. Every refusal is the same
+sentence, "That link is no longer valid. Ask for a new one.", because wrong,
+spent and stale are the same thing to the person holding it, and telling them
+which would let somebody probe for links that once existed.
+
+`/auth/forgot` always answers 200 with the same message. Anything else is a
+membership oracle for any address a stranger types. It is throttled by address
+as well as by caller, because it sends mail to somebody who did not ask for it,
+and an unthrottled one is a way to use us to pester a third party.
+
+Expired rows are pruned when a link is issued rather than on a timer: the
+tables only grow when somebody asks for a link, so that is when it is worth
+looking, and it keeps the server free of a background task whose only job is
+deleting rows nobody can use.
+
+**Registration still creates the account outright when no provider is
+configured.** See §4.6: the E2E suite and a fresh clone register through this
+route, and a deployment that cannot send mail should not be one where nobody
+can sign up.
+
+### 4.8 Who is on a trip
+
+A person on the trip is a **display name**, and an **email only if they are
+going to use the app**. The address used to be the whole of an invite, which
+meant every name on the roster was guessed from the local part of an address
+("Jamie Lee" out of `jamie.lee@`) and somebody not using the app could not be
+represented at all, even though the money almost always involves them.
+
+Three outcomes, because there are three kinds of person being named:
+
+| Result | What was typed | What happens |
+|---|---|---|
+| `added` | an address with an account behind it | membership only; the typed name is discarded, because their name is their account's and is shared with every trip they are on |
+| `invited` | an address with no account | placeholder member plus a `trip_invites` row, and an invite in the post |
+| `created` | a name and nothing else | placeholder member, no invite, nothing sent |
+
+A `created` person is a full member id: they can pay, owe, be assigned, be
+voted for and be settled with. They carry no "invited" tag, because nothing was
+sent and nothing is being waited on.
+
+**The organizer, and only the organizer, can set the address of somebody who
+has not registered.** For anybody else the address is their own account's: it
+is how they sign in and it belongs to every other trip they are on. A seeded
+sample companion is excluded for the opposite reason, that it is not a person.
+
+Re-sending an invite is the same call with the same address rather than a
+button of its own. The organizer's intent is one thing, "reach this person
+here", and two controls that differ only in whether the value happened to
+change is a distinction the reader would have to make for us.
+
+The address lives in two places, `trip_invites.email` and the
+`placeholder:<email>` password hash, so `setMemberEmail` moves both in one
+transaction. A row where the two disagree is an invite that cannot be revoked,
+or one a registration will never consume.
+
+Attaching an address that already has an account is refused rather than merged.
+The two would be one person with two member ids, and the ledger has no way to
+say which of them owes what; the organizer removes the placeholder and adds the
+real person instead, which merges nothing and loses nothing.
+
 ---
 
 ## 5. Architecture & Stack
@@ -1830,7 +1925,7 @@ middle of a styled dialog. Native `<select>` is not used anywhere now.
 **An invite has one representation, not two.** `GET /people` used to return a
 separate `invites` array and there was a `DELETE /people/invites/:id` to revoke
 one, but neither client ever rendered or called them, and they could not have
-said anything new: `inviteToTrip` always creates a placeholder member, so a
+said anything new: `addPerson` creates a placeholder member for any address with no account, so a
 pending invite is already a roster row carrying the real address and an
 `invited` tag, and `removeMember` on that row deletes the invite with it. Both
 are gone. The revoke route was also lying, discarding `revokeInvite`'s boolean
@@ -1968,10 +2063,10 @@ Two consequences worth recording:
 **The invite message was un-merged.** It read `Enter a valid email address.
 Only the organizer can invite.`, with a comment claiming the merge stopped a
 prober from telling a bad address apart from a permission refusal. It protected
-nothing: `People.tsx` only renders the invite form when `data.organizer`, and
+nothing: `People.tsx` only renders the add button when `data.organizer`, and
 the roster tags the organizer publicly, so anyone could already tell. What it
 did do was tell the organizer their own correct address was malformed.
-`inviteToTrip` now returns a distinct `'forbidden'`, which the route answers
+`addPerson` returns a distinct `'forbidden'`, which the route answers
 with 403 and its own sentence.
 
 **A missing cost description is now checked in the route.** It previously fell

@@ -104,7 +104,7 @@ function tripWithEuroDinner(): { tripId: string; expenseId: string } {
 		endDate: '2026-10-05',
 		homeCurrency: 'USD'
 	}).id!;
-	expect(members.inviteToTrip(tripId, alice, auth.findUserById(bob)!.email)).toBe('added');
+	expect(members.addPerson(tripId, alice, 'Guest', auth.findUserById(bob)!.email)).toBe('added');
 
 	const expenseId = expenses.addExpense(
 		tripId,

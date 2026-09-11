@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
 import { isValidEmail } from '@trippy/core';
 import { db } from '../db';
+import { hashToken, mintToken, RESET_TTL_MS, VERIFY_TTL_MS } from './tokens';
 import { consumeInvites } from '../persistence/members';
 import { seedExampleTrips } from '../seeds/seed-example';
 
@@ -157,6 +158,167 @@ export function deleteSession(sessionId: string): void {
  */
 export function deleteOtherSessions(userId: string, keepSessionId: string | null): void {
 	db.prepare(`DELETE FROM sessions WHERE user_id = ? AND id IS NOT ?`).run(userId, keepSessionId);
+}
+
+/**
+ * Registration, in two halves: nothing is written to `users` until the address
+ * has been proven.
+ *
+ * The alternative (create the account, mark it unverified) leaves a real row
+ * holding an address its owner never agreed to, which is enough to deny that
+ * person the account forever, since `users.email` is UNIQUE. Parking the
+ * attempt in `pending_registrations` instead means an unproven address costs a
+ * row that expires, and nothing else.
+ *
+ * The password is hashed here rather than at the end, so the plaintext never
+ * outlives the request that carried it.
+ */
+export function startRegistration(
+	email: string,
+	name: string,
+	password: string
+): { token: string } {
+	const clean = email.trim().toLowerCase();
+	const token = mintToken();
+	// Asking twice replaces the first attempt: two live links to the same
+	// address is one more than anybody needs, and the newest is the one the
+	// person is looking at.
+	db.prepare(
+		`INSERT INTO pending_registrations (email, name, password_hash, token_hash, expires_at, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?)
+		 ON CONFLICT (email) DO UPDATE SET
+		   name = excluded.name,
+		   password_hash = excluded.password_hash,
+		   token_hash = excluded.token_hash,
+		   expires_at = excluded.expires_at,
+		   created_at = excluded.created_at`
+	).run(
+		clean,
+		name.trim(),
+		hashPassword(password),
+		hashToken(token),
+		Date.now() + VERIFY_TTL_MS,
+		Date.now()
+	);
+	return { token };
+}
+
+/**
+ * Finish a registration from the emailed link.
+ *
+ * Looked up by token hash, not by email: the link is the only thing the caller
+ * has, and asking them for the address again would make the link alone
+ * insufficient without making it any safer.
+ */
+export function completeRegistration(
+	token: string
+): { ok: true; user: SessionUser } | { ok: false; error: string } {
+	const row = db
+		.prepare(
+			`SELECT email, name, password_hash, expires_at FROM pending_registrations
+			 WHERE token_hash = ?`
+		)
+		.get(hashToken(token)) as
+		| { email: string; name: string; password_hash: string; expires_at: number }
+		| undefined;
+	// One message for a token that is wrong, spent or stale. They are the same
+	// thing to the person holding it (ask again), and telling them which would
+	// let someone probe for links that once existed.
+	if (!row) return { ok: false, error: 'That link is no longer valid. Ask for a new one.' };
+
+	db.prepare(`DELETE FROM pending_registrations WHERE token_hash = ?`).run(hashToken(token));
+	if (row.expires_at < Date.now())
+		return { ok: false, error: 'That link is no longer valid. Ask for a new one.' };
+
+	// The address can have been taken since the link was sent, by somebody who
+	// proved it first. The pending row is already gone, so this is terminal.
+	if (findUserByEmail(row.email))
+		return { ok: false, error: 'That email is already registered.' };
+
+	const id = randomUUID();
+	db.prepare(
+		`INSERT INTO users (id, email, name, password_hash, home_tz, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?)`
+	).run(id, row.email, row.name, row.password_hash, 'UTC', Date.now());
+	consumeInvites(id, row.email);
+	return { ok: true, user: { id, email: row.email, name: row.name, homeTz: 'UTC' } };
+}
+
+/**
+ * Begin a password reset. Returns null when no account has that address.
+ *
+ * The caller must answer identically either way: a forgot-password form that
+ * says "no such account" is a membership oracle for any address someone cares
+ * to try, and the only person inconvenienced by the silence is one who mistyped
+ * their own address, who will notice when no mail arrives.
+ */
+export function startPasswordReset(email: string): { token: string; user: SessionUser } | null {
+	const user = findUserByEmail(email.trim().toLowerCase());
+	if (!user) return null;
+	// A placeholder or a seeded companion has no password to reset and cannot
+	// log in, so a reset link would mint a way into a row that is not an account.
+	if (user.password_hash.startsWith('placeholder:') || user.password_hash.startsWith('seed:'))
+		return null;
+
+	const token = mintToken();
+	db.prepare(
+		`INSERT INTO password_resets (token_hash, user_id, expires_at, created_at)
+		 VALUES (?, ?, ?, ?)`
+	).run(hashToken(token), user.id, Date.now() + RESET_TTL_MS, Date.now());
+	return {
+		token,
+		user: { id: user.id, email: user.email, name: user.name, homeTz: user.home_tz }
+	};
+}
+
+/**
+ * Finish a password reset.
+ *
+ * Every session for the user is dropped, not just the other ones. Whoever is
+ * resetting is not holding a session (that is the whole reason they are here),
+ * so there is none to keep, and the person this protects against might well be.
+ */
+export function completePasswordReset(
+	token: string,
+	newPassword: string
+): { ok: true } | { ok: false; error: string } {
+	if (newPassword.length < 8) return { ok: false, error: 'Use at least 8 characters.' };
+
+	const hash = hashToken(token);
+	const row = db
+		.prepare(`SELECT user_id, expires_at FROM password_resets WHERE token_hash = ?`)
+		.get(hash) as { user_id: string; expires_at: number } | undefined;
+	if (!row) return { ok: false, error: 'That link is no longer valid. Ask for a new one.' };
+
+	// Spent whether or not it turns out to be in date, so a stale link cannot be
+	// retried and a live one cannot be replayed.
+	db.prepare(`DELETE FROM password_resets WHERE token_hash = ?`).run(hash);
+	if (row.expires_at < Date.now())
+		return { ok: false, error: 'That link is no longer valid. Ask for a new one.' };
+
+	db.prepare(`UPDATE users SET password_hash = ? WHERE id = ?`).run(
+		hashPassword(newPassword),
+		row.user_id
+	);
+	// Any other reset already in flight for this account is void now, and every
+	// session is dropped: see the doc comment.
+	db.prepare(`DELETE FROM password_resets WHERE user_id = ?`).run(row.user_id);
+	db.prepare(`DELETE FROM sessions WHERE user_id = ?`).run(row.user_id);
+	return { ok: true };
+}
+
+/**
+ * Drop expired pending registrations and reset tokens.
+ *
+ * Called opportunistically when one is issued rather than on a timer: the table
+ * only grows when somebody asks for a link, so that is exactly when it is worth
+ * looking, and it keeps the server free of a background task whose only job is
+ * deleting rows nobody can use.
+ */
+export function pruneExpiredTokens(): void {
+	const now = Date.now();
+	db.prepare(`DELETE FROM pending_registrations WHERE expires_at < ?`).run(now);
+	db.prepare(`DELETE FROM password_resets WHERE expires_at < ?`).run(now);
 }
 
 /**

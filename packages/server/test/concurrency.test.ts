@@ -91,7 +91,7 @@ function party(): Party {
 		homeCurrency: 'USD'
 	}).id!;
 	for (const id of [bob, cara]) {
-		expect(members.inviteToTrip(tripId, alice, auth.findUserById(id)!.email)).toBe('added');
+		expect(members.addPerson(tripId, alice, 'Guest', auth.findUserById(id)!.email)).toBe('added');
 	}
 	return { tripId, alice, bob, cara, all: [alice, bob, cara] };
 }
@@ -376,7 +376,7 @@ describe('removing someone who still has money in the trip', () => {
 
 	it('keeps an invited member who owes money, instead of deleting their expenses with them', () => {
 		const p = party();
-		expect(members.inviteToTrip(p.tripId, p.alice, 'invited@example.test')).toBe('invited');
+		expect(members.addPerson(p.tripId, p.alice, 'Guest', 'invited@example.test')).toBe('invited');
 		const placeholder = members.listPeople(p.tripId).find((x) => x.placeholder)!;
 
 		// Alice paid, and the invitee was charged a stated amount. Deleting the
@@ -409,7 +409,7 @@ describe('removing someone who still has money in the trip', () => {
 
 	it('keeps an expense an invited member paid for, rather than deleting it outright', () => {
 		const p = party();
-		expect(members.inviteToTrip(p.tripId, p.alice, 'payer@example.test')).toBe('invited');
+		expect(members.addPerson(p.tripId, p.alice, 'Guest', 'payer@example.test')).toBe('invited');
 		const placeholder = members.listPeople(p.tripId).find((x) => x.placeholder)!;
 
 		expenses.addExpense(p.tripId, p.alice, placeholder.id, 'They paid the deposit', 9000, 'USD', [
@@ -427,7 +427,7 @@ describe('removing someone who still has money in the trip', () => {
 
 	it('still deletes an invited member who never touched the money', () => {
 		const p = party();
-		expect(members.inviteToTrip(p.tripId, p.alice, 'nobody@example.test')).toBe('invited');
+		expect(members.addPerson(p.tripId, p.alice, 'Guest', 'nobody@example.test')).toBe('invited');
 		const placeholder = members.listPeople(p.tripId).find((x) => x.placeholder)!;
 
 		expect(members.removeMember(p.tripId, p.alice, placeholder.id)).toBe(true);
@@ -435,7 +435,7 @@ describe('removing someone who still has money in the trip', () => {
 		// Nothing references them, so there is nothing to preserve and no reason to
 		// leave a row behind. Re-inviting the same address must also still work.
 		expect(auth.findUserById(placeholder.id)).toBeFalsy();
-		expect(members.inviteToTrip(p.tripId, p.alice, 'nobody@example.test')).toBe('invited');
+		expect(members.addPerson(p.tripId, p.alice, 'Guest', 'nobody@example.test')).toBe('invited');
 	});
 
 	it('does not flag an expense the departed member was never on', () => {
@@ -477,7 +477,7 @@ describe('guards that already held', () => {
 
 	it('refuses to invite somebody who is already on the trip', () => {
 		const p = party();
-		expect(members.inviteToTrip(p.tripId, p.alice, auth.findUserById(p.bob)!.email)).toBe('exists');
+		expect(members.addPerson(p.tripId, p.alice, 'Guest', auth.findUserById(p.bob)!.email)).toBe('exists');
 	});
 
 	it('refuses a write from somebody who is not a member', () => {

@@ -6,6 +6,9 @@ import NotFound from './pages/NotFound';
 import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Register from './pages/Register';
+import Forgot from './pages/Forgot';
+import Reset from './pages/Reset';
+import Verify from './pages/Verify';
 import Account from './pages/Account';
 import Trips from './pages/Trips';
 import TripShell from './pages/TripShell';
@@ -38,6 +41,9 @@ export default function App() {
 				<Route path="/" element={<Landing />} />
 				<Route path="/login" element={<Login />} />
 				<Route path="/register" element={<Register />} />
+				<Route path="/forgot" element={<Forgot />} />
+				<Route path="/reset" element={<Reset />} />
+				<Route path="/verify" element={<Verify />} />
 
 				{/* Everything past this point needs a signed-in user. Grouping the
 				    guarded routes under one element beats repeating a check inside

@@ -26,7 +26,15 @@ type AuthState =
 
 type AuthContextValue = AuthState & {
 	logIn: (email: string, password: string) => Promise<void>;
-	register: (name: string, email: string, password: string) => Promise<void>;
+	/**
+	 * Resolves to `'pending'` when the server has emailed a confirmation link
+	 * instead of creating the account, which is what it does whenever it has a
+	 * mail provider. The caller renders the two outcomes differently, so this
+	 * cannot be a void promise.
+	 */
+	register: (name: string, email: string, password: string) => Promise<'signed-in' | 'pending'>;
+	/** Exchange a confirmation link for the account it was issued for. */
+	verify: (token: string) => Promise<void>;
 	logOut: () => Promise<void>;
 	/** Re-read the session after the user edits their own profile, so the name in
 	 *  the top bar is not stale until the next full page load. */
@@ -69,9 +77,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 	}, []);
 
 	const register = useCallback(async (name: string, email: string, password: string) => {
-		const { user } = await api<{ user: User }>('/auth/register', {
+		const res = await api<{ user?: User; pending?: boolean }>('/auth/register', {
 			method: 'POST',
 			body: { name, email, password }
+		});
+		if (!res.user) return 'pending' as const;
+		setState({ status: 'authenticated', user: res.user });
+		return 'signed-in' as const;
+	}, []);
+
+	const verify = useCallback(async (token: string) => {
+		const { user } = await api<{ user: User }>('/auth/verify', {
+			method: 'POST',
+			body: { token }
 		});
 		setState({ status: 'authenticated', user });
 	}, []);
@@ -99,8 +117,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 	}, []);
 
 	const value = useMemo(
-		() => ({ ...state, logIn, register, logOut, refresh }),
-		[state, logIn, register, logOut, refresh]
+		() => ({ ...state, logIn, register, verify, logOut, refresh }),
+		[state, logIn, register, verify, logOut, refresh]
 	);
 
 	return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

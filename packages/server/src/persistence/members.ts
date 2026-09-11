@@ -14,18 +14,6 @@ export interface Person {
 	invitedEmail?: string | null;
 }
 
-/** Turn "jamie.lee@x.com" into a friendly display name like "Jamie Lee". */
-function nameFromEmail(email: string): string {
-	const local = email.split('@')[0] || 'Guest';
-	return (
-		local
-			.split(/[._-]+/)
-			.filter(Boolean)
-			.map((p) => p.charAt(0).toUpperCase() + p.slice(1))
-			.join(' ') || 'Guest'
-	);
-}
-
 function membership(tripId: string, userId: string): { role: string } | undefined {
 	return db
 		.prepare(`SELECT role FROM memberships WHERE trip_id = ? AND user_id = ?`)
@@ -58,8 +46,10 @@ export function listPeople(tripId: string): Person[] {
 		return {
 			id: r.id,
 			name: r.name,
-			// A placeholder shows the address it was invited at, not the internal one.
-			email: placeholder ? r.invited_email || r.email : r.email,
+			// A placeholder shows the address it was invited at, and nothing at all
+			// when it has none: its `users.email` is a synthetic value that exists
+			// only to satisfy the UNIQUE index and means nothing to a reader.
+			email: placeholder ? (r.invited_email ?? '') : r.email,
 			role: r.role,
 			// Seeded companions cannot log in; their hash is prefixed with "seed:".
 			seeded: r.password_hash.startsWith('seed:'),
@@ -69,48 +59,66 @@ export function listPeople(tripId: string): Person[] {
 	});
 }
 
-export type InviteResult = 'added' | 'invited' | 'exists' | 'invalid' | 'forbidden';
+export type InviteResult = 'added' | 'invited' | 'created' | 'exists' | 'invalid' | 'forbidden';
 
 /**
- * Invite an email to a trip. If a user with that email already exists they are
- * added straight away; otherwise a pending invite is recorded and consumed when
- * they register (see `consumeInvites`).
+ * Put a person on a trip, by display name, with an email address optionally.
  *
- * A refusal says which of the two it is. They were one result for a while, so
- * that a prober could not tell the organizer apart from a typo, but the roster
- * names the organizer to everyone on the trip and the invite form is only
- * rendered for them, so the only thing the shared message achieved was telling
- * the organizer their own address was malformed when it was not.
+ * Three outcomes, because there are three kinds of person the organizer can be
+ * naming:
+ *
+ *  - **`added`** is somebody who already has an account. Their name comes from
+ *    that account and the one typed here is discarded: a name shared across
+ *    every trip they are on is not the organizer's to set.
+ *  - **`invited`** is an address with no account behind it. A placeholder
+ *    member is created so they are visible on the roster at once, and a
+ *    `trip_invites` row waits for them to register.
+ *  - **`created`** is a name with no address at all: somebody who is coming but
+ *    is not going to use the app. They can be split with, assigned to and
+ *    settled up with like anyone else, and an address can be added later.
+ *
+ * The email used to be the whole of an invite, which meant the roster was
+ * populated with names guessed from the local part of an address ("Jamie Lee"
+ * out of jamie.lee@) and anybody without an address could not be represented at
+ * all, even though the money almost always involves one.
  */
-export function inviteToTrip(tripId: string, actorId: string, email: string): InviteResult {
+export function addPerson(
+	tripId: string,
+	actorId: string,
+	name: string,
+	email: string
+): InviteResult {
 	if (!isOrganizer(tripId, actorId)) return 'forbidden';
+	const cleanName = name.trim();
+	if (!cleanName || cleanName.length > 80) return 'invalid';
 	const clean = email.trim().toLowerCase();
-	if (!isValidEmail(clean)) return 'invalid';
+	if (clean && !isValidEmail(clean)) return 'invalid';
 
-	const user = db.prepare(`SELECT id FROM users WHERE email = ?`).get(clean) as
-		{ id: string } | undefined;
-	if (user) {
-		const existing = membership(tripId, user.id);
-		if (existing) return 'exists';
-		db.prepare(`INSERT INTO memberships (trip_id, user_id, role) VALUES (?, ?, 'member')`).run(
-			tripId,
-			user.id
-		);
-		publish(tripId, 'members');
-		return 'added';
+	if (clean) {
+		const user = db.prepare(`SELECT id FROM users WHERE email = ?`).get(clean) as
+			| { id: string }
+			| undefined;
+		if (user) {
+			if (membership(tripId, user.id)) return 'exists';
+			db.prepare(`INSERT INTO memberships (trip_id, user_id, role) VALUES (?, ?, 'member')`).run(
+				tripId,
+				user.id
+			);
+			publish(tripId, 'members');
+			return 'added';
+		}
+		const already = db
+			.prepare(`SELECT 1 FROM trip_invites WHERE trip_id = ? AND email = ?`)
+			.get(tripId, clean);
+		if (already) return 'exists';
 	}
 
-	const already = db
-		.prepare(`SELECT 1 FROM trip_invites WHERE trip_id = ? AND email = ?`)
-		.get(tripId, clean);
-	if (already) return 'exists';
-
-	// Create a placeholder member so the invitee is visible on the trip right away.
-	// The placeholder has a synthetic address (the real email is UNIQUE and must stay
+	// Create a placeholder member so the person is visible on the trip right away.
+	// The placeholder has a synthetic address (a real email is UNIQUE and must stay
 	// free for when they register); its hash is prefixed "placeholder:" so it cannot
 	// log in and is easy to detect. consumeInvites() relinks it on registration.
 	//
-	// The three writes are one unit: a failure partway through would otherwise
+	// The writes are one unit: a failure partway through would otherwise
 	// leave a placeholder user with no invite (a ghost member nobody can revoke)
 	// or an invite pointing at a member that was never created.
 	const placeholderId = randomUUID();
@@ -120,7 +128,7 @@ export function inviteToTrip(tripId: string, actorId: string, email: string): In
 			`INSERT INTO users (id, name, email, password_hash, created_at) VALUES (?, ?, ?, ?, ?)`
 		).run(
 			placeholderId,
-			nameFromEmail(clean),
+			cleanName,
 			`placeholder-${placeholderId}@waypoint.invalid`,
 			`placeholder:${clean}`,
 			Date.now()
@@ -129,10 +137,12 @@ export function inviteToTrip(tripId: string, actorId: string, email: string): In
 			tripId,
 			placeholderId
 		);
-		db.prepare(
-			`INSERT INTO trip_invites (id, trip_id, email, invited_by, placeholder_id, created_at)
-			 VALUES (?, ?, ?, ?, ?, ?)`
-		).run(randomUUID(), tripId, clean, actorId, placeholderId, Date.now());
+		if (clean) {
+			db.prepare(
+				`INSERT INTO trip_invites (id, trip_id, email, invited_by, placeholder_id, created_at)
+				 VALUES (?, ?, ?, ?, ?, ?)`
+			).run(randomUUID(), tripId, clean, actorId, placeholderId, Date.now());
+		}
 		db.exec('COMMIT');
 	} catch (err) {
 		db.exec('ROLLBACK');
@@ -141,8 +151,81 @@ export function inviteToTrip(tripId: string, actorId: string, email: string): In
 	// After COMMIT: an invalidation that names a change readers cannot see yet
 	// would send every client to refetch the old roster and never correct itself.
 	publish(tripId, 'members');
-	return 'invited';
+	return clean ? 'invited' : 'created';
 }
+
+export type EmailEditResult = 'ok' | 'cleared' | 'taken' | 'invalid' | 'forbidden' | 'missing';
+
+/**
+ * Set, change or clear the address an invited person was invited at. Organizers
+ * only, and only on a placeholder.
+ *
+ * Only a placeholder, because for anybody else the address is their own
+ * account's: it is how they sign in, and it is shared with every other trip
+ * they are on. A seeded sample companion is excluded for the opposite reason,
+ * that it is not a person at all.
+ *
+ * The address lives in two places, `trip_invites.email` (what the invite is
+ * addressed to) and the `placeholder:<email>` hash (what `consumeInvites` and
+ * `removeMember` read), so both move together or the invite becomes unrevocable
+ * or unconsumable.
+ */
+export function setMemberEmail(
+	tripId: string,
+	actorId: string,
+	userId: string,
+	email: string
+): EmailEditResult {
+	if (!isOrganizer(tripId, actorId)) return 'forbidden';
+	if (!membership(tripId, userId)) return 'missing';
+	const user = db.prepare(`SELECT password_hash FROM users WHERE id = ?`).get(userId) as
+		| { password_hash: string }
+		| undefined;
+	if (!user?.password_hash.startsWith('placeholder:')) return 'forbidden';
+
+	const clean = email.trim().toLowerCase();
+	const previous = user.password_hash.slice('placeholder:'.length);
+	if (clean && !isValidEmail(clean)) return 'invalid';
+
+	if (clean && clean !== previous) {
+		// An address with an account behind it cannot be attached to a placeholder:
+		// the two would be one person with two rows, and the ledger has no way to
+		// say which of them owes what. The organizer removes the placeholder and
+		// adds the real person, which merges nothing and loses nothing.
+		if (db.prepare(`SELECT 1 FROM users WHERE email = ?`).get(clean)) return 'taken';
+		// UNIQUE (trip_id, email) would reject this anyway; catching it here says
+		// which of the two things went wrong.
+		if (db.prepare(`SELECT 1 FROM trip_invites WHERE trip_id = ? AND email = ?`).get(tripId, clean))
+			return 'taken';
+	}
+
+	db.exec('BEGIN');
+	try {
+		db.prepare(`DELETE FROM trip_invites WHERE trip_id = ? AND placeholder_id = ?`).run(
+			tripId,
+			userId
+		);
+		if (clean) {
+			db.prepare(
+				`INSERT INTO trip_invites (id, trip_id, email, invited_by, placeholder_id, created_at)
+				 VALUES (?, ?, ?, ?, ?, ?)`
+			).run(randomUUID(), tripId, clean, actorId, userId, Date.now());
+		}
+		db.prepare(`UPDATE users SET password_hash = ? WHERE id = ?`).run(
+			`placeholder:${clean}`,
+			userId
+		);
+		db.exec('COMMIT');
+	} catch (err) {
+		db.exec('ROLLBACK');
+		throw err;
+	}
+	publish(tripId, 'members');
+	return clean ? 'ok' : 'cleared';
+}
+
+
+
 
 /**
  * Rename a member of the trip. Organizers only.

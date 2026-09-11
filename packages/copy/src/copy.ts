@@ -32,7 +32,40 @@ export const copy = {
 			nameLabel: 'Name',
 			emailLabel: 'Email',
 			passwordLabel: 'Password',
-			passwordHint: 'At least 8 characters'
+			passwordHint: 'At least 8 characters',
+			sentTitle: 'Check your email',
+			sentBlurb: 'Open the link we sent to finish setting up your account.'
+		},
+		forgot: {
+			title: 'Forgot your password',
+			blurb: 'We will email you a link to set a new one.',
+			submitLabel: 'Email me a link',
+			fallback: 'Could not send that link.',
+			footerPrompt: 'Remembered it?',
+			footerLink: 'Log in',
+			emailLabel: 'Email',
+			link: 'Forgot your password?',
+			sentTitle: 'Check your email',
+			sentBlurb: 'If that address has an account, a reset link is on its way.'
+		},
+		reset: {
+			title: 'Set a new password',
+			blurb: 'Choose a password you have not used here before.',
+			submitLabel: 'Save password',
+			fallback: 'Could not change that password.',
+			footerPrompt: 'Changed your mind?',
+			footerLink: 'Log in',
+			passwordLabel: 'New password',
+			passwordHint: 'At least 8 characters',
+			doneTitle: 'Password changed',
+			doneBlurb: 'Sign in with your new password.',
+			doneAction: 'Log in'
+		},
+		verify: {
+			title: 'Confirming your email',
+			blurb: 'One moment.',
+			failedTitle: 'That link did not work',
+			retry: 'Create an account'
 		}
 	},
 
@@ -391,19 +424,23 @@ export const copy = {
 			invitedTag: 'invited',
 			sampleTag: 'sample',
 			removeLabel: (name: string) => `Remove ${name}`,
-			renameLabel: (name: string) => `Rename ${name}`
+			editLabel: (name: string) => `Edit ${name}`
 		},
-		rename: {
-			title: 'Edit name',
+		edit: {
+			title: 'Edit person',
 			nameLabel: 'Display name',
-			fallback: 'Could not rename that member.'
+			emailLabel: 'Email',
+			emailHint: 'Optional. We will email them an invite.',
+			emailResendHint: 'Save to send the invite again.',
+			fallback: 'Could not save that person.'
 		},
-		invite: {
-			heading: 'Invite someone',
-			emailLabel: 'Email address',
-			busyLabel: 'Sending...',
-			submitLabel: 'Send',
-			fallback: 'Could not send that invite.'
+		add: {
+			title: 'Add someone',
+			nameLabel: 'Display name',
+			emailLabel: 'Email',
+			emailHint: 'Optional. We will email them an invite.',
+			busyLabel: 'Adding...',
+			fallback: 'Could not add that person.'
 		}
 	},
 

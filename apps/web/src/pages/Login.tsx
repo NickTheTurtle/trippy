@@ -48,6 +48,9 @@ export default function Login() {
 			submitLabel={c.submitLabel}
 			footer={
 				<>
+					<Link to="/forgot" className="mb-1.5 block font-medium text-accent-ink">
+						{copy.auth.forgot.link}
+					</Link>
 					{c.footerPrompt}{' '}
 					<Link to="/register" className="font-medium text-accent-ink">
 						{c.footerLink}

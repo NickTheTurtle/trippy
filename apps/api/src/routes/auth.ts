@@ -10,8 +10,14 @@ import {
 	verifyPassword,
 	createSession,
 	deleteSession,
+	startRegistration,
+	completeRegistration,
+	startPasswordReset,
+	completePasswordReset,
+	pruneExpiredTokens,
 	type SessionUser
 } from '@trippy/server/auth';
+import { mailConfigured, passwordResetMail, sendMail, verifyEmailMail } from '@trippy/server/mail';
 import { clearFailures, recordFailure, REGISTER_ATTEMPTS, retryAfterMs } from '@trippy/server/throttle';
 
 type Env = { Variables: { user: SessionUser | null } };
@@ -128,8 +134,85 @@ auth.post('/register', async (c) => {
 	// Counted on success rather than on failure: one person signing up is one
 	// account, so it is the rate of real registrations that needs a ceiling.
 	recordFailure(key, Date.now(), REGISTER_ATTEMPTS);
-	const user = createUser(email, name, password);
-	return c.json({ user, ...grant(c, user.id) }, 201);
+
+	// With no mail provider there is no way to prove an address, so the account
+	// is created outright. This is not a convenience: it is what lets a fresh
+	// clone and the end-to-end suite register at all, and it is the honest
+	// behaviour for a deployment that cannot send mail rather than one that
+	// silently refuses every sign-up.
+	if (!mailConfigured()) {
+		const user = createUser(email, name, password);
+		return c.json({ user, ...grant(c, user.id) }, 201);
+	}
+
+	pruneExpiredTokens();
+	const { token } = startRegistration(email, name, password);
+	await sendMail(verifyEmailMail({ to: email, name, token }));
+	return c.json({ pending: true, email }, 202);
+});
+
+/**
+ * Turn the emailed link into an account and a session in one step.
+ *
+ * Signing them in here rather than sending them to the login form is the point
+ * of the link: they have just proved the address and typed the password
+ * minutes ago, and a form that asked for it again would be asking them to
+ * prove something they have already proved.
+ */
+auth.post('/verify', async (c) => {
+	const token = str((await body(c)).token);
+	if (!token) return fail(c, 400, 'That link is no longer valid. Ask for a new one.');
+
+	const result = completeRegistration(token);
+	if (!result.ok) return fail(c, 400, result.error);
+	return c.json({ user: result.user, ...grant(c, result.user.id) }, 201);
+});
+
+/**
+ * Ask for a reset link.
+ *
+ * Always 200, always the same message, whatever the address turns out to be.
+ * Anything else answers "is this person registered here" for any address a
+ * stranger cares to type.
+ */
+auth.post('/forgot', async (c) => {
+	const email = str((await body(c)).email).toLowerCase();
+
+	// Throttled by address as well as caller: this route sends mail to somebody
+	// who did not ask for it, so an unthrottled one is a way to use us to
+	// pester a third party.
+	const keys = [`forgot:email:${email}`, `forgot:ip:${clientIp(c)}`];
+	const wait = blockedFor(keys);
+	if (wait > 0) {
+		c.header('retry-after', String(Math.ceil(wait / 1000)));
+		return fail(c, 429, 'Too many attempts. Try again in a moment.');
+	}
+	for (const k of keys) recordFailure(k);
+
+	pruneExpiredTokens();
+	const started = email && isValidEmail(email) ? startPasswordReset(email) : null;
+	if (started) {
+		await sendMail(
+			passwordResetMail({ to: email, name: started.user.name, token: started.token })
+		);
+	}
+	return c.json({ message: 'If that address has an account, a reset link is on its way.' });
+});
+
+auth.post('/reset', async (c) => {
+	const b = await body(c);
+	const token = str(b.token);
+	const password = rawStr(b.password);
+	if (!token) return fail(c, 400, 'That link is no longer valid. Ask for a new one.');
+	if (password.length < 8) return fail(c, 400, 'Use at least 8 characters.');
+
+	const result = completePasswordReset(token, password);
+	if (!result.ok) return fail(c, 400, result.error);
+	// Not signed in here, unlike verification: every session was just dropped
+	// because the old password may be known to someone else, and handing back a
+	// fresh one from a link that arrived by email would undo that in the one
+	// case it exists for.
+	return c.json({ message: 'Password changed. Sign in with it.' });
 });
 
 auth.post('/logout', (c) => {

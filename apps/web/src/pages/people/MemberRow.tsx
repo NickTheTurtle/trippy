@@ -12,18 +12,19 @@ export default function MemberRow({
 	person,
 	me,
 	organizer,
-	onRename,
+	onEdit,
 	onRemove
 }: {
 	person: Person;
 	me: string;
 	organizer: boolean;
 	/** Null when this person's name is their own account's, not the trip's. */
-	onRename: (() => void) | null;
+	onEdit: (() => void) | null;
 	onRemove: () => void;
 }) {
 	// An invited member's address is the one they were invited at, not the
-	// synthetic placeholder address; the server already resolves that.
+	// synthetic placeholder address; the server already resolves that, and
+	// returns nothing at all for somebody added by name alone.
 	const sub = person.seeded ? c.sampleCompanion : person.email;
 
 	return (
@@ -36,20 +37,25 @@ export default function MemberRow({
 					</span>
 					{person.id === me && <Tag kind="you">{c.youTag}</Tag>}
 					{person.role === 'organizer' && <Tag kind="org">{c.organizerTag}</Tag>}
+					{/* "Invited" only when there is an invite out. Somebody added by
+					    name alone is on the trip and waiting for nothing, so a tag
+					    that said they were would be describing a mail nobody sent. */}
 					{person.placeholder ? (
-						<Tag kind="invited">{c.invitedTag}</Tag>
+						person.invitedEmail ? (
+							<Tag kind="invited">{c.invitedTag}</Tag>
+						) : null
 					) : (
 						person.seeded && <Tag kind="seed">{c.sampleTag}</Tag>
 					)}
 				</span>
-				<span className="muted truncate text-meta">{sub}</span>
+				{sub && <span className="muted truncate text-meta">{sub}</span>}
 			</span>
 			{/* The same drawn pencil and bin every other list in the app uses, on the
 			    row's hover, so removing a member is not the loudest thing on a page
 			    that is mostly about who is coming. */}
 			<span className="flex flex-none gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
-				{organizer && onRename && (
-					<IconButton label={c.renameLabel(person.name)} onClick={onRename}>
+				{organizer && onEdit && (
+					<IconButton label={c.editLabel(person.name)} onClick={onEdit}>
 						<PencilIcon />
 					</IconButton>
 				)}

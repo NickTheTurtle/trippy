@@ -85,29 +85,31 @@ export async function addCity(
 // --- Members ----------------------------------------------------------------
 
 /**
- * Invites an email to the trip. A registered address is added straight away; an
+ * Adds somebody to the trip. A registered address is added straight away; an
  * unregistered one becomes a placeholder member, which is a real row with an id
  * that can pay, owe, be assigned and be voted for, so it is all most specs need.
  */
 export async function invite(
 	request: APIRequestContext,
 	fixture: ApiFixture,
-	email: string
+	email: string,
+	name?: string
 ): Promise<void> {
 	const res = await send(request, fixture, 'POST', `/trips/${fixture.tripId}/people/invites`, {
+		name: name ?? email.split('@')[0],
 		email
 	});
 	expect(res.status(), await res.text()).toBe(200);
 }
 
 /**
- * Invites one placeholder member per name and returns a name -> id map that
+ * Adds one placeholder member per name and returns a name -> id map that
  * includes the organizer.
  *
- * The invited address is `<name>@example.test`, and the server derives the
- * display name from the local part, so `Alice` invites `alice@example.test` and
- * comes back named "Alice". The map is keyed by that display name. Each fixture
- * is its own trip, so the same friendly address never collides across specs.
+ * The invited address is `<name>@example.test` and the display name is the one
+ * passed in, so the map is keyed by exactly the names the caller asked for.
+ * Each fixture is its own trip, so the same friendly address never collides
+ * across specs.
  */
 export async function seedMembers(
 	request: APIRequestContext,
@@ -115,7 +117,7 @@ export async function seedMembers(
 	names: string[]
 ): Promise<Record<string, string>> {
 	for (const name of names) {
-		await invite(request, fixture, `${name.toLowerCase()}@example.test`);
+		await invite(request, fixture, `${name.toLowerCase()}@example.test`, name);
 	}
 	const data = await expensesData(request, fixture);
 	const map: Record<string, string> = {};

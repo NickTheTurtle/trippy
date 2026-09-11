@@ -5,18 +5,19 @@ import { useLiveSection } from '../hooks/useTripEvents';
 import { useTrip } from './TripShell';
 import FormError from '../components/ui/FormError';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
+import { PlusIcon } from '../components/ui/icons';
 import type { Person, PeopleData } from './people/types';
 import MemberRow from './people/MemberRow';
-import RenameMember from './people/RenameMember';
-import Invite from './people/Invite';
+import EditMember from './people/EditMember';
+import AddPersonDialog from './people/AddPersonDialog';
 import { copy } from '../copy';
 
 const cpl = copy.people;
 
 /**
- * People: who is on the trip, and the invite that adds one.
+ * People: who is on the trip, and the button that adds one.
  *
- * This file is composition only. The roster row, the invite panel and the
+ * This file is composition only. The roster row, the add dialog and the
  * removal confirmation live in `pages/people/`.
  */
 export default function People() {
@@ -24,8 +25,9 @@ export default function People() {
 	const { data, error, reload } = useApi<PeopleData>(`/trips/${trip.id}/people`);
 	useLiveSection(['members'], reload);
 	const [notice, setNotice] = useState('');
+	const [adding, setAdding] = useState(false);
 	const [pendingRemove, setPendingRemove] = useState<Person | null>(null);
-	const [renaming, setRenaming] = useState<Person | null>(null);
+	const [editing, setEditing] = useState<Person | null>(null);
 
 	// The header shows the member avatars, so anything that changes the roster
 	// has to refresh the shell too, not just this page.
@@ -38,55 +40,60 @@ export default function People() {
 
 	return (
 		<>
-			{/* Only ever a success line: an invite that is refused reports inside the
-			    form that was refused, not at the top of the page. */}
+			{/* Only ever a success line: a refusal reports inside the dialog that was
+			    refused, not at the top of the page. */}
 			<FormError message={notice} tone="success" variant="banner" />
 
-			<div
-				className={
-					data.organizer
-						? 'grid grid-cols-[minmax(0,1fr)] items-start gap-5 lg:grid-cols-[minmax(0,1fr)_340px]'
-						: 'grid grid-cols-[minmax(0,1fr)] gap-5'
-				}
-			>
-				<section className="card px-5 py-5">
-					<h2 className="mb-3.5 flex items-baseline gap-2 text-section">
-						{cpl.membersHeading}
-						<span className="muted text-meta font-normal">{data.people.length}</span>
-					</h2>
-					{/* Auto-fill columns rather than one long list: at 20 members a
-					    single column is mostly empty space on a wide screen. */}
-					<ul className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-x-6 gap-y-0.5 p-0">
-						{data.people.map((p) => (
-							<MemberRow
-								key={p.id}
-								person={p}
-								me={data.me}
-								organizer={data.organizer}
-								onRename={p.placeholder || p.seeded ? () => setRenaming(p) : null}
-								onRemove={() => setPendingRemove(p)}
-							/>
-						))}
-					</ul>
-				</section>
-
+			{/* The same header band as Preparation and Expenses: the count where
+			    those two put their totals, "+ Add" on the same line. */}
+			<div className="mb-4 flex min-h-phead flex-wrap items-center justify-between gap-4">
+				<h2 className="flex items-baseline gap-2 text-section">
+					{cpl.membersHeading}
+					<span className="muted text-meta font-normal">{data.people.length}</span>
+				</h2>
 				{data.organizer && (
-					<Invite
-						tripId={trip.id}
-						onDone={(text) => {
-							setNotice(text);
-							refresh();
-						}}
-					/>
+					<button className="btn primary" onClick={() => setAdding(true)}>
+						<PlusIcon />
+						{copy.common.add}
+					</button>
 				)}
 			</div>
 
-			{renaming && (
-				<RenameMember
-					person={renaming}
+			<section className="card px-5 py-5">
+				{/* Auto-fill columns rather than one long list: at 20 members a
+				    single column is mostly empty space on a wide screen. */}
+				<ul className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-x-6 gap-y-0.5 p-0">
+					{data.people.map((p) => (
+						<MemberRow
+							key={p.id}
+							person={p}
+							me={data.me}
+							organizer={data.organizer}
+							onEdit={p.placeholder || p.seeded ? () => setEditing(p) : null}
+							onRemove={() => setPendingRemove(p)}
+						/>
+					))}
+				</ul>
+			</section>
+
+			{adding && (
+				<AddPersonDialog
 					tripId={trip.id}
-					onClose={() => setRenaming(null)}
+					onClose={() => setAdding(false)}
+					onDone={(text) => {
+						setNotice(text);
+						refresh();
+					}}
+				/>
+			)}
+
+			{editing && (
+				<EditMember
+					person={editing}
+					tripId={trip.id}
+					onClose={() => setEditing(null)}
 					onSaved={refresh}
+					onDone={setNotice}
 				/>
 			)}
 

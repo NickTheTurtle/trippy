@@ -23,6 +23,7 @@ type Data = { me: string; organizer: boolean; people: Person[] };
 export default function People() {
 	const tripId = useTripId();
 	const { data, error, loading, reload } = useApi<Data>(`/trips/${tripId}/people`);
+	const [name, setName] = useState('');
 	const [email, setEmail] = useState('');
 	const [notice, setNotice] = useState('');
 
@@ -30,12 +31,13 @@ export default function People() {
 		async () => {
 			const res = await api<{ message: string }>(`/trips/${tripId}/people/invites`, {
 				method: 'POST',
-				body: { email }
+				body: { name, email }
 			});
 			setNotice(res.message);
+			setName('');
 			setEmail('');
 		},
-		{ fallback: copy.people.invite.fallback, onSuccess: reload }
+		{ fallback: copy.people.add.fallback, onSuccess: reload }
 	);
 
 	if (loading && !data) return <Loading />;
@@ -59,10 +61,11 @@ export default function People() {
 
 			{data?.organizer ? (
 				<Card>
-					<Head>{copy.people.invite.heading}</Head>
+					<Head>{copy.people.add.title}</Head>
 					<View style={{ gap: space.md, marginTop: space.sm }}>
+						<Field label={copy.people.add.nameLabel} value={name} onChangeText={setName} />
 						<Field
-							label={copy.people.invite.emailLabel}
+							label={copy.people.add.emailLabel}
 							value={email}
 							onChangeText={setEmail}
 							autoCapitalize="none"
@@ -72,10 +75,10 @@ export default function People() {
 						<FormError message={invite.error} />
 						{notice ? <Text style={type.small}>{notice}</Text> : null}
 						<Button
-							label={invite.busy ? copy.people.invite.busyLabel : copy.people.invite.submitLabel}
+							label={invite.busy ? copy.people.add.busyLabel : copy.common.add}
 							onPress={() => void invite.run()}
 							busy={invite.busy}
-							disabled={!email.trim()}
+							disabled={!name.trim()}
 						/>
 					</View>
 				</Card>
@@ -89,7 +92,7 @@ function PersonRow({ person, me }: { person: Person; me: string }) {
 	const tags = [
 		person.id === me ? c.youTag : null,
 		person.role === 'organizer' ? c.organizerTag : null,
-		person.placeholder ? c.invitedTag : null,
+		person.placeholder && person.invitedEmail ? c.invitedTag : null,
 		person.seeded ? c.sampleTag : null
 	].filter(Boolean) as string[];
 
