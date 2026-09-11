@@ -84,6 +84,7 @@ export default function EditMember({
 						<Field
 							label={c.emailLabel}
 							type="email"
+							optional
 							autoComplete="off"
 							hint={person.invitedEmail ? c.emailResendHint : c.emailHint}
 							value={email}

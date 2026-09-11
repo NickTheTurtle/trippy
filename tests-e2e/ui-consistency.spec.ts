@@ -69,10 +69,12 @@ test.describe('ui consistency', () => {
 		}
 
 		// A hint under a field is a fragment, like the caption, so it takes no
-		// full stop. A hint that needs a sentence is saying too much.
+		// full stop. A hint that needs a sentence is saying too much, and it
+		// never says "optional": the label carries that, in its muted suffix.
 		for (const { path, key, value } of strings) {
 			if (!/hint$/i.test(key)) continue;
 			expect(value.endsWith('.'), path).toBe(false);
+			expect(value.toLowerCase().includes('optional'), path).toBe(false);
 		}
 	});
 

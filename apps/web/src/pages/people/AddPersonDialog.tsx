@@ -56,6 +56,7 @@ export default function AddPersonDialog({
 					<Field
 						label={c.emailLabel}
 						type="email"
+						optional
 						autoComplete="off"
 						hint={c.emailHint}
 						value={email}

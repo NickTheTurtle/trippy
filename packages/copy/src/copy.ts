@@ -430,7 +430,7 @@ export const copy = {
 			title: 'Edit person',
 			nameLabel: 'Display name',
 			emailLabel: 'Email',
-			emailHint: 'Optional, and we will email them an invite',
+			emailHint: 'We will email them an invite',
 			emailResendHint: 'Save to send the invite again',
 			fallback: 'Could not save that person.'
 		},
@@ -438,7 +438,7 @@ export const copy = {
 			title: 'Add person',
 			nameLabel: 'Display name',
 			emailLabel: 'Email',
-			emailHint: 'Optional, and we will email them an invite',
+			emailHint: 'We will email them an invite',
 			fallback: 'Could not add that person.'
 		}
 	},

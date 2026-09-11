@@ -2031,9 +2031,10 @@ Two further rules fell out of the person dialogs, which arrived later and drifte
 in exactly the ways the first three had not covered:
 
 - **A hint under a field is a fragment, not a sentence**, so it takes no full
-  stop: `At least 8 characters`, `Optional, and we will email them an invite`.
-  A hint that needs two sentences is a hint that is saying too much, and the
-  success notice usually already says the second one.
+  stop: `At least 8 characters`, `We will email them an invite`. A hint that
+  needs two sentences is a hint that is saying too much, and the success notice
+  usually already says the second one. A hint never says `Optional` either: the
+  label already carries that, in the muted suffix described above.
 - **`required` carries an empty field; the submit button is not disabled for
   it.** A greyed-out button states no reason, and the user is left comparing
   fields to guess which one it is waiting on. Pressing it and getting the
