@@ -158,14 +158,14 @@ calendar.post('/tracks', async (c) => {
 	const trip = c.get('trip');
 	const b = await body(c);
 	const day = isoDay(b.day);
-	if (!day) return fail(c, 400, 'Missing or malformed day');
+	if (!day) return fail(c, 400, 'Pick a valid day.');
 
 	// A crew id from the body is a cross-trip reference waiting to happen: the
 	// column has no trip of its own, and the board joins the crew's name and
 	// colour by id, so an id borrowed from another trip would show that trip's
 	// crew here. Nothing but this trip's own crews is accepted.
 	const partyId = optStr(b.partyId);
-	if (partyId && !partyInTrip(trip.id, partyId)) return fail(c, 400, 'Unknown crew');
+	if (partyId && !partyInTrip(trip.id, partyId)) return fail(c, 400, 'Could not find that crew.');
 
 	const id = createTrack(trip.id, day, str(b.name) || 'New track', partyId ?? undefined);
 	return c.json({ id }, 201);
@@ -179,7 +179,7 @@ calendar.delete('/tracks/:trackId', (c) =>
 		c,
 		removeTrack(c.req.param('trackId'), c.get('trip').id, c.get('user').id),
 		404,
-		'Track not found.'
+		'Could not find that track.'
 	)
 );
 
@@ -189,7 +189,7 @@ calendar.post('/items', async (c) => {
 
 	const trackId = str(b.trackId);
 	const start = num(b.start);
-	if (!trackId || start === null) return fail(c, 400, 'Missing track or start time');
+	if (!trackId || start === null) return fail(c, 400, 'Pick a track and a start time.');
 
 	const typeRaw = str(b.type) || 'poi';
 	// The vocabulary is core's, so the API, the server and the calendar all agree
@@ -215,7 +215,7 @@ calendar.post('/items', async (c) => {
 
 	// Sensible default titles for placeholder activities.
 	if (!title) title = type === 'travel' ? 'Travel' : type === 'freetime' ? 'Free time' : '';
-	if (!title) return fail(c, 400, 'Give the item a title.');
+	if (!title) return fail(c, 400, 'Enter a title.');
 
 	const id = createItem(trackId, trip.id, c.get('user').id, {
 		title,
@@ -237,7 +237,7 @@ calendar.put('/items/:itemId/assignees', async (c) => {
 	const itemId = c.req.param('itemId');
 	// `setAssignees` refuses a foreign item on its own; this only keeps the
 	// answer a 404 rather than a 403.
-	if (foreignItem(trip.id, itemId)) return fail(c, 404, 'Item not found.');
+	if (foreignItem(trip.id, itemId)) return fail(c, 404, 'Could not find that item.');
 
 	return okOr(
 		c,
@@ -264,7 +264,7 @@ calendar.post('/items/:itemId/op', async (c) => {
 	// Every mutation below is passed the trip and refuses an item belonging to
 	// another one, so this is about the status, not the check: a cross-trip id is
 	// a 404, not the 403 that a real permission failure inside this trip earns.
-	if (foreignItem(trip.id, itemId)) return fail(c, 404, 'Item not found.');
+	if (foreignItem(trip.id, itemId)) return fail(c, 404, 'Could not find that item.');
 
 	let okay = false;
 	switch (str(b.op)) {
@@ -300,7 +300,7 @@ calendar.post('/items/:itemId/op', async (c) => {
 			okay = deleteItem(itemId, userId, trip.id);
 			break;
 		default:
-			return fail(c, 400, 'Unknown op');
+			return fail(c, 400, 'Unknown op.');
 	}
 
 	return okOr(c, okay, 403, 'Not allowed');
@@ -310,7 +310,7 @@ calendar.post('/items/:itemId/op', async (c) => {
 
 calendar.post('/crews', async (c) => {
 	const name = str((await body(c)).name);
-	if (!name) return fail(c, 400, 'Name the crew.');
+	if (!name) return fail(c, 400, 'Enter a name.');
 	const id = createParty(c.get('trip').id, c.get('user').id, name);
 	if (!id) return fail(c, 403, 'Could not create that crew.');
 	return c.json({ id }, 201);
@@ -346,7 +346,7 @@ calendar.delete('/crews/:partyId', (c) =>
 calendar.put('/crews/:partyId/day', async (c) => {
 	const b = await body(c);
 	const day = isoDay(b.day);
-	if (!day) return fail(c, 400, 'Missing or malformed day');
+	if (!day) return fail(c, 400, 'Pick a valid day.');
 
 	// `setPartyDay` returns false for a city or a stay that is not this trip's,
 	// and for a stay that is not in the chosen city. Those are bad references in
@@ -362,7 +362,7 @@ calendar.put('/crews/:partyId/day', async (c) => {
 			optStr(b.lodgingOptionId)
 		),
 		400,
-		'Could not set that crew’s day. Check the city and the stay.'
+		'Could not set that crew’s day.'
 	);
 });
 
@@ -395,7 +395,7 @@ calendar.post('/crews/split', async (c) => {
 	if (!targetPartyId && newName) targetPartyId = createParty(trip.id, userId, newName) ?? '';
 	if (!targetPartyId) return fail(c, 400, 'Pick or name a crew.');
 	// A crew id from the body, like a track's, has to be this trip's own.
-	if (!partyInTrip(trip.id, targetPartyId)) return fail(c, 400, 'Unknown crew');
+	if (!partyInTrip(trip.id, targetPartyId)) return fail(c, 400, 'Could not find that crew.');
 
 	if (!assignMemberships(trip.id, userId, targetPartyId, userIds, day, fromMin, 24 * 60)) {
 		// Everything it validates has been validated above, so a false here is a

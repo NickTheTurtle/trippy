@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { getConnInfo } from '@hono/node-server/conninfo';
+import { isValidEmail } from '@trippy/core';
 import { issueSession, clearSession, requireUser, sessionId, wantsToken } from '../middleware';
 import { body, rawStr, str } from '../parse';
 import { fail, ok } from '../respond';
@@ -84,7 +85,7 @@ auth.post('/login', async (c) => {
 	// are registered.
 	if (!user || !verifyPassword(password, user.password_hash)) {
 		for (const k of keys) recordFailure(k);
-		return fail(c, 401, 'Wrong email or password');
+		return fail(c, 401, 'Wrong email or password.');
 	}
 
 	// Only a success clears the count, and it clears the address too: whoever
@@ -112,9 +113,17 @@ auth.post('/register', async (c) => {
 		return fail(c, 429, 'Too many attempts. Try again in a moment.');
 	}
 
-	if (!email || !name) return fail(c, 400, 'Name and email are required');
-	if (password.length < 8) return fail(c, 400, 'Use at least 8 characters');
-	if (findUserByEmail(email)) return fail(c, 409, 'That email is already registered');
+	// One field per message, in the order the form presents them: "Name and
+	// email are required" makes the reader work out which of the two they
+	// missed, and they are looking at the form while they read it.
+	if (!name) return fail(c, 400, 'Enter a name.');
+	if (!email) return fail(c, 400, 'Enter an email address.');
+	// Registration used to take the address on trust while the invite form and
+	// the profile form both checked it, so `nope` could own an account it could
+	// never be invited to or mailed at.
+	if (!isValidEmail(email)) return fail(c, 400, 'Enter a valid email address.');
+	if (password.length < 8) return fail(c, 400, 'Use at least 8 characters.');
+	if (findUserByEmail(email)) return fail(c, 409, 'That email is already registered.');
 
 	// Counted on success rather than on failure: one person signing up is one
 	// account, so it is the rate of real registrations that needs a ceiling.

@@ -22,11 +22,9 @@ export default function MemberRow({
 	onRename: (() => void) | null;
 	onRemove: () => void;
 }) {
-	const sub = person.placeholder
-		? c.notJoined(person.email)
-		: person.seeded
-			? c.sampleCompanion
-			: person.email;
+	// An invited member's address is the one they were invited at, not the
+	// synthetic placeholder address; the server already resolves that.
+	const sub = person.seeded ? c.sampleCompanion : person.email;
 
 	return (
 		<li className="group flex items-center gap-3 rounded-sm p-2 hover:bg-surface-2">

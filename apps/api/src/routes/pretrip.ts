@@ -40,7 +40,7 @@ pretrip.get('/', (c) => {
 pretrip.post('/tasks', async (c) => {
 	const b = await body(c);
 	const label = str(b.label);
-	if (!label) return fail(c, 400, 'Describe the task.');
+	if (!label) return fail(c, 400, 'Enter a name.');
 
 	const kind = str(b.kind) === 'packing' ? 'packing' : 'task';
 	const id = addTask(c.get('trip').id, c.get('user').id, kind, label, strList(b.assignees), null);
@@ -57,7 +57,7 @@ pretrip.post('/tasks', async (c) => {
 pretrip.put('/tasks/:taskId', async (c) => {
 	const b = await body(c);
 	const label = str(b.label);
-	if (!label) return fail(c, 400, 'Describe the task.');
+	if (!label) return fail(c, 400, 'Enter a name.');
 	const result = updateTask(
 		c.get('trip').id,
 		c.get('user').id,
@@ -120,6 +120,9 @@ function readItem(b: Record<string, unknown>) {
 
 pretrip.post('/costs', async (c) => {
 	const item = readItem(await body(c));
+	// Checked here rather than left to `addCostItem`, which can only answer
+	// false and would report a missing description as "Could not add that item."
+	if (!item.label) return fail(c, 400, 'Enter a description.');
 	if (item.cents === null) return fail(c, 400, 'Enter a valid amount.');
 	if (!addCostItem(c.get('trip').id, c.get('user').id, { ...item, cents: item.cents })) {
 		return fail(c, 400, 'Could not add that item.');

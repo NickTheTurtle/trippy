@@ -132,7 +132,7 @@ events.get('/', (c) => {
 			c.header('Retry-After', BUSY_RETRY_AFTER);
 			return fail(c, 503, 'Too many live connections for this trip. Try again shortly.');
 		}
-		return fail(c, 404, 'Not found');
+		return fail(c, 404, 'Not found.');
 	}
 
 	sub = result.sub;

@@ -3,7 +3,6 @@ import { useMutation } from '../hooks/useMutation';
 import { currencyOptions } from '../lib/currencies';
 import Modal, { ModalFooter } from './ui/Modal';
 import Select from './ui/Select';
-import FormError from './ui/FormError';
 import { Field, FieldShell } from './ui/Field';
 import { copy } from '../copy';
 
@@ -78,7 +77,6 @@ export default function TripFormDialog({
 			    message would never arrive. */}
 			<form className="mform" noValidate onSubmit={save.submit}>
 				<div className="mbody flex flex-col gap-3">
-					<FormError message={save.error} variant="banner" className="mb-0" />
 					<Field label={c.nameLabel} value={name} onChange={(e) => setName(e.target.value)} />
 					<div className="flex flex-wrap gap-2.5">
 						<Field
@@ -110,6 +108,7 @@ export default function TripFormDialog({
 				</div>
 				<ModalFooter
 					start={footerStart}
+					error={save.error}
 					onClose={onClose}
 					busy={save.busy}
 					busyLabel={busyLabel}

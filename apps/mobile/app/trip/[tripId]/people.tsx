@@ -93,11 +93,7 @@ function PersonRow({ person, me }: { person: Person; me: string }) {
 		person.seeded ? c.sampleTag : null
 	].filter(Boolean) as string[];
 
-	const subtitle = person.seeded
-		? c.sampleCompanion
-		: person.placeholder
-			? c.notJoined(person.email)
-			: person.email;
+	const subtitle = person.seeded ? c.sampleCompanion : person.email;
 
 	return (
 		<View style={{ paddingVertical: space.sm, gap: space.xs }}>

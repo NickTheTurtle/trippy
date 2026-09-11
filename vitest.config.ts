@@ -18,7 +18,11 @@ export default defineConfig({
 		]
 	},
 	test: {
-		include: ['packages/core/test/**/*.test.ts', 'packages/server/test/**/*.test.ts'],
+		include: [
+			'packages/core/test/**/*.test.ts',
+			'packages/server/test/**/*.test.ts',
+			'apps/api/test/**/*.test.ts'
+		],
 		environment: 'node',
 		coverage: {
 			provider: 'v8',

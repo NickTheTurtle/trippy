@@ -125,7 +125,7 @@ export const copy = {
 		editTrip: 'Edit trip',
 		editDialog: {
 			title: 'Edit trip',
-			fallback: 'Could not save.'
+			fallback: 'Could not save that trip.'
 		},
 		deleteTrip: 'Delete trip',
 		deleteDialog: {
@@ -224,8 +224,8 @@ export const copy = {
 			priceLabel: 'Price / night',
 			currencyLabel: 'Currency',
 			activityLabel: 'Activity',
-			badPrice: 'Enter the nightly price as a number, or leave it blank.',
-			fallback: 'Could not add that.'
+			badPrice: 'Enter a valid price, or leave it blank.',
+			fallback: 'Could not add that place.'
 		},
 		editPlace: {
 			title: 'Edit place',
@@ -242,7 +242,7 @@ export const copy = {
 			currencyLabel: 'Currency',
 			checkInLabel: 'Check-in',
 			checkOutLabel: 'Check-out',
-			badPrice: 'Enter the nightly price as a number, or leave it blank.',
+			badPrice: 'Enter a valid price, or leave it blank.',
 			badDates: 'Check-out must be after check-in.',
 			fallback: 'Could not save that stay.'
 		}
@@ -385,7 +385,6 @@ export const copy = {
 		removeTitle: (name: string) => `Remove ${name}?`,
 		removeBusy: 'Removing...',
 		row: {
-			notJoined: (email: string) => `${email} (not joined yet)`,
 			sampleCompanion: 'Sample companion',
 			youTag: 'you',
 			organizerTag: 'organizer',
@@ -437,7 +436,7 @@ export const copy = {
 		modal: { closeLabel: 'Close' },
 		confirmDialog: {
 			undone: 'Are you sure? This action cannot be undone.',
-			fallback: 'Could not do that.'
+			fallback: 'Could not complete that.'
 		},
 		searchDropdown: { busyLabel: 'Searching...' },
 		select: { placeholder: 'Select...', ariaLabel: 'Select' },

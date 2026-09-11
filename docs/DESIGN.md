@@ -1903,6 +1903,52 @@ The estimate dialog and the expense dialog are both a money line, so they now
 lay out on the same 12-column grid with the same fields in the same order:
 description across the top, then amount / currency / who.
 
+#### Every validation message says the same kind of thing
+
+The 4xx messages had drifted into four competing voices: imperatives
+(`Add a description.`), imperatives with the noun invented rather than taken
+from the label (`Describe the task.` for a field labelled _Name_), bare fragments
+(`Unknown city`, `Track not found.`) and diagnostic guesses
+(`Check the city and the name.`). Six rules now hold:
+
+- **One sentence, ending in a full stop.** No fragments, no two-sentence
+  messages except where the second sentence is genuinely actionable
+  (`Try again.` after a network failure, `You can leave it instead.` after a
+  permission refusal that has an alternative).
+- **The verb matches the control.** A text field the user types into gets
+  `Enter a <label>.`; a select or a date picker gets `Pick a <label>.` This is
+  the rule that removes the most decisions, because the writer never has to
+  invent a verb.
+- **The noun is the field's printed label, lower-cased.** The task dialog's
+  field says _Name_, so its error is `Enter a name.`, not `Describe the task.`
+  A message naming something the user cannot see on screen sends them looking
+  for a field that isn't there.
+- **A malformed value takes `valid`**: `Enter a valid email address.`,
+  `Pick valid dates.` A rule spanning two fields states the rule instead:
+  `Check-out must be after check-in.`
+- **Nothing the user can fix by typing takes the declarative**
+  `Could not <verb> that <thing>.` Server-side failures, conflicts and
+  not-founds all live in this family, which is why `Track not found.` became
+  `Could not find that track.`
+- **No diagnostic hints.** `Check the city and the name.` guesses at a cause the
+  server already knows it cannot name, and reads as an accusation when the
+  input was fine and the provider was down.
+
+Two consequences worth recording:
+
+**The invite message was un-merged.** It read `Enter a valid email address.
+Only the organizer can invite.`, with a comment claiming the merge stopped a
+prober from telling a bad address apart from a permission refusal. It protected
+nothing: `People.tsx` only renders the invite form when `data.organizer`, and
+the roster tags the organizer publicly, so anyone could already tell. What it
+did do was tell the organizer their own correct address was malformed.
+`inviteToTrip` now returns a distinct `'forbidden'`, which the route answers
+with 403 and its own sentence.
+
+**A missing cost description is now checked in the route.** It previously fell
+through to the persistence layer and surfaced as `Could not add that item.`, a
+declarative for something the user could fix by typing one word.
+
 **Global styles live in `src/app.css`, not in page files.** Specifically: the
 `:focus-visible` ring, `:disabled` treatment, the `prefers-reduced-motion`
 guard, `.sr-only`, and every button variant (`.btn.small` / `.btn.sm`,

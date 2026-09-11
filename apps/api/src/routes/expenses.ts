@@ -43,7 +43,7 @@ async function parseExpense(
 	const b = await body(c);
 
 	const description = str(b.description);
-	if (!description) return { error: 'Add a description.' };
+	if (!description) return { error: 'Enter a description.' };
 
 	const amount = num(b.amount);
 	// Income is the same record with the sign flipped: a negative amount means
@@ -55,7 +55,7 @@ async function parseExpense(
 	const cents = Math.round(amount * 100);
 
 	const participantIds = strList(b.participantIds);
-	if (!participantIds.length) return { error: 'Pick who shares this.' };
+	if (!participantIds.length) return { error: 'Pick at least one person.' };
 
 	const rawMode = str(b.splitMode) || 'even';
 	const splitMode: SplitMode = isSplitMode(rawMode) ? rawMode : 'even';
@@ -150,7 +150,7 @@ expenses.post('/', async (c) => {
 		parsed.parts,
 		parsed.splitMode
 	);
-	if (!id) return fail(c, 400, 'Could not add expense.');
+	if (!id) return fail(c, 400, 'Could not add that expense.');
 	return c.json({ id }, 201);
 });
 

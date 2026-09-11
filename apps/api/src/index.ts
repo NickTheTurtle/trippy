@@ -64,7 +64,7 @@ app.get('/api/citysearch', requireUser, async (c) =>
 	c.json({ results: await searchCities(c.req.query('q') ?? '') })
 );
 
-app.notFound((c) => fail(c, 404, 'Not found'));
+app.notFound((c) => fail(c, 404, 'Not found.'));
 
 app.onError((err, c) => {
 	// Log the real error, return a generic one: stack traces and SQL text in a

@@ -87,7 +87,7 @@ discover.get('/search', async (c) => {
 	// The city bias for the search, resolved only if the city is this trip's, so
 	// an id from another trip cannot steer where we look.
 	const city = citySearchContext(trip.id, c.req.query('cityId') ?? '');
-	if (!city) return fail(c, 400, 'Unknown city');
+	if (!city) return fail(c, 400, 'Could not find that city.');
 
 	return c.json({
 		results: await searchPlaces(
@@ -117,7 +117,7 @@ discover.get('/search', async (c) => {
  */
 discover.get('/details', async (c) => {
 	const id = c.req.query('id')?.trim() ?? '';
-	if (!id) return fail(c, 400, 'Missing id');
+	if (!id) return fail(c, 400, 'Missing id.');
 	try {
 		return c.json({ details: await placeDetailsCached(id, sessionToken(c.req.query('token'))) });
 	} catch {
@@ -138,7 +138,7 @@ discover.post('/pois', async (c) => {
 	// Optional activity label: "Sunset photos" at "Acropolis". When given it
 	// becomes the card title and the place name is kept as context in the notes.
 	const activity = str(b.activity);
-	if (!placeName && !activity) return fail(c, 400, 'Name the place.');
+	if (!placeName && !activity) return fail(c, 400, 'Enter a name.');
 
 	const name = activity || placeName;
 	let notes = optStr(b.notes);
@@ -179,14 +179,14 @@ discover.post('/pois', async (c) => {
 		// `attraction` and dropping every restaurant into the wrong tab.
 		optStr(b.kind) ?? undefined
 	);
-	if (!id) return fail(c, 400, 'Could not add place. Check the city.');
+	if (!id) return fail(c, 400, 'Could not add that place.');
 	return c.json({ id }, 201);
 });
 
 discover.patch('/pois/:poiId', async (c) => {
 	const b = await body(c);
 	const name = str(b.name);
-	if (!name) return fail(c, 400, 'Name the place.');
+	if (!name) return fail(c, 400, 'Enter a name.');
 
 	return okOr(
 		c,
@@ -272,14 +272,14 @@ discover.post('/stays', async (c) => {
 	const b = await body(c);
 
 	const name = str(b.name);
-	if (!name) return fail(c, 400, 'Name the stay.');
+	if (!name) return fail(c, 400, 'Enter a name.');
 
 	const price = stayPriceCents(b);
-	if (price === 'bad') return fail(c, 400, 'Enter a valid price.');
+	if (price === 'bad') return fail(c, 400, 'Enter a valid price, or leave it blank.');
 
 	const checkIn = optDay(b.checkIn);
 	const checkOut = optDay(b.checkOut);
-	if (checkIn === 'bad' || checkOut === 'bad') return fail(c, 400, 'Enter valid dates.');
+	if (checkIn === 'bad' || checkOut === 'bad') return fail(c, 400, 'Pick valid dates.');
 	if (checkIn && checkOut && checkIn > checkOut) {
 		return fail(c, 400, 'Check-out must be after check-in.');
 	}
@@ -300,7 +300,7 @@ discover.post('/stays', async (c) => {
 		checkOut,
 		optStr(b.photo)
 	);
-	if (!id) return fail(c, 400, 'Could not add stay. Check the city and the name.');
+	if (!id) return fail(c, 400, 'Could not add that stay.');
 	return c.json({ id }, 201);
 });
 
@@ -345,14 +345,14 @@ discover.patch('/stays/:optionId', async (c) => {
 	const b = await body(c);
 
 	const name = str(b.name);
-	if (!name) return fail(c, 400, 'Name the stay.');
+	if (!name) return fail(c, 400, 'Enter a name.');
 
 	const price = stayPriceCents(b);
-	if (price === 'bad') return fail(c, 400, 'Enter a valid price.');
+	if (price === 'bad') return fail(c, 400, 'Enter a valid price, or leave it blank.');
 
 	const checkIn = optDay(b.checkIn);
 	const checkOut = optDay(b.checkOut);
-	if (checkIn === 'bad' || checkOut === 'bad') return fail(c, 400, 'Enter valid dates.');
+	if (checkIn === 'bad' || checkOut === 'bad') return fail(c, 400, 'Pick valid dates.');
 	if (checkIn && checkOut && checkIn > checkOut) {
 		return fail(c, 400, 'Check-out must be after check-in.');
 	}
@@ -377,7 +377,7 @@ discover.patch('/stays/:optionId/dates', async (c) => {
 	const b = await body(c);
 	const checkIn = optDay(b.checkIn);
 	const checkOut = optDay(b.checkOut);
-	if (checkIn === 'bad' || checkOut === 'bad') return fail(c, 400, 'Enter valid dates.');
+	if (checkIn === 'bad' || checkOut === 'bad') return fail(c, 400, 'Pick valid dates.');
 	if (checkIn && checkOut && checkIn > checkOut) {
 		return fail(c, 400, 'Check-out must be after check-in.');
 	}

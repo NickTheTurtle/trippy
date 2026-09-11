@@ -1,4 +1,5 @@
 import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
+import { isValidEmail } from '@trippy/core';
 import { db } from '../db';
 import { consumeInvites } from '../persistence/members';
 import { seedExampleTrips } from '../seeds/seed-example';
@@ -75,10 +76,8 @@ export function updateProfile(
 ): { ok: true } | { ok: false; error: string } {
 	const cleanName = name.trim();
 	const cleanEmail = email.trim().toLowerCase();
-	if (!cleanName) return { ok: false, error: 'Name is required.' };
-	if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(cleanEmail))
-		return { ok: false, error: 'Enter a valid email address.' };
-	const clash = findUserByEmail(cleanEmail);
+	if (!cleanName) return { ok: false, error: 'Enter a name.' };
+	if (!isValidEmail(cleanEmail)) return { ok: false, error: 'Enter a valid email address.' };	const clash = findUserByEmail(cleanEmail);
 	if (clash && clash.id !== userId)
 		return { ok: false, error: 'Another account already uses that email.' };
 	const before = findUserById(userId);

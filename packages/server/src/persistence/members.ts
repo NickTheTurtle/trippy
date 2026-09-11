@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { isValidEmail } from '@trippy/core';
 import { db } from '../db';
 import { publish, publishMany } from '../events';
 import { detachMemberFromLedger } from './expenses';
@@ -68,17 +69,23 @@ export function listPeople(tripId: string): Person[] {
 	});
 }
 
-export type InviteResult = 'added' | 'invited' | 'exists' | 'invalid';
+export type InviteResult = 'added' | 'invited' | 'exists' | 'invalid' | 'forbidden';
 
 /**
  * Invite an email to a trip. If a user with that email already exists they are
  * added straight away; otherwise a pending invite is recorded and consumed when
  * they register (see `consumeInvites`).
+ *
+ * A refusal says which of the two it is. They were one result for a while, so
+ * that a prober could not tell the organizer apart from a typo, but the roster
+ * names the organizer to everyone on the trip and the invite form is only
+ * rendered for them, so the only thing the shared message achieved was telling
+ * the organizer their own address was malformed when it was not.
  */
 export function inviteToTrip(tripId: string, actorId: string, email: string): InviteResult {
-	if (!isOrganizer(tripId, actorId)) return 'invalid';
+	if (!isOrganizer(tripId, actorId)) return 'forbidden';
 	const clean = email.trim().toLowerCase();
-	if (!clean || !clean.includes('@')) return 'invalid';
+	if (!isValidEmail(clean)) return 'invalid';
 
 	const user = db.prepare(`SELECT id FROM users WHERE email = ?`).get(clean) as
 		{ id: string } | undefined;

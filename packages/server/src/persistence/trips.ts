@@ -181,7 +181,7 @@ export type TripCreateResult = { id: string; error: null } | { id: null; error: 
  */
 export function createTrip(userId: string, input: TripCreate): TripCreateResult {
 	const name = input.name.trim();
-	if (!name) return { id: null, error: 'Give your trip a name.' };
+	if (!name) return { id: null, error: 'Enter a name.' };
 	const range = validateDates(input.startDate, input.endDate);
 	if (typeof range === 'string') return { id: null, error: range };
 	const currency = (input.homeCurrency ?? 'USD').trim().toUpperCase() || 'USD';
@@ -230,8 +230,8 @@ function validateDates(
 	if (!rawEnd) return 'Pick an end date.';
 	const start = normalizeDay(rawStart);
 	const end = normalizeDay(rawEnd);
-	if (!start) return 'Enter a valid start date.';
-	if (!end) return 'Enter a valid end date.';
+	if (!start) return 'Pick a valid start date.';
+	if (!end) return 'Pick a valid end date.';
 	if (end < start) return 'The end date must be on or after the start date.';
 	return { start, end };
 }
@@ -261,7 +261,7 @@ export interface TripEdit {
 export function updateTrip(tripId: string, actorId: string, e: TripEdit): string | null {
 	if (!isOrganizer(tripId, actorId)) return 'Only the organizer can edit this trip.';
 	const name = e.name.trim();
-	if (!name) return 'Give your trip a name.';
+	if (!name) return 'Enter a name.';
 	const dates = validateDates(e.startDate, e.endDate);
 	if (typeof dates === 'string') return dates;
 	const currency = e.currency.trim().toUpperCase();

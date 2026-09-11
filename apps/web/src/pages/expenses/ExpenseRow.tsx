@@ -36,12 +36,18 @@ export default function ExpenseRow({
 		<li className="group flex items-center gap-3">
 			<Avatar name={e.payer_name} tone={credit ? 'muted' : 'accent'} />
 			<div className="flex min-w-0 flex-col">
-				<span className="truncate text-body font-medium" title={e.description}>
-					{e.description}
+				{/* The description truncates; the marks beside it do not. They are
+				    siblings in a flex row rather than inline inside the truncating
+				    span, because a long description would otherwise push the very
+				    thing that flags the row out of view. */}
+				<span className="flex items-center gap-1 text-body font-medium">
+					<span className="truncate" title={e.description}>
+						{e.description}
+					</span>
 					{/* A settlement is an expense in every way that matters to the maths,
 					    but it is not a cost anyone shared, so the ledger says which it is. */}
 					{(credit || settled) && (
-						<Tag tone="accent" outline className="ml-1">
+						<Tag tone="accent" outline>
 							{settled ? c.paymentTag : c.incomeTag}
 						</Tag>
 					)}
@@ -55,7 +61,7 @@ export default function ExpenseRow({
 							role="img"
 							aria-label={c.reviewTitle}
 							title={c.reviewTitle}
-							className="ml-1 inline-flex translate-y-0.5 align-text-bottom text-warn"
+							className="flex-none text-warn"
 						>
 							<WarningIcon />
 						</span>

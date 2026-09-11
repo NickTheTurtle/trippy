@@ -63,7 +63,7 @@ export function sessionId(c: Parameters<typeof getCookie>[0]) {
 }
 
 export const requireUser = createMiddleware<{ Variables: Vars }>(async (c, next) => {
-	if (!c.get('user')) return fail(c, 401, 'Not signed in');
+	if (!c.get('user')) return fail(c, 401, 'Not signed in.');
 	await next();
 });
 
@@ -77,10 +77,10 @@ export const requireUser = createMiddleware<{ Variables: Vars }>(async (c, next)
  */
 export const requireMember = createMiddleware<{ Variables: Vars }>(async (c, next) => {
 	const user = c.get('user');
-	if (!user) return fail(c, 401, 'Not signed in');
+	if (!user) return fail(c, 401, 'Not signed in.');
 
 	const trip = getTripForUser(c.req.param('tripId')!, user.id);
-	if (!trip) return fail(c, 404, 'Not found');
+	if (!trip) return fail(c, 404, 'Not found.');
 
 	c.set('trip', trip);
 	await next();

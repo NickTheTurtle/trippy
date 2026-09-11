@@ -95,7 +95,7 @@ test.describe('auth and session', () => {
 			// a missing account, so the message must never name which was wrong.
 			const alert = page.getByRole('alert');
 			await expect(alert).toBeVisible();
-			await expect(alert).toHaveText('Wrong email or password');
+			await expect(alert).toHaveText('Wrong email or password.');
 			await expect(alert).not.toContainText(fixture.email);
 			// Still on the login page, not signed in.
 			await expect(page).toHaveURL(/\/login$/);

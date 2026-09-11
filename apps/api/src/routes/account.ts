@@ -47,7 +47,7 @@ account.get('/', (c) => {
 	const user = findUserById(c.get('user').id);
 	// The session outlived the row, which means the account was deleted. Treat it
 	// as signed out rather than 500ing on a missing user.
-	if (!user) return fail(c, 401, 'Not signed in');
+	if (!user) return fail(c, 401, 'Not signed in.');
 	return c.json({
 		profile: { name: user.name, email: user.email, homeTz: user.home_tz },
 		timeZones: timeZonesFor(user.home_tz)

@@ -62,10 +62,10 @@ people.post('/invites', async (c) => {
 		}
 		case 'exists':
 			return fail(c, 409, 'That person is already a member or invited.');
+		case 'forbidden':
+			return fail(c, 403, 'Only the organizer can invite people.');
 		default:
-			// One message for a malformed address and for a member who is not the
-			// organizer, so the two are not told apart by trying.
-			return fail(c, 400, 'Enter a valid email address. Only the organizer can invite.');
+			return fail(c, 400, 'Enter a valid email address.');
 	}
 });
 
