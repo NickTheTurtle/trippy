@@ -3,6 +3,7 @@ import { api } from '../lib/api';
 import { useApi } from '../hooks/useApi';
 import { useLiveSection } from '../hooks/useTripEvents';
 import { useMutation } from '../hooks/useMutation';
+import FlipGrid from '../components/ui/FlipGrid';
 import { useTrip } from './TripShell';
 import Select from '../components/ui/Select';
 import FormError from '../components/ui/FormError';
@@ -97,6 +98,25 @@ export default function Discover() {
 	const stays = staysIn(current.id);
 	const places = placesIn(current);
 
+	/* One grid ordered by votes, whatever the filter says.
+	 *
+	 * The server already returns each pool in vote order, but the grid drew all
+	 * the stays and then all the places, so under All a stay nobody wanted still
+	 * sat above the most popular thing in the city. That made the ordering look
+	 * arbitrary exactly where it matters most: All is the view you use to see
+	 * what the group actually wants.
+	 *
+	 * The sort is stable and the pools go in server order, so ties keep the
+	 * meaning they already had: stays ahead of places, and a locked stay ahead
+	 * of the rest of the stays. */
+	const items: (
+		| { key: string; votes: number; stay: (typeof stays)[number] }
+		| { key: string; votes: number; poi: (typeof places)[number] }
+	)[] = [
+		...stays.map((o) => ({ key: `stay:${o.id}`, votes: o.votes, stay: o })),
+		...places.map((p) => ({ key: `poi:${p.id}`, votes: p.votes, poi: p }))
+	].sort((a, b) => b.votes - a.votes);
+
 	/** `cities.tz` is where the IANA zone lives; Discover joins the trip on it. */
 	const tzOf = (cityId: string) => trip.cities.find((c) => c.id === cityId)?.tz ?? '';
 
@@ -170,32 +190,36 @@ export default function Discover() {
 						<EmptyState graphic message={copy.common.nothingAdded} />
 					</div>
 				) : (
-					<div className="grid min-w-0 grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-4">
-						{/* Stays lead, because a bed is the decision the rest of a city
-						    gets planned around. Within each the server's order stands. */}
-						{stays.map((o) => (
-							<StayCard
-								key={o.id}
-								stay={o}
-								currency={data.currency}
-								pct={pct(o.votes)}
-								onEdit={() => setEditStay(o)}
-								onVote={() => void voteStay.run(o.id)}
-								onRemove={() => setDeleteStay(o)}
-							/>
-						))}
-						{places.map((p) => (
-							<PlaceCard
-								key={p.id}
-								poi={p}
-								tz={tzOf(current.id)}
-								pct={pct(p.votes)}
-								onEdit={() => setEditPoi(p)}
-								onVote={() => void votePlace.run(p.id)}
-								onRemove={() => setDeletePoi(p)}
-							/>
-						))}
-					</div>
+					<FlipGrid
+						signature={items.map((i) => `${i.key}:${i.votes}`).join(',')}
+						className="grid min-w-0 grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-4"
+					>
+						{items.map((it) =>
+							'stay' in it ? (
+								<StayCard
+									key={it.key}
+									flipKey={it.key}
+									stay={it.stay}
+									currency={data.currency}
+									pct={pct(it.stay.votes)}
+									onEdit={() => setEditStay(it.stay)}
+									onVote={() => void voteStay.run(it.stay.id)}
+									onRemove={() => setDeleteStay(it.stay)}
+								/>
+							) : (
+								<PlaceCard
+									key={it.key}
+									flipKey={it.key}
+									poi={it.poi}
+									tz={tzOf(current.id)}
+									pct={pct(it.poi.votes)}
+									onEdit={() => setEditPoi(it.poi)}
+									onVote={() => void votePlace.run(it.poi.id)}
+									onRemove={() => setDeletePoi(it.poi)}
+								/>
+							)
+						)}
+					</FlipGrid>
 				)}
 			</div>
 

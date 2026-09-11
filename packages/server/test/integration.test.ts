@@ -18,7 +18,6 @@ let expenses: typeof import('../src/persistence/expenses.ts');
 let events: typeof import('../src/events.ts');
 let pois: typeof import('../src/persistence/pois.ts');
 let lodging: typeof import('../src/persistence/lodging.ts');
-let parties: typeof import('../src/persistence/parties.ts');
 let tasks: typeof import('../src/persistence/tasks.ts');
 let costs: typeof import('../src/persistence/costs.ts');
 
@@ -31,7 +30,7 @@ interface Fixture {
 }
 
 beforeAll(async () => {
-	[{ db }, auth, trips, schedule, members, expenses, events, pois, lodging, parties, tasks, costs] =
+	[{ db }, auth, trips, schedule, members, expenses, events, pois, lodging, tasks, costs] =
 		await Promise.all([
 			import('../src/db.ts'),
 			import('../src/infra/auth.ts'),
@@ -42,7 +41,6 @@ beforeAll(async () => {
 			import('../src/events.ts'),
 			import('../src/persistence/pois.ts'),
 			import('../src/persistence/lodging.ts'),
-			import('../src/persistence/parties.ts'),
 			import('../src/persistence/tasks.ts'),
 			import('../src/persistence/costs.ts')
 		]);
@@ -88,7 +86,9 @@ function createTripFixture(label = 'trip'): Fixture {
 		endDate: '2026-10-03',
 		homeCurrency: 'USD'
 	}).id!;
-	expect(members.addPerson(tripId, organizer, 'Guest', auth.findUserById(member)!.email)).toBe('added');
+	expect(members.addPerson(tripId, organizer, 'Guest', auth.findUserById(member)!.email)).toBe(
+		'added'
+	);
 	const cityId = trips.addCity(tripId, organizer, {
 		name: 'Athens',
 		country: 'Greece',
@@ -100,23 +100,21 @@ function createTripFixture(label = 'trip'): Fixture {
 }
 
 function createScheduleItem(f: Fixture): string {
-	const trackId = schedule.createTrack(f.tripId, '2026-10-01', 'Main')!;
-	return schedule.createItem(trackId, f.tripId, f.organizer, {
+	return schedule.createEvent(f.tripId, f.organizer, {
+		day: '2026-10-01',
 		title: 'Museum',
 		startMin: 9 * 60,
 		endMin: 10 * 60,
-		type: 'poi',
+		type: 'activity',
 		lat: 37.98,
 		lng: 23.73,
-		assignees: [f.organizer]
+		people: [f.organizer]
 	})!;
 }
 
 function itemRow(itemId: string) {
-	return db
-		.prepare(`SELECT title, start_min, end_min, booking FROM schedule_items WHERE id = ?`)
-		.get(itemId) as
-		{ title: string; start_min: number; end_min: number; booking: string | null } | undefined;
+	return db.prepare(`SELECT title, start_min, end_min FROM events WHERE id = ?`).get(itemId) as
+		{ title: string; start_min: number; end_min: number } | undefined;
 }
 
 function cityRow(cityId: string) {
@@ -138,45 +136,39 @@ function tableCount(table: string, where: string, ...args: unknown[]): number {
 describe('schedule authorization and trip scoping', () => {
 	const cases = [
 		{
-			name: 'moveItem',
+			name: 'moveEvent',
 			run: (itemId: string, actor: string, tripId: string) =>
-				schedule.moveItem(itemId, actor, 11 * 60, tripId),
+				schedule.moveEvent(itemId, actor, 11 * 60, tripId),
 			assertUnchanged: (itemId: string) => expect(itemRow(itemId)!.start_min).toBe(9 * 60)
 		},
 		{
-			name: 'resizeItem',
+			name: 'resizeEvent',
 			run: (itemId: string, actor: string, tripId: string) =>
-				schedule.resizeItem(itemId, actor, 12 * 60, tripId),
+				schedule.resizeEvent(itemId, actor, 12 * 60, tripId),
 			assertUnchanged: (itemId: string) => expect(itemRow(itemId)!.end_min).toBe(10 * 60)
 		},
 		{
-			name: 'editItem',
+			name: 'editEvent',
 			run: (itemId: string, actor: string, tripId: string) =>
-				schedule.editItem(itemId, actor, { title: 'Changed' }, tripId),
+				schedule.editEvent(itemId, actor, { title: 'Changed' }, tripId),
 			assertUnchanged: (itemId: string) => expect(itemRow(itemId)!.title).toBe('Museum')
 		},
 		{
-			name: 'deleteItem',
+			name: 'deleteEvent',
 			run: (itemId: string, actor: string, tripId: string) =>
-				schedule.deleteItem(itemId, actor, tripId),
+				schedule.deleteEvent(itemId, actor, tripId),
 			assertUnchanged: (itemId: string) => expect(itemRow(itemId)).toBeDefined()
 		},
 		{
-			name: 'setAssignees',
+			name: 'setEventPeople',
 			run: (itemId: string, actor: string, tripId: string) =>
-				schedule.setAssignees(itemId, tripId, actor, []),
+				schedule.setEventPeople(itemId, tripId, actor, []),
 			assertUnchanged: (itemId: string) =>
-				expect(tableCount('item_assignees', 'item_id = ?', itemId)).toBe(1)
-		},
-		{
-			name: 'cycleBooking',
-			run: (itemId: string, actor: string, tripId: string) =>
-				schedule.cycleBooking(itemId, actor, tripId),
-			assertUnchanged: (itemId: string) => expect(itemRow(itemId)!.booking).toBe('unbooked')
+				expect(tableCount('event_people', 'event_id = ?', itemId)).toBe(1)
 		}
 	];
 
-	it.each(cases)('$name rejects a valid item id when the caller passes another trip id', (c) => {
+	it.each(cases)('$name rejects a valid event id when the caller passes another trip id', (c) => {
 		const tripA = createTripFixture('a');
 		const tripB = createTripFixture('b');
 		const itemId = createScheduleItem(tripA);
@@ -195,29 +187,32 @@ describe('schedule authorization and trip scoping', () => {
 		c.assertUnchanged(itemId);
 	});
 
-	it('setPartyDay rejects cross-trip party, city, and lodging ids', () => {
-		const tripA = createTripFixture('party-a');
-		const tripB = createTripFixture('party-b');
-		const partyA = parties.createParty(tripA.tripId, tripA.organizer, 'Split')!;
-		const optionB = lodging.addOption(tripB.tripId, tripB.organizer, tripB.cityId, 'Hotel B')!;
+	it('keeps a crew inside its own trip', () => {
+		const tripA = createTripFixture('crew-a');
+		const tripB = createTripFixture('crew-b');
+		const crewA = schedule.createCrew(tripA.tripId, tripA.organizer, 'Split', [tripA.organizer])!;
 
-		expect(
-			parties.setPartyDay(tripA.tripId, tripA.organizer, partyA, '2026-10-01', tripB.cityId, null)
-		).toBe(false);
-		expect(
-			parties.setPartyDay(tripA.tripId, tripA.organizer, partyA, '2026-10-01', null, optionB)
-		).toBe(false);
-		expect(
-			parties.setPartyDay(
-				tripB.tripId,
-				tripB.organizer,
-				partyA,
-				'2026-10-01',
-				tripB.cityId,
-				optionB
-			)
-		).toBe(false);
-		expect(parties.partyDay(partyA, '2026-10-01')).toBeNull();
+		// A crew is only a saved selection of people, so the guard it needs is the
+		// simple one the old party_day cross-id check existed for: nobody reaches
+		// another trip's crew by naming their own trip.
+		expect(schedule.editCrew(crewA, tripB.tripId, tripB.organizer, 'Renamed', undefined)).toBe(
+			false
+		);
+		expect(schedule.deleteCrew(crewA, tripB.tripId, tripB.organizer)).toBe(false);
+		expect(schedule.crewsForTrip(tripA.tripId)[0]).toMatchObject({ name: 'Split' });
+	});
+
+	it('keeps only trip members on a crew, and on an event', () => {
+		const f = createTripFixture('crew-roster');
+		const crew = schedule.createCrew(f.tripId, f.organizer, 'Crew', [f.organizer, f.outsider])!;
+		expect(schedule.crewsForTrip(f.tripId)[0].members).toEqual([f.organizer]);
+
+		const itemId = createScheduleItem(f);
+		expect(schedule.setEventPeople(itemId, f.tripId, f.organizer, [f.member, f.outsider])).toBe(
+			true
+		);
+		expect(tableCount('event_people', 'event_id = ?', itemId)).toBe(1);
+		expect(crew).toBeTruthy();
 	});
 });
 
@@ -398,13 +393,11 @@ describe('member removal cascade', () => {
 		const stayId = lodging.addOption(f.tripId, f.organizer, f.cityId, 'Guesthouse')!;
 		expect(lodging.vote(f.tripId, placeholder.id, stayId)).toBe(true);
 		const itemId = createScheduleItem(f);
-		expect(schedule.setAssignees(itemId, f.tripId, f.organizer, [placeholder.id])).toBe(true);
+		expect(schedule.setEventPeople(itemId, f.tripId, f.organizer, [placeholder.id])).toBe(true);
 		const taskId = tasks.addTask(f.tripId, f.organizer, 'prep', 'Pack', [placeholder.id], null)!;
 		expect(tasks.toggleTask(f.tripId, placeholder.id, taskId).ok).toBe(true);
-		const crew = parties.createParty(f.tripId, f.organizer, 'Crew')!;
-		expect(
-			parties.assignMembership(f.tripId, f.organizer, crew, placeholder.id, '2026-10-01', 60, 120)
-		).toBe(true);
+		const crew = schedule.createCrew(f.tripId, f.organizer, 'Crew', [placeholder.id])!;
+		expect(crew).toBeTruthy();
 		const before = snapshotRemovalCounts(f.tripId, placeholder.id);
 
 		expect(before.expensesPaid).toBe(1);
@@ -413,10 +406,10 @@ describe('member removal cascade', () => {
 		expect(before.otherPeopleSharesLost).toBe(2);
 		expect(before.poiVotes).toBe(1);
 		expect(before.lodgingVotes).toBe(1);
-		expect(before.itemAssignments).toBe(1);
+		expect(before.eventAssignments).toBe(1);
 		expect(before.taskAssignments).toBe(1);
 		expect(before.taskCompletions).toBe(1);
-		expect(before.partySegments).toBe(1);
+		expect(before.crewMemberships).toBe(1);
 
 		expect(members.removeMember(f.tripId, f.organizer, placeholder.id)).toBe(true);
 
@@ -539,7 +532,7 @@ describe('invite consumption relinks placeholder history', () => {
 		optionId: string;
 		itemId: string;
 		taskId: string;
-		partyId: string;
+		crewId: string;
 	}
 
 	/**
@@ -571,15 +564,12 @@ describe('invite consumption relinks placeholder history', () => {
 		const optionId = lodging.addOption(f.tripId, f.organizer, f.cityId, 'Guesthouse')!;
 		expect(lodging.vote(f.tripId, id, optionId)).toBe(true);
 		const itemId = createScheduleItem(f);
-		expect(schedule.setAssignees(itemId, f.tripId, f.organizer, [id])).toBe(true);
+		expect(schedule.setEventPeople(itemId, f.tripId, f.organizer, [id])).toBe(true);
 		const taskId = tasks.addTask(f.tripId, f.organizer, 'prep', 'Pack', [id], null)!;
 		expect(tasks.toggleTask(f.tripId, id, taskId).ok).toBe(true);
-		const partyId = parties.createParty(f.tripId, f.organizer, 'Crew')!;
-		expect(
-			parties.assignMembership(f.tripId, f.organizer, partyId, id, '2026-10-01', 60, 120)
-		).toBe(true);
+		const crewId = schedule.createCrew(f.tripId, f.organizer, 'Crew', [id])!;
 
-		return { id, email, expenseId, poiId, optionId, itemId, taskId, partyId };
+		return { id, email, expenseId, poiId, optionId, itemId, taskId, crewId };
 	}
 
 	it('moves every cascade-owned row to the new account instead of destroying it', () => {
@@ -591,10 +581,10 @@ describe('invite consumption relinks placeholder history', () => {
 			ph.taskId,
 			ph.id
 		);
-		expect(before.itemAssignments).toBe(1);
+		expect(before.eventAssignments).toBe(1);
 		expect(before.taskAssignments).toBe(1);
 		expect(before.taskCompletions).toBe(1);
-		expect(before.partySegments).toBe(1);
+		expect(before.crewMemberships).toBe(1);
 
 		const real = auth.createUser(ph.email, 'Invitee', 'password123');
 
@@ -611,12 +601,10 @@ describe('invite consumption relinks placeholder history', () => {
 		).toBe(1);
 		expect(tableCount('poi_votes', 'poi_id = ? AND user_id = ?', ph.poiId, real.id)).toBe(1);
 		expect(tableCount('lodging_votes', 'city_id = ? AND user_id = ?', f.cityId, real.id)).toBe(1);
-		expect(tableCount('item_assignees', 'item_id = ? AND user_id = ?', ph.itemId, real.id)).toBe(1);
+		expect(tableCount('event_people', 'event_id = ? AND user_id = ?', ph.itemId, real.id)).toBe(1);
 		expect(tableCount('task_assignees', 'task_id = ? AND user_id = ?', ph.taskId, real.id)).toBe(1);
 		expect(tableCount('task_done', 'task_id = ? AND user_id = ?', ph.taskId, real.id)).toBe(1);
-		expect(
-			tableCount('party_membership', 'party_id = ? AND user_id = ?', ph.partyId, real.id)
-		).toBe(1);
+		expect(tableCount('crew_members', 'crew_id = ? AND user_id = ?', ph.crewId, real.id)).toBe(1);
 
 		// The completion keeps its original timestamp: a relink is not a re-tick.
 		expect(
@@ -705,22 +693,16 @@ describe('invite consumption relinks placeholder history', () => {
 		expect(lodging.vote(f.tripId, real.id, optionId)).toBe(true);
 		expect(lodging.vote(f.tripId, phId, optionId)).toBe(true);
 		const itemId = createScheduleItem(f);
-		expect(schedule.setAssignees(itemId, f.tripId, f.organizer, [real.id, phId])).toBe(true);
+		expect(schedule.setEventPeople(itemId, f.tripId, f.organizer, [real.id, phId])).toBe(true);
 		const taskId = tasks.addTask(f.tripId, f.organizer, 'prep', 'Visa', [real.id, phId], null)!;
 		expect(tasks.toggleTask(f.tripId, real.id, taskId).ok).toBe(true);
 		expect(tasks.toggleTask(f.tripId, phId, taskId).ok).toBe(true);
-		const partyId = parties.createParty(f.tripId, f.organizer, 'Crew')!;
-		expect(
-			parties.assignMembership(f.tripId, f.organizer, partyId, real.id, '2026-10-01', 60, 120)
-		).toBe(true);
-		expect(
-			parties.assignMembership(f.tripId, f.organizer, partyId, phId, '2026-10-01', 60, 120)
-		).toBe(true);
+		const crewId = schedule.createCrew(f.tripId, f.organizer, 'Crew', [real.id, phId])!;
 
 		// Rows in the same tables that do NOT collide, so the merge has to both
 		// collapse duplicates and carry the placeholder's own history across.
 		const soloItem = createScheduleItem(f);
-		expect(schedule.setAssignees(soloItem, f.tripId, f.organizer, [phId])).toBe(true);
+		expect(schedule.setEventPeople(soloItem, f.tripId, f.organizer, [phId])).toBe(true);
 		const soloTask = tasks.addTask(f.tripId, f.organizer, 'prep', 'Insurance', [phId], null)!;
 		expect(tasks.toggleTask(f.tripId, phId, soloTask).ok).toBe(true);
 
@@ -756,16 +738,12 @@ describe('invite consumption relinks placeholder history', () => {
 		).toBe(1);
 		expect(tableCount('poi_votes', 'poi_id = ?', poiId)).toBe(1);
 		expect(tableCount('lodging_votes', 'city_id = ?', f.cityId)).toBe(1);
-		expect(tableCount('item_assignees', 'item_id = ?', itemId)).toBe(1);
-		expect(tableCount('item_assignees', 'item_id = ? AND user_id = ?', itemId, real.id)).toBe(1);
+		expect(tableCount('event_people', 'event_id = ?', itemId)).toBe(1);
+		expect(tableCount('event_people', 'event_id = ? AND user_id = ?', itemId, real.id)).toBe(1);
 		expect(tableCount('task_assignees', 'task_id = ?', taskId)).toBe(1);
 		expect(tableCount('task_done', 'task_id = ?', taskId)).toBe(1);
-		expect(tableCount('party_membership', 'party_id = ? AND day = ?', partyId, '2026-10-01')).toBe(
-			1
-		);
-		expect(tableCount('party_membership', 'party_id = ? AND user_id = ?', partyId, real.id)).toBe(
-			1
-		);
+		expect(tableCount('crew_members', 'crew_id = ?', crewId)).toBe(1);
+		expect(tableCount('crew_members', 'crew_id = ? AND user_id = ?', crewId, real.id)).toBe(1);
 
 		// On a collision the real account keeps the completion it made itself.
 		expect(
@@ -775,17 +753,18 @@ describe('invite consumption relinks placeholder history', () => {
 		// The non-colliding row still moves: payer_id is under no unique index.
 		expect(tableCount('expenses', 'id = ? AND payer_id = ?', placeholderExpense, real.id)).toBe(1);
 		// The placeholder's own, non-colliding assignments survive the merge too.
-		expect(tableCount('item_assignees', 'item_id = ? AND user_id = ?', soloItem, real.id)).toBe(1);
+		expect(tableCount('event_people', 'event_id = ? AND user_id = ?', soloItem, real.id)).toBe(1);
 		expect(tableCount('task_assignees', 'task_id = ? AND user_id = ?', soloTask, real.id)).toBe(1);
 		expect(tableCount('task_done', 'task_id = ? AND user_id = ?', soloTask, real.id)).toBe(1);
 		expect(tableCount('trip_invites', 'trip_id = ? AND email = ?', f.tripId, email)).toBe(0);
 	});
 
-	// Documents a boundary left deliberately unresolved: identical crew segments
-	// are collapsed, but a segment that merely overlaps is kept, because deciding
-	// which crew wins a contested window is a product call, not a merge detail.
-	it('collapses identical crew segments and keeps genuinely different ones', () => {
-		const f = createTripFixture('relink-parties');
+	// The old party_membership was time-segmented, so a relink had to decide what
+	// to do with two overlapping-but-different windows and deliberately left that
+	// unresolved. A crew is a plain set of people, so the question is gone: a
+	// collision collapses and everything else moves.
+	it('merges crew membership as a set, keeping crews the placeholder alone was in', () => {
+		const f = createTripFixture('relink-crews');
 		const email = `crew-${crypto.randomUUID()}@example.test`;
 		const real = auth.createUser(email, 'Crewmate', 'password123');
 		expect(members.addPerson(f.tripId, f.organizer, 'Guest', email)).toBe('added');
@@ -793,17 +772,8 @@ describe('invite consumption relinks placeholder history', () => {
 		expect(members.addPerson(f.tripId, f.organizer, 'Guest', ghost)).toBe('invited');
 		const phId = members.listPeople(f.tripId).find((p) => p.placeholder)!.id;
 
-		const crew = parties.createParty(f.tripId, f.organizer, 'Crew')!;
-		const other = parties.createParty(f.tripId, f.organizer, 'Other')!;
-		expect(
-			parties.assignMembership(f.tripId, f.organizer, crew, real.id, '2026-10-01', 60, 120)
-		).toBe(true);
-		expect(parties.assignMembership(f.tripId, f.organizer, crew, phId, '2026-10-01', 60, 120)).toBe(
-			true
-		);
-		expect(
-			parties.assignMembership(f.tripId, f.organizer, other, phId, '2026-10-02', 300, 400)
-		).toBe(true);
+		const crew = schedule.createCrew(f.tripId, f.organizer, 'Crew', [real.id, phId])!;
+		const other = schedule.createCrew(f.tripId, f.organizer, 'Other', [phId])!;
 
 		db.prepare(`UPDATE trip_invites SET email = ? WHERE trip_id = ? AND email = ?`).run(
 			email,
@@ -812,18 +782,10 @@ describe('invite consumption relinks placeholder history', () => {
 		);
 		members.consumeInvites(real.id, email);
 
-		expect(tableCount('party_membership', 'user_id = ?', real.id)).toBe(2);
-		expect(tableCount('party_membership', 'party_id = ? AND day = ?', crew, '2026-10-01')).toBe(1);
-		expect(
-			tableCount(
-				'party_membership',
-				'party_id = ? AND user_id = ? AND day = ?',
-				other,
-				real.id,
-				'2026-10-02'
-			)
-		).toBe(1);
-		expect(tableCount('party_membership', 'user_id = ?', phId)).toBe(0);
+		expect(tableCount('crew_members', 'user_id = ?', real.id)).toBe(2);
+		expect(tableCount('crew_members', 'crew_id = ?', crew)).toBe(1);
+		expect(tableCount('crew_members', 'crew_id = ? AND user_id = ?', other, real.id)).toBe(1);
+		expect(tableCount('crew_members', 'user_id = ?', phId)).toBe(0);
 	});
 });
 
@@ -862,7 +824,7 @@ describe('event bus', () => {
 			country: 'France',
 			tz: 'Europe/Paris'
 		});
-		const track = schedule.createTrack(tripA.tripId, '2026-10-01', 'Live');
+		const event = createScheduleItem(tripA);
 		const expense = expenses.addExpense(
 			tripA.tripId,
 			tripA.organizer,
@@ -877,7 +839,7 @@ describe('event bus', () => {
 		);
 
 		expect(newCity).toBeTruthy();
-		expect(track).toBeTruthy();
+		expect(event).toBeTruthy();
 		expect(expense).toBeTruthy();
 		expect(seen.length).toBeGreaterThan(cityEventCountBefore);
 		expect(seen.map((e) => e.topic)).toEqual([
@@ -1016,7 +978,7 @@ describe('schema and migrations', () => {
 			['cities', 'region', 'TEXT'],
 			['trips', 'start_date', 'TEXT'],
 			['trips', 'end_date', 'TEXT'],
-			['tracks', 'party_id', 'TEXT']
+			['events', 'travel_mode', 'TEXT']
 		] as const;
 
 		for (const [table, column, type] of expectedColumns) {
@@ -1034,6 +996,23 @@ describe('schema and migrations', () => {
 		}[];
 		expect(cityColumns.map((c) => c.name)).not.toContain('arrive');
 		expect(cityColumns.map((c) => c.name)).not.toContain('depart');
+
+		// The tracks model is gone, and its tables go with it. This is the one
+		// destructive step in db.ts, so it is pinned here: a stale table left
+		// behind would let a forgotten caller keep writing to it unnoticed.
+		const tables = db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`).all() as {
+			name: string;
+		}[];
+		for (const gone of [
+			'tracks',
+			'schedule_items',
+			'item_assignees',
+			'parties',
+			'party_day',
+			'party_membership'
+		]) {
+			expect(tables.map((t) => t.name)).not.toContain(gone);
+		}
 	});
 
 	it('enforces cascade and set-null foreign keys used by removal warnings', () => {
@@ -1060,15 +1039,24 @@ describe('schema and migrations', () => {
 		)!;
 		expect(pois.toggleVote(f.tripId, placeholder, poiId)).toBe(true);
 		const optionId = lodging.addOption(f.tripId, f.organizer, f.cityId, 'Hotel')!;
-		const partyId = parties.createParty(f.tripId, f.organizer, 'FK crew')!;
-		expect(
-			parties.setPartyDay(f.tripId, f.organizer, partyId, '2026-10-01', f.cityId, optionId)
-		).toBe(true);
+		// `events.lodging_id` and `events.city_id` are both ON DELETE SET NULL, so
+		// deleting the thing an event was booked into leaves the event standing
+		// with the link cleared rather than taking the block off the day.
+		const stayId = schedule.createEvent(f.tripId, f.organizer, {
+			day: '2026-10-01',
+			title: 'Hotel',
+			type: 'stay',
+			startMin: 21 * 60,
+			endMin: 9 * 60,
+			cityId: f.cityId,
+			lodgingId: optionId,
+			people: [f.organizer]
+		})!;
 
 		db.prepare(`DELETE FROM lodging_options WHERE id = ?`).run(optionId);
-		expect(parties.partyDay(partyId, '2026-10-01')!.lodgingOptionId).toBeNull();
+		expect(scalarOrNull(`SELECT lodging_id FROM events WHERE id = ?`, stayId)).toBeNull();
 		db.prepare(`DELETE FROM cities WHERE id = ?`).run(f.cityId);
-		expect(parties.partyDay(partyId, '2026-10-01')!.cityId).toBeNull();
+		expect(scalarOrNull(`SELECT city_id FROM events WHERE id = ?`, stayId)).toBeNull();
 		db.prepare(`DELETE FROM users WHERE id = ?`).run(placeholder);
 
 		expect(db.prepare(`SELECT 1 FROM expenses WHERE id = ?`).get(expenseId)).toBeUndefined();
@@ -1443,7 +1431,9 @@ describe('money paths', () => {
 			endDate: '2026-10-02',
 			homeCurrency: 'EUR'
 		}).id!;
-		expect(members.addPerson(tripId, organizer, 'Guest', auth.findUserById(member)!.email)).toBe('added');
+		expect(members.addPerson(tripId, organizer, 'Guest', auth.findUserById(member)!.email)).toBe(
+			'added'
+		);
 
 		expenses.addExpense(tripId, organizer, organizer, 'USD meal', 1000, 'USD', [
 			{ userId: organizer, weight: 1 },
@@ -1546,9 +1536,9 @@ describe('zero-weight participants', () => {
 	it('normalizes negative, NaN and Infinity weights to 0', () => {
 		const f = threeWayFixture('bad-weights');
 		const fourth = createUser('bad-weights-fourth');
-		expect(members.addPerson(f.tripId, f.organizer, 'Guest', auth.findUserById(fourth)!.email)).toBe(
-			'added'
-		);
+		expect(
+			members.addPerson(f.tripId, f.organizer, 'Guest', auth.findUserById(fourth)!.email)
+		).toBe('added');
 
 		const id = expenses.addExpense(
 			f.tripId,
@@ -1676,8 +1666,8 @@ function snapshotRemovalCounts(tripId: string, userId: string) {
 			userId,
 			tripId
 		),
-		itemAssignments: scalar(
-			`SELECT COUNT(*) FROM item_assignees a JOIN schedule_items i ON i.id = a.item_id JOIN tracks t ON t.id = i.track_id WHERE a.user_id = ? AND t.trip_id = ?`,
+		eventAssignments: scalar(
+			`SELECT COUNT(*) FROM event_people a JOIN events e ON e.id = a.event_id WHERE a.user_id = ? AND e.trip_id = ?`,
 			userId,
 			tripId
 		),
@@ -1691,8 +1681,8 @@ function snapshotRemovalCounts(tripId: string, userId: string) {
 			userId,
 			tripId
 		),
-		partySegments: scalar(
-			`SELECT COUNT(*) FROM party_membership pm JOIN parties p ON p.id = pm.party_id WHERE pm.user_id = ? AND p.trip_id = ?`,
+		crewMemberships: scalar(
+			`SELECT COUNT(*) FROM crew_members cm JOIN crews c ON c.id = cm.crew_id WHERE cm.user_id = ? AND c.trip_id = ?`,
 			userId,
 			tripId
 		),
@@ -1719,6 +1709,12 @@ function scalar(sql: string, ...args: unknown[]): number {
 	return Number(row?.[Object.keys(row)[0]] ?? 0);
 }
 
+/** The same read, for a column whose whole point is that it can be null. */
+function scalarOrNull(sql: string, ...args: unknown[]): unknown {
+	const row = db.prepare(sql).get(...args) as Record<string, unknown> | undefined;
+	return row ? row[Object.keys(row)[0]] : undefined;
+}
+
 function zeroCounts() {
 	return {
 		expensesPaid: 0,
@@ -1727,10 +1723,10 @@ function zeroCounts() {
 		otherPeopleSharesLost: 0,
 		poiVotes: 0,
 		lodgingVotes: 0,
-		itemAssignments: 0,
+		eventAssignments: 0,
 		taskAssignments: 0,
 		taskCompletions: 0,
-		partySegments: 0,
+		crewMemberships: 0,
 		invitesSent: 0,
 		memberships: 0,
 		tripsOrganized: 0

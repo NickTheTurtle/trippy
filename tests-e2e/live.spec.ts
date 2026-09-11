@@ -40,9 +40,7 @@ test.describe('live collaboration', () => {
 				participantIds: [fixture.userId]
 			});
 
-			await expect(
-				page.getByRole('listitem').filter({ hasText: 'Rooftop drinks' })
-			).toBeVisible();
+			await expect(page.getByRole('listitem').filter({ hasText: 'Rooftop drinks' })).toBeVisible();
 		} finally {
 			await context.close();
 			fixture.teardown();
@@ -84,7 +82,7 @@ test.describe('live collaboration', () => {
 		const { context, page } = await signedInContext(browser, fixture.sessionCookie);
 		try {
 			await signIn(page, fixture.sessionCookie);
-			await page.goto(`/trips/${fixture.tripId}/pretrip`);
+			await page.goto(`/trips/${fixture.tripId}/preparation`);
 			const box = page.getByRole('button', {
 				name: copy.preparation.taskList.sharedBoxLabel(false, 'Confirm the rental')
 			});
@@ -127,9 +125,7 @@ test.describe('live collaboration', () => {
 				participantIds: [fixture.userId]
 			});
 
-			await expect(
-				b.page.getByRole('listitem').filter({ hasText: 'Group taxi' })
-			).toBeVisible();
+			await expect(b.page.getByRole('listitem').filter({ hasText: 'Group taxi' })).toBeVisible();
 		} finally {
 			await b.context.close();
 			fixture.teardown();

@@ -13,4 +13,5 @@ export * from './tz';
 export * from './layout';
 export * from './cover';
 export * from './geo';
+export * from './travel';
 export * from './validate';

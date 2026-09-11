@@ -1,11 +1,31 @@
 import { describe, expect, it } from 'vitest';
-import { isItemType, isPoiKind, isStayCategory, poiKindFromCategory, toPoiKind } from '@trippy/core/types';
+import {
+	isEventType,
+	isPoiKind,
+	isStayCategory,
+	isTransportMode,
+	poiKindFromCategory,
+	toPoiKind
+} from '@trippy/core/types';
 
-describe('item types', () => {
-	it('accepts only canonical schedule item types', () => {
-		expect(isItemType('poi')).toBe(true);
-		expect(isItemType('food')).toBe(true);
-		expect(isItemType('meal')).toBe(false);
+describe('event types', () => {
+	it('accepts only canonical event types', () => {
+		expect(isEventType('activity')).toBe(true);
+		expect(isEventType('food')).toBe(true);
+		expect(isEventType('stay')).toBe(true);
+		// The vocabulary the tracks model used, to catch a caller left behind.
+		expect(isEventType('poi')).toBe(false);
+		expect(isEventType('lodging')).toBe(false);
+		expect(isEventType('transport')).toBe(false);
+	});
+});
+
+describe('transport modes', () => {
+	it('accepts only modes a leg can be pinned to', () => {
+		expect(isTransportMode('walk')).toBe(true);
+		expect(isTransportMode('ferry')).toBe(true);
+		expect(isTransportMode('flight')).toBe(true);
+		expect(isTransportMode('teleport')).toBe(false);
 	});
 });
 

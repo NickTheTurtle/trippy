@@ -30,6 +30,7 @@ export default function EditExpense({
 	tripId,
 	expense,
 	members,
+	me,
 	currencies,
 	home,
 	onClose,
@@ -38,6 +39,7 @@ export default function EditExpense({
 	tripId: string;
 	expense: Expense | null;
 	members: Member[];
+	me: string;
 	currencies: string[];
 	home: string;
 	onClose: () => void;
@@ -46,7 +48,11 @@ export default function EditExpense({
 	const [description, setDescription] = useState(expense?.description ?? '');
 	const [amount, setAmount] = useState(expense ? (expense.amount_cents / 100).toFixed(2) : '');
 	const [currency, setCurrency] = useState(expense?.currency ?? home);
-	const [payerId, setPayerId] = useState(expense?.payer_id ?? members[0]?.id ?? '');
+	// A new expense is paid by you until you say otherwise. `members[0]` is the
+	// organizer, because the roster is ordered by role, so defaulting to it
+	// meant everyone but the organizer silently logged their own spending
+	// against somebody else.
+	const [payerId, setPayerId] = useState(expense?.payer_id ?? me ?? members[0]?.id ?? '');
 	const [splitMode, setSplitMode] = useState<SplitMode>(expense?.split_mode ?? 'even');
 	/** Who is in on this expense. Everyone is included by default. */
 	const [picked, setPicked] = useState<Set<string>>(

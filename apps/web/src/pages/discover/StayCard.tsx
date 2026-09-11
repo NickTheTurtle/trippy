@@ -17,6 +17,7 @@ const c = copy.discover.stayCard;
  */
 export default function StayCard({
 	stay: o,
+	flipKey,
 	currency,
 	pct,
 	onEdit,
@@ -24,6 +25,8 @@ export default function StayCard({
 	onRemove
 }: {
 	stay: Stay;
+	/** Identity for the grid's reorder animation. See `useFlip`. */
+	flipKey: string;
 	currency: string;
 	pct: number;
 	onEdit: () => void;
@@ -39,7 +42,7 @@ export default function StayCard({
 			: '';
 
 	return (
-		<article className={`${CARD} ${ring} group/card`}>
+		<article data-flip={flipKey} className={`${CARD} ${ring} group/card`}>
 			<button
 				type="button"
 				onClick={onEdit}

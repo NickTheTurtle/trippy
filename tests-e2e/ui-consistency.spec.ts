@@ -121,13 +121,14 @@ test.describe('ui consistency', () => {
 			await addCity(request, fixture, LISBON);
 			await signIn(page, fixture.sessionCookie);
 
-			// Every first-party page a signed-in owner reaches, calendar excluded on
-			// purpose (a redesign is planned and it is off limits).
+			// Every first-party page a signed-in owner reaches. The schedule is
+			// covered separately below, since its board needs a day's data before it
+			// has an outline worth checking.
 			const routes = [
 				'/trips',
 				'/account',
 				`/trips/${fixture.tripId}/discover`,
-				`/trips/${fixture.tripId}/pretrip`,
+				`/trips/${fixture.tripId}/preparation`,
 				`/trips/${fixture.tripId}/expenses`,
 				`/trips/${fixture.tripId}/people`
 			];
@@ -167,16 +168,44 @@ test.describe('ui consistency', () => {
 		const fixture = await createApiFixture(request);
 		try {
 			await signIn(page, fixture.sessionCookie);
-			// The calendar is off limits for redesign; all this asserts is that the
-			// route resolves to the trip shell and not the silent NotFound page,
-			// which otherwise looks like a passing screenshot.
-			await page.goto(`/trips/${fixture.tripId}/calendar`);
+			await page.goto(`/trips/${fixture.tripId}/schedule`);
 
 			// The trip shell renders the tab strip; NotFound does not. The active tab
-			// carries aria-current, which proves this is the calendar route resolved.
-			const tab = page.getByRole('link', { name: copy.nav.calendar });
+			// carries aria-current, which proves this is the schedule route resolved
+			// rather than the silent NotFound page, which otherwise looks like a
+			// passing screenshot.
+			const tab = page.getByRole('link', { name: copy.nav.schedule });
 			await expect(tab).toHaveAttribute('aria-current', 'page');
 			await expect(page.getByRole('heading', { name: copy.notFound.heading })).toBeHidden();
+		} finally {
+			fixture.teardown();
+		}
+	});
+
+	test('the slugs a tab used to have still land on the tab that owns them', async ({
+		page,
+		request
+	}) => {
+		const fixture = await createApiFixture(request);
+		try {
+			await signIn(page, fixture.sessionCookie);
+			// Renaming a slug to match its label is only free while the old one keeps
+			// working, so the redirects are the load-bearing half of that change.
+			const moved = [
+				['calendar', 'schedule', copy.nav.schedule],
+				['pretrip', 'preparation', copy.nav.preparation],
+				['costs', 'preparation', copy.nav.preparation],
+				['lodging', 'discover', copy.nav.discover]
+			] as const;
+
+			for (const [from, to, label] of moved) {
+				await page.goto(`/trips/${fixture.tripId}/${from}`);
+				await expect(page).toHaveURL(new RegExp(`/trips/${fixture.tripId}/${to}$`));
+				await expect(page.getByRole('link', { name: label })).toHaveAttribute(
+					'aria-current',
+					'page'
+				);
+			}
 		} finally {
 			fixture.teardown();
 		}

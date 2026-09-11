@@ -23,6 +23,12 @@ type AccountData = {
  */
 export default function Account() {
 	const { data, error, loading, reload } = useApi<AccountData>('/account');
+	/* The profile form's success line, held out here rather than inside it.
+	   Saving a new email changes the key below, so the form remounts and any
+	   flag living inside it is thrown away before it can be read: changing your
+	   email was the one save that never confirmed itself. The confirmation is
+	   about the save, and the save outlives the form. */
+	const [saved, setSaved] = useState(false);
 
 	return (
 		<main className="mx-auto flex w-full max-w-[34rem] flex-col gap-5 px-6 pt-10 pb-16">
@@ -37,7 +43,13 @@ export default function Account() {
 				<>
 					{/* Keyed on the loaded values so a reload after a save reseeds the
 					    fields instead of leaving the form showing what was typed. */}
-					<Profile key={data.profile.email} data={data} onSaved={reload} />
+					<Profile
+						key={data.profile.email}
+						data={data}
+						saved={saved}
+						setSaved={setSaved}
+						onSaved={reload}
+					/>
 					<Password />
 				</>
 			)}
@@ -45,13 +57,21 @@ export default function Account() {
 	);
 }
 
-function Profile({ data, onSaved }: { data: AccountData; onSaved: () => void }) {
+function Profile({
+	data,
+	saved,
+	setSaved,
+	onSaved
+}: {
+	data: AccountData;
+	saved: boolean;
+	setSaved: (v: boolean) => void;
+	onSaved: () => void;
+}) {
 	const { refresh } = useAuth();
 	const [name, setName] = useState(data.profile.name);
 	const [email, setEmail] = useState(data.profile.email);
 	const [homeTz, setHomeTz] = useState(data.profile.homeTz);
-	/** Only the success line lives here; the failure is the mutation's own. */
-	const [saved, setSaved] = useState(false);
 
 	const zones = data.timeZones.map((tz) => ({
 		value: tz,

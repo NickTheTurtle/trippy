@@ -3,6 +3,8 @@ import { isValidEmail } from '@trippy/core';
 import { db } from '../db';
 import { publish, publishMany } from '../events';
 import { detachMemberFromLedger } from './expenses';
+import { isMember, isOrganizer } from './membership';
+export { isOrganizer };
 
 export interface Person {
 	id: string;
@@ -14,14 +16,17 @@ export interface Person {
 	invitedEmail?: string | null;
 }
 
-function membership(tripId: string, userId: string): { role: string } | undefined {
-	return db
+/**
+ * The target's role, for the one caller that needs more than "are they on it".
+ *
+ * Existence alone is `isMember`; the predicates themselves live in
+ * `./membership` so there is one copy of each.
+ */
+function memberRole(tripId: string, userId: string): string | undefined {
+	const row = db
 		.prepare(`SELECT role FROM memberships WHERE trip_id = ? AND user_id = ?`)
 		.get(tripId, userId) as { role: string } | undefined;
-}
-
-export function isOrganizer(tripId: string, userId: string): boolean {
-	return membership(tripId, userId)?.role === 'organizer';
+	return row?.role;
 }
 
 export function listPeople(tripId: string): Person[] {
@@ -98,12 +103,11 @@ export function addPerson(
 	if (!cleanName || cleanName.length > 80) return 'invalid';
 	const clean = email.trim().toLowerCase();
 	if (clean && !isValidEmail(clean)) return 'invalid';
-
 	if (clean) {
 		const user = db.prepare(`SELECT id FROM users WHERE email = ?`).get(clean) as
 			{ id: string } | undefined;
 		if (user) {
-			if (membership(tripId, user.id)) return 'exists';
+			if (isMember(tripId, user.id)) return 'exists';
 			db.prepare(`INSERT INTO memberships (trip_id, user_id, role) VALUES (?, ?, 'member')`).run(
 				tripId,
 				user.id
@@ -116,7 +120,6 @@ export function addPerson(
 			.get(tripId, clean);
 		if (already) return 'exists';
 	}
-
 	// Create a placeholder member so the person is visible on the trip right away.
 	// The placeholder has a synthetic address (a real email is UNIQUE and must stay
 	// free for when they register); its hash is prefixed "placeholder:" so it cannot
@@ -181,15 +184,13 @@ export function setMemberEmail(
 	email: string
 ): EmailEditResult {
 	if (!isOrganizer(tripId, actorId)) return 'forbidden';
-	if (!membership(tripId, userId)) return 'missing';
+	if (!isMember(tripId, userId)) return 'missing';
 	const user = db.prepare(`SELECT password_hash FROM users WHERE id = ?`).get(userId) as
 		{ password_hash: string } | undefined;
 	if (!user?.password_hash.startsWith('placeholder:')) return 'forbidden';
-
 	const clean = email.trim().toLowerCase();
 	const previous = user.password_hash.slice('placeholder:'.length);
 	if (clean && !isValidEmail(clean)) return 'invalid';
-
 	if (clean && clean !== previous) {
 		// An address with an account behind it cannot be attached to a placeholder:
 		// the two would be one person with two rows, and the ledger has no way to
@@ -201,7 +202,6 @@ export function setMemberEmail(
 		if (db.prepare(`SELECT 1 FROM trip_invites WHERE trip_id = ? AND email = ?`).get(tripId, clean))
 			return 'taken';
 	}
-
 	db.exec('BEGIN');
 	try {
 		db.prepare(`DELETE FROM trip_invites WHERE trip_id = ? AND placeholder_id = ?`).run(
@@ -243,17 +243,15 @@ export function renameMember(
 	name: string
 ): boolean {
 	if (!isOrganizer(tripId, actorId)) return false;
-	if (!membership(tripId, userId)) return false;
+	if (!isMember(tripId, userId)) return false;
 	const clean = name.trim();
 	if (!clean || clean.length > 80) return false;
-
 	const user = db.prepare(`SELECT password_hash FROM users WHERE id = ?`).get(userId) as
 		{ password_hash: string } | undefined;
 	if (!user) return false;
 	const editable =
 		user.password_hash.startsWith('placeholder:') || user.password_hash.startsWith('seed:');
 	if (!editable) return false;
-
 	db.prepare(`UPDATE users SET name = ? WHERE id = ?`).run(clean, userId);
 	// The name is on rows all over the trip: expenses name their payer, tasks and
 	// estimates name who they are for, and the header draws initials.
@@ -300,8 +298,8 @@ function inLedger(tripId: string, userId: string): boolean {
  *    whole trip), `memberships.user_id`, `trip_invites.invited_by`,
  *    `expenses.payer_id` (the expense and all of its shares),
  *    `expense_participants.user_id`, `lodging_votes.user_id`,
- *    `poi_votes.user_id`, `item_assignees.user_id`, `task_assignees.user_id`,
- *    `task_done.user_id`, `party_membership.user_id`.
+ *    `poi_votes.user_id`, `event_people.user_id`, `task_assignees.user_id`,
+ *    `task_done.user_id`, `crew_members.user_id`.
  *    `trip_invites.placeholder_id` is ON DELETE SET NULL, so it does NOT
  *    cascade; this function deletes that row explicitly instead.
  *  - **A placeholder who is named on an expense** is treated as a member
@@ -316,8 +314,8 @@ function inLedger(tripId: string, userId: string): boolean {
  */
 export function removeMember(tripId: string, actorId: string, userId: string): boolean {
 	if (!isOrganizer(tripId, actorId)) return false;
-	const target = membership(tripId, userId);
-	if (!target || target.role === 'organizer') return false;
+	const targetRole = memberRole(tripId, userId);
+	if (!targetRole || targetRole === 'organizer') return false;
 	const user = db.prepare(`SELECT password_hash FROM users WHERE id = ?`).get(userId) as
 		{ password_hash: string } | undefined;
 	// Revoking an invite always means deleting its trip_invites row, whichever
@@ -420,11 +418,11 @@ export function consumeInvites(userId: string, email: string): void {
 		// identities voted for that city. The real account's choice wins; taking
 		// the placeholder's instead would silently overwrite a live preference.
 		`UPDATE OR IGNORE lodging_votes SET user_id = ? WHERE user_id = ?`,
-		// PK (item_id, user_id): collides when the real account is already
-		// assigned to the same calendar item. Assignment is set membership, so one
-		// row is the whole meaning and the duplicate is dropped.
-		`UPDATE OR IGNORE item_assignees SET user_id = ? WHERE user_id = ?`,
-		// PK (task_id, user_id): same shape as item_assignees, one row per person
+		// PK (event_id, user_id): collides when the real account is already on the
+		// same event. Being on an event is set membership, so one row is the whole
+		// meaning and the duplicate is dropped.
+		`UPDATE OR IGNORE event_people SET user_id = ? WHERE user_id = ?`,
+		// PK (task_id, user_id): same shape as event_people, one row per person
 		// per task.
 		`UPDATE OR IGNORE task_assignees SET user_id = ? WHERE user_id = ?`,
 		// PK (task_id, user_id) plus a `done_at` payload. `done_at` is a timestamp,
@@ -433,22 +431,11 @@ export function consumeInvites(userId: string, email: string): void {
 		// own `done_at`: it ticked that task under its own identity, and that
 		// timestamp is the truer record than the placeholder's.
 		`UPDATE OR IGNORE task_done SET user_id = ? WHERE user_id = ?`,
-		// party_membership is the one exception: it has a surrogate `id` primary
-		// key and no unique index over (party_id, user_id, day), so an UPDATE here
-		// can never raise a constraint error and OR IGNORE would be meaningless.
-		// The risk is redundancy instead. Drop placeholder segments the real
-		// account already holds byte for byte first, which loses no information,
-		// then move the rest. Segments that overlap without being identical are
-		// deliberately left alone: choosing which crew wins a contested window is a
-		// product decision, and discarding one would be the same data loss this
-		// change exists to stop.
-		`DELETE FROM party_membership AS pm
-		 WHERE EXISTS (
-		   SELECT 1 FROM party_membership o
-		   WHERE o.user_id = ? AND o.party_id = pm.party_id AND o.day = pm.day
-		     AND o.start_min = pm.start_min AND o.end_min = pm.end_min
-		 ) AND pm.user_id = ?`,
-		`UPDATE party_membership SET user_id = ? WHERE user_id = ?`
+		// PK (crew_id, user_id). A crew is only a saved selection of people, so a
+		// collision means both identities were already in it and the surviving row
+		// says everything the two said. The time-segmented crew membership this
+		// replaced needed a hand-written merge; a plain set does not.
+		`UPDATE OR IGNORE crew_members SET user_id = ? WHERE user_id = ?`
 	].map((sql) => db.prepare(sql));
 	if (invites.length === 0) return;
 	db.exec('BEGIN');

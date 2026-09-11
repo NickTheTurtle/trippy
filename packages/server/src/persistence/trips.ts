@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { formatDayRange, normalizeDay } from '@trippy/core/tz';
 import { db } from '../db';
-import { defaultPartyId } from './parties';
 import { publish, publishMany } from '../events';
 import { isOrganizer } from './membership';
 
@@ -207,8 +206,6 @@ export function createTrip(userId: string, input: TripCreate): TripCreateResult 
 		id,
 		userId
 	);
-	// Every trip starts with the default "Everyone" party (the multi-schedule base).
-	defaultPartyId(id);
 	return { id, error: null };
 }
 

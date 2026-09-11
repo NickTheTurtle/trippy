@@ -80,29 +80,62 @@ db.exec(`
 		sort     INTEGER NOT NULL DEFAULT 0
 	);
 
-	CREATE TABLE IF NOT EXISTS tracks (
+	CREATE TABLE IF NOT EXISTS events (
+		id         TEXT PRIMARY KEY,
+		trip_id    TEXT NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+		day        TEXT NOT NULL,
+		title      TEXT NOT NULL,
+		type       TEXT NOT NULL DEFAULT 'activity',
+		start_min  INTEGER NOT NULL,
+		end_min    INTEGER NOT NULL,
+		-- Retired. Nothing reads or writes it: the only way to set a booking state
+		-- was a click-to-cycle pill, which was removed as an interaction nobody
+		-- wanted. Kept because migrations here are additive, and dropping a column
+		-- rewrites the table for no gain.
+		booking    TEXT,
+		poi_id     TEXT REFERENCES pois(id) ON DELETE SET NULL,
+		lodging_id TEXT REFERENCES lodging_options(id) ON DELETE SET NULL,
+		city_id    TEXT REFERENCES cities(id) ON DELETE SET NULL,
+		lat        REAL,
+		lng        REAL,
+		notes      TEXT,
+		travel_mode TEXT,
+		created_at INTEGER NOT NULL
+	);
+
+	CREATE TABLE IF NOT EXISTS event_people (
+		event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+		user_id  TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		PRIMARY KEY (event_id, user_id)
+	);
+
+	CREATE TABLE IF NOT EXISTS travel_legs (
+		id            TEXT PRIMARY KEY,
+		trip_id       TEXT NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+		day           TEXT NOT NULL,
+		leg_key       TEXT NOT NULL,
+		from_event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+		to_event_id   TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+		people        TEXT NOT NULL,
+		auto_mode     TEXT,
+		auto_mins     INTEGER,
+		mode          TEXT,
+		mins          INTEGER,
+		UNIQUE (trip_id, day, leg_key)
+	);
+
+	CREATE TABLE IF NOT EXISTS crews (
 		id      TEXT PRIMARY KEY,
 		trip_id TEXT NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
-		day     TEXT NOT NULL,
 		name    TEXT NOT NULL,
 		color   TEXT NOT NULL,
 		sort    INTEGER NOT NULL DEFAULT 0
 	);
 
-	CREATE TABLE IF NOT EXISTS schedule_items (
-		id           TEXT PRIMARY KEY,
-		track_id     TEXT NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
-		title        TEXT NOT NULL,
-		type         TEXT NOT NULL DEFAULT 'poi',
-		start_min    INTEGER NOT NULL,
-		end_min      INTEGER NOT NULL,
-		booking      TEXT,
-		travel_mode  TEXT,
-		travel_mins  INTEGER,
-		travel_before_min INTEGER,
-		poi_id       TEXT REFERENCES pois(id) ON DELETE SET NULL,
-		lat          REAL,
-		lng          REAL
+	CREATE TABLE IF NOT EXISTS crew_members (
+		crew_id TEXT NOT NULL REFERENCES crews(id) ON DELETE CASCADE,
+		user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		PRIMARY KEY (crew_id, user_id)
 	);
 
 	CREATE TABLE IF NOT EXISTS expenses (
@@ -232,8 +265,12 @@ db.exec(`
 	CREATE INDEX IF NOT EXISTS idx_invites_email ON trip_invites(email);
 	CREATE INDEX IF NOT EXISTS idx_resets_user ON password_resets(user_id);
 	CREATE INDEX IF NOT EXISTS idx_pending_token ON pending_registrations(token_hash);
-	CREATE INDEX IF NOT EXISTS idx_tracks_trip_day ON tracks(trip_id, day);
-	CREATE INDEX IF NOT EXISTS idx_items_track ON schedule_items(track_id);
+	CREATE INDEX IF NOT EXISTS idx_events_trip_day ON events(trip_id, day);
+	CREATE INDEX IF NOT EXISTS idx_event_people_event ON event_people(event_id);
+	CREATE INDEX IF NOT EXISTS idx_event_people_user ON event_people(user_id);
+	CREATE INDEX IF NOT EXISTS idx_legs_trip_day ON travel_legs(trip_id, day);
+	CREATE INDEX IF NOT EXISTS idx_crews_trip ON crews(trip_id);
+	CREATE INDEX IF NOT EXISTS idx_crew_members_crew ON crew_members(crew_id);
 	CREATE INDEX IF NOT EXISTS idx_expenses_trip ON expenses(trip_id);
 	CREATE INDEX IF NOT EXISTS idx_eparts_expense ON expense_participants(expense_id);
 	CREATE INDEX IF NOT EXISTS idx_lodging_city ON lodging_options(city_id);
@@ -340,7 +377,7 @@ addColumn('trips', 'end_date', 'TEXT');
 }
 
 // Cities are places in the itinerary, not dated schedule spans. The trip's
-// start and end stay on trips, and per-day city assignment stays in party_day.
+// start and end stay on trips; a day's city now comes from the events on it.
 dropColumn('cities', 'arrive');
 dropColumn('cities', 'depart');
 
@@ -349,18 +386,6 @@ dropColumn('cities', 'depart');
 // those the weight means so the form can round-trip.
 addColumn('expenses', 'split_mode', "TEXT NOT NULL DEFAULT 'even'");
 addColumn('expense_participants', 'weight', 'REAL NOT NULL DEFAULT 1');
-
-db.exec(`
-	-- Who is doing a given scheduled activity (many members per item, and an
-	-- item may be shared / "combined" across people).
-	CREATE TABLE IF NOT EXISTS item_assignees (
-		item_id TEXT NOT NULL REFERENCES schedule_items(id) ON DELETE CASCADE,
-		user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-		PRIMARY KEY (item_id, user_id)
-	);
-	CREATE INDEX IF NOT EXISTS idx_item_assignees_item ON item_assignees(item_id);
-	CREATE INDEX IF NOT EXISTS idx_item_assignees_user ON item_assignees(user_id);
-`);
 
 /**
  * Pre-trip tasks are per-person, not per-trip. Something like "apply for a
@@ -442,91 +467,37 @@ db.exec(`
 	);
 	CREATE INDEX IF NOT EXISTS idx_cost_item_people_item ON cost_item_people(item_id);
 `);
-
 /**
- * Parties ("crews"): the multi-schedule model. A party groups tracks; its
- * membership is time-segmented so a person can split off (and re-merge) within a
- * day. Every trip has an implicit "Everyone" party: when a (user, day) has no
- * membership segment covering a moment, they are treated as part of Everyone.
+ * Retiring tracks, parties and their day-segmented membership.
+ *
+ * The schedule used to be a set of named lanes per day, with a "party" grouping
+ * lanes and a membership row saying which minutes of which day a person
+ * belonged to which party. Three tables and a time-segmented join existed to
+ * answer one question: who is at this event? Events answer it directly, and
+ * everything that was derived from lanes (travel, splits, rejoins) is derived
+ * from the people on the events instead.
+ *
+ * This is the one destructive migration in the file. Everything else here is
+ * additive because it has to be: the database holds real trips. Schedules were
+ * the exception the owner named explicitly, being both disposable and
+ * unconvertible, since a lane carries no record of who was walking down it.
+ * Crews survive in name only; the new `crews` table is a saved group of people
+ * with no schedule of its own, so there is nothing in a party worth carrying
+ * across.
+ *
+ * Ordered children first, because the foreign keys point upwards and
+ * `PRAGMA foreign_keys` is on.
  */
-db.exec(`
-	CREATE TABLE IF NOT EXISTS parties (
-		id         TEXT PRIMARY KEY,
-		trip_id    TEXT NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
-		name       TEXT NOT NULL,
-		color      TEXT NOT NULL,
-		is_solo    INTEGER NOT NULL DEFAULT 0,
-		is_default INTEGER NOT NULL DEFAULT 0,
-		sort       INTEGER NOT NULL DEFAULT 0,
-		created_at INTEGER NOT NULL
-	);
-
-	CREATE TABLE IF NOT EXISTS party_membership (
-		id        TEXT PRIMARY KEY,
-		party_id  TEXT NOT NULL REFERENCES parties(id) ON DELETE CASCADE,
-		user_id   TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-		day       TEXT NOT NULL,
-		start_min INTEGER NOT NULL,
-		end_min   INTEGER NOT NULL
-	);
-
-	CREATE TABLE IF NOT EXISTS party_day (
-		party_id          TEXT NOT NULL REFERENCES parties(id) ON DELETE CASCADE,
-		day               TEXT NOT NULL,
-		city_id           TEXT REFERENCES cities(id) ON DELETE SET NULL,
-		lodging_option_id TEXT REFERENCES lodging_options(id) ON DELETE SET NULL,
-		PRIMARY KEY (party_id, day)
-	);
-
-	CREATE INDEX IF NOT EXISTS idx_parties_trip ON parties(trip_id);
-	CREATE INDEX IF NOT EXISTS idx_pmember_party ON party_membership(party_id);
-	CREATE INDEX IF NOT EXISTS idx_pmember_user_day ON party_membership(user_id, day);
-`);
-
-// A track belongs to a party (defaults to the trip's Everyone party).
-addColumn('tracks', 'party_id', 'TEXT REFERENCES parties(id) ON DELETE CASCADE');
-
-/**
- * Backfill: ensure every trip has an Everyone party and that existing tracks
- * point at it. Membership is intentionally left empty, because the "no segment means
- * Everyone" fallback covers the default single-group case with zero rows.
- */
-function backfillParties(): void {
-	const trips = db.prepare(`SELECT id FROM trips`).all() as unknown as { id: string }[];
-	const findDefault = db.prepare(`SELECT id FROM parties WHERE trip_id = ? AND is_default = 1`);
-	const insParty = db.prepare(
-		`INSERT INTO parties (id, trip_id, name, color, is_solo, is_default, sort, created_at)
-		 VALUES (?, ?, 'Everyone', '#2f6d5e', 0, 1, 0, ?)`
-	);
-	const backfillTracks = db.prepare(
-		`UPDATE tracks SET party_id = ? WHERE trip_id = ? AND party_id IS NULL`
-	);
-	for (const t of trips) {
-		let def = findDefault.get(t.id) as { id: string } | undefined;
-		if (!def) {
-			const id = randomUUID();
-			insParty.run(id, t.id, Date.now());
-			def = { id };
-		}
-		backfillTracks.run(def.id, t.id);
-	}
+for (const table of [
+	'item_assignees',
+	'schedule_items',
+	'tracks',
+	'party_membership',
+	'party_day',
+	'parties'
+]) {
+	db.exec(`DROP TABLE IF EXISTS ${table}`);
 }
-backfillParties();
-
-/**
- * Item-type vocabulary reconciliation.
- *
- * Two spellings of the same idea were in the tree at once: the shared type
- * declared `meal`, while the server's validator, the API and the calendar's
- * type picker all used `food`. Only seeded rows ever carried `meal`, and no
- * client can produce it or render a label for it, so `food` wins and the stray
- * rows are renamed to it. Additive and idempotent: after the first run nothing
- * matches, and it never touches a row that is already canonical.
- *
- * Canonical set: poi | food | transport | travel | lodging | freetime
- * (exported as ITEM_TYPES from @trippy/core).
- */
-db.exec(`UPDATE schedule_items SET type = 'food' WHERE type = 'meal'`);
 
 /**
  * Discover buckets: `pois.kind` is the user-facing filter (`attraction` |

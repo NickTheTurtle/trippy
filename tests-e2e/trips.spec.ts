@@ -118,7 +118,10 @@ test.describe('trips', () => {
 			await page.getByRole('button', { name: copy.tripShell.editTrip }).click();
 			// Delete is reached from inside the edit dialog, which closes to make way
 			// for a single confirmation rather than stacking two modals.
-			await page.getByRole('dialog').getByRole('button', { name: copy.tripShell.deleteTrip }).click();
+			await page
+				.getByRole('dialog')
+				.getByRole('button', { name: copy.tripShell.deleteTrip })
+				.click();
 
 			const confirm = page.getByRole('dialog');
 			await expect(confirm.getByText(copy.ui.confirmDialog.undone)).toBeVisible();

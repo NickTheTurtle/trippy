@@ -151,9 +151,7 @@ test.describe('discover', () => {
 			await signIn(page, fixture.sessionCookie);
 			await page.goto(`/trips/${fixture.tripId}/discover`);
 
-			await page
-				.getByRole('button', { name: copy.discover.cityList.removeLabel('Porto') })
-				.click();
+			await page.getByRole('button', { name: copy.discover.cityList.removeLabel('Porto') }).click();
 			const confirm = page.getByRole('dialog');
 			await expect(confirm.getByText(copy.ui.confirmDialog.undone)).toBeVisible();
 			await confirm.getByRole('button', { name: copy.common.delete, exact: true }).click();

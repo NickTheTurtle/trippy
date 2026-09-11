@@ -1,5 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router';
-import { TABS, MERGED } from './nav';
+import { TABS, REDIRECTS } from './nav';
 import Layout from './components/Layout';
 import RequireAuth from './components/RequireAuth';
 import NotFound from './pages/NotFound';
@@ -16,7 +16,7 @@ import People from './pages/People';
 import Expenses from './pages/Expenses';
 import Pretrip from './pages/Pretrip';
 import Discover from './pages/Discover';
-import Calendar from './pages/Calendar';
+import Schedule from './pages/Schedule';
 
 /** Section pages, keyed by the slug in `nav.ts`. A full Record rather than a
  *  Partial: adding a tab without a page should fail the type-check, not render
@@ -24,9 +24,9 @@ import Calendar from './pages/Calendar';
 const SECTION_PAGES: Record<(typeof TABS)[number]['slug'], React.ComponentType> = {
 	people: People,
 	expenses: Expenses,
-	pretrip: Pretrip,
+	preparation: Pretrip,
 	discover: Discover,
-	calendar: Calendar
+	schedule: Schedule
 };
 
 /**
@@ -59,12 +59,8 @@ export default function App() {
 							const Page = SECTION_PAGES[t.slug];
 							return <Route key={t.slug} path={t.slug} element={<Page />} />;
 						})}
-						{MERGED.map((m) => (
-							<Route
-								key={m.slug}
-								path={m.slug}
-								element={<Navigate to={`../${m.into}`} replace />}
-							/>
+						{REDIRECTS.map((r) => (
+							<Route key={r.from} path={r.from} element={<Navigate to={`../${r.to}`} replace />} />
 						))}
 					</Route>
 				</Route>

@@ -59,7 +59,10 @@ export default function GoogleMap({
 	const elRef = useRef<HTMLDivElement>(null);
 	const mapRef = useRef<Gm>(null);
 	const gRef = useRef<Gm>(null);
-	const overlays = useRef<Gm[]>([]);
+	const markers = useRef<Gm[]>([]);
+	const lines = useRef<Gm[]>([]);
+	/** Last icon applied to each marker, so an unchanged one is never re-set. */
+	const iconKeys = useRef<string[]>([]);
 	/** Bumped once the map exists, so the draw effect below reruns for it. */
 	const [ready, setReady] = useState(0);
 
@@ -68,6 +71,15 @@ export default function GoogleMap({
 	// object from tearing the map down and rebuilding it.
 	const centerRef = useRef(center);
 	centerRef.current = center;
+
+	/* The drawing depends on what the tracks *say*, not on the array holding it.
+	   Callers build that array inline, so it is a new object on every render:
+	   dragging a block on the schedule board re-renders at pointer rate, and a
+	   dependency on the array itself redrew the whole map many times a second.
+	   That is what made the pins blink. */
+	const tracksRef = useRef(tracks);
+	tracksRef.current = tracks;
+	const sig = JSON.stringify([tracks, center]);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -90,8 +102,11 @@ export default function GoogleMap({
 
 		return () => {
 			cancelled = true;
-			for (const o of overlays.current) o.setMap?.(null);
-			overlays.current = [];
+			for (const o of markers.current) o.setMap?.(null);
+			for (const o of lines.current) o.setMap?.(null);
+			markers.current = [];
+			lines.current = [];
+			iconKeys.current = [];
 			mapRef.current = null;
 		};
 	}, [apiKey]);
@@ -121,52 +136,92 @@ export default function GoogleMap({
 			strokeWeight: 2
 		});
 
-		for (const o of overlays.current) o.setMap(null);
-		overlays.current = [];
+		/* Work out what the map should show, then reconcile the overlays already
+		   on it towards that, rather than clearing and rebuilding. A Marker that
+		   is removed and replaced flashes; one that is told its new position or
+		   icon does not. Renumbering after a reorder is a `setIcon`, which is the
+		   common case and is now invisible. */
+		type Want = { pos: { lat: number; lng: number }; iconKey: string; icon: Gm; title: string };
+		const wantMarkers: Want[] = [];
+		const wantLines: { path: { lat: number; lng: number }[]; color: string }[] = [];
 		const bounds = new g.maps.LatLngBounds();
-		let count = 0;
 
-		for (const t of tracks) {
+		for (const t of tracksRef.current) {
 			const located = t.items.filter((i) => i.lat != null && i.lng != null);
 			const path: { lat: number; lng: number }[] = [];
 			located.forEach((i, idx) => {
 				const pos = { lat: i.lat as number, lng: i.lng as number };
 				path.push(pos);
 				bounds.extend(pos);
-				count++;
-				overlays.current.push(
-					new g.maps.Marker({
-						position: pos,
-						map,
-						icon: t.dot ? dotIcon(t.color) : pinIcon(t.color, idx + 1),
-						title: t.dot ? i.title : `${i.title} · ${t.name}`,
-						zIndex: t.dot ? 1 : 10
-					})
-				);
+				wantMarkers.push({
+					pos,
+					iconKey: t.dot ? `dot:${t.color}` : `pin:${t.color}:${idx + 1}`,
+					icon: t.dot ? dotIcon(t.color) : pinIcon(t.color, idx + 1),
+					title: t.dot ? i.title : `${i.title} · ${t.name}`
+				});
 			});
-			if (t.line !== false && path.length > 1) {
-				overlays.current.push(
-					new g.maps.Polyline({
-						path,
-						strokeColor: t.color,
-						strokeOpacity: 0.8,
-						strokeWeight: 3,
-						map
-					})
-				);
-			}
+			if (t.line !== false && path.length > 1) wantLines.push({ path, color: t.color });
 		}
 
+		wantMarkers.forEach((w, i) => {
+			const dot = w.iconKey.startsWith('dot:');
+			const m = markers.current[i];
+			if (!m) {
+				markers.current[i] = new g.maps.Marker({
+					position: w.pos,
+					map,
+					icon: w.icon,
+					title: w.title,
+					zIndex: dot ? 1 : 10
+				});
+				iconKeys.current[i] = w.iconKey;
+				return;
+			}
+			const at = m.getPosition();
+			if (!at || at.lat() !== w.pos.lat || at.lng() !== w.pos.lng) m.setPosition(w.pos);
+			if (iconKeys.current[i] !== w.iconKey) {
+				m.setIcon(w.icon);
+				m.setZIndex(dot ? 1 : 10);
+				iconKeys.current[i] = w.iconKey;
+			}
+			if (m.getTitle() !== w.title) m.setTitle(w.title);
+		});
+		for (let i = wantMarkers.length; i < markers.current.length; i++) {
+			markers.current[i].setMap(null);
+		}
+		markers.current.length = wantMarkers.length;
+		iconKeys.current.length = wantMarkers.length;
+
+		wantLines.forEach((w, i) => {
+			const l = lines.current[i];
+			if (!l) {
+				lines.current[i] = new g.maps.Polyline({
+					path: w.path,
+					strokeColor: w.color,
+					strokeOpacity: 0.8,
+					strokeWeight: 3,
+					map
+				});
+				return;
+			}
+			l.setPath(w.path);
+			l.setOptions({ strokeColor: w.color });
+		});
+		for (let i = wantLines.length; i < lines.current.length; i++) lines.current[i].setMap(null);
+		lines.current.length = wantLines.length;
+
+		const count = wantMarkers.length;
+		const c = centerRef.current;
 		if (count > 1) {
 			map.fitBounds(bounds, 40);
 		} else if (count === 1) {
 			map.setCenter(bounds.getCenter());
 			map.setZoom(14);
-		} else if (center?.lat != null && center?.lng != null) {
-			map.setCenter({ lat: center.lat, lng: center.lng });
+		} else if (c?.lat != null && c?.lng != null) {
+			map.setCenter({ lat: c.lat, lng: c.lng });
 			map.setZoom(12);
 		}
-	}, [tracks, center, ready]);
+	}, [sig, ready]);
 
 	return <div ref={elRef} className="gmapbox" />;
 }

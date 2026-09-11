@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
-import { poiKindFromCategory, type ItemType } from '@trippy/core/types';
+import { poiKindFromCategory, type EventType } from '@trippy/core/types';
+import { recomputeLegs } from '../persistence/schedule';
 
 /**
  * A 20-person escape-room trip to Athens.
@@ -31,20 +32,33 @@ export const ATHENS_TRIP = {
 };
 
 /** 19 companions + the organizer = 20 travellers = five rooms of four. */
-const COMPANIONS = [
-	'Nikos', 'Elena', 'Marcus', 'Yuki', 'Priya', 'Tomas', 'Sofia', 'Adaeze', 'Liam', 'Mei',
-	'Rafael', 'Hannah', 'Omar', 'Ingrid', 'Diego', 'Zoe', 'Ravi', 'Clara', 'Jonas'
+export const COMPANIONS = [
+	'Nikos',
+	'Elena',
+	'Marcus',
+	'Yuki',
+	'Priya',
+	'Tomas',
+	'Sofia',
+	'Adaeze',
+	'Liam',
+	'Mei',
+	'Rafael',
+	'Hannah',
+	'Omar',
+	'Ingrid',
+	'Diego',
+	'Zoe',
+	'Ravi',
+	'Clara',
+	'Jonas'
 ];
 
-const TRACKS: Record<string, { name: string; color: string }> = {
-	great: { name: 'Great Escape Athens', color: '#2f6d5e' },
-	locked: { name: 'Locked Athens', color: '#b4682a' },
-	mystery: { name: 'Mystery Rooms', color: '#3f6fa8' },
-	paradox: { name: 'Paradox Project', color: '#7d5ba6' },
-	vault: { name: 'The Athens Vault', color: '#b0435f' },
-	city: { name: 'Athens, together', color: '#55606d' }
-};
-
+/**
+ * The venues the day is built around. They used to be lanes on the board; now
+ * they are only coordinates, because where an event is and who is going to it
+ * are the two facts the schedule needs and a lane was neither.
+ */
 const COORDS: Record<string, [number, number]> = {
 	great: [37.9765, 23.7255],
 	locked: [37.9793, 23.7228],
@@ -65,17 +79,15 @@ const COORDS: Record<string, [number, number]> = {
 	airport: [37.9364, 23.9445]
 };
 
-type Kind = ItemType;
+type Kind = EventType;
 
 interface Ev {
 	title: string;
 	type: Kind;
+	/** Minutes from midnight. A stay's `end` is a checkout the next morning. */
 	start: number;
 	end: number;
-	track: keyof typeof TRACKS;
 	place?: keyof typeof COORDS;
-	booking?: 'booked' | 'tentative' | 'unbooked';
-	travelBefore?: number;
 	/** Member indices; 0 is the organizer. */
 	who: number[];
 }
@@ -90,18 +102,89 @@ const DAYS: { day: string; events: Ev[] }[] = [
 	{
 		day: '2026-04-16',
 		events: [
-			{ title: 'Airport → Plaka apartments', type: 'travel', start: hm(10), end: hm(11, 15), track: 'city', place: 'hotel', booking: 'booked', who: ALL },
-			{ title: 'Welcome brunch, Psyrri', type: 'food', start: hm(11, 30), end: hm(13), track: 'city', place: 'psyrri', booking: 'booked', who: ALL },
+			{
+				title: 'Airport → Plaka apartments',
+				type: 'travel',
+				start: hm(10),
+				end: hm(11, 15),
+				place: 'hotel',
+				who: ALL
+			},
+			{
+				title: 'Welcome brunch, Psyrri',
+				type: 'food',
+				start: hm(11, 30),
+				end: hm(13),
+				place: 'psyrri',
+				who: ALL
+			},
 
-			{ title: "Warm-up: The Alchemist's Study", type: 'poi', start: hm(13, 30), end: hm(15), track: 'great', place: 'great', booking: 'booked', travelBefore: 15, who: range(0, 3) },
-			{ title: "Warm-up: Pharaoh's Tomb", type: 'poi', start: hm(13, 30), end: hm(15), track: 'locked', place: 'locked', booking: 'booked', travelBefore: 15, who: range(4, 7) },
-			{ title: 'Acropolis Museum', type: 'poi', start: hm(13, 30), end: hm(15), track: 'city', place: 'acropolisMuseum', booking: 'tentative', travelBefore: 20, who: range(8, 19) },
+			{
+				title: "Warm-up: The Alchemist's Study",
+				type: 'activity',
+				start: hm(13, 30),
+				end: hm(15),
+				place: 'great',
+				who: range(0, 3)
+			},
+			{
+				title: "Warm-up: Pharaoh's Tomb",
+				type: 'activity',
+				start: hm(13, 30),
+				end: hm(15),
+				place: 'locked',
+				who: range(4, 7)
+			},
+			{
+				title: 'Acropolis Museum',
+				type: 'activity',
+				start: hm(13, 30),
+				end: hm(15),
+				place: 'acropolisMuseum',
+				who: range(8, 19)
+			},
 
-			{ title: 'Warm-up: Submarine 1943', type: 'poi', start: hm(15, 30), end: hm(17), track: 'mystery', place: 'mystery', booking: 'booked', travelBefore: 20, who: range(8, 11) },
-			{ title: 'Warm-up: Bank Heist', type: 'poi', start: hm(15, 30), end: hm(17), track: 'paradox', place: 'paradox', booking: 'booked', travelBefore: 20, who: range(12, 15) },
-			{ title: 'Free time, Plaka', type: 'freetime', start: hm(15, 30), end: hm(17), track: 'city', who: [...range(0, 7), ...range(16, 19)] },
+			{
+				title: 'Warm-up: Submarine 1943',
+				type: 'activity',
+				start: hm(15, 30),
+				end: hm(17),
+				place: 'mystery',
+				who: range(8, 11)
+			},
+			{
+				title: 'Warm-up: Bank Heist',
+				type: 'activity',
+				start: hm(15, 30),
+				end: hm(17),
+				place: 'paradox',
+				who: range(12, 15)
+			},
+			{
+				title: 'Free time, Plaka',
+				type: 'freetime',
+				start: hm(15, 30),
+				end: hm(17),
+				who: [...range(0, 7), ...range(16, 19)]
+			},
 
-			{ title: 'Sunset, Filopappou Hill', type: 'poi', start: hm(17, 15), end: hm(18), track: 'city', place: 'filopappou', travelBefore: 15, who: ALL }
+			{
+				title: 'Sunset, Filopappou Hill',
+				type: 'activity',
+				start: hm(17, 15),
+				end: hm(18),
+				place: 'filopappou',
+				who: ALL
+			},
+
+			{
+				title: 'Plaka apartments',
+				type: 'stay',
+				start: hm(21),
+				end: hm(8),
+				place: 'hotel',
+				who: ALL
+			}
 		]
 	},
 
@@ -110,27 +193,148 @@ const DAYS: { day: string; events: Ev[] }[] = [
 	{
 		day: '2026-04-17',
 		events: [
-			{ title: "Round 1: Da Vinci's Workshop", type: 'poi', start: hm(9, 30), end: hm(11), track: 'great', place: 'great', booking: 'booked', who: [0, 1, 2, 3] },
-			{ title: 'Round 1: The Oracle at Delphi', type: 'poi', start: hm(9, 30), end: hm(11), track: 'locked', place: 'locked', booking: 'booked', who: [4, 5, 6, 7] },
-			{ title: 'Round 1: Submarine 1943', type: 'poi', start: hm(9, 30), end: hm(11), track: 'mystery', place: 'mystery', booking: 'booked', who: [8, 9, 10, 11] },
-			{ title: 'Round 1: Bank Heist', type: 'poi', start: hm(9, 30), end: hm(11), track: 'paradox', place: 'paradox', booking: 'booked', who: [12, 13, 14, 15] },
-			{ title: 'Round 1: Asylum', type: 'poi', start: hm(9, 30), end: hm(11), track: 'vault', place: 'vault', booking: 'booked', who: [16, 17, 18, 19] },
+			{
+				title: "Round 1: Da Vinci's Workshop",
+				type: 'activity',
+				start: hm(9, 30),
+				end: hm(11),
+				place: 'great',
+				who: [0, 1, 2, 3]
+			},
+			{
+				title: 'Round 1: The Oracle at Delphi',
+				type: 'activity',
+				start: hm(9, 30),
+				end: hm(11),
+				place: 'locked',
+				who: [4, 5, 6, 7]
+			},
+			{
+				title: 'Round 1: Submarine 1943',
+				type: 'activity',
+				start: hm(9, 30),
+				end: hm(11),
+				place: 'mystery',
+				who: [8, 9, 10, 11]
+			},
+			{
+				title: 'Round 1: Bank Heist',
+				type: 'activity',
+				start: hm(9, 30),
+				end: hm(11),
+				place: 'paradox',
+				who: [12, 13, 14, 15]
+			},
+			{
+				title: 'Round 1: Asylum',
+				type: 'activity',
+				start: hm(9, 30),
+				end: hm(11),
+				place: 'vault',
+				who: [16, 17, 18, 19]
+			},
 
 			// Rotation: the last player of each team moves to the next team.
-			{ title: "Round 2: Minotaur's Labyrinth", type: 'poi', start: hm(11, 30), end: hm(13), track: 'great', place: 'great', booking: 'booked', travelBefore: 15, who: [0, 1, 2, 19] },
-			{ title: 'Round 2: Zombie Lab', type: 'poi', start: hm(11, 30), end: hm(13), track: 'locked', place: 'locked', booking: 'booked', travelBefore: 15, who: [3, 4, 5, 6] },
-			{ title: 'Round 2: The Lost Temple', type: 'poi', start: hm(11, 30), end: hm(13), track: 'mystery', place: 'mystery', booking: 'booked', travelBefore: 15, who: [7, 8, 9, 10] },
-			{ title: 'Round 2: Prison Break', type: 'poi', start: hm(11, 30), end: hm(13), track: 'paradox', place: 'paradox', booking: 'booked', travelBefore: 15, who: [11, 12, 13, 14] },
-			{ title: "Round 2: Sherlock's Study", type: 'poi', start: hm(11, 30), end: hm(13), track: 'vault', place: 'vault', booking: 'booked', travelBefore: 15, who: [15, 16, 17, 18] },
+			{
+				title: "Round 2: Minotaur's Labyrinth",
+				type: 'activity',
+				start: hm(11, 30),
+				end: hm(13),
+				place: 'great',
+				who: [0, 1, 2, 19]
+			},
+			{
+				title: 'Round 2: Zombie Lab',
+				type: 'activity',
+				start: hm(11, 30),
+				end: hm(13),
+				place: 'locked',
+				who: [3, 4, 5, 6]
+			},
+			{
+				title: 'Round 2: The Lost Temple',
+				type: 'activity',
+				start: hm(11, 30),
+				end: hm(13),
+				place: 'mystery',
+				who: [7, 8, 9, 10]
+			},
+			{
+				title: 'Round 2: Prison Break',
+				type: 'activity',
+				start: hm(11, 30),
+				end: hm(13),
+				place: 'paradox',
+				who: [11, 12, 13, 14]
+			},
+			{
+				title: "Round 2: Sherlock's Study",
+				type: 'activity',
+				start: hm(11, 30),
+				end: hm(13),
+				place: 'vault',
+				who: [15, 16, 17, 18]
+			},
 
-			{ title: 'Lunch, Karamanlidika', type: 'food', start: hm(13, 15), end: hm(14, 15), track: 'city', place: 'psyrri', booking: 'booked', travelBefore: 15, who: ALL },
+			{
+				title: 'Lunch, Karamanlidika',
+				type: 'food',
+				start: hm(13, 15),
+				end: hm(14, 15),
+				place: 'psyrri',
+				who: ALL
+			},
 
-			{ title: 'Room: Nautilus', type: 'poi', start: hm(14, 30), end: hm(16), track: 'mystery', place: 'mystery', booking: 'booked', travelBefore: 15, who: [0, 1, 4, 5] },
-			{ title: 'Room: The Vault', type: 'poi', start: hm(14, 30), end: hm(16), track: 'vault', place: 'vault', booking: 'booked', travelBefore: 15, who: [8, 9, 12, 13] },
-			{ title: 'Acropolis & Parthenon', type: 'poi', start: hm(14, 30), end: hm(16), track: 'city', place: 'acropolis', booking: 'tentative', travelBefore: 20, who: [2, 3, 6, 7, 10, 11] },
-			{ title: 'Plaka & Anafiotika food walk', type: 'poi', start: hm(14, 30), end: hm(16), track: 'city', place: 'plaka', booking: 'tentative', travelBefore: 10, who: [14, 15, 16, 17, 18, 19] },
+			{
+				title: 'Room: Nautilus',
+				type: 'activity',
+				start: hm(14, 30),
+				end: hm(16),
+				place: 'mystery',
+				who: [0, 1, 4, 5]
+			},
+			{
+				title: 'Room: The Vault',
+				type: 'activity',
+				start: hm(14, 30),
+				end: hm(16),
+				place: 'vault',
+				who: [8, 9, 12, 13]
+			},
+			{
+				title: 'Acropolis & Parthenon',
+				type: 'activity',
+				start: hm(14, 30),
+				end: hm(16),
+				place: 'acropolis',
+				who: [2, 3, 6, 7, 10, 11]
+			},
+			{
+				title: 'Plaka & Anafiotika food walk',
+				type: 'activity',
+				start: hm(14, 30),
+				end: hm(16),
+				place: 'plaka',
+				who: [14, 15, 16, 17, 18, 19]
+			},
 
-			{ title: 'Rooftop debrief, A for Athens', type: 'food', start: hm(16, 30), end: hm(17, 45), track: 'city', place: 'monastiraki', booking: 'tentative', travelBefore: 20, who: ALL }
+			{
+				title: 'Rooftop debrief, A for Athens',
+				type: 'food',
+				start: hm(16, 30),
+				end: hm(17, 45),
+				place: 'monastiraki',
+				who: ALL
+			},
+
+			{
+				title: 'Plaka apartments',
+				type: 'stay',
+				start: hm(21),
+				end: hm(8),
+				place: 'hotel',
+				who: ALL
+			}
 		]
 	},
 
@@ -139,22 +343,115 @@ const DAYS: { day: string; events: Ev[] }[] = [
 	{
 		day: '2026-04-18',
 		events: [
-			{ title: 'Heat: Alcatraz', type: 'poi', start: hm(9), end: hm(10, 30), track: 'great', place: 'great', booking: 'booked', who: [0, 4, 8, 12] },
-			{ title: "Heat: Pharaoh's Tomb", type: 'poi', start: hm(9), end: hm(10, 30), track: 'locked', place: 'locked', booking: 'booked', who: [1, 5, 9, 13] },
-			{ title: 'Heat: Space Station', type: 'poi', start: hm(9), end: hm(10, 30), track: 'mystery', place: 'mystery', booking: 'booked', who: [2, 6, 10, 14] },
-			{ title: 'Heat: The Heist II', type: 'poi', start: hm(9), end: hm(10, 30), track: 'paradox', place: 'paradox', booking: 'booked', who: [3, 7, 11, 15] },
-			{ title: 'Heat: Witch Hunt', type: 'poi', start: hm(9), end: hm(10, 30), track: 'vault', place: 'vault', booking: 'booked', who: [16, 17, 18, 19] },
+			{
+				title: 'Heat: Alcatraz',
+				type: 'activity',
+				start: hm(9),
+				end: hm(10, 30),
+				place: 'great',
+				who: [0, 4, 8, 12]
+			},
+			{
+				title: "Heat: Pharaoh's Tomb",
+				type: 'activity',
+				start: hm(9),
+				end: hm(10, 30),
+				place: 'locked',
+				who: [1, 5, 9, 13]
+			},
+			{
+				title: 'Heat: Space Station',
+				type: 'activity',
+				start: hm(9),
+				end: hm(10, 30),
+				place: 'mystery',
+				who: [2, 6, 10, 14]
+			},
+			{
+				title: 'Heat: The Heist II',
+				type: 'activity',
+				start: hm(9),
+				end: hm(10, 30),
+				place: 'paradox',
+				who: [3, 7, 11, 15]
+			},
+			{
+				title: 'Heat: Witch Hunt',
+				type: 'activity',
+				start: hm(9),
+				end: hm(10, 30),
+				place: 'vault',
+				who: [16, 17, 18, 19]
+			},
 
-			{ title: 'Semifinal: The Oracle at Delphi', type: 'poi', start: hm(11), end: hm(12, 30), track: 'locked', place: 'locked', booking: 'booked', travelBefore: 15, who: [0, 4, 8, 12] },
-			{ title: 'Semifinal: Space Station Redux', type: 'poi', start: hm(11), end: hm(12, 30), track: 'mystery', place: 'mystery', booking: 'booked', travelBefore: 15, who: [2, 6, 10, 14] },
-			{ title: 'Recovery brunch, Kolonaki', type: 'food', start: hm(11), end: hm(12, 30), track: 'city', place: 'kolonaki', booking: 'tentative', travelBefore: 15, who: [1, 3, 5, 7, 9, 11, 13, 15, 16, 17, 18, 19] },
+			{
+				title: 'Semifinal: The Oracle at Delphi',
+				type: 'activity',
+				start: hm(11),
+				end: hm(12, 30),
+				place: 'locked',
+				who: [0, 4, 8, 12]
+			},
+			{
+				title: 'Semifinal: Space Station Redux',
+				type: 'activity',
+				start: hm(11),
+				end: hm(12, 30),
+				place: 'mystery',
+				who: [2, 6, 10, 14]
+			},
+			{
+				title: 'Recovery brunch, Kolonaki',
+				type: 'food',
+				start: hm(11),
+				end: hm(12, 30),
+				place: 'kolonaki',
+				who: [1, 3, 5, 7, 9, 11, 13, 15, 16, 17, 18, 19]
+			},
 
-			{ title: 'Ancient Agora walk', type: 'poi', start: hm(13), end: hm(14, 30), track: 'city', place: 'agora', booking: 'booked', travelBefore: 20, who: ALL },
+			{
+				title: 'Ancient Agora walk',
+				type: 'activity',
+				start: hm(13),
+				end: hm(14, 30),
+				place: 'agora',
+				who: ALL
+			},
 
-			{ title: 'Grand final: Bank Heist', type: 'poi', start: hm(15), end: hm(16, 30), track: 'paradox', place: 'paradox', booking: 'booked', travelBefore: 20, who: [0, 4, 10, 14] },
-			{ title: 'Beach afternoon, Vouliagmeni', type: 'freetime', start: hm(15), end: hm(16, 30), track: 'city', place: 'vouliagmeni', travelBefore: 45, who: except(0, 4, 10, 14) },
+			{
+				title: 'Grand final: Bank Heist',
+				type: 'activity',
+				start: hm(15),
+				end: hm(16, 30),
+				place: 'paradox',
+				who: [0, 4, 10, 14]
+			},
+			{
+				title: 'Beach afternoon, Vouliagmeni',
+				type: 'freetime',
+				start: hm(15),
+				end: hm(16, 30),
+				place: 'vouliagmeni',
+				who: except(0, 4, 10, 14)
+			},
 
-			{ title: 'Awards dinner, Psyrri taverna', type: 'food', start: hm(17, 15), end: hm(18), track: 'city', place: 'psyrri', booking: 'booked', travelBefore: 45, who: ALL }
+			{
+				title: 'Awards dinner, Psyrri taverna',
+				type: 'food',
+				start: hm(17, 15),
+				end: hm(18),
+				place: 'psyrri',
+				who: ALL
+			},
+
+			{
+				title: 'Plaka apartments',
+				type: 'stay',
+				start: hm(21),
+				end: hm(8),
+				place: 'hotel',
+				who: ALL
+			}
 		]
 	},
 
@@ -162,32 +459,165 @@ const DAYS: { day: string; events: Ev[] }[] = [
 	{
 		day: '2026-04-19',
 		events: [
-			{ title: 'Monastiraki flea market', type: 'poi', start: hm(9, 30), end: hm(11), track: 'city', place: 'monastiraki', booking: 'unbooked', who: ALL },
+			{
+				title: 'Monastiraki flea market',
+				type: 'activity',
+				start: hm(9, 30),
+				end: hm(11),
+				place: 'monastiraki',
+				who: ALL
+			},
 
-			{ title: "Last room: The Alchemist's Study", type: 'poi', start: hm(11, 15), end: hm(12, 45), track: 'great', place: 'great', booking: 'booked', travelBefore: 10, who: [0, 1, 2, 3] },
-			{ title: 'Last room: Nautilus', type: 'poi', start: hm(11, 15), end: hm(12, 45), track: 'mystery', place: 'mystery', booking: 'booked', travelBefore: 20, who: [4, 5, 6, 7] },
-			{ title: 'Coffee & board games, Exarchia', type: 'freetime', start: hm(11, 15), end: hm(12, 45), track: 'city', place: 'exarchia', travelBefore: 15, who: range(8, 19) },
+			{
+				title: "Last room: The Alchemist's Study",
+				type: 'activity',
+				start: hm(11, 15),
+				end: hm(12, 45),
+				place: 'great',
+				who: [0, 1, 2, 3]
+			},
+			{
+				title: 'Last room: Nautilus',
+				type: 'activity',
+				start: hm(11, 15),
+				end: hm(12, 45),
+				place: 'mystery',
+				who: [4, 5, 6, 7]
+			},
+			{
+				title: 'Coffee & board games, Exarchia',
+				type: 'freetime',
+				start: hm(11, 15),
+				end: hm(12, 45),
+				place: 'exarchia',
+				who: range(8, 19)
+			},
 
-			{ title: 'Farewell lunch, Plaka', type: 'food', start: hm(13, 15), end: hm(14, 45), track: 'city', place: 'plaka', booking: 'booked', travelBefore: 15, who: ALL },
-			{ title: 'Depart for ATH airport', type: 'travel', start: hm(15, 15), end: hm(16, 45), track: 'city', place: 'airport', booking: 'booked', travelBefore: 30, who: ALL }
+			{
+				title: 'Farewell lunch, Plaka',
+				type: 'food',
+				start: hm(13, 15),
+				end: hm(14, 45),
+				place: 'plaka',
+				who: ALL
+			},
+			{
+				title: 'Depart for ATH airport',
+				type: 'travel',
+				start: hm(15, 15),
+				end: hm(16, 45),
+				place: 'airport',
+				who: ALL
+			}
 		]
 	}
 ];
 
-const POIS: { name: string; category: string; notes: string | null; place: keyof typeof COORDS; saved: number; votes: number }[] = [
-	{ name: 'Great Escape Athens', category: 'Escape room', notes: '3 rooms, 2–5 players each', place: 'great', saved: 1, votes: 14 },
-	{ name: 'Locked Athens', category: 'Escape room', notes: 'Book the whole venue for 20', place: 'locked', saved: 1, votes: 12 },
-	{ name: 'Mystery Rooms Athens', category: 'Escape room', notes: 'Best rated in Koukaki', place: 'mystery', saved: 1, votes: 16 },
-	{ name: 'Paradox Project', category: 'Escape room', notes: 'Bank Heist is the hard one', place: 'paradox', saved: 1, votes: 11 },
-	{ name: 'The Athens Vault', category: 'Escape room', notes: 'Two rooms run in parallel', place: 'vault', saved: 1, votes: 9 },
-	{ name: 'Acropolis & Parthenon', category: 'History', notes: 'Go before 10:00 or after 16:00', place: 'acropolis', saved: 1, votes: 15 },
-	{ name: 'Acropolis Museum', category: 'History', notes: null, place: 'acropolisMuseum', saved: 1, votes: 10 },
+const POIS: {
+	name: string;
+	category: string;
+	notes: string | null;
+	place: keyof typeof COORDS;
+	saved: number;
+	votes: number;
+}[] = [
+	{
+		name: 'Great Escape Athens',
+		category: 'Escape room',
+		notes: '3 rooms, 2–5 players each',
+		place: 'great',
+		saved: 1,
+		votes: 14
+	},
+	{
+		name: 'Locked Athens',
+		category: 'Escape room',
+		notes: 'Book the whole venue for 20',
+		place: 'locked',
+		saved: 1,
+		votes: 12
+	},
+	{
+		name: 'Mystery Rooms Athens',
+		category: 'Escape room',
+		notes: 'Best rated in Koukaki',
+		place: 'mystery',
+		saved: 1,
+		votes: 16
+	},
+	{
+		name: 'Paradox Project',
+		category: 'Escape room',
+		notes: 'Bank Heist is the hard one',
+		place: 'paradox',
+		saved: 1,
+		votes: 11
+	},
+	{
+		name: 'The Athens Vault',
+		category: 'Escape room',
+		notes: 'Two rooms run in parallel',
+		place: 'vault',
+		saved: 1,
+		votes: 9
+	},
+	{
+		name: 'Acropolis & Parthenon',
+		category: 'History',
+		notes: 'Go before 10:00 or after 16:00',
+		place: 'acropolis',
+		saved: 1,
+		votes: 15
+	},
+	{
+		name: 'Acropolis Museum',
+		category: 'History',
+		notes: null,
+		place: 'acropolisMuseum',
+		saved: 1,
+		votes: 10
+	},
 	{ name: 'Ancient Agora', category: 'History', notes: null, place: 'agora', saved: 1, votes: 8 },
-	{ name: 'Filopappou Hill', category: 'Nature', notes: 'Sunset over the Acropolis', place: 'filopappou', saved: 1, votes: 7 },
-	{ name: 'Monastiraki flea market', category: 'Shopping', notes: 'Sunday is the big one', place: 'monastiraki', saved: 1, votes: 6 },
-	{ name: 'Vouliagmeni beach', category: 'Nature', notes: '40 min by coach', place: 'vouliagmeni', saved: 0, votes: 9 },
-	{ name: 'Karamanlidika, Psyrri', category: 'Food', notes: 'Can seat 20 with notice', place: 'psyrri', saved: 0, votes: 12 },
-	{ name: 'A for Athens rooftop', category: 'Food', notes: 'Reserve the terrace', place: 'monastiraki', saved: 0, votes: 11 }
+	{
+		name: 'Filopappou Hill',
+		category: 'Nature',
+		notes: 'Sunset over the Acropolis',
+		place: 'filopappou',
+		saved: 1,
+		votes: 7
+	},
+	{
+		name: 'Monastiraki flea market',
+		category: 'Shopping',
+		notes: 'Sunday is the big one',
+		place: 'monastiraki',
+		saved: 1,
+		votes: 6
+	},
+	{
+		name: 'Vouliagmeni beach',
+		category: 'Nature',
+		notes: '40 min by coach',
+		place: 'vouliagmeni',
+		saved: 0,
+		votes: 9
+	},
+	{
+		name: 'Karamanlidika, Psyrri',
+		category: 'Food',
+		notes: 'Can seat 20 with notice',
+		place: 'psyrri',
+		saved: 0,
+		votes: 12
+	},
+	{
+		name: 'A for Athens rooftop',
+		category: 'Food',
+		notes: 'Reserve the terrace',
+		place: 'monastiraki',
+		saved: 0,
+		votes: 11
+	}
 ];
 
 /** Seed the whole Athens trip for `userId` (who becomes the organizer). */
@@ -209,7 +639,10 @@ export function seedAthensTrip(db: DatabaseSync, userId: string): string {
 		ATHENS_TRIP.endDate,
 		now
 	);
-	db.prepare(`INSERT INTO memberships (trip_id, user_id, role) VALUES (?, ?, 'organizer')`).run(tripId, userId);
+	db.prepare(`INSERT INTO memberships (trip_id, user_id, role) VALUES (?, ?, 'organizer')`).run(
+		tripId,
+		userId
+	);
 
 	const c = ATHENS_TRIP.city;
 	const cityId = randomUUID();
@@ -229,65 +662,103 @@ export function seedAthensTrip(db: DatabaseSync, userId: string): string {
 	const roster: string[] = [userId];
 	for (const name of COMPANIONS) {
 		const id = randomUUID();
-		insertUser.run(id, `${name.toLowerCase()}+${tripId}@example.invalid`, name, `seed:${randomUUID()}`, 'UTC', now);
+		insertUser.run(
+			id,
+			`${name.toLowerCase()}+${tripId}@example.invalid`,
+			name,
+			`seed:${randomUUID()}`,
+			'UTC',
+			now
+		);
 		insertMember.run(tripId, id);
 		roster.push(id);
 	}
 
-	// Every trip needs an Everyone party; tracks hang off it. With assignees as
-	// the source of truth it stays a single undivided crew.
-	const partyId = randomUUID();
-	db.prepare(
-		`INSERT INTO parties (id, trip_id, name, color, is_solo, is_default, sort, created_at)
-		 VALUES (?, ?, 'Everyone', '#2f6d5e', 0, 1, 0, ?)`
-	).run(partyId, tripId, now);
-
-	const insertTrack = db.prepare(
-		`INSERT INTO tracks (id, trip_id, day, name, color, sort, party_id) VALUES (?, ?, ?, ?, ?, ?, ?)`
-	);
-	const insertItem = db.prepare(
-		`INSERT INTO schedule_items
-		 (id, track_id, title, type, start_min, end_min, booking, travel_mode, travel_mins, travel_before_min, poi_id, lat, lng)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, NULL, ?, ?)`
-	);
-	const insertAssignee = db.prepare(
-		`INSERT INTO item_assignees (item_id, user_id) VALUES (?, ?)`
-	);
-
-	for (const d of DAYS) {
-		const used = [...new Set(d.events.map((e) => e.track))];
-		const trackIds = new Map<string, string>();
-		used.forEach((key, i) => {
-			const id = randomUUID();
-			insertTrack.run(id, tripId, d.day, TRACKS[key].name, TRACKS[key].color, i, partyId);
-			trackIds.set(key, id);
-		});
-		for (const e of d.events) {
-			const itemId = randomUUID();
-			const co = e.place ? COORDS[e.place] : null;
-			insertItem.run(
-				itemId,
-				trackIds.get(e.track)!,
-				e.title,
-				e.type,
-				e.start,
-				e.end,
-				e.booking ?? null,
-				e.travelBefore ?? null,
-				co ? co[0] : null,
-				co ? co[1] : null
-			);
-			for (const w of e.who) insertAssignee.run(itemId, roster[w]);
-		}
-	}
-
 	seedPois(db, tripId, cityId, roster);
 	seedLodging(db, tripId, cityId, roster);
+	// After the lodging, so a stay can point at the option the group chose.
+	seedAthensSchedule(db, tripId, cityId, roster);
 	seedExpenses(db, tripId, roster);
 	seedBudget(db, tripId, cityId);
 	seedTasks(db, tripId, roster);
 
 	return tripId;
+}
+
+/**
+ * Lay the five days of events onto a trip, and let the travel fall out of them.
+ *
+ * Split out of `seedAthensTrip` so the schedule can be re-seeded on its own
+ * against a trip that already exists. The rework that replaced tracks with
+ * events dropped every scheduled block in the database, and rebuilding the
+ * whole demo trip to get the board back would have meant throwing away the
+ * expenses, votes and tasks attached to the real one.
+ *
+ * `roster` is indexed the way the `who` lists are: 0 is the organizer.
+ *
+ * It deletes the trip's existing events first, so running it twice leaves one
+ * copy rather than two. Legs are not deleted explicitly: they cascade from the
+ * events they join, and `recomputeLegs` then plans the new ones per day.
+ */
+export function seedAthensSchedule(
+	db: DatabaseSync,
+	tripId: string,
+	cityId: string,
+	roster: string[]
+): number {
+	const now = Date.now();
+	db.prepare(`DELETE FROM events WHERE trip_id = ?`).run(tripId);
+
+	const insertEvent = db.prepare(
+		`INSERT INTO events
+		 (id, trip_id, day, title, type, start_min, end_min, poi_id, lodging_id, city_id, lat, lng, notes, travel_mode, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, NULL, NULL, ?)`
+	);
+	const insertPerson = db.prepare(`INSERT INTO event_people (event_id, user_id) VALUES (?, ?)`);
+
+	// A stay points at the option the group actually picked, so the lodging a
+	// night resolves to is the one fact rather than a title that agrees with it
+	// by coincidence. The leading vote stands in for a locked choice.
+	const stayOption =
+		(
+			db
+				.prepare(
+					`SELECT o.id FROM lodging_options o
+					  LEFT JOIN lodging_votes v ON v.option_id = o.id
+					  WHERE o.trip_id = ?
+					  GROUP BY o.id ORDER BY o.locked DESC, count(v.user_id) DESC LIMIT 1`
+				)
+				.get(tripId) as { id: string } | undefined
+		)?.id ?? null;
+
+	let count = 0;
+	for (const d of DAYS) {
+		for (const e of d.events) {
+			const eventId = randomUUID();
+			const co = e.place ? COORDS[e.place] : null;
+			insertEvent.run(
+				eventId,
+				tripId,
+				d.day,
+				e.title,
+				e.type,
+				e.start,
+				e.end,
+				e.type === 'stay' ? stayOption : null,
+				cityId,
+				co ? co[0] : null,
+				co ? co[1] : null,
+				now
+			);
+			for (const w of e.who) insertPerson.run(eventId, roster[w]);
+			count++;
+		}
+	}
+	// After every event exists, not per day: a stay is the origin of the next
+	// morning's first journey, so planning day N while day N-1 is still empty
+	// would plan it without one and leave the morning starting from nowhere.
+	for (const d of DAYS) recomputeLegs(tripId, d.day);
+	return count;
 }
 
 function seedPois(db: DatabaseSync, tripId: string, cityId: string, roster: string[]): void {
@@ -302,7 +773,19 @@ function seedPois(db: DatabaseSync, tripId: string, cityId: string, roster: stri
 		const co = COORDS[p.place];
 		// Bucketed the same way the migration backfilled real rows, so a fresh
 		// demo database and an existing one classify identically.
-		insertPoi.run(id, tripId, cityId, p.name, p.category, poiKindFromCategory(p.category), p.notes, co[0], co[1], p.saved, base - i * 100);
+		insertPoi.run(
+			id,
+			tripId,
+			cityId,
+			p.name,
+			p.category,
+			poiKindFromCategory(p.category),
+			p.notes,
+			co[0],
+			co[1],
+			p.saved,
+			base - i * 100
+		);
 		for (let v = 0; v < Math.min(p.votes, roster.length); v++) insertVote.run(id, roster[v]);
 	});
 }

@@ -43,7 +43,11 @@ test.describe('a city cannot be added to a trip twice', () => {
 			);
 
 			// Case and spacing are not a different city.
-			const sloppy = await addCity(request, fixture, { ...KYOTO, name: '  kyoto', country: 'japan' });
+			const sloppy = await addCity(request, fixture, {
+				...KYOTO,
+				name: '  kyoto',
+				country: 'japan'
+			});
 			expect(sloppy.status()).toBe(400);
 
 			// A same-named city in another region is, and must still be allowed.

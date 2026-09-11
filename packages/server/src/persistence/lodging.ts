@@ -252,8 +252,8 @@ export function removeOption(tripId: string, actorId: string, optionId: string):
 	const res = db
 		.prepare(`DELETE FROM lodging_options WHERE id = ? AND trip_id = ?`)
 		.run(optionId, tripId);
-	// `party_day.lodging_option_id` is ON DELETE SET NULL, so a crew pinned to
-	// this stay silently loses it: the calendar has to refetch as well.
+	// `events.lodging_id` is ON DELETE SET NULL, so a stay event booked into this
+	// option silently loses it: the schedule has to refetch as well.
 	if (res.changes > 0) publishMany(tripId, ['lodging', 'schedule']);
 	return res.changes > 0;
 }

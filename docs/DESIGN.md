@@ -8,11 +8,12 @@
 ## 1. Purpose & Vision
 
 A collaborative tool where a user registers, creates a **Trip**, gathers candidate
-**Points of Interest (POIs)** via a discovery tool, and schedules them on a
-multi-track **calendar** with a map and travel-time estimates. It supports parallel
-**tracks** (when a group splits up), **lodging voting**, a **pre-trip** checklist,
-an **estimated cost** view, and a **Splitwise-style** expense settlement, all
-**time-zone aware** across multiple cities in one trip.
+**Points of Interest (POIs)** via a discovery tool, and schedules them as
+**events** on a board with a map and travel-time estimates. When the group splits
+up, two events at the same time with different people on them **are** the split,
+and travel is derived from who is moving where. It supports **lodging voting**, a
+**pre-trip** checklist, an **estimated cost** view, and a **Splitwise-style**
+expense settlement, all **time-zone aware** across multiple cities in one trip.
 
 ### Reference material (analyzed)
 
@@ -28,11 +29,13 @@ Two real itinerary spreadsheets informed this design:
 
 **Design consequences:**
 
-1. Schedule items are **typed** (poi / food / transport / travel / lodging / free-time).
-2. Items can be **booked / tentative / unbooked**.
-3. Some items have **hard reservation windows**; others are flexible.
-4. **Travel legs** live _between_ POIs and need computed durations.
-5. A single trip spans **multiple cities → multiple time zones**.
+1. Events are **typed** (activity / food / stay / travel / free time).
+2. Some events have **hard reservation windows**; others are flexible.
+3. **Travel legs** live _between_ events and need computed durations.
+4. A single trip spans **multiple cities → multiple time zones**.
+
+The spreadsheet's `* = Unbooked` marker was built and then removed; see §6 for
+why a status nothing derives from did not earn its line on a block.
 
 ---
 
@@ -43,12 +46,12 @@ User
 Trip            organizer, members[], date range, homeCurrency
   Location      a city/region within a trip; owns an IANA timezone + geo center
   POI           discovered candidate: geo, category, hours, priceLevel, url, votes
-  Track         a parallel schedule ("group splits up") within a trip
-  ScheduleItem  a typed block placed on a Track's calendar
-                { type, startUtc, endUtc, timezone, bookingStatus, cost,
-                  poiId?, assignees[], notes }
-  TravelLeg     derived edge between consecutive ScheduleItems
-                { mode, durationMin, distanceM, cost, provider, cachedAt }
+  Event         a typed block on the board, carrying the people who are on it
+                { type, day, startMin, endMin, tz, cost,
+                  poiId?, lodgingId?, people[], notes }
+  TravelLeg     derived edge between two events, for one set of people
+                { fromId, toId, people[], mode, mins, autoMode, autoMins }
+  Crew          a saved selection of people; a shortcut, never a schedule
   Lodging       candidate stay for a Location + a voting poll
   Poll / Vote   lodging + POI ranking (approval or ranked)
   Expense       payer, amount, currency, splitRule → Settlement
@@ -60,46 +63,55 @@ Trip            organizer, members[], date range, homeCurrency
 ```
 User 1───* Membership *───1 Trip
 Trip 1───* Location
-Trip 1───* Track
 Trip 1───* POI            (POI optionally tied to a Location)
 Location 1─* Lodging
-Track 1───* ScheduleItem
-ScheduleItem 0..1─ POI    (poi/food items reference a POI)
-ScheduleItem 1─* TravelLeg (leg to the next item)
+Trip 1───* Event
+Event *───* User          (who is on it, via EventPeople)
+Event 0..1─ POI           (activity/food events reference a POI)
+Event 0..1─ Lodging       (a stay references the option slept in)
+TravelLeg *─1 Event ×2    (from → to, for one set of people)
+Trip 1───* Crew *───* User (a saved selection, no schedule)
 Trip 1───* Expense
 Expense *─* User          (participants via ExpenseSplit)
 Lodging 1─* Vote ; POI 1─* Vote
 ```
 
-### 2.2 Item-type vocabulary (reconciled)
+### 2.2 Event-type vocabulary
 
-The canonical set, exported as `ITEM_TYPES` from `@trippy/core` with `ItemType`
+The canonical set, exported as `EVENT_TYPES` from `@trippy/core` with `EventType`
 derived from it:
 
 ```
-poi | food | transport | travel | lodging | freetime
+activity | food | stay | travel | freetime
 ```
 
-This document previously specified `poi | meal | travel | lodging | freetime |
-meetup`, and `packages/core/src/types.ts` matched it, but nothing imported that
-type. The literals that were actually **persisted, validated and rendered** were
-the other list: the server's edit validator, the API's item-type guard and the
-calendar's type picker all used `food` and `transport`, and no client could
-produce `meal` or `meetup` or render a label for either. A vocabulary that
-enforces nothing is worse than no vocabulary, so the implemented set won and the
-spec was corrected to it rather than the other way round.
+Five types, not six, and `poi`, `transport` and `lodging` are gone. Each of the
+three lost a reason to exist when tracks did:
 
-Only seeded demo rows ever carried `meal` (9 rows in the live database, from the
-sample day). An additive, idempotent migration in `db.ts` renames them:
-`UPDATE schedule_items SET type = 'food' WHERE type = 'meal'`. The seed sources
-(`packages/core/src/sample.ts`, `packages/server/src/seed-athens.ts`) now emit
-`food` directly, so the migration has nothing to do on a second run.
+- `poi` meant "a place from Discover", which is a question about where the event
+  came from, not what it is. It became `activity`, and the link to the saved
+  place is `events.poi_id`, where it belongs.
+- `transport` and `travel` were a flight and a hop: two names for a journey,
+  split by how long it was. Travel is derived now, so the only hand-entered
+  journey is `travel`, and how long it is decides nothing.
+- `lodging` was a block that said a hotel existed. `stay` is the night itself,
+  with a check-in and a checkout, and it is what the next morning's first
+  journey starts from.
 
-`meetup` was dropped rather than implemented: it never existed in the schema, the
-API or the UI, and an assignee list already expresses "these people are meeting
-here". `transport` (a flight or long leg placed on the board as a block) and
-`travel` (the shorter hop between two stops) both stay, because the calendar's
-quick-add offers them as different things.
+Two of the five are not places: `freetime` is deliberately nowhere, and `travel`
+is itself a journey. `LOCATED_EVENT_TYPES` and `isLocatedType` name that
+distinction, because two rules turn on it (only a located event anchors a leg,
+and switching to free time clears the coordinates).
+
+`TRANSPORT_MODES` is the companion list, for what a journey is made by:
+
+```
+walk | cycle | transit | drive | ferry | flight
+```
+
+The provider ladder can only answer for four of them (see 4.2); ferry and flight
+exist because a person can still say so by hand, and a schedule that cannot
+express a ferry is wrong about the trip rather than silent about it.
 
 ### 2.3 Discover buckets (`pois.kind`)
 
@@ -151,124 +163,194 @@ not a legal value of this column, and the CHECK constraint rejects it.
 - Members suggest + upvote POIs into a shared **candidate pool** per Location
   _before_ scheduling. Manual POIs also allowed (for venues not in providers).
 
-### M3: Calendar (core)
+### M3: Schedule (core)
 
-- Day / multi-day agenda grid mirroring the reference sheets (configurable slot size,
-  default 30 min; drag snaps to 5-min increments).
+The board was rebuilt on **events** in place of tracks. What follows is the model
+as built; the reasoning for the change is in M3.1.
+
+- Day / 3-day / people views. Slots are 30 minutes, drag snaps to 5.
 - **Derived column layout**: see M3.2. Columns are computed, not authored.
-- Drag POIs from the candidate pool onto slots. Supports:
+- Drag places from the candidate pool onto slots. Supports:
   - **Fixed windows** (reservations) that lock start/end.
-  - **Booking status**: booked / tentative / unbooked (mirrors the `*` marker).
-- **Per-activity assignees** (`item_assignees` join table): assign any subset of members to
-  each activity. Unassigned items fall back to the track's crew, and are otherwise treated
-  as whole-group/shared.
-- **Event popup**: clicking a block opens a detail/edit dialog (title, type, start,
-  duration, travel-before, attendees, booking status, delete). Dragging never opens it;
-  a click only counts when the pointer didn't move.
-- **Live "now" line**: a red marker at the current time, drawn only on the day that is
-  actually today _in the destination city's zone_ (`localDayMinutes` in `src/lib/tz.ts`).
-- **"View as <user>"** filter: preview any member's personal schedule (their assigned items
-  plus shared items); the schedule form's track picker stays unfiltered.
-- **Travel as a first-class activity type** (`type = 'travel'`) that can itself be assigned to
-  members, alongside a per-item `travelBefore` lead time.
-- **Free time** resets place + travel (no POI/lat/lng/travel), since members are free to roam;
-  it also breaks the auto travel-leg chain.
-- **Title field** on scheduled places (e.g. multiple escape rooms at the same venue).
-- **Per-day lodging banner**: each calendar day shows the lodging in effect for that night.
-- **Map panel**: pins for the day + routed path. Hidden on the 3-day and People views so
-  the board gets the full width.
-- **Auto travel legs**: compute ETA to next POI by mode (Directions API / OSRM);
-  flag a conflict when travel doesn't fit the gap between items.
+- **People on the event** (`event_people`): any subset of the trip. This is not a
+  filter or a decoration; it is what the travel planner reads. An event with
+  nobody on it is shared and belongs to the whole group.
+- **Event popup**: clicking a block opens a detail dialog (title, type, start,
+  duration, people, delete). Dragging never opens it; a click
+  only counts when the pointer did not move.
+- **Live "now" line**: a red marker at the current time, drawn only on the day
+  that is actually today _in the destination city's zone_ (`localDayMinutes`).
+- **"View as"**: a multi-select of members, everyone by default, filtering the
+  board to the events those people are on plus the shared ones.
+- **Travel is derived**, with a hand-entered `travel` event as the override of
+  last resort. See 4.2.
+- **Free time** clears its place, since nobody has promised to be anywhere, and
+  therefore breaks the travel chain on both sides.
+- **A stay spans midnight** as a single row: `start_min` is check-in on its own
+  evening, `end_min` is checkout the **next morning**, so `end_min < start_min`
+  is normal and must never be "corrected". It is the origin of the following
+  day's first journey.
+- **Map panel**: the trip's city pins plus the day's scheduled pins. Day view
+  only; the 3-day and people views give the board the full width.
 
 ### M3.2: Layout engine & the People swimlane
 
-Earlier versions drew one calendar column per authored _track_, which meant "who is doing
-this" had three possible answers (the track's crew, the item's assignees, and the member's
-crew membership) that could disagree. **An event's attendee list is now the single source of
-truth**; tracks survive only as a colour/grouping detail. Layout is derived.
+Earlier versions drew one column per authored _track_, which meant "who is doing
+this" had three possible answers (the track's crew, the item's assignees, and the
+member's crew membership) that could disagree. **An event's people are now the
+single source of truth**, and tracks are gone entirely. Layout is derived.
 
-`src/lib/layout.ts` is a pure module (no DOM) that turns a day's events into a drawing:
+`packages/core/src/layout.ts` is a pure module (no DOM) that turns a day's events
+into a drawing. It survived the rework unchanged, because it was already keyed on
+people rather than on lanes:
 
-- **`buildFlows`**: each person's events in start order; every adjacent pair becomes a
-  _hop_ (`from → to` at a time), aggregated so one arrow carries everyone making it.
-- **`rankEvents`**: a global left-to-right rank per event, seeded by start time then
-  relaxed with a weighted barycentre sweep over the hop graph. Events that exchange many
-  people drift together, so arrows stay short and un-crossed. `countCrossings` scores an
-  ordering, and on the sample day the sweep takes crossings from 1 → 0 vs. naive ordering.
-- **`layoutDay`**: packs each cluster of transitively-overlapping events into the fewest
-  columns _in rank order_, then lets each event expand rightwards into any column that
-  stays free for its whole span. **Width therefore tracks contention**: a solo morning
-  activity spans the full board, an event overlapping one other takes ⅔, and a three-way
-  afternoon split takes ⅓ each.
-- **`personBands`**: each person's day as a contiguous strip (gaps become `null` "free"
-  bands), which is what the swimlane renders.
+- **`buildFlows`**: each person's events in start order; every adjacent pair
+  becomes a _hop_ (`from → to` at a time), aggregated so one arrow carries
+  everyone making it.
+- **`rankEvents`**: a global left-to-right rank per event, seeded by start time
+  then relaxed with a weighted barycentre sweep over the hop graph. Events that
+  exchange many people drift together, so arrows stay short and un-crossed.
+  `countCrossings` scores an ordering.
+- **`layoutDay`**: packs each cluster of transitively-overlapping events into the
+  fewest columns _in rank order_, then lets each event expand rightwards into any
+  column that stays free for its whole span. **Width therefore tracks
+  contention**: a solo morning spans the full board, an event overlapping one
+  other takes two thirds, a three-way afternoon split takes a third each.
+- **`personBands`**: each person's day as a contiguous strip (gaps become `null`
+  "free" bands), which is what the swimlane renders.
 
-**Day view** draws the packed blocks plus dashed bezier **flow arrows** for hops where the
-travelling group differs from either end's full party _and_ the two events sit in different
-columns; a hop straight down one column is just "what happens next" and needs no arrow.
+**People view** transposes the board: **rows are people, x is time**. A split is
+literally visible as rows diverging into different colours and converging again.
 
-**People view** (`view=people`) transposes the board: **rows are people, x is time**. Each
-row is one continuous band strip coloured by activity, so a split is literally visible as
-rows diverging into different colours and converging again. A single overlay draws the
-split / rejoin guide-lines and the "now" line across every row, so a change reads as one
-moment rather than four separate events.
+**Motion is part of the layout, not decoration.** Everything on the board is
+absolutely positioned from derived values, so a re-layout teleports blocks. That
+is a real loss of information: width tracks contention, so adding one attendee
+can push a neighbour from full width to two thirds, and a jump cut leaves no clue
+that the two facts are connected. `schedule.css` therefore transitions `top`,
+`height`, `left` and `width` at two speeds, held in `--sched-settle` and
+`--sched-track` on `.sched`:
 
-**Switch moments** (`switchLines`) are likewise derived from the flow graph, not from crew
-membership: one event feeding several is a _split_, several feeding one is a _rejoin_,
-anything else is a _move_.
+- **Settle (220ms)** is for a layout the reader did not drive: a re-planned
+  journey, a column count that changed under them, a server value that differed
+  from what they dropped. Being followable matters more than being quick.
+- **Track (90ms)** is for the block under the pointer. Dragging snaps to five
+  minutes and `PX_PER_MIN` is 1, so every step is a five-pixel jump; that is the
+  choppiness, and smoothing it is the whole point. The duration is bounded from
+  both sides: long enough to glide a 5px step, short enough that the block still
+  reads as stuck to the cursor. `.dragging` and `.resizing` also narrow the
+  transition to the single axis the pointer drives.
 
-### M3.1: Crews (parties), how people get assigned
+The transition forced a correctness fix rather than merely revealing a cosmetic
+one. A drop cleared the live drag state immediately and then waited on a round
+trip, so the block rendered at its **old** position until the new day arrived.
+Un-animated this was a one-frame flicker; animated it became a visible rubber
+band. `Schedule.tsx` now holds a `pending` override of the dropped position and
+drops it the moment any fresh payload lands, whatever that payload says, so a
+value the server clamps or refuses still wins and the override can never outlive
+the round trip it exists to bridge.
 
-Groups rarely move as one solid block: they split for a day, or even an afternoon,
-then re-merge. **Crews** are the authoring tool for that (the Crews dialog), and they
-supply the _default_ attendee list for events that have no explicit assignees. They are no
-longer a layout concept; see M3.2.
+Blocks fade in rather than slide, because a block that was not there a moment ago
+has no old position to travel from. Under `prefers-reduced-motion` all of it is
+removed: the board is read, not watched, and every block is already in the right
+place without the motion.
 
-**Model**
+### M3.1: Events carry people, and travel follows
 
-- `parties(id, trip_id, name, color, is_solo, created_at)`: a crew. A solo split
-  auto-creates a party named after the person (`is_solo = 1`).
-- `party_membership(id, party_id, user_id, day, start_min, end_min)`: who is in which
-  crew, when. Day + minutes match the calendar grid and avoid cross-city TZ ambiguity.
-  Invariant: per `(user, day)` segments never overlap; gaps fall back to **Everyone**.
-- `party_day(party_id, day, city_id, lodging_option_id)`: where a crew is (and sleeps)
-  on a day. This is what lets city/lodging differ per person.
-- `tracks.party_id`: a track belongs to a party. Tracks no longer form calendar columns.
+**The change.** Tracks, parties, `party_day` and `party_membership` are deleted.
+An event carries its people; two events at the same time with different people
+**are** a split, and nothing has to declare one.
 
-**Everyone default**: every trip has an `Everyone` party containing all members for the
-full day of every day (`0→1440`). Existing tracks backfill to it, so single-group trips
-behave exactly as before with zero setup.
+**Why the old model had to go.** A track made the lane the unit of planning. That
+had three consequences that could not be fixed inside it:
 
-**"View as <user>"**: for each day, read the user's membership segments; for each
-segment, pull the tracks of the party they're in during that window; stitch into one
-continuous timeline. Their city/lodging = the party they **end** the day with.
+1. A person could only be in one lane at a time **by construction**, so the model
+   could not represent a mistake, which meant it could not warn about one either.
+2. Travel belonged to the lane rather than to the people moving, so two people
+   leaving the same place for different destinations shared one computed leg and
+   one of them was simply wrong.
+3. Splitting the group meant authoring a second lane and keeping both in step by
+   hand, which is bookkeeping the schedule already had the facts to do itself.
 
-**Split flow**: select person(s) + a time → _Split off_ → target = existing crew or
-_New crew_ (auto-solo if just them). System closes the current membership segment at the
-split time and opens a new one in the target from that time. If the two crews differ in
-location at that moment, a `travel` activity is auto-inserted to bridge them. _Rejoin_
-closes the temp segment and reopens membership in the original.
+On top of that, `party_membership` was time-segmented: putting two people in a
+group was a scheduling decision with week-long consequences, and merging two
+identities (see 4.8) needed a bespoke, deliberately-unresolved conflict rule for
+overlapping segments. A **crew** is now only a saved selection of people, a
+shortcut for the people picker, with no schedule, city, lodging or days. Choosing
+one selects its members and gets out of the way. Nothing reads a crew while
+drawing a day, so one can be renamed or deleted at any time without the schedule
+moving underneath anybody, and the merge rule became "it is a set".
 
-> **Caveat: attendance is whole-event.** A person attends an event or doesn't; there are
-> no per-person partial ranges. To model someone leaving halfway, split the event in two.
-> This is what keeps "who is where at time T" a single unambiguous lookup.
+**Deriving the legs** (`packages/core/src/travel.ts`, `planLegs`). For each
+person, walk their own events in order and pair each consecutive two. Bucket the
+pairs by the pair of event ids, so:
 
-**Edge cases**: solo split → auto/reuse a solo party; re-merge → rejoiner inherits the
-party's items (no duplication, items live on the party track); orphaned party (nobody in
-it for a segment) persists but renders collapsed; unassigned gap → Everyone fallback.
+- everyone going from A to B lands in one bucket and shares **one** leg;
+- two people leaving A for different places land in two buckets and get **two**.
 
-**Backward-compat**: `item_assignees` stays as an optional finer filter _within_ a party
-(e.g. one escape room, two people). Migration is additive.
+That is the whole of splitting and rejoining. Three rules keep it honest:
 
-**Phasing**: **P1** tables + Everyone default + `tracks.party_id`; per-party lanes; view-as
-reads membership (no behavior change for existing trips). **P2** `party_day` city/lodging
-per crew per day; calendar banner + map follow the viewer's crew. **P3** split/rejoin UI +
-auto-travel bridge.
+- **Free time breaks the chain on both sides.** Not because it has no location,
+  but because nobody has promised to be anywhere, so planning a journey out of it
+  would be inventing a fact.
+- **A hand-entered `travel` event is never an endpoint**, so no automatic leg is
+  planned into or out of it. Saying how you are getting from A to B is how you
+  turn the planner off for that hop.
+- **Two stops within ~30 m are one place** (`SAME_PLACE_KM`), which is inside the
+  error of a geocoded address and well inside the width of a hotel.
 
-### M4: Preparation View (`/pretrip`)
+**The leg key is `fromId>toId>sortedPeople`**, and this is what makes a manual
+override survive an unrelated edit: dragging an event ten minutes does not change
+who is going where, so the key is stable and the override is matched back to it.
+Changing **who** is travelling changes the key deliberately, because a ferry
+booked for two is not a fact about the journey one of them now makes alone.
+
+**A journey is anchored to its arrival, not its departure** (`placeLeg`): a table
+booked at seven means leaving at half six. When the duration exceeds the gap the
+leg is marked `tight` and drawn at the gap rather than shrunk, because an
+unachievable day should show the problem instead of hiding it.
+
+**Reconciliation.** Travel has to be both derived and editable, so `travel_legs`
+rows are reconciled on every event write: keep rows whose key is still planned
+(preserving the override), insert newly planned keys, delete the rest.
+`auto_mode` / `auto_mins` hold the provider's answer, `mode` / `mins` hold the
+user's, and the user's win. Clearing both hands the leg back to the provider,
+which is how somebody undoes a guess without having to remember what the
+automatic answer was. Every write recomputes **the day and the day after**,
+unconditionally: a stay is the previous night for the morning that follows it, and
+doing it only for stays leaves a bug where an event changes type into one and the
+next morning is never told.
+
+**Drawing dense travel** (`layoutLegs`). A day that splits four ways generates a
+lot of short legs at the same moment, and drawing them all faithfully turns the
+afternoon into a picket fence of unreadable slivers. Two rules, in order:
+
+1. Overlapping legs cluster transitively. A cluster of more than `MAX_LANES = 3`
+   collapses **whole** into one arrow, because the constraint is the width of the
+   column and everything in it shares that.
+2. Within a surviving cluster, a leg under `MIN_BLOCK_MINS = 20` becomes its own
+   arrow and the rest get lanes.
+
+Collapsing whole clusters rather than individual legs matters: half blocks and
+half arrows would be drawn at two widths for no reason a reader could see. The
+heuristic gives up on detail exactly where detail stops being legible, and says
+the true thing instead: people moved here, this many journeys, tap to see them.
+
+> **Caveat: attendance is whole-event.** A person is on an event or is not; there
+> are no per-person partial ranges. To model somebody leaving halfway, split the
+> event in two. This is what keeps "who is where at time T" a single unambiguous
+> lookup, and therefore what lets the travel planner be a pure function.
+
+**The migration was destructive, by agreement.** `db.ts` drops the six old tables
+outright rather than converting them. Its one destructive step, taken because
+there is no honest conversion: a track's items have no people of their own, so
+inventing an attendee list for each would be fabricating the exact fact the new
+model exists to record. The trip's places, stays, expenses, tasks and people are
+all untouched; only the scheduled blocks were lost, and only after the owner
+confirmed they were disposable.
+
+### M4: Preparation View (`/preparation`)
 
 - Consolidated checklist: flights, lodging confirmations, visas, packing.
-- "What must still be booked" derived from `bookingStatus = unbooked`.
 - **Per-person completion.** A task can be assigned to any subset of the trip.
   Something like "apply for a Schengen visa" is not done when one person files it;
   every assignee has to tick their own box. `task_assignees` is the source of truth
@@ -311,8 +393,8 @@ auto-travel bridge.
 - The **tables stay separate** even though the UI is merged. Place votes are multi-vote
   (`poi_votes` PK `(poi_id, user_id)`); stay votes are _exclusive per city_
   (`lodging_votes` PK `(city_id, user_id)`, so voting again replaces). Stays also carry
-  price/currency/check-in/check-out/locked, and `party_day.lodging_option_id` is a foreign
-  key into them. Merging the storage would churn the calendar, crews and costs for no
+  price/currency/check-in/check-out/locked, and `events.lodging_id` is a foreign
+  key into them. Merging the storage would churn the schedule, crews and costs for no
   user-visible gain; merging only the presentation gets the whole benefit.
 
 ### M7: Expenses (Splitwise-style)
@@ -373,14 +455,51 @@ server independently re-checks and fails the action.
 
 ### 4.2 Travel time
 
-- Provider Directions API (Google/Mapbox) or self-hosted **OSRM** for driving/walking;
-  flights/rail entered manually or via schedule lookups.
-- Cache results keyed by `(originPoiId, destPoiId, mode)`; recompute on reorder.
-- Render each leg as a **distinct block** on the grid; warn on overlap/insufficient gap.
+A leg is **derived** from who is going where (M3.1). This section is about how
+long it takes.
+
+**The routing ladder**, in order, stopping at the first answer:
+
+1. The user's own `mode` / `mins` on the leg. Always wins, forever, including
+   over a later provider answer. Somebody who has been there knows better.
+2. The provider, via `routeLegs`, cached by `(from, to, mode)` in `cache.ts`.
+   OSRM answers walk / cycle / drive, and transit falls back to a factor on the
+   driving time, because transit routing needs a paid feed the trip does not have.
+3. `fallbackEstimate`: straight-line distance times a crow-flies factor, at a
+   speed per mode, with **flight above 500 km**. An eight-hour drive block drawn
+   across a day is a worse lie than a flight with airport time added, so the
+   fallback changes mode rather than reporting a number nobody would believe.
+
+**Routing happens in the API route, not in persistence** (`dayLegs` in
+`apps/api/src/routes/schedule.ts`), for two reasons: a write should not wait on a
+provider before it is allowed to succeed, and a read that cannot reach one should
+still answer, with the straight-line estimate. So persistence plans and stores
+structure, and the route fills in durations on the way out.
+
+**Reads re-plan rather than reading structure back** (`legsForDay`), because
+placing a leg needs the times of the two events it joins, and those change more
+often than the leg does. A planned leg with no stored row is skipped: a read
+racing a write shows one fewer journey for a moment, rather than inventing an id
+the client would immediately try to edit.
+
+Legs that cross zones recompute local arrival correctly.
 
 ### 4.3 Maps
 
 - **Mapbox GL JS** (or Google Maps JS). Day-scoped route + numbered pins.
+
+**`GoogleMap` reconciles its overlays; it never rebuilds them.** Callers build
+the `tracks` array inline in their render, so it is a new object every time. The
+draw effect used to depend on that array and to clear every marker and construct
+them again, which meant dragging a block on the schedule board, which re-renders
+at pointer rate, tore down and rebuilt the whole map many times a second: the
+pins visibly blinked for the length of the drag. The effect now keys off a
+**content signature** of the tracks, so identical data redraws nothing at all,
+and when the data does change it walks the existing markers and tells them their
+new position, icon and title. A marker that is removed and replaced flashes; one
+that is updated does not. Renumbering pins after a reorder is the common case and
+is now a `setIcon`, which is invisible. Measured during a 24-step drag: **zero**
+markers constructed, against one full rebuild per pointer move before.
 
 ### 4.4 Realtime collaboration
 
@@ -394,6 +513,18 @@ in `providers/fx.ts` (not Redis), refreshed in the background when older than 12
 hours and seeded from a static fallback so a conversion never blocks on the
 network. Every pair converts through USD, which is the only column the feed
 publishes.
+
+**The list of currencies is the fallback rate table**, in
+`@trippy/core/currency`, and both the home-currency picker and `fx.ts` read it
+from there. They used to be typed separately and disagreed in both directions:
+the picker offered ZAR and BRL, which the table had never heard of, and omitted
+five it did carry. That mattered because `perUsd` answered `1` for an unknown
+code, which is indistinguishable from a correct conversion, so a trip created in
+ZAR before the first live refresh landed folded every foreign expense into its
+total at par, silently, in a number people settle real money against. A currency
+now exists exactly when it can be converted with the network down, and an
+unconvertible code **throws** rather than defaulting: a bug about money should be
+loud.
 
 Store the original currency and amount; convert only for display and settlement.
 
@@ -718,15 +849,32 @@ an unknown account.
 ### 5.0.2 Route shape, the trip shell and data loading
 
 **The tab list was rebuilt from the running app, not from the scaffold.** The
-React scaffold listed nine sections and landed `/trips/:tripId` on the calendar.
-The app has **five** tabs, in the order discover, pretrip, calendar, expenses,
-people, and the bare trip URL lands on **discover**. Calendar is labelled
-"Schedule". `costs` and `lodging` are not tabs; they were folded into
-preparation and discover, and survive only as redirects so older links still
-land somewhere sensible. `settings` has no page at all: it is the organizer's
-edit dialog in the trip header. `nav.ts` is now the single source for all of
-this, and `App.tsx` generates both the tab routes and the redirects from it, so
-adding a section cannot leave the router and the tab bar disagreeing.
+React scaffold listed nine sections and landed `/trips/:tripId` on the schedule.
+The app has **five** tabs, in the order discover, preparation, schedule,
+expenses, people, and the bare trip URL lands on **discover**. `settings` has no
+page at all: it is the organizer's edit dialog in the trip header. `nav.ts` is
+now the single source for all of this, and `App.tsx` generates both the tab
+routes and the redirects from it, so adding a section cannot leave the router
+and the tab bar disagreeing.
+
+**Every slug is the label, lowercased.** Two were not: the tab reading
+"Schedule" lived at `/calendar` and the one reading "Preparation" lived at
+`/pretrip`, both left over from earlier names for those pages. A slug is the
+name of a page as much as the label above it is, and two names for one page is a
+thing to explain rather than a thing to read: it also meant nobody could guess a
+URL, and a reader of the code had to hold a translation table.
+
+The argument for keeping them was that a URL's whole job is to keep pointing at
+what it pointed at. `REDIRECTS` settles that, so the rename cost nothing. It
+holds four entries of two kinds, handled identically because a visitor cannot
+tell them apart: `costs` and `lodging` were **folded** into the tabs that
+absorbed them, and `calendar` and `pretrip` are the **old spellings** of tabs
+that were renamed. An e2e test walks all four, because the redirect is the
+load-bearing half of the rename.
+
+These are the *page* slugs. The API keeps `/trips/:id/pretrip`, which is a
+different namespace nobody reads off a screen, and the Expo client keeps its
+file-route names for the same reason.
 
 **Getting out of a trip: two different actions, never one that branches.** The
 header offered no way out at all, so the only exit was abandoning the row. The
@@ -1154,6 +1302,36 @@ and is not drawn above an empty list.
 
 ### 5.0.5 Discover: places, stays and the search
 
+**One grid, ordered by votes, in every view.** The server already returns each
+pool in vote order, but the grid drew all the stays and then all the places, so
+under **All** a stay nobody wanted still sat above the most popular thing in the
+city. That made the ordering look arbitrary in the one view where it carries the
+most meaning: All is what you open to see what the group actually wants. Stays
+and places are now merged into a single list sorted by votes descending. The sort
+is **stable** and the pools are concatenated in server order, so ties keep the
+meaning they already had: a stay ahead of a place, and a locked stay ahead of the
+other stays.
+
+**Voting reorders the grid, so the reorder is animated.** The list is ordered by
+the very thing the button changes, which means acting on a card reshuffles the
+page under you. Cards are placed by an `auto-fill` grid rather than by
+coordinates the app controls, so there is nothing to hang a CSS transition on:
+the browser simply paints them somewhere else. `hooks/useFlip.ts` does FLIP
+instead. It records where each child was, lets the browser lay the new order out,
+then offsets every child back to where it came from and animates the offset away,
+so the layout is never fought, only the paint.
+
+Two details are load-bearing. Children are keyed by **identity**
+(`data-flip="poi:<id>"`), not by position, or a card would animate into the slot
+of whichever card now stands where it used to. And positions are measured
+**relative to the container, not the viewport**: `getBoundingClientRect` is
+viewport-relative, so a scroll between two renders shifts every child equally and
+FLIP reads the whole grid as reshuffled. Scrolling and then voting slid all
+eighteen cards across the screen until the measurement was made container-
+relative; it now animates the two that actually swapped. `FlipGrid` is the thin
+component around the hook, which exists because Discover derives its order after
+the loading and empty branches have returned, and a hook cannot be called there.
+
 **Search is split in two, and the split is the whole design.** Typing hits
 `/discover/search`, which returns names, addresses and pins only. Ratings,
 opening hours, the website and the photo come from `/discover/details`, and only
@@ -1443,11 +1621,10 @@ single field a human is most likely to get wrong.
 **Cities are dateless places, not schedule spans.** `cities.arrive` and
 `cities.depart` were removed because an itinerary city answers "where", while
 `trips.start_date` / `trips.end_date` answer "when". Keeping per-city dates made
-the app pretend it knew which city every day belonged to. Until the calendar
-redesign adds real day-to-city assignment, the calendar uses the first city as
-the trip-wide default and lets `party_day.city_id` be the only explicit override.
-It deliberately does not slice the trip range across cities in sort order,
-because that would fabricate the schedule this change removes.
+the app pretend it knew which city every day belonged to. The board uses the first
+city as the trip-wide default and lets `events.city_id` be the only explicit
+override. It deliberately does not slice the trip range across cities in sort
+order, because that would fabricate the schedule this change removes.
 
 **The last city cannot be removed** (`removeCity` refuses, and the button is
 disabled with a `title` saying why). Removing it would put the trip back into
@@ -2335,25 +2512,30 @@ Two seeded trips, chosen to exercise opposite ends of the layout engine:
 
 - **China, autumn**: four people, five cities. Exercises multi-city timezone handling,
   per-city lodging and budgets.
-- **Athens escape marathon** (`src/lib/server/seed-athens.ts`): **twenty** people, one
-  city, four days. Escape rooms seat four, so twenty people means _five rooms running
+- **Athens escape marathon** (`packages/server/src/seeds/seed-athens.ts`): **twenty** people,
+  one city, four days. Escape rooms seat four, so twenty people means _five rooms running
   simultaneously_, which is precisely the case the layout engine exists for. Teams are
   reshuffled between slots (a one-person cyclic rotation on day 2, a full redraft on day 3)
   and the group repeatedly collapses back into one full-width block for meals. On day 2 the
-  board goes 5 columns → 5 columns → 1 → 4 → 1 in a single day, and the People swimlane
-  shows twenty rows changing colour together at each switch. Every one of the 43 events
-  carries an explicit assignee list.
+  board goes 5 columns → 5 columns → 1 → 4 → 1 in a single day, and the People view shows
+  twenty rows changing colour together at each switch. Every one of the 46 events carries an
+  explicit attendee list, and three of them are nights at the locked lodging, which is what
+  gives each morning's first journey somewhere to start from.
 
-  `node scripts/seed-athens.ts` re-seeds it into an existing dev database (idempotent).
+  `npx tsx scripts/seed-schedule.ts [tripId]` re-seeds just the schedule into a trip that
+  already exists, and is idempotent. It is separate from `seedAthensTrip` because the move
+  from tracks to events dropped every scheduled block in the database: the demo trip kept its
+  people, POIs, votes and expenses and lost only its board, so rebuilding the whole trip would
+  have cost far more than it restored. Attendees are matched to the sample's roster slots by
+  name, and a trip whose roster has drifted fills the rest from whoever is spare.
 
 - Trips are real and per-user: list and create from the database, guarded by auth.
 - Minimal-transaction settlement runs from `$lib/settlement.ts`.
-- Calendar schedule is persisted: tracks and schedule items live in the database
-  (`tracks`, `schedule_items`). New China trips are seeded with two parallel tracks
-  on one day. The organizer can drag a block to reschedule (5-minute snap, duration
-  preserved, clamped to the day) and click a booking tag to cycle its status. Moves
-  and status changes go through a JSON endpoint with membership checks and persist
-  across reloads. Organizers can add tracks and switch days.
+- The schedule is persisted as **events** (`events`, `event_people`) with derived
+  `travel_legs`. The organizer can drag a block to reschedule (5-minute snap, duration
+  preserved, clamped to the day). Moves go through a JSON endpoint with membership
+  checks and persist across reloads. Changing who is on an event re-plans that day's
+  travel.
 - Expenses (Splitwise-style) are persisted: `expenses` and `expense_participants`
   tables. Members log who paid and pick who shares each cost (equal split). Balances
   and the minimum-transfer settlement are computed server-side per trip. New China
@@ -2646,7 +2828,7 @@ pre-line` so typed breaks survive to the card, still clamped to two lines so car
   recorded and a placeholder member stands in until they register. The People tab lists
   members (with organizer / you / sample / invited tags and real emails) and lets the
   organizer remove members, and the header "Invite" button links here.
-- Schedule editing (`/trips/[tripId]/calendar`, `schedule.ts` `resizeItem` / `editItem`):
+- Schedule editing (`/trips/[tripId]/schedule`, `schedule.ts` `resizeEvent` / `editEvent`):
   besides dragging a block to reschedule, its bottom edge drags to change the end time
   (5-minute snap) and a double-click opens an inline editor to rename the stop, change
   its type, or set a travel buffer. Edits go through the same JSON item endpoint with
@@ -2684,9 +2866,9 @@ pre-line` so typed breaks survive to the card, still clamped to two lines so car
 - Finer drag snapping (`schedule.ts` `SNAP = 5`, calendar): dragging or resizing a block
   snaps to 5-minute steps, and the live time label snaps too, so times never show
   decimals. Minimum duration stays 15 minutes.
-- Travel-before buffers (`schedule_items.travel_before_min`): each event can carry a
-  travel buffer that renders as a hatched block directly above it on the calendar. Set it
-  from the schedule add form or the inline editor; it persists through the item endpoint.
+- Travel-before buffers: superseded. A per-event lead time was a second, hand-kept copy
+  of a fact the travel planner now derives, and the two could disagree. Legs are
+  computed from who is going where (M3.1) and anchored to their arrival (4.2).
 - Standard time slots (calendar add form): one-click template chips (Flight, Breakfast,
   Lunch, Dinner, Coffee, Free time, Hotel, Transfer) prefill the title, type, and length,
   and the add form now carries an explicit type so non-POI slots save with the right kind.
@@ -2705,22 +2887,16 @@ pre-line` so typed breaks survive to the card, still clamped to two lines so car
   calendar uses a larger Google map that defaults to previewing the day's city (from its
   coordinates) and draws track-coloured numbered pins with route lines; it falls back to
   the Leaflet/OpenStreetMap map when no key is present.
-- Calendar views (`calendar/+page.server.ts`, `+page.svelte`): a Day / 3-day / Week /
-  Agenda switcher with previous/next day navigation. Day keeps the full interactive board;
-  3-day and Week stack per-day boards (drag, resize, inline edit intact); Agenda is a
-  grouped read list. Seeded sample cities carry coordinates so the map previews correctly.
-- Multiple schedules via crews/parties (`parties.ts`, `db.ts` `parties` /
-  `party_membership` / `party_day`, `tracks.party_id`, calendar): the group can split into
-  named crews. Every trip has a default **Everyone** party (backfilled for existing trips);
-  tracks belong to a party. The calendar "Crews" modal creates/renames/recolours/deletes
-  crews, sets each crew's **city for a day** (`party_day`, so which city on which day is
-  person-dependent), and **splits people off** into a crew from a chosen time to end of day
-  (time-segmented `party_membership`, non-overlapping per user/day; **rejoin** returns them
-  to Everyone). A mid-day split between different cities auto-inserts a **travel bridge**
-  onto the target crew's lane. "View as" resolves each person's day through the crew they
-  end it with, filtering lanes and switching the banner, map, and time-zone chip to that
-  crew's city/lodging. `item_assignees` remains as a finer within-crew filter. Verified
-  end-to-end (create crew → crew lane → set city → split → auto-travel → rejoin).
+- Schedule views: a Day / 3-day / People switcher with previous/next day navigation.
+  Day keeps the full interactive board plus the map; 3-day stacks per-day boards
+  (drag, resize, inline edit intact); People transposes it into one row per person.
+  Week and Agenda were dropped in the events rework: Week was 3-day with more
+  squeezing, and Agenda was a read-only restatement of Day that nobody opened.
+- Crews (`crews`, `crew_members`): a saved selection of people, offered in the people
+  picker. The tracks/parties model they replaced (`parties`, `party_membership`,
+  `party_day`, `tracks.party_id`, time-segmented membership, crew-per-day cities, the
+  split/rejoin flow and the auto travel bridge) is **gone**; see M3.1 for why an
+  event's own people made all of it unnecessary.
 
 ### 5.1 Proposed project structure
 
@@ -2788,17 +2964,14 @@ POST   /api/trips/:tripId/discover/stays/:optionId/vote | /lock
 PATCH  /api/trips/:tripId/discover/stays/:optionId/dates
 DELETE /api/trips/:tripId/discover/stays/:optionId
 
-GET    /api/trips/:tripId/calendar?day=&view=          board for the visible days
-POST   /api/trips/:tripId/calendar/tracks
-DELETE /api/trips/:tripId/calendar/tracks/:trackId   takes its items with it
-POST   /api/trips/:tripId/calendar/items
-PUT    /api/trips/:tripId/calendar/items/:itemId/assignees
-POST   /api/trips/:tripId/calendar/items/:itemId/op    move|resize|edit|cycle|delete
-POST   /api/trips/:tripId/calendar/crews
-PATCH  /api/trips/:tripId/calendar/crews/:partyId
-DELETE /api/trips/:tripId/calendar/crews/:partyId
-PUT    /api/trips/:tripId/calendar/crews/:partyId/day
-POST   /api/trips/:tripId/calendar/crews/split | /rejoin
+GET    /api/trips/:tripId/schedule?day=&view=          board for the visible days
+POST   /api/trips/:tripId/schedule/events
+PUT    /api/trips/:tripId/schedule/events/:eventId/people
+POST   /api/trips/:tripId/schedule/events/:eventId/op  move|resize|edit|cycle|delete
+PATCH  /api/trips/:tripId/schedule/legs/:legId         mode/mins override, or reset
+POST   /api/trips/:tripId/schedule/crews
+PATCH  /api/trips/:tripId/schedule/crews/:crewId
+DELETE /api/trips/:tripId/schedule/crews/:crewId
 
 GET    /api/trips/:tripId/expenses                     rows + balances + settlement
 POST   /api/trips/:tripId/expenses
@@ -2821,16 +2994,19 @@ DELETE /api/trips/:tripId/people/:userId               also revokes an invite
 Choices worth the words:
 
 **The section GET endpoints return the page payload, not a normalised
-resource.** `GET /calendar` returns the whole board: days, tracks, per-crew city
-and lodging cells, membership segments and the maps key. That is what the
-SvelteKit `load` returned, and it is one round trip instead of six. The cost is
-that it is shaped for a screen rather than for reuse, which is the right trade
-while there is exactly one consumer.
+resource.** `GET /schedule` returns the whole board: the visible days, their
+events with people, the placed travel legs, the crews and the maps key. That is
+one round trip instead of six. The cost is that it is shaped for a screen rather
+than for reuse, which is the right trade while there is exactly one consumer.
 
-**One `/op` endpoint for the five item mutations** (move, resize, edit, cycle
-booking, delete) rather than five REST verbs. The calendar fires all of them
-from one drag handler and the ownership check is identical, so splitting them
-would spread that check across five places for nothing.
+**`GET /schedule` computes travel on the way out**, which is the one read in the
+app that talks to a provider. See 4.2 for why routing sits here and not in
+persistence.
+
+**One `/op` endpoint for the four event mutations** (move, resize, edit, delete)
+rather than four REST verbs. The board fires all of them from one drag handler
+and the ownership check is identical, so splitting them would spread that check
+across four places for nothing.
 
 **Votes are POST, not PUT.** Sending the same request twice is a vote and then
 an un-vote. That is the intended behaviour, so claiming idempotence would be a
@@ -2849,10 +3025,10 @@ or an object, and `String(x)` on an object yields "[object Object]" rather than
 failing. FormData could only ever yield strings, so the old `String(f.get(k) ??
 '')` idiom was safe and the JSON equivalent is not.
 
-**Known gaps, inherited rather than introduced.** `tracks` has no delete, and
-`getBudget` / `setBudget`, `toggleSave` and `linkedItemCount` exist in
-`packages/server` but no UI ever called them. They are deliberately not exposed:
-the API mirrors the app that exists.
+**Known gaps, inherited rather than introduced.** `getBudget` / `setBudget`,
+`toggleSave` and `linkedItemCount` exist in `packages/server` but no UI ever
+called them. They are deliberately not exposed: the API mirrors the app that
+exists.
 
 ---
 
@@ -2865,20 +3041,39 @@ memberships(userId, tripId, role)                 // organizer | member
 locations(id, tripId, name, tz, lat, lng)
 pois(id, tripId, locationId, name, category, lat, lng,
      openHours jsonb, priceLevel, url, source, addedBy)
-tracks(id, tripId, name, color)
-schedule_items(id, trackId, type, poiId, startUtc, endUtc, tz,
-     bookingStatus, cost, currency, notes)
-schedule_item_assignees(itemId, userId)
-travel_legs(id, fromItemId, toItemId, mode, durationMin, distanceM,
-     cost, currency, provider, cachedAt)
+events(id, tripId, day, title, type, startMin, endMin,
+     poiId, lodgingId, cityId, lat, lng, notes, travelMode, createdAt)
+event_people(eventId, userId)
+travel_legs(id, tripId, day, legKey, fromEventId, toEventId, people,
+     autoMode, autoMins, mode, mins)         // unique (tripId, day, legKey)
+crews(id, tripId, name, color, sort)
+crew_members(crewId, userId)
 lodgings(id, locationId, name, pricePerNight, currency, url, lat, lng)
 votes(id, tripId, targetType, targetId, userId, rank)   // targetType: poi|lodging
 expenses(id, tripId, payerId, amount, currency, description, splitRule, createdAt)
 expense_splits(expenseId, userId, share)                // shares/exact/percent
 ```
 
-Enums: `role`, `item_type` (see 2.2), `booking_status (booked|tentative|unbooked)`,
-`travel_mode (walk|drive|transit|rail|flight)`.
+A day is a local date string, and a time is minutes from its midnight, rather
+than a UTC instant. The board is a grid of local days, so storing an instant
+would mean converting on every read and back on every drag, and a block would
+move when a city's zone was corrected. The zone lives on the city and is applied
+when rendering (4.1, 7.3).
+
+`people` on a leg is the denormalised, sorted member list, because it is half of
+the leg key and re-deriving it on read would let the two disagree.
+
+Enums: `role`, `event_type` (see 2.2),
+`travel_mode (walk|cycle|transit|drive|ferry|flight)`.
+
+**Booking status is gone.** Events once carried `booked | tentative | unbooked`,
+cycled by clicking the pill on a block. It was removed as an interaction nobody
+wanted: the pill was the only thing that ever wrote the column, so the status
+was a state you could set and then do nothing with. Nothing derived from it, no
+view filtered on it, and it competed with the clock for the one line of space a
+narrow block has. The `booking` column stays in `db.ts` unread, because
+migrations here are additive and dropping a column rewrites the table for
+nothing.
 
 ---
 
@@ -2922,21 +3117,25 @@ different number than the button said.
 
 ### 7.2 Travel-fit conflict check
 
-For consecutive items A→B on a track: required = A.end + leg(A,B).duration.
-If required > B.start → flag conflict (insufficient travel time).
+A leg is placed by its **arrival**: `start = B.start - mins`. If that lands
+before `A.end`, the journey does not fit, and the leg is returned `tight` and
+drawn filling the gap rather than shrunk to it (4.2, `placeLeg`). Shrinking it
+would make an impossible day look fine.
 
 ### 7.3 Time-zone rendering
 
-Persist `startUtc` + item `tz`. Display = `DateTime.fromISO(startUtc,{zone:'utc'}).setZone(item.tz)`.
+Persist a local `day` + `startMin` and take the zone from the event's city.
+Display = `DateTime.fromISO(day, { zone: city.tz }).plus({ minutes: startMin })`.
 Optional viewer overlay = `.setZone(user.homeTz)`.
 
 ---
 
 ## 8. Delivery Phasing
 
-- **MVP (Phase 1)**: accounts, trips + locations, POI discovery pool, **single-track
-  calendar** with map + travel ETA, basic booking status.
-- **Phase 2**: multiple tracks, lodging voting, cost rollup, full time-zone rendering.
+- **MVP (Phase 1)**: accounts, trips + locations, POI discovery pool, a schedule
+  board with map + travel ETA.
+- **Phase 2**: events carrying people (so a split needs no authoring), lodging
+  voting, cost rollup, full time-zone rendering.
 - **Phase 3**: Splitwise settlement, pre-trip checklist, realtime multi-editor,
   cross-trip references.
 

@@ -230,6 +230,7 @@ export default function Expenses() {
 					tripId={trip.id}
 					expense={editing.expense}
 					members={data.members}
+					me={data.me}
 					currencies={data.currencies}
 					home={data.currency}
 					onClose={() => setEditing(null)}

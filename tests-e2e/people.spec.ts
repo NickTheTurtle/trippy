@@ -143,7 +143,9 @@ test.describe('people', () => {
 			// The confirmation says the house sentence and repeats the bare verb.
 			const confirm = page.getByRole('dialog');
 			await expect(confirm.getByText(copy.ui.confirmDialog.undone)).toBeVisible();
-			await expect(confirm.getByRole('heading', { name: cpl.removeTitle('Mallory') })).toBeVisible();
+			await expect(
+				confirm.getByRole('heading', { name: cpl.removeTitle('Mallory') })
+			).toBeVisible();
 			await confirm.getByRole('button', { name: copy.common.remove, exact: true }).click();
 
 			await expect(page.getByRole('listitem').filter({ hasText: 'Mallory' })).toHaveCount(0);
@@ -165,7 +167,9 @@ test.describe('people', () => {
 			await page.getByRole('button', { name: copy.tripShell.leaveTrip }).click();
 			const confirm = page.getByRole('dialog');
 			await expect(
-				confirm.getByRole('heading', { name: copy.tripShell.leaveDialog.title(fixture.tripBody.name) })
+				confirm.getByRole('heading', {
+					name: copy.tripShell.leaveDialog.title(fixture.tripBody.name)
+				})
 			).toBeVisible();
 			await expect(confirm.getByText(copy.ui.confirmDialog.undone)).toBeVisible();
 			await confirm.getByRole('button', { name: copy.common.leave, exact: true }).click();

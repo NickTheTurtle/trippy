@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { CURRENCY_CODES } from '@trippy/core/currency';
 
 /**
  * What a foreign-currency expense is worth, and when that is allowed to change.
@@ -198,5 +199,36 @@ describe('a foreign-currency expense', () => {
 
 		expect(expenses.balances(tripId).map((b) => b.netCents)).toEqual(before);
 		expect(before.reduce((n, c) => n + c, 0)).toBe(0);
+	});
+});
+
+/**
+ * A currency the app offers but cannot convert used to be worth exactly as much
+ * as the dollar.
+ *
+ * `perUsd` defaulted to 1 for an unknown code, which is indistinguishable from
+ * a correct conversion, so a trip in a currency missing from the rate table
+ * folded every foreign expense into its total at par with nothing on screen
+ * saying so. The picker offered two such codes. The list now lives beside the
+ * table it is converted with, and an unconvertible code throws.
+ */
+describe('the currency list', () => {
+	it('offers only currencies that convert without the network', () => {
+		for (const code of CURRENCY_CODES) {
+			expect(() => fx.rateTo(code, 'USD')).not.toThrow();
+			expect(fx.rateTo(code, code)).toBe(1);
+			expect(fx.rateTo(code, 'USD')).toBeGreaterThan(0);
+		}
+	});
+
+	it('refuses a code it has no rate for rather than treating it as a dollar', () => {
+		expect(() => fx.rateTo('XYZ', 'USD')).toThrow(/XYZ/);
+		expect(() => fx.rateTo('USD', 'XYZ')).toThrow(/XYZ/);
+	});
+
+	it('still converts a code the live feed adds but the fallback lacks', async () => {
+		// The feed is the authority once it lands; the fallback is only a floor.
+		await moveRates(0.5);
+		expect(fx.rateTo('EUR', 'USD')).toBeCloseTo(2, 10);
 	});
 });

@@ -81,8 +81,8 @@ export const copy = {
 	// Trip tab bar (nav.ts)
 	nav: {
 		discover: 'Discover',
-		pretrip: 'Preparation',
-		calendar: 'Schedule',
+		preparation: 'Preparation',
+		schedule: 'Schedule',
 		expenses: 'Expenses',
 		people: 'People'
 	},

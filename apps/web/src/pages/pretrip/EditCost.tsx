@@ -109,7 +109,7 @@ export default function EditCost({
 								ariaLabel={c.categoryLabel}
 							/>
 						</FieldShell>
-						<FieldShell className="col-span-12" label={c.forLabel}>
+						<FieldShell className="col-span-12" label={c.forLabel} optional>
 							<MultiSelect
 								options={members.map((m) => ({
 									value: m.id,

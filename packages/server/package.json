@@ -17,7 +17,6 @@
 		"./lodging": "./src/persistence/lodging.ts",
 		"./mail": "./src/providers/mail.ts",
 		"./members": "./src/persistence/members.ts",
-		"./parties": "./src/persistence/parties.ts",
 		"./photos": "./src/photos.ts",
 		"./photo-cache": "./src/providers/photo-cache.ts",
 		"./places": "./src/providers/places.ts",

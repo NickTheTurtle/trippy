@@ -78,7 +78,7 @@ test.describe('keyboard', () => {
 		try {
 			await seedMembers(request, fixture, ['Alice', 'Bob']);
 			await signIn(page, fixture.sessionCookie);
-			await page.goto(`/trips/${fixture.tripId}/pretrip`);
+			await page.goto(`/trips/${fixture.tripId}/preparation`);
 			await page.getByRole('button', { name: cp.add, exact: true }).click();
 
 			// A .mtrigger can also sit on the page behind the modal, so the one under
@@ -168,7 +168,10 @@ test.describe('keyboard', () => {
 		}
 	});
 
-	test('a dialog moves focus into itself and returns it to the trigger on close', async ({ page, request }) => {
+	test('a dialog moves focus into itself and returns it to the trigger on close', async ({
+		page,
+		request
+	}) => {
 		const fixture = await createApiFixture(request);
 		try {
 			// A seeded expense gives both dialog shapes to check against the same

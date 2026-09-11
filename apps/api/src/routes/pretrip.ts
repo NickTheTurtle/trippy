@@ -132,6 +132,7 @@ pretrip.post('/costs', async (c) => {
 
 pretrip.put('/costs/:itemId', async (c) => {
 	const item = readItem(await body(c));
+	if (!item.label) return fail(c, 400, 'Enter a description.');
 	if (item.cents === null) return fail(c, 400, 'Enter a valid amount.');
 	return okOr(
 		c,

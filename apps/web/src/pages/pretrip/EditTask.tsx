@@ -80,7 +80,7 @@ export default function EditTask({
 
 					{draft.kind === 'task' && (
 						<div className="flex flex-col gap-2">
-							<FieldShell label={c.assignLabel}>
+							<FieldShell label={c.assignLabel} optional>
 								<MultiSelect
 									options={members.map((m) => ({
 										value: m.id,

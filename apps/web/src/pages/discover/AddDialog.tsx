@@ -474,8 +474,8 @@ export default function AddDialog({
 				<ModalFooter
 					error={add.error}
 					onClose={onClose}
-					busy={detailLoading}
-					disabled={add.busy}
+					busy={add.busy}
+					disabled={detailLoading}
 					busyLabel={copy.common.adding}
 					submitLabel={copy.common.add}
 				/>

@@ -34,9 +34,7 @@ test.describe('auth and session', () => {
 
 			await logOut(page);
 			// Logged out returns to the landing page with its call to action.
-			await expect(
-				page.getByRole('link', { name: copy.shell.register }).first()
-			).toBeVisible();
+			await expect(page.getByRole('link', { name: copy.shell.register }).first()).toBeVisible();
 
 			await page.goto('/login');
 			await page.getByLabel(copy.auth.login.emailLabel).fill(email);

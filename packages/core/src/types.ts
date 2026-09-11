@@ -2,23 +2,59 @@
 // Kept framework-agnostic so both client and server import from here.
 
 /**
- * The types a schedule item can carry.
+ * The five things a scheduled event can be.
  *
- * This list is the single source of truth: the server validates edits against
- * it and the calendar renders one label per literal. It is a value array with
+ * This list is the single source of truth: the server validates writes against
+ * it and the schedule renders one label per literal. It is a value array with
  * the union derived from it, so the runtime check and the compile-time type
  * cannot drift apart.
  *
- * `food` and `transport` are the literals actually persisted and rendered, so
- * they are canonical; the older `meal` spelling was normalised away in a
- * migration (see docs/DESIGN.md section 2).
+ * The old vocabulary had six entries and two of them meant the same thing
+ * (`transport` and `travel`), while `poi` named where the event came from
+ * rather than what it is. Each of these five answers a different question the
+ * travel planner has to ask:
+ *
+ * - `activity` and `food` are ordinary located stops. They differ only in how
+ *   they are drawn, but that difference is worth a literal because a day is
+ *   read by looking for the meals.
+ * - `stay` is where the group sleeps. It is the one event that spans midnight,
+ *   and it anchors both ends of the day: the first journey of the morning
+ *   starts at last night's stay and the last one returns to tonight's.
+ * - `travel` is a journey. Most are planned automatically from the events
+ *   either side; a manually added one is the same record with its mode and
+ *   duration pinned.
+ * - `freetime` is an explicit absence of plan. It is the only type with no
+ *   location, and it deliberately breaks the travel chain, because nobody can
+ *   say where a person will be when the block ends.
  */
-export const ITEM_TYPES = ['poi', 'food', 'transport', 'travel', 'lodging', 'freetime'] as const;
+export const EVENT_TYPES = ['activity', 'food', 'stay', 'travel', 'freetime'] as const;
 
-export type ItemType = (typeof ITEM_TYPES)[number];
+export type EventType = (typeof EVENT_TYPES)[number];
 
-export function isItemType(v: string): v is ItemType {
-	return (ITEM_TYPES as readonly string[]).includes(v);
+export function isEventType(v: string): v is EventType {
+	return (EVENT_TYPES as readonly string[]).includes(v);
+}
+
+/** Types that put a person somewhere, and so can be an end of a journey. */
+export const LOCATED_EVENT_TYPES: readonly EventType[] = ['activity', 'food', 'stay'];
+
+export function isLocatedType(t: EventType): boolean {
+	return LOCATED_EVENT_TYPES.includes(t);
+}
+
+/**
+ * How a journey is made.
+ *
+ * Ordered slowest to fastest over the ground, which is also roughly the order
+ * a planner tries them in, so a picker rendered straight from this array reads
+ * sensibly without a second list deciding the order.
+ */
+export const TRANSPORT_MODES = ['walk', 'cycle', 'transit', 'drive', 'ferry', 'flight'] as const;
+
+export type TransportMode = (typeof TRANSPORT_MODES)[number];
+
+export function isTransportMode(v: string): v is TransportMode {
+	return (TRANSPORT_MODES as readonly string[]).includes(v);
 }
 
 /**

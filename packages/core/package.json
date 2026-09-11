@@ -12,6 +12,8 @@
 		"./layout": "./src/layout.ts",
 		"./cover": "./src/cover.ts",
 		"./geo": "./src/geo.ts",
+		"./travel": "./src/travel.ts",
+		"./currency": "./src/currency.ts",
 		"./sample": "./src/sample.ts"
 	},
 	"scripts": {

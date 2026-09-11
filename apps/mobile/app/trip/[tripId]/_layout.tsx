@@ -51,13 +51,16 @@ export default function TripTabs() {
 					name="discover"
 					options={{ title: copy.nav.discover, tabBarIcon: icon(ICON.discover) }}
 				/>
+				{/* `name` is the Expo file route, not a URL anyone reads, so these keep
+				    their original spelling where the web slugs were renamed to match
+				    their labels. */}
 				<Tabs.Screen
 					name="pretrip"
-					options={{ title: copy.nav.pretrip, tabBarIcon: icon(ICON.pretrip) }}
+					options={{ title: copy.nav.preparation, tabBarIcon: icon(ICON.pretrip) }}
 				/>
 				<Tabs.Screen
 					name="calendar"
-					options={{ title: copy.nav.calendar, tabBarIcon: icon(ICON.calendar) }}
+					options={{ title: copy.nav.schedule, tabBarIcon: icon(ICON.calendar) }}
 				/>
 				<Tabs.Screen
 					name="expenses"

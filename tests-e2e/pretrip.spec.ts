@@ -30,7 +30,7 @@ test.describe('preparation', () => {
 		try {
 			await seedMembers(request, fixture, ['Alice']);
 			await signIn(page, fixture.sessionCookie);
-			await page.goto(`/trips/${fixture.tripId}/pretrip`);
+			await page.goto(`/trips/${fixture.tripId}/preparation`);
 
 			await page.getByRole('button', { name: cp.add, exact: true }).click();
 			const dialog = page.getByRole('dialog');
@@ -72,7 +72,7 @@ test.describe('preparation', () => {
 		const fixture = await createApiFixture(request);
 		try {
 			await signIn(page, fixture.sessionCookie);
-			await page.goto(`/trips/${fixture.tripId}/pretrip`);
+			await page.goto(`/trips/${fixture.tripId}/preparation`);
 
 			await page.getByRole('button', { name: cp.sections.packing }).click();
 			await page.getByRole('button', { name: cp.add, exact: true }).click();
@@ -98,7 +98,7 @@ test.describe('preparation', () => {
 		try {
 			await seedMembers(request, fixture, ['Alice']);
 			await signIn(page, fixture.sessionCookie);
-			await page.goto(`/trips/${fixture.tripId}/pretrip`);
+			await page.goto(`/trips/${fixture.tripId}/preparation`);
 			await page.getByRole('button', { name: cp.sections.costs }).click();
 
 			await addCost(page, { label: 'Museum passes', amount: '60' });
@@ -125,7 +125,7 @@ test.describe('preparation', () => {
 		const fixture = await createApiFixture(request);
 		try {
 			await signIn(page, fixture.sessionCookie);
-			await page.goto(`/trips/${fixture.tripId}/pretrip`);
+			await page.goto(`/trips/${fixture.tripId}/preparation`);
 			await page.getByRole('button', { name: cp.sections.costs }).click();
 
 			// Home currency is USD; a euro estimate must show an approximate home
@@ -147,7 +147,7 @@ test.describe('preparation', () => {
 		const fixture = await createApiFixture(request);
 		try {
 			await signIn(page, fixture.sessionCookie);
-			await page.goto(`/trips/${fixture.tripId}/pretrip`);
+			await page.goto(`/trips/${fixture.tripId}/preparation`);
 			await page.getByRole('button', { name: cp.sections.costs }).click();
 
 			await addCost(page, { label: 'Rental car', amount: '150' });

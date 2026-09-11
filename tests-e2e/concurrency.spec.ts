@@ -77,7 +77,9 @@ test.describe('concurrency: same account in two places at once', () => {
 
 			// Tab B never reloaded: the rename arrives on its own over SSE. Because
 			// tab B has no dialog open, its refetch is not deferred and lands at once.
-			await expect(b.page.getByRole('listitem').filter({ hasText: 'Brunch renamed' })).toBeVisible();
+			await expect(
+				b.page.getByRole('listitem').filter({ hasText: 'Brunch renamed' })
+			).toBeVisible();
 
 			// And the database agrees: one expense, carrying the new description.
 			const data = await expensesData(request, fixture);
@@ -339,8 +341,9 @@ test.describe('concurrency: two accounts on one trip', () => {
 				payerId: fixture.userId,
 				participantIds: both
 			});
-			const version = (await expensesData(request, fixture)).expenses.find((e) => e.id === id)!
-				.version;
+			const version = (await expensesData(request, fixture)).expenses.find(
+				(e) => e.id === id
+			)!.version;
 
 			// Bob has the expenses page open, watching.
 			const view = await signedInContext(browser, bob.sessionCookie);
@@ -433,9 +436,15 @@ test.describe('concurrency: two accounts on one trip', () => {
 			const taskId = await addTask(request, fixture, { label: 'Book the cab' });
 
 			const [first, second] = await Promise.all([
-				apiSend(request, fixture, 'POST', `/trips/${fixture.tripId}/pretrip/tasks/${taskId}/toggle`, {
-					done: true
-				}),
+				apiSend(
+					request,
+					fixture,
+					'POST',
+					`/trips/${fixture.tripId}/pretrip/tasks/${taskId}/toggle`,
+					{
+						done: true
+					}
+				),
 				apiSend(request, bob, 'POST', `/trips/${fixture.tripId}/pretrip/tasks/${taskId}/toggle`, {
 					done: true
 				})
@@ -471,7 +480,9 @@ test.describe('concurrency: two accounts on one trip', () => {
 			context = view.context;
 			await signIn(view.page, bob.sessionCookie);
 			await view.page.goto(`/trips/${fixture.tripId}/expenses`);
-			await expect(view.page.getByRole('button', { name: ce.addExpense, exact: true })).toBeVisible();
+			await expect(
+				view.page.getByRole('button', { name: ce.addExpense, exact: true })
+			).toBeVisible();
 
 			const removed = await apiSend(
 				request,

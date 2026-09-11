@@ -15,6 +15,7 @@ const c = copy.discover.placeCard;
  */
 export default function PlaceCard({
 	poi: p,
+	flipKey,
 	tz,
 	pct,
 	onEdit,
@@ -22,6 +23,8 @@ export default function PlaceCard({
 	onRemove
 }: {
 	poi: Poi;
+	/** Identity for the grid's reorder animation. See `useFlip`. */
+	flipKey: string;
 	/** The city's IANA zone, so "today's hours" means today *there*. */
 	tz: string;
 	pct: number;
@@ -31,7 +34,7 @@ export default function PlaceCard({
 }) {
 	const hrs = todayHours(parseHours(p.hours), tz);
 	return (
-		<article className={`${CARD} group/card`}>
+		<article data-flip={flipKey} className={`${CARD} group/card`}>
 			<button
 				type="button"
 				onClick={onEdit}

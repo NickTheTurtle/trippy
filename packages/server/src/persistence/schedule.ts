@@ -1,233 +1,303 @@
 import { randomUUID } from 'node:crypto';
 import { db } from '../db';
-import { estimateTravel, estimateTravelBetween, haversineKm } from '@trippy/core/geo';
-import { isItemType } from '@trippy/core/types';
-import { defaultPartyId, partyMemberIdsForDay } from './parties';
+import { isEventType, isLocatedType, isTransportMode, type EventType } from '@trippy/core/types';
+import { planLegs, placeLeg, type PlannedLeg, type PlannerEvent } from '@trippy/core/travel';
 import { publish } from '../events';
+import { isMember } from './membership';
 
-export interface ItemRow {
-	id: string;
-	title: string;
-	type: string;
-	start_min: number;
-	end_min: number;
-	booking: string | null;
-	travel_mode: string | null;
-	travel_mins: number | null;
-	travel_before_min: number | null;
-	poi_id: string | null;
-	lat: number | null;
-	lng: number | null;
-	assignees: string[];
-}
-
-export interface TrackWithItems {
-	id: string;
-	name: string;
-	color: string;
-	partyId: string | null;
-	partyName: string | null;
-	partyColor: string | null;
-	partyMembers: string[];
-	items: ItemRow[];
-}
-
-const TRACK_COLORS = ['#2f6d5e', '#b4682a', '#4a6d8c', '#8c5a86'];
+/**
+ * The schedule, as events with people on them.
+ *
+ * Read `packages/core/src/travel.ts` first: it holds the reasoning for why
+ * travel is derived from who is at which event rather than from a lane someone
+ * drew. This module is the part that has to persist the answer.
+ *
+ * The awkward requirement is that travel is BOTH derived and editable. It has
+ * to be derived, or the organizer maintains it by hand for a group that keeps
+ * splitting; it has to be editable, because a routing provider does not know
+ * that this particular ferry runs twice a day. So legs are stored, and every
+ * write to an event reconciles the stored set against the plan:
+ *
+ * - a leg the plan still calls for keeps its row, and so keeps any override
+ * - a leg the plan no longer calls for is deleted
+ * - a leg the plan has newly called for is inserted with no override
+ *
+ * Matching is on `leg_key`, which is the pair of events plus the sorted people
+ * (see `planLegs`). That is what makes an override survive an unrelated edit:
+ * dragging an event by ten minutes does not change who is going where, so the
+ * key is unchanged and the ferry time someone typed is still there afterwards.
+ */
 
 /** Drag/resize snap granularity, in minutes. */
 const SNAP = 5;
 
-/** Estimated travel between two coordinates (used for cross-crew split bridges). */
-export function estimateCityTravel(
-	lat1: number,
-	lng1: number,
-	lat2: number,
-	lng2: number
-): { mode: string; mins: number } {
-	return estimateTravelBetween(lat1, lng1, lat2, lng2);
+/** The shortest event the grid can draw with its title. */
+const MIN_EVENT_MINS = 15;
+
+/** Default check-in and checkout for a stay, when the user does not say. */
+export const STAY_CHECK_IN = 21 * 60;
+export const STAY_CHECK_OUT = 9 * 60;
+
+export interface EventRow {
+	id: string;
+	day: string;
+	title: string;
+	type: EventType;
+	start_min: number;
+	end_min: number;
+	poi_id: string | null;
+	lodging_id: string | null;
+	city_id: string | null;
+	lat: number | null;
+	lng: number | null;
+	notes: string | null;
+	travel_mode: string | null;
+	people: string[];
 }
 
-/** Distinct days that have any track, ordered. */
+export interface LegRow {
+	id: string;
+	day: string;
+	key: string;
+	fromEventId: string;
+	toEventId: string;
+	people: string[];
+	/** What the provider said. Null until the first successful lookup. */
+	autoMode: string | null;
+	autoMins: number | null;
+	/** What the user said, which wins when set. */
+	mode: string | null;
+	mins: number | null;
+	/** The two above, resolved. */
+	resolvedMode: string;
+	resolvedMins: number;
+	manual: boolean;
+	startMin: number;
+	endMin: number;
+	tight: boolean;
+}
+
+/** Shift an ISO day, staying in UTC so a DST boundary cannot move it. */
+export function shiftDay(iso: string, delta: number): string {
+	const [y, m, d] = iso.split('-').map(Number);
+	return new Date(Date.UTC(y, m - 1, d + delta)).toISOString().slice(0, 10);
+}
+
+const EVENT_COLUMNS = `id, day, title, type, start_min, end_min, poi_id, lodging_id, city_id, lat, lng, notes, travel_mode`;
+
+function attachPeople(rows: EventRow[]): EventRow[] {
+	const stmt = db.prepare(`SELECT user_id FROM event_people WHERE event_id = ?`);
+	for (const r of rows) {
+		r.people = (stmt.all(r.id) as unknown as { user_id: string }[]).map((x) => x.user_id);
+	}
+	return rows;
+}
+
+/** Every event on a day, earliest first, each with its people. */
+export function eventsForDay(tripId: string, day: string): EventRow[] {
+	const rows = db
+		.prepare(
+			`SELECT ${EVENT_COLUMNS} FROM events WHERE trip_id = ? AND day = ? ORDER BY start_min, id`
+		)
+		.all(tripId, day) as unknown as EventRow[];
+	return attachPeople(rows);
+}
+
+/**
+ * Last night's stay, which is where the morning starts.
+ *
+ * Returned separately rather than folded into the day's events, because it is
+ * drawn differently (it belongs to the previous day and only its tail lands on
+ * this one) and because the travel planner takes it as its own argument.
+ */
+export function incomingStay(tripId: string, day: string): EventRow | null {
+	const rows = db
+		.prepare(
+			`SELECT ${EVENT_COLUMNS} FROM events
+			 WHERE trip_id = ? AND day = ? AND type = 'stay' ORDER BY start_min DESC LIMIT 1`
+		)
+		.all(tripId, shiftDay(day, -1)) as unknown as EventRow[];
+	return attachPeople(rows)[0] ?? null;
+}
+
+/** Distinct days carrying anything, ordered. */
 export function scheduleDays(tripId: string): string[] {
 	const rows = db
-		.prepare(`SELECT DISTINCT day FROM tracks WHERE trip_id = ? ORDER BY day`)
+		.prepare(`SELECT DISTINCT day FROM events WHERE trip_id = ? ORDER BY day`)
 		.all(tripId) as unknown as { day: string }[];
 	return rows.map((r) => r.day);
 }
 
-export function tracksForDay(tripId: string, day: string): TrackWithItems[] {
-	const tracks = db
+function toPlanner(e: EventRow): PlannerEvent {
+	return {
+		id: e.id,
+		type: e.type,
+		startMin: e.start_min,
+		endMin: e.end_min,
+		// Free time is the one type that is deliberately nowhere. Blanking here
+		// rather than refusing to store coordinates means a block can be switched
+		// to free time and back without losing the place it was at.
+		lat: isLocatedType(e.type) ? e.lat : null,
+		lng: isLocatedType(e.type) ? e.lng : null,
+		people: e.people
+	};
+}
+
+/** The day's plan: its events, plus last night's stay as the morning's origin. */
+function planFor(tripId: string, day: string): PlannedLeg[] {
+	const events = eventsForDay(tripId, day).map(toPlanner);
+	const stay = incomingStay(tripId, day);
+	return planLegs(events, stay ? toPlanner(stay) : null);
+}
+
+/**
+ * Reconcile the stored legs for a day against what the events now imply.
+ *
+ * Called after every event write. Cheap enough to run unconditionally: it is
+ * one plan over one day's events and a handful of statements. Working out
+ * whether a given edit could possibly have changed the plan is both harder to
+ * get right and easy to get subtly wrong in the direction of stale travel.
+ */
+export function recomputeLegs(tripId: string, day: string): void {
+	const planned = planFor(tripId, day);
+
+	const existing = db
+		.prepare(`SELECT id, leg_key FROM travel_legs WHERE trip_id = ? AND day = ?`)
+		.all(tripId, day) as unknown as { id: string; leg_key: string }[];
+	const have = new Map(existing.map((r) => [r.leg_key, r.id]));
+
+	const ins = db.prepare(
+		`INSERT INTO travel_legs (id, trip_id, day, leg_key, from_event_id, to_event_id, people)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`
+	);
+	const del = db.prepare(`DELETE FROM travel_legs WHERE id = ?`);
+
+	for (const leg of planned) {
+		if (have.has(leg.key)) {
+			have.delete(leg.key);
+			continue;
+		}
+		ins.run(
+			randomUUID(),
+			tripId,
+			day,
+			leg.key,
+			leg.fromEventId,
+			leg.toEventId,
+			leg.people.join(',')
+		);
+	}
+	// Whatever is left was planned once and is not any more.
+	for (const id of have.values()) del.run(id);
+}
+
+/** The straight-line guess, used until a provider has said better. */
+function fallbackEstimate(leg: PlannedLeg): { mode: string; mins: number } {
+	const dist = leg.km * 1.3;
+	if (dist < 1.1) return { mode: 'walk', mins: Math.max(3, Math.round((dist / 4.8) * 60)) };
+	if (dist < 8) return { mode: 'transit', mins: Math.max(8, Math.round((dist / 16) * 60) + 6) };
+	if (dist < 500) return { mode: 'drive', mins: Math.max(10, Math.round((dist / 60) * 60) + 5) };
+	// Past a few hundred kilometres nobody is driving, and an eight-hour block
+	// across the middle of a day is a worse lie than a flight with its airport
+	// time included.
+	return { mode: 'flight', mins: Math.max(90, Math.round((dist / 700) * 60) + 120) };
+}
+
+/**
+ * A day's legs, placed on the clock.
+ *
+ * The plan is recomputed rather than read back structurally, because placement
+ * needs the event times and those are here anyway; the stored row contributes
+ * only the identity and the override. A leg with no duration yet (never routed,
+ * never overridden) falls back to the straight-line estimate, so the day is
+ * never drawn with a gap where a journey should be.
+ */
+export function legsForDay(tripId: string, day: string): LegRow[] {
+	const planned = planFor(tripId, day);
+	if (!planned.length) return [];
+
+	const rows = db
 		.prepare(
-			`SELECT t.id, t.name, t.color, t.party_id,
-			        p.name AS party_name, p.color AS party_color
-			 FROM tracks t
-			 LEFT JOIN parties p ON p.id = t.party_id
-			 WHERE t.trip_id = ? AND t.day = ? ORDER BY t.sort`
+			`SELECT id, leg_key, auto_mode, auto_mins, mode, mins FROM travel_legs
+			 WHERE trip_id = ? AND day = ?`
 		)
 		.all(tripId, day) as unknown as {
 		id: string;
-		name: string;
-		color: string;
-		party_id: string | null;
-		party_name: string | null;
-		party_color: string | null;
+		leg_key: string;
+		auto_mode: string | null;
+		auto_mins: number | null;
+		mode: string | null;
+		mins: number | null;
 	}[];
-	const assigneeStmt = db.prepare(
-		`SELECT user_id FROM item_assignees WHERE item_id = ?`
-	);
-	return tracks.map((t) => {
-		const items = db
-			.prepare(
-				`SELECT id, title, type, start_min, end_min, booking, travel_mode, travel_mins, travel_before_min, poi_id, lat, lng
-				 FROM schedule_items WHERE track_id = ? ORDER BY start_min`
-			)
-			.all(t.id) as unknown as ItemRow[];
+	const stored = new Map(rows.map((r) => [r.leg_key, r]));
 
-		for (const it of items) {
-			it.assignees = (assigneeStmt.all(it.id) as unknown as { user_id: string }[]).map(
-				(r) => r.user_id
-			);
-			// Free time is location-agnostic: nobody is committed to a place, so it
-			// never contributes travel and resets the onward chain.
-			if (it.type === 'freetime') {
-				it.lat = null;
-				it.lng = null;
-			}
-		}
-
-		// Fill in travel to the next located stop. Free time breaks the chain.
-		for (let i = 0; i < items.length - 1; i++) {
-			const a = items[i];
-			const b = items[i + 1];
-			if (a.type === 'freetime' || b.type === 'freetime') continue;
-			if (a.lat != null && a.lng != null && b.lat != null && b.lng != null) {
-				const est = estimateTravel(haversineKm(a.lat, a.lng, b.lat, b.lng));
-				a.travel_mode = est.mode;
-				a.travel_mins = est.mins;
-			}
-		}
-		// The last stop of a track has no onward leg.
-		if (items.length > 0) {
-			const last = items[items.length - 1];
-			last.travel_mode = null;
-			last.travel_mins = null;
-		}
-		const partyMembers = t.party_id
-			? partyMemberIdsForDay(tripId, t.party_id, day)
-			: [];
-		return {
-			id: t.id,
-			name: t.name,
-			color: t.color,
-			partyId: t.party_id,
-			partyName: t.party_name,
-			partyColor: t.party_color,
-			partyMembers,
-			items
-		};
-	});
+	const out: LegRow[] = [];
+	for (const leg of planned) {
+		const row = stored.get(leg.key);
+		// A plan that has not been reconciled yet (a read racing a write) simply
+		// shows one fewer journey rather than inventing a row id the client would
+		// then try to edit.
+		if (!row) continue;
+		const fallback = fallbackEstimate(leg);
+		const resolvedMode = row.mode ?? row.auto_mode ?? fallback.mode;
+		const resolvedMins = row.mins ?? row.auto_mins ?? fallback.mins;
+		out.push({
+			id: row.id,
+			day,
+			key: leg.key,
+			fromEventId: leg.fromEventId,
+			toEventId: leg.toEventId,
+			people: leg.people,
+			autoMode: row.auto_mode,
+			autoMins: row.auto_mins,
+			mode: row.mode,
+			mins: row.mins,
+			resolvedMode,
+			resolvedMins,
+			manual: row.mode != null || row.mins != null,
+			...placeLeg(leg, resolvedMins)
+		});
+	}
+	return out;
 }
 
-export function createTrack(tripId: string, day: string, name: string, partyId?: string): string {
-	const count = (
-		db.prepare(`SELECT COUNT(*) AS n FROM tracks WHERE trip_id = ? AND day = ?`).get(tripId, day) as
-			| { n: number }
-			| undefined
-	)?.n ?? 0;
-	const id = randomUUID();
-	const party = partyId ?? defaultPartyId(tripId);
+/** The planned legs of a day, for a caller that wants to route them. */
+export function plannedLegsForDay(tripId: string, day: string): PlannedLeg[] {
+	return planFor(tripId, day);
+}
+
+/** Record what the routing provider said. Never touches a user's own override. */
+export function saveAutoLeg(
+	tripId: string,
+	day: string,
+	legKey: string,
+	mode: string,
+	mins: number
+): void {
 	db.prepare(
-		`INSERT INTO tracks (id, trip_id, day, name, color, sort, party_id) VALUES (?, ?, ?, ?, ?, ?, ?)`
-	).run(id, tripId, day, name, TRACK_COLORS[count % TRACK_COLORS.length], count, party);
-	publish(tripId, 'schedule');
-	return id;
+		`UPDATE travel_legs SET auto_mode = ?, auto_mins = ? WHERE trip_id = ? AND day = ? AND leg_key = ?`
+	).run(mode, Math.max(1, Math.round(mins)), tripId, day, legKey);
 }
 
-/**
- * Delete a track and, by cascade, everything scheduled on it.
- *
- * Tracks were created freely and could never be removed, so a typo or a split
- * that never happened stayed on the day forever and kept appearing in the event
- * form's track picker. Returns false when the track is not this trip's or the
- * caller is not a member. A day with no tracks is a legitimate state, which it
- * has to be since that is how every day starts, so unlike cities there is no
- * last-one rule here.
- */
-export function removeTrack(trackId: string, tripId: string, userId: string): boolean {
-	if (!userTrack(trackId, tripId, userId)) return false;
-	db.prepare(`DELETE FROM tracks WHERE id = ? AND trip_id = ?`).run(trackId, tripId);
-	publish(tripId, 'schedule');
-	return true;
-}
+// --- Events -----------------------------------------------------------------
 
-/**
- * The trip that owns a schedule item, or null if there is no such item.
- *
- * Exported because callers above this layer need to prove an item id from a
- * request body belongs to the trip in the url before acting on it, and the only
- * way to do that without this was to walk every day and every track of the trip
- * looking for the id. That is a lot of queries to answer a one-row question.
- */
-export function itemTrip(itemId: string): string | null {
-	if (!itemId) return null;
-	const row = db
-		.prepare(
-			`SELECT t.trip_id FROM schedule_items i
-			 JOIN tracks t ON t.id = i.track_id
-			 WHERE i.id = ?`
-		)
-		.get(itemId) as { trip_id: string } | undefined;
-	return row?.trip_id ?? null;
-}
-
-/**
- * True when the user may mutate this item.
- *
- * Two things have to hold, and they are not the same thing. The item must be
- * owned by `tripId`, the trip the caller is acting in (normally the one in the
- * url), and the user must be a member of the trip that actually OWNS the item.
- * Membership is never checked against a trip the caller named, only against the
- * owner, which is looked up here.
- *
- * `tripId` is required, and that is the point: someone who belongs to trips A
- * and B is a member of both, so a membership test alone lets a B item be reached
- * through an A request. Making the scope impossible to omit means a call site
- * cannot reintroduce that by forgetting it.
- */
-function userOwnsItem(itemId: string, userId: string, tripId: string): boolean {
-	const owner = itemTrip(itemId);
-	if (!owner || owner !== tripId) return false;
-	const row = db
-		.prepare(`SELECT 1 FROM memberships WHERE trip_id = ? AND user_id = ?`)
-		.get(owner, userId);
-	return !!row;
-}
-
-/** Track that belongs to the trip and has the user as a member. */
-function userTrack(trackId: string, tripId: string, userId: string): { day: string } | null {
-	const row = db
-		.prepare(
-			`SELECT t.day FROM tracks t
-			 JOIN memberships m ON m.trip_id = t.trip_id
-			 WHERE t.id = ? AND t.trip_id = ? AND m.user_id = ?`
-		)
-		.get(trackId, tripId, userId) as { day: string } | undefined;
-	return row ?? null;
-}
-
-export interface NewItem {
+export interface NewEvent {
+	day: string;
 	title: string;
+	type: EventType;
 	startMin: number;
 	endMin: number;
-	type?: string;
 	poiId?: string | null;
+	lodgingId?: string | null;
+	cityId?: string | null;
 	lat?: number | null;
 	lng?: number | null;
-	travelBefore?: number | null;
-	assignees?: string[];
+	notes?: string | null;
+	travelMode?: string | null;
+	people?: string[];
 }
 
-/** Members of the trip that owns a track, used to validate assignees. */
+/** Members of the trip, used to validate who an event can be assigned to. */
 function tripMemberIds(tripId: string): Set<string> {
 	const rows = db
 		.prepare(`SELECT user_id FROM memberships WHERE trip_id = ?`)
@@ -235,141 +305,175 @@ function tripMemberIds(tripId: string): Set<string> {
 	return new Set(rows.map((r) => r.user_id));
 }
 
-/** Replace an item's assignee set with the given (validated) member ids. */
-function writeAssignees(itemId: string, tripId: string, userIds: string[]): void {
+function writePeople(eventId: string, tripId: string, userIds: string[]): void {
 	const members = tripMemberIds(tripId);
 	const clean = [...new Set(userIds)].filter((id) => members.has(id));
-	db.prepare(`DELETE FROM item_assignees WHERE item_id = ?`).run(itemId);
-	const ins = db.prepare(`INSERT INTO item_assignees (item_id, user_id) VALUES (?, ?)`);
-	for (const id of clean) ins.run(itemId, id);
+	db.prepare(`DELETE FROM event_people WHERE event_id = ?`).run(eventId);
+	const ins = db.prepare(`INSERT INTO event_people (event_id, user_id) VALUES (?, ?)`);
+	for (const id of clean) ins.run(eventId, id);
 }
 
-/** Add a scheduled item to a track. Returns its id, or null if not permitted. */
-export function createItem(
-	trackId: string,
-	tripId: string,
-	userId: string,
-	item: NewItem
-): string | null {
-	if (!userTrack(trackId, tripId, userId)) return null;
-	const start = Math.max(0, Math.min(Math.round(item.startMin), 24 * 60 - 15));
-	const end = Math.max(start + 15, Math.min(Math.round(item.endMin), 24 * 60));
-	const isFree = item.type === 'freetime';
-	const travelBefore =
-		!isFree && item.travelBefore != null && Number.isFinite(item.travelBefore)
-			? Math.max(0, Math.min(Math.round(item.travelBefore), 24 * 60))
-			: null;
-	const id = randomUUID();
-	db.prepare(
-		`INSERT INTO schedule_items
-		 (id, track_id, title, type, start_min, end_min, booking, travel_mode, travel_mins, travel_before_min, poi_id, lat, lng)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?)`
-	).run(
-		id,
-		trackId,
-		item.title,
-		item.type ?? 'poi',
-		start,
-		end,
-		isFree ? null : 'unbooked',
-		travelBefore,
-		isFree ? null : (item.poiId ?? null),
-		isFree ? null : (item.lat ?? null),
-		isFree ? null : (item.lng ?? null)
-	);
-	if (item.assignees && item.assignees.length) writeAssignees(id, tripId, item.assignees);
-	publish(tripId, 'schedule');
-	return id;
+/** The trip that owns an event, or null. */
+export function eventTrip(eventId: string): string | null {
+	if (!eventId) return null;
+	const row = db.prepare(`SELECT trip_id FROM events WHERE id = ?`).get(eventId) as
+		{ trip_id: string } | undefined;
+	return row?.trip_id ?? null;
 }
 
 /**
- * Replace the members assigned to an item. Any trip member may edit.
+ * True when this user may mutate this event, and which day it is on.
  *
- * `tripId` must be the trip that owns the item, and the assignee list is
- * validated against that owning trip's roster rather than against the passed id.
- * Previously the ownership test ignored `tripId` entirely and the roster came
- * from it, so a member of trips A and B could write A's members onto a B item.
+ * `tripId` is required and is checked against the event's owner before
+ * membership is looked up, so someone on both trip A and trip B cannot reach a
+ * B event through an A request. Same rule the old item mutations enforced; the
+ * reasoning did not change with the table.
  */
-export function setAssignees(
-	itemId: string,
-	tripId: string,
-	userId: string,
-	assignees: string[]
-): boolean {
-	const owner = itemTrip(itemId);
-	if (owner == null || owner !== tripId) return false;
-	if (!userOwnsItem(itemId, userId, owner)) return false;
-	writeAssignees(itemId, owner, assignees);
-	publish(owner, 'schedule');
+function mayEdit(eventId: string, userId: string, tripId: string): { day: string } | null {
+	const row = db.prepare(`SELECT trip_id, day FROM events WHERE id = ?`).get(eventId) as
+		{ trip_id: string; day: string } | undefined;
+	if (!row || row.trip_id !== tripId) return null;
+	if (!isMember(tripId, userId)) return null;
+	return { day: row.day };
+}
+
+/**
+ * Recompute after a write.
+ *
+ * Always the day itself and always the day after, because a stay is the
+ * previous night for the morning that follows it and the planner reads it from
+ * there. Doing it unconditionally rather than only for stays costs one plan
+ * over a usually-empty day and removes a class of bug where an event changes
+ * type into a stay and the following morning is never told.
+ */
+function touched(tripId: string, day: string): void {
+	recomputeLegs(tripId, day);
+	recomputeLegs(tripId, shiftDay(day, 1));
+	publish(tripId, 'schedule');
+}
+
+export function createEvent(tripId: string, userId: string, e: NewEvent): string | null {
+	if (!isMember(tripId, userId)) return null;
+	const type: EventType = isEventType(e.type) ? e.type : 'activity';
+	const located = isLocatedType(type);
+	const start = Math.max(0, Math.min(Math.round(e.startMin), 24 * 60 - MIN_EVENT_MINS));
+	// A stay ends the next morning, so its end is not required to be after its
+	// start. Everything else has to occupy real time on its own day.
+	const end =
+		type === 'stay'
+			? Math.max(0, Math.min(Math.round(e.endMin), 24 * 60))
+			: Math.max(start + MIN_EVENT_MINS, Math.min(Math.round(e.endMin), 24 * 60));
+
+	const id = randomUUID();
+	db.prepare(
+		`INSERT INTO events
+		 (id, trip_id, day, title, type, start_min, end_min, poi_id, lodging_id, city_id, lat, lng, notes, travel_mode, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	).run(
+		id,
+		tripId,
+		e.day,
+		e.title,
+		type,
+		start,
+		end,
+		located ? (e.poiId ?? null) : null,
+		type === 'stay' ? (e.lodgingId ?? null) : null,
+		e.cityId ?? null,
+		located ? (e.lat ?? null) : null,
+		located ? (e.lng ?? null) : null,
+		e.notes?.trim() || null,
+		type === 'travel' && e.travelMode && isTransportMode(e.travelMode) ? e.travelMode : null,
+		Date.now()
+	);
+	if (e.people?.length) writePeople(id, tripId, e.people);
+	touched(tripId, e.day);
+	return id;
+}
+
+export function deleteEvent(eventId: string, userId: string, tripId: string): boolean {
+	const where = mayEdit(eventId, userId, tripId);
+	if (!where) return false;
+	db.prepare(`DELETE FROM events WHERE id = ?`).run(eventId);
+	touched(tripId, where.day);
 	return true;
 }
 
-export function deleteItem(itemId: string, userId: string, tripId: string): boolean {
-	if (!userOwnsItem(itemId, userId, tripId)) return false;
-	const res = db.prepare(`DELETE FROM schedule_items WHERE id = ?`).run(itemId);
-	if (res.changes > 0) publish(tripId, 'schedule');
-	return res.changes > 0;
-}
-
-/** Move an item to a new start, preserving its duration. Snaps and clamps to the day. */
-export function moveItem(
-	itemId: string,
+/** Move an event to a new start, keeping its length. Snaps and clamps to the day. */
+export function moveEvent(
+	eventId: string,
 	userId: string,
 	startMin: number,
-	tripId: string
+	tripId: string,
+	toDay?: string
 ): boolean {
-	if (!userOwnsItem(itemId, userId, tripId)) return false;
-	const item = db
-		.prepare(`SELECT start_min, end_min FROM schedule_items WHERE id = ?`)
-		.get(itemId) as { start_min: number; end_min: number } | undefined;
-	if (!item) return false;
+	const where = mayEdit(eventId, userId, tripId);
+	if (!where) return false;
+	const ev = db.prepare(`SELECT start_min, end_min, type FROM events WHERE id = ?`).get(eventId) as
+		{ start_min: number; end_min: number; type: string } | undefined;
+	if (!ev) return false;
 
-	const duration = item.end_min - item.start_min;
 	const snapped = Math.round(startMin / SNAP) * SNAP;
-	const clampedStart = Math.max(0, Math.min(snapped, 24 * 60 - duration));
-	db.prepare(`UPDATE schedule_items SET start_min = ?, end_min = ? WHERE id = ?`).run(
-		clampedStart,
-		clampedStart + duration,
-		itemId
-	);
-	publish(tripId, 'schedule');
+	if (ev.type === 'stay') {
+		// A stay's end is a time on the following morning, so moving the check-in
+		// must not drag the checkout along with it.
+		const clamped = Math.max(0, Math.min(snapped, 24 * 60 - MIN_EVENT_MINS));
+		db.prepare(`UPDATE events SET start_min = ?, day = COALESCE(?, day) WHERE id = ?`).run(
+			clamped,
+			toDay ?? null,
+			eventId
+		);
+	} else {
+		const duration = ev.end_min - ev.start_min;
+		const clamped = Math.max(0, Math.min(snapped, 24 * 60 - duration));
+		db.prepare(
+			`UPDATE events SET start_min = ?, end_min = ?, day = COALESCE(?, day) WHERE id = ?`
+		).run(clamped, clamped + duration, toDay ?? null, eventId);
+	}
+	touched(tripId, where.day);
+	if (toDay && toDay !== where.day) touched(tripId, toDay);
 	return true;
 }
 
-/** Resize an item by moving its end, keeping the start. Snaps and clamps to the day. */
-export function resizeItem(
-	itemId: string,
+/** Resize an event by moving its end. Snaps and clamps to the day. */
+export function resizeEvent(
+	eventId: string,
 	userId: string,
 	endMin: number,
 	tripId: string
 ): boolean {
-	if (!userOwnsItem(itemId, userId, tripId)) return false;
-	const item = db
-		.prepare(`SELECT start_min FROM schedule_items WHERE id = ?`)
-		.get(itemId) as { start_min: number } | undefined;
-	if (!item) return false;
-
+	const where = mayEdit(eventId, userId, tripId);
+	if (!where) return false;
+	const ev = db.prepare(`SELECT start_min, type FROM events WHERE id = ?`).get(eventId) as
+		{ start_min: number; type: string } | undefined;
+	if (!ev) return false;
 	const snapped = Math.round(endMin / SNAP) * SNAP;
-	const clampedEnd = Math.max(item.start_min + 15, Math.min(snapped, 24 * 60));
-	db.prepare(`UPDATE schedule_items SET end_min = ? WHERE id = ?`).run(clampedEnd, itemId);
-	publish(tripId, 'schedule');
+	const clamped =
+		ev.type === 'stay'
+			? Math.max(0, Math.min(snapped, 24 * 60))
+			: Math.max(ev.start_min + MIN_EVENT_MINS, Math.min(snapped, 24 * 60));
+	db.prepare(`UPDATE events SET end_min = ? WHERE id = ?`).run(clamped, eventId);
+	touched(tripId, where.day);
 	return true;
 }
 
-export interface ItemEdit {
+export interface EventEdit {
 	title?: string;
 	type?: string;
-	travelBefore?: number | null;
+	notes?: string | null;
+	travelMode?: string | null;
+	startMin?: number;
+	endMin?: number;
 }
 
-/** Rename an item and/or change its type. Empty/invalid fields are ignored. */
-export function editItem(
-	itemId: string,
+export function editEvent(
+	eventId: string,
 	userId: string,
-	edit: ItemEdit,
+	edit: EventEdit,
 	tripId: string
 ): boolean {
-	if (!userOwnsItem(itemId, userId, tripId)) return false;
+	const where = mayEdit(eventId, userId, tripId);
+	if (!where) return false;
 	const sets: string[] = [];
 	const args: (string | number | null)[] = [];
 
@@ -378,53 +482,169 @@ export function editItem(
 		sets.push('title = ?');
 		args.push(title);
 	}
-	// The vocabulary lives in @trippy/core so the server, the API and the
-	// calendar all validate and render the same set of literals.
-	if (edit.type && isItemType(edit.type)) {
+	if (edit.type && isEventType(edit.type)) {
 		sets.push('type = ?');
 		args.push(edit.type);
-		// Free time has no booking, place, or travel; everything else defaults to
-		// unbooked when switched into.
+		// Free time is not anywhere at all. Its place is cleared rather than kept,
+		// because a block claiming coordinates it does not honour is what made the
+		// old chain plan journeys nobody was making.
 		if (edit.type === 'freetime') {
-			sets.push('booking = NULL');
-			sets.push('lat = NULL');
-			sets.push('lng = NULL');
-			sets.push('poi_id = NULL');
-			sets.push('travel_before_min = NULL');
-			sets.push('travel_mode = NULL');
-			sets.push('travel_mins = NULL');
-		} else {
-			sets.push(`booking = COALESCE(booking, 'unbooked')`);
+			sets.push('lat = NULL', 'lng = NULL', 'poi_id = NULL', 'lodging_id = NULL');
 		}
 	}
-	if (edit.travelBefore !== undefined && edit.type !== 'freetime') {
-		const tb =
-			edit.travelBefore != null && Number.isFinite(edit.travelBefore) && edit.travelBefore > 0
-				? Math.min(Math.round(edit.travelBefore), 24 * 60)
-				: null;
-		sets.push('travel_before_min = ?');
-		args.push(tb);
+	if (edit.notes !== undefined) {
+		sets.push('notes = ?');
+		args.push(edit.notes?.trim() || null);
 	}
-	if (sets.length === 0) return false;
+	if (edit.travelMode !== undefined) {
+		sets.push('travel_mode = ?');
+		args.push(edit.travelMode && isTransportMode(edit.travelMode) ? edit.travelMode : null);
+	}
+	if (edit.startMin !== undefined && Number.isFinite(edit.startMin)) {
+		sets.push('start_min = ?');
+		args.push(Math.max(0, Math.min(Math.round(edit.startMin), 24 * 60)));
+	}
+	if (edit.endMin !== undefined && Number.isFinite(edit.endMin)) {
+		sets.push('end_min = ?');
+		args.push(Math.max(0, Math.min(Math.round(edit.endMin), 24 * 60)));
+	}
+	if (!sets.length) return false;
 
-	args.push(itemId);
-	db.prepare(`UPDATE schedule_items SET ${sets.join(', ')} WHERE id = ?`).run(...args);
+	args.push(eventId);
+	db.prepare(`UPDATE events SET ${sets.join(', ')} WHERE id = ?`).run(...args);
+	touched(tripId, where.day);
+	return true;
+}
+
+/** Replace who is on an event. This is what makes the group split, or rejoin. */
+export function setEventPeople(
+	eventId: string,
+	tripId: string,
+	userId: string,
+	people: string[]
+): boolean {
+	const where = mayEdit(eventId, userId, tripId);
+	if (!where) return false;
+	writePeople(eventId, tripId, people);
+	touched(tripId, where.day);
+	return true;
+}
+
+// --- Travel overrides -------------------------------------------------------
+
+/**
+ * Pin a leg's mode and duration by hand.
+ *
+ * Passing null for both clears the override and hands the leg back to the
+ * provider, which is how someone undoes a guess without having to remember what
+ * the automatic answer was.
+ */
+export function editLeg(
+	legId: string,
+	tripId: string,
+	userId: string,
+	mode: string | null,
+	mins: number | null
+): boolean {
+	if (!isMember(tripId, userId)) return false;
+	const row = db.prepare(`SELECT trip_id FROM travel_legs WHERE id = ?`).get(legId) as
+		{ trip_id: string } | undefined;
+	if (!row || row.trip_id !== tripId) return false;
+	db.prepare(`UPDATE travel_legs SET mode = ?, mins = ? WHERE id = ?`).run(
+		mode && isTransportMode(mode) ? mode : null,
+		mins != null && Number.isFinite(mins) && mins > 0 ? Math.min(Math.round(mins), 48 * 60) : null,
+		legId
+	);
 	publish(tripId, 'schedule');
 	return true;
 }
 
-const BOOKING_CYCLE = ['unbooked', 'tentative', 'booked'];
+// --- Crews ------------------------------------------------------------------
 
-/** Advance booking status: unbooked -> tentative -> booked -> unbooked. */
-export function cycleBooking(itemId: string, userId: string, tripId: string): boolean {
-	if (!userOwnsItem(itemId, userId, tripId)) return false;
-	const row = db.prepare(`SELECT booking FROM schedule_items WHERE id = ?`).get(itemId) as
-		| { booking: string | null }
-		| undefined;
-	if (!row) return false;
-	const idx = BOOKING_CYCLE.indexOf(row.booking ?? 'unbooked');
-	const next = BOOKING_CYCLE[(idx + 1) % BOOKING_CYCLE.length];
-	db.prepare(`UPDATE schedule_items SET booking = ? WHERE id = ?`).run(next, itemId);
+const CREW_COLORS = ['#2f6d5e', '#b4682a', '#4a6d8c', '#8c5a86', '#6d7a2f'];
+
+export interface Crew {
+	id: string;
+	name: string;
+	color: string;
+	members: string[];
+}
+
+/**
+ * A crew is a saved group of people, and nothing else.
+ *
+ * The old "party" owned a schedule, a city and a time-segmented membership, so
+ * putting two people in a group was a scheduling decision with consequences a
+ * week long. A crew is only a shortcut for the people picker: choosing one
+ * selects its members and then gets out of the way. Nothing reads a crew while
+ * drawing a day, which is why one can be renamed or deleted at any time without
+ * the schedule moving underneath anybody.
+ */
+export function crewsForTrip(tripId: string): Crew[] {
+	const rows = db
+		.prepare(`SELECT id, name, color FROM crews WHERE trip_id = ? ORDER BY sort, name`)
+		.all(tripId) as unknown as { id: string; name: string; color: string }[];
+	const stmt = db.prepare(`SELECT user_id FROM crew_members WHERE crew_id = ?`);
+	return rows.map((r) => ({
+		...r,
+		members: (stmt.all(r.id) as unknown as { user_id: string }[]).map((x) => x.user_id)
+	}));
+}
+
+function writeCrewMembers(crewId: string, tripId: string, members: string[]): void {
+	const roster = tripMemberIds(tripId);
+	const clean = [...new Set(members)].filter((id) => roster.has(id));
+	db.prepare(`DELETE FROM crew_members WHERE crew_id = ?`).run(crewId);
+	const ins = db.prepare(`INSERT INTO crew_members (crew_id, user_id) VALUES (?, ?)`);
+	for (const id of clean) ins.run(crewId, id);
+}
+
+export function createCrew(
+	tripId: string,
+	userId: string,
+	name: string,
+	members: string[]
+): string | null {
+	if (!isMember(tripId, userId)) return null;
+	const count =
+		(
+			db.prepare(`SELECT COUNT(*) AS n FROM crews WHERE trip_id = ?`).get(tripId) as
+				{ n: number } | undefined
+		)?.n ?? 0;
+	const id = randomUUID();
+	db.prepare(`INSERT INTO crews (id, trip_id, name, color, sort) VALUES (?, ?, ?, ?, ?)`).run(
+		id,
+		tripId,
+		name,
+		CREW_COLORS[count % CREW_COLORS.length],
+		count
+	);
+	writeCrewMembers(id, tripId, members);
+	publish(tripId, 'schedule');
+	return id;
+}
+
+export function editCrew(
+	crewId: string,
+	tripId: string,
+	userId: string,
+	name: string | undefined,
+	members: string[] | undefined
+): boolean {
+	if (!isMember(tripId, userId)) return false;
+	if (!db.prepare(`SELECT 1 FROM crews WHERE id = ? AND trip_id = ?`).get(crewId, tripId)) {
+		return false;
+	}
+	if (!name && !members) return false;
+	if (name) db.prepare(`UPDATE crews SET name = ? WHERE id = ?`).run(name, crewId);
+	if (members) writeCrewMembers(crewId, tripId, members);
 	publish(tripId, 'schedule');
 	return true;
+}
+
+export function deleteCrew(crewId: string, tripId: string, userId: string): boolean {
+	if (!isMember(tripId, userId)) return false;
+	const res = db.prepare(`DELETE FROM crews WHERE id = ? AND trip_id = ?`).run(crewId, tripId);
+	if (res.changes > 0) publish(tripId, 'schedule');
+	return res.changes > 0;
 }

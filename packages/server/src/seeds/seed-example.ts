@@ -3,6 +3,7 @@ import { db } from '../db';
 import { seedAthensTrip } from './seed-athens';
 import { poiKindFromCategory } from '@trippy/core/types';
 import { trips as sampleTrips, sampleDay } from '@trippy/core/sample';
+import { recomputeLegs } from '../persistence/schedule';
 
 /**
  * Demo seeding, kept out of `auth.ts`.
@@ -53,11 +54,11 @@ export function seedExampleTrips(userId: string): void {
 			return cityId;
 		});
 		if (t.id === 'china-2026') {
-			seedSampleDay(tripId, cityIds[0]);
 			const may = seedCompanion(tripId, 'May');
 			const jordan = seedCompanion(tripId, 'Jordan');
 			const priya = seedCompanion(tripId, 'Priya');
 			const roster = [userId, may, jordan, priya];
+			seedSampleDay(tripId, cityIds[0], roster);
 			seedExpenses(tripId, roster);
 			seedLodging(tripId, cityIds[0], roster);
 			seedPois(tripId, cityIds, roster);
@@ -132,51 +133,44 @@ function seedLodging(tripId: string, cityId: string, roster: string[]): void {
 	insertVote.run(cityId, roster[2], courtyard);
 }
 
-/** Seed one day with two parallel tracks so the calendar has real data to move. */
-function seedSampleDay(tripId: string, cityId: string): void {
+/**
+ * Seed one day where the group splits, so the schedule has real data to move.
+ *
+ * Nothing here declares a split: two events simply carry different people, and
+ * the travel legs between them are worked out from that when the day is read.
+ */
+function seedSampleDay(tripId: string, cityId: string, roster: string[]): void {
 	const day = '2026-10-26';
-	const coords: Record<string, [number, number]> = {
-		'Forbidden City': [39.9163, 116.3972],
-		'Tiananmen Square': [39.9055, 116.3976],
-		'Lunch, Wangfujing': [39.9149, 116.4108],
-		'Temple of Heaven': [39.8822, 116.4066],
-		'Hutong food walk': [39.9368, 116.403],
-		'Boba, 1点点': [39.937, 116.4035],
-		'Lunch, Guijie': [39.9469, 116.4189]
-	};
-	const insertTrack = db.prepare(
-		`INSERT INTO tracks (id, trip_id, day, name, color, sort) VALUES (?, ?, ?, ?, ?, ?)`
+	const insertEvent = db.prepare(
+		`INSERT INTO events
+		 (id, trip_id, day, title, type, start_min, end_min, poi_id, lodging_id, city_id, lat, lng, notes, travel_mode, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, NULL, NULL, ?)`
 	);
-	const insertItem = db.prepare(
-		`INSERT INTO schedule_items
-		 (id, track_id, title, type, start_min, end_min, booking, travel_mode, travel_mins, poi_id, lat, lng)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-	);
+	const insertPerson = db.prepare(`INSERT INTO event_people (event_id, user_id) VALUES (?, ?)`);
 	const toMin = (hhmm: string) => {
 		const [h, m] = hhmm.split(':').map(Number);
 		return h * 60 + m;
 	};
-	sampleDay.tracks.forEach((track, ti) => {
-		const trackId = randomUUID();
-		insertTrack.run(trackId, tripId, day, track.name, track.color, ti);
-		for (const b of track.blocks) {
-			const c = coords[b.title] ?? null;
-			insertItem.run(
-				randomUUID(),
-				trackId,
-				b.title,
-				b.type,
-				toMin(b.start),
-				toMin(b.end),
-				b.booking ?? null,
-				b.travelToNext?.mode ?? null,
-				b.travelToNext?.mins ?? null,
-				null,
-				c ? c[0] : null,
-				c ? c[1] : null
-			);
-		}
-	});
+	const now = Date.now();
+	for (const e of sampleDay.events) {
+		const id = randomUUID();
+		insertEvent.run(
+			id,
+			tripId,
+			day,
+			e.title,
+			e.type,
+			toMin(e.start),
+			toMin(e.end),
+
+			cityId,
+			e.lat ?? null,
+			e.lng ?? null,
+			now
+		);
+		for (const i of e.people) if (roster[i]) insertPerson.run(id, roster[i]);
+	}
+	recomputeLegs(tripId, day);
 }
 
 /** Seed discover POIs per city, with Beijing places carrying coordinates and a few saved. */
@@ -199,25 +193,113 @@ function seedPois(tripId: string, cityIds: string[], roster: string[]): void {
 	// Beijing (cityIds[0]) with coordinates; a few saved so they show on the calendar picker.
 	const perCity: Record<number, Seed[]> = {
 		0: [
-			{ name: 'Summer Palace', category: 'History', notes: 'Half day, go early', lat: 39.9998, lng: 116.2755, saved: 1, votes: 3 },
-			{ name: 'Great Wall, Mutianyu', category: 'Sights', notes: 'Book a car', lat: 40.4319, lng: 116.5704, saved: 1, votes: 4 },
-			{ name: '798 Art District', category: 'Sights', notes: null, lat: 39.9847, lng: 116.4956, saved: 0, votes: 2 },
-			{ name: 'Jingshan Park', category: 'Nature', notes: 'Sunset over the Forbidden City', lat: 39.9281, lng: 116.3961, saved: 0, votes: 1 }
+			{
+				name: 'Summer Palace',
+				category: 'History',
+				notes: 'Half day, go early',
+				lat: 39.9998,
+				lng: 116.2755,
+				saved: 1,
+				votes: 3
+			},
+			{
+				name: 'Great Wall, Mutianyu',
+				category: 'Sights',
+				notes: 'Book a car',
+				lat: 40.4319,
+				lng: 116.5704,
+				saved: 1,
+				votes: 4
+			},
+			{
+				name: '798 Art District',
+				category: 'Sights',
+				notes: null,
+				lat: 39.9847,
+				lng: 116.4956,
+				saved: 0,
+				votes: 2
+			},
+			{
+				name: 'Jingshan Park',
+				category: 'Nature',
+				notes: 'Sunset over the Forbidden City',
+				lat: 39.9281,
+				lng: 116.3961,
+				saved: 0,
+				votes: 1
+			}
 		],
 		1: [
-			{ name: 'Hongya Cave', category: 'Sights', notes: 'Night views', lat: null, lng: null, saved: 0, votes: 2 },
-			{ name: 'Ciqikou Old Town', category: 'History', notes: null, lat: null, lng: null, saved: 0, votes: 1 }
+			{
+				name: 'Hongya Cave',
+				category: 'Sights',
+				notes: 'Night views',
+				lat: null,
+				lng: null,
+				saved: 0,
+				votes: 2
+			},
+			{
+				name: 'Ciqikou Old Town',
+				category: 'History',
+				notes: null,
+				lat: null,
+				lng: null,
+				saved: 0,
+				votes: 1
+			}
 		],
 		2: [
-			{ name: 'Li River cruise', category: 'Nature', notes: 'Guilin to Yangshuo', lat: null, lng: null, saved: 0, votes: 3 },
-			{ name: 'Reed Flute Cave', category: 'Nature', notes: null, lat: null, lng: null, saved: 0, votes: 1 }
+			{
+				name: 'Li River cruise',
+				category: 'Nature',
+				notes: 'Guilin to Yangshuo',
+				lat: null,
+				lng: null,
+				saved: 0,
+				votes: 3
+			},
+			{
+				name: 'Reed Flute Cave',
+				category: 'Nature',
+				notes: null,
+				lat: null,
+				lng: null,
+				saved: 0,
+				votes: 1
+			}
 		],
 		3: [
-			{ name: 'West Lake', category: 'Nature', notes: 'Rent bikes', lat: null, lng: null, saved: 0, votes: 2 }
+			{
+				name: 'West Lake',
+				category: 'Nature',
+				notes: 'Rent bikes',
+				lat: null,
+				lng: null,
+				saved: 0,
+				votes: 2
+			}
 		],
 		4: [
-			{ name: 'The Bund', category: 'Sights', notes: 'Evening walk', lat: null, lng: null, saved: 0, votes: 3 },
-			{ name: 'Yu Garden', category: 'History', notes: null, lat: null, lng: null, saved: 0, votes: 1 }
+			{
+				name: 'The Bund',
+				category: 'Sights',
+				notes: 'Evening walk',
+				lat: null,
+				lng: null,
+				saved: 0,
+				votes: 3
+			},
+			{
+				name: 'Yu Garden',
+				category: 'History',
+				notes: null,
+				lat: null,
+				lng: null,
+				saved: 0,
+				votes: 1
+			}
 		]
 	};
 	for (const [idxStr, seeds] of Object.entries(perCity)) {
@@ -225,7 +307,20 @@ function seedPois(tripId: string, cityIds: string[], roster: string[]): void {
 		if (!cityId) continue;
 		seeds.forEach((s, i) => {
 			const id = randomUUID();
-			insertPoi.run(id, tripId, cityId, s.name, s.category, poiKindFromCategory(s.category), s.notes, null, s.lat, s.lng, s.saved, base - i * 100);
+			insertPoi.run(
+				id,
+				tripId,
+				cityId,
+				s.name,
+				s.category,
+				poiKindFromCategory(s.category),
+				s.notes,
+				null,
+				s.lat,
+				s.lng,
+				s.saved,
+				base - i * 100
+			);
 			for (let v = 0; v < Math.min(s.votes, roster.length); v++) insertVote.run(id, roster[v]);
 		});
 	}
@@ -288,17 +383,22 @@ function seedTasks(tripId: string, roster: string[]): void {
 	const base = Date.now();
 	// roster is [you, May, Jordan, Priya]. `who` holds roster indices; a visa is
 	// per-person, so it isn't finished until every traveller has their own.
-	const tasks: { kind: string; label: string; who: number[]; doneWho?: number[]; shared?: number }[] =
-		[
-			{ kind: 'task', label: 'Apply for China visa', who: [0, 1, 2, 3], doneWho: [0, 1] },
-			{ kind: 'task', label: 'Buy travel insurance', who: [0, 1, 2, 3], doneWho: [0] },
-			{ kind: 'task', label: 'Book Beijing to Chongqing flight', who: [2] },
-			{ kind: 'task', label: 'Reserve Great Wall car', who: [1] },
-			{ kind: 'packing', label: 'Passport and visa', who: [], shared: 1 },
-			{ kind: 'packing', label: 'Power adapter (type A/C/I)', who: [] },
-			{ kind: 'packing', label: 'Comfortable walking shoes', who: [] },
-			{ kind: 'packing', label: 'Rain jacket', who: [] }
-		];
+	const tasks: {
+		kind: string;
+		label: string;
+		who: number[];
+		doneWho?: number[];
+		shared?: number;
+	}[] = [
+		{ kind: 'task', label: 'Apply for China visa', who: [0, 1, 2, 3], doneWho: [0, 1] },
+		{ kind: 'task', label: 'Buy travel insurance', who: [0, 1, 2, 3], doneWho: [0] },
+		{ kind: 'task', label: 'Book Beijing to Chongqing flight', who: [2] },
+		{ kind: 'task', label: 'Reserve Great Wall car', who: [1] },
+		{ kind: 'packing', label: 'Passport and visa', who: [], shared: 1 },
+		{ kind: 'packing', label: 'Power adapter (type A/C/I)', who: [] },
+		{ kind: 'packing', label: 'Comfortable walking shoes', who: [] },
+		{ kind: 'packing', label: 'Rain jacket', who: [] }
+	];
 	const names = ['You', 'May', 'Jordan', 'Priya'];
 	tasks.forEach((t, i) => {
 		const id = randomUUID();

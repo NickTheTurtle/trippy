@@ -71,7 +71,7 @@ export function cityPois(tripId: string, userId: string): CityPois[] {
 				        p.rating, p.rating_count, p.price_level, p.hours, p.saved, p.photo,
 				        (SELECT COUNT(*) FROM poi_votes v WHERE v.poi_id = p.id) AS votes,
 				        (SELECT COUNT(*) FROM poi_votes v WHERE v.poi_id = p.id AND v.user_id = ?) AS you_voted,
-				        (SELECT COUNT(*) FROM schedule_items s WHERE s.poi_id = p.id) AS linked
+				        (SELECT COUNT(*) FROM events s WHERE s.poi_id = p.id) AS linked
 				 FROM pois p WHERE p.city_id = ?
 				 ORDER BY votes DESC, p.created_at`
 				)
@@ -204,15 +204,13 @@ export function toggleVote(tripId: string, actorId: string, poiId: string): bool
 }
 
 /**
- * How many scheduled calendar items point at this place. Surfaced in the delete
+ * How many scheduled events point at this place. Surfaced in the delete
  * confirmation, because removing a place also removes what was scheduled there.
  */
 export function linkedItemCount(tripId: string, poiId: string): number {
 	const row = db
 		.prepare(
-			`SELECT COUNT(*) AS n FROM schedule_items s
-			 JOIN tracks t ON t.id = s.track_id
-			 WHERE s.poi_id = ? AND t.trip_id = ?`
+			`SELECT COUNT(*) AS n FROM events WHERE poi_id = ? AND trip_id = ?`
 		)
 		.get(poiId, tripId) as { n: number } | undefined;
 	return row?.n ?? 0;
@@ -220,20 +218,17 @@ export function linkedItemCount(tripId: string, poiId: string): number {
 
 /**
  * Delete a place and everything scheduled from it. The FK is ON DELETE SET NULL,
- * which would otherwise leave orphaned calendar blocks with no location, so the
- * dependent items are removed explicitly and atomically.
+ * which would otherwise leave orphaned blocks with no location, so the dependent
+ * events are removed explicitly and atomically.
  */
 export function removePoi(tripId: string, actorId: string, poiId: string): boolean {
 	if (!isMember(tripId, actorId)) return false;
 	db.exec('BEGIN');
 	try {
-		db.prepare(
-			`DELETE FROM schedule_items WHERE poi_id = ? AND track_id IN
-			   (SELECT id FROM tracks WHERE trip_id = ?)`
-		).run(poiId, tripId);
+		db.prepare(`DELETE FROM events WHERE poi_id = ? AND trip_id = ?`).run(poiId, tripId);
 		const res = db.prepare(`DELETE FROM pois WHERE id = ? AND trip_id = ?`).run(poiId, tripId);
 		db.exec('COMMIT');
-		// After COMMIT, and both sections: the calendar loses the items that were
+		// After COMMIT, and both sections: the schedule loses the events that were
 		// scheduled from this place.
 		if (Number(res.changes) > 0) publishMany(tripId, ['pois', 'schedule']);
 		return Number(res.changes) > 0;

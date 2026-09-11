@@ -18,7 +18,7 @@ import {
 } from '@trippy/server/trips';
 import { backfillTripListPhotos } from '@trippy/server/photos';
 import { discover } from './discover';
-import { calendar } from './calendar';
+import { schedule } from './schedule';
 import { expenses } from './expenses';
 import { pretrip } from './pretrip';
 import { people } from './people';
@@ -153,7 +153,7 @@ function cityInput(b: Record<string, unknown>): CityInput {
 // Each section router applies `requireMember` itself, so membership is checked
 // exactly once per request whichever path reaches it.
 trips.route('/:tripId/discover', discover);
-trips.route('/:tripId/calendar', calendar);
+trips.route('/:tripId/schedule', schedule);
 trips.route('/:tripId/expenses', expenses);
 trips.route('/:tripId/pretrip', pretrip);
 trips.route('/:tripId/people', people);

@@ -9,28 +9,12 @@
  * These rates are today's. A recorded transaction must not be revalued by
  * them: see `rateTo`, and the `fx_rate` column expenses store it in.
  */
+import { FALLBACK_RATES } from '@trippy/core/currency';
 
 // Units of each currency per 1 USD. Static fallback; refreshed at runtime.
-const FALLBACK: Record<string, number> = {
-	USD: 1,
-	EUR: 0.92,
-	GBP: 0.79,
-	CAD: 1.36,
-	AUD: 1.52,
-	JPY: 157,
-	CNY: 7.24,
-	HKD: 7.81,
-	KRW: 1360,
-	SGD: 1.35,
-	THB: 36.5,
-	INR: 83.4,
-	MXN: 18.6,
-	CHF: 0.9,
-	SEK: 10.6,
-	NOK: 10.7,
-	NZD: 1.64,
-	TWD: 32.4
-};
+// The table lives in `@trippy/core/currency` so the home-currency picker and
+// this cannot offer different sets: see the note there.
+const FALLBACK: Record<string, number> = FALLBACK_RATES;
 
 let rates: Record<string, number> = { ...FALLBACK };
 let fetchedAt = 0;
@@ -66,9 +50,20 @@ export function ensureRatesFresh(): void {
 	if (Date.now() - fetchedAt > MAX_AGE_MS) void doRefresh();
 }
 
-/** Rate: how many units of `currency` equal 1 USD. Falls back to 1 if unknown. */
+/**
+ * Rate: how many units of `currency` equal 1 USD.
+ *
+ * Throws on a code we cannot convert. The old default of 1 was the worst
+ * possible answer: it is indistinguishable from a correct conversion, so a
+ * currency we had no rate for was folded into the trip total at par and the
+ * only sign of it was a balance that was quietly wrong. Every code the app
+ * lets anyone pick is in the fallback table, so reaching this is a bug, and a
+ * bug about money should be loud.
+ */
 function perUsd(currency: string): number {
-	return rates[currency] ?? FALLBACK[currency] ?? 1;
+	const rate = rates[currency] ?? FALLBACK[currency];
+	if (rate === undefined) throw new Error(`No exchange rate for ${currency}`);
+	return rate;
 }
 
 /**
