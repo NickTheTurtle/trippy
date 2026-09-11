@@ -44,7 +44,7 @@ export default function AddPersonDialog({
 	return (
 		<Modal open size="sm" title={c.title} onClose={onClose}>
 			<form className="mform" onSubmit={add.submit}>
-				<div className="mbody flex flex-col gap-3.5">
+				<div className="mbody flex flex-col gap-4">
 					<Field
 						label={c.nameLabel}
 						autoFocus
@@ -67,8 +67,7 @@ export default function AddPersonDialog({
 					error={add.error}
 					onClose={onClose}
 					busy={add.busy}
-					disabled={name.trim() === ''}
-					busyLabel={c.busyLabel}
+					busyLabel={copy.common.adding}
 					submitLabel={copy.common.add}
 				/>
 			</form>

@@ -18,9 +18,7 @@ const LISBON = { name: 'Lisbon', country: 'Portugal', region: 'Lisboa', tz: 'Eur
 /** Visible headings in document order, as {level, text}, from a live page. */
 async function headingOutline(page: import('@playwright/test').Page) {
 	return page.evaluate(() => {
-		const nodes = Array.from(
-			document.querySelectorAll('h1,h2,h3,h4,h5,h6,[role="heading"]')
-		);
+		const nodes = Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6,[role="heading"]'));
 		return nodes
 			.filter((el) => (el as HTMLElement).getClientRects().length > 0)
 			.map((el) => {
@@ -48,6 +46,34 @@ test.describe('ui consistency', () => {
 		expect(copy.common.nothingAdded.endsWith('.')).toBe(false);
 		// The house confirmation is one fixed sentence everywhere.
 		expect(copy.ui.confirmDialog.undone).toBe('Are you sure? This action cannot be undone.');
+	});
+
+	test('dialog titles and field hints follow the house shape', () => {
+		// Both rules are properties of the copy, so they are checked against every
+		// string in it rather than against the handful of dialogs a spec happens
+		// to open. A new dialog is held to them without anyone remembering to.
+		const strings: { path: string; key: string; value: string }[] = [];
+		(function walk(node: unknown, path: string) {
+			if (!node || typeof node !== 'object') return;
+			for (const [key, value] of Object.entries(node)) {
+				if (typeof value === 'string') strings.push({ path: `${path}.${key}`, key, value });
+				else walk(value, `${path}.${key}`);
+			}
+		})(copy, 'copy');
+
+		// A dialog title is "Add <thing>" or "Edit <thing>": lower case after the
+		// verb and no article, so "Add someone" and "Add a task" are both out.
+		for (const { path, key, value } of strings) {
+			if (!/title$/i.test(key) || !/^(Add|Edit) /.test(value)) continue;
+			expect(value, path).toMatch(/^(Add|Edit) (?!a |an |the )[a-z]+$/);
+		}
+
+		// A hint under a field is a fragment, like the caption, so it takes no
+		// full stop. A hint that needs a sentence is saying too much.
+		for (const { path, key, value } of strings) {
+			if (!/hint$/i.test(key)) continue;
+			expect(value.endsWith('.'), path).toBe(false);
+		}
 	});
 
 	test('a delete confirmation repeats the bare verb and never names the thing on its button', async ({

@@ -71,11 +71,12 @@ export default function EditMember({
 	return (
 		<Modal open size="sm" title={c.title} onClose={onClose}>
 			<form className="mform" onSubmit={save.submit}>
-				<div className="mbody flex flex-col gap-3.5">
+				<div className="mbody flex flex-col gap-4">
 					<Field
 						label={c.nameLabel}
 						autoFocus
 						required
+						autoComplete="off"
 						value={name}
 						onChange={(e) => setName(e.target.value)}
 					/>
@@ -95,7 +96,6 @@ export default function EditMember({
 					error={save.error}
 					onClose={onClose}
 					busy={save.busy}
-					disabled={name.trim() === ''}
 					busyLabel={copy.common.saving}
 					submitLabel={copy.common.save}
 				/>

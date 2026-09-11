@@ -75,7 +75,7 @@ export default function People() {
 						<FormError message={invite.error} />
 						{notice ? <Text style={type.small}>{notice}</Text> : null}
 						<Button
-							label={invite.busy ? copy.people.add.busyLabel : copy.common.add}
+							label={invite.busy ? copy.common.adding : copy.common.add}
 							onPress={() => void invite.run()}
 							busy={invite.busy}
 							disabled={!name.trim()}

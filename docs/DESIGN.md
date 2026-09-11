@@ -2027,6 +2027,25 @@ The estimate dialog and the expense dialog are both a money line, so they now
 lay out on the same 12-column grid with the same fields in the same order:
 description across the top, then amount / currency / who.
 
+Two further rules fell out of the person dialogs, which arrived later and drifted
+in exactly the ways the first three had not covered:
+
+- **A hint under a field is a fragment, not a sentence**, so it takes no full
+  stop: `At least 8 characters`, `Optional, and we will email them an invite`.
+  A hint that needs two sentences is a hint that is saying too much, and the
+  success notice usually already says the second one.
+- **`required` carries an empty field; the submit button is not disabled for
+  it.** A greyed-out button states no reason, and the user is left comparing
+  fields to guess which one it is waiting on. Pressing it and getting the
+  browser's own prompt on the offending input is both louder and more specific.
+  `EditExpense` is the one exception, because its rule spans fields (the shares
+  must sum to the total) and no single input can be marked for it.
+
+Both rules are now asserted against `packages/copy` itself in
+`tests-e2e/ui-consistency.spec.ts`, walking every string rather than the handful
+of dialogs a spec happens to open, so the next dialog is held to them without
+anyone having to remember they exist.
+
 #### Every validation message says the same kind of thing
 
 The 4xx messages had drifted into four competing voices: imperatives
