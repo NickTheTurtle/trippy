@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { api } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
-import Modal, { ModalFooter } from '../../components/ui/Modal';
+import Modal, { ModalFooter, ModalForm } from '../../components/ui/Modal';
 import { Field } from '../../components/ui/Field';
 import type { Person } from './types';
 import { copy } from '../../copy';
@@ -66,7 +66,7 @@ export default function EditMember({
 
 	return (
 		<Modal open size="sm" title={c.title} onClose={onClose}>
-			<form className="mform" onSubmit={save.submit}>
+			<ModalForm onSubmit={save.submit}>
 				<div className="mbody flex flex-col gap-4">
 					<Field
 						label={c.nameLabel}
@@ -95,7 +95,7 @@ export default function EditMember({
 					busyLabel={copy.common.saving}
 					submitLabel={copy.common.save}
 				/>
-			</form>
+			</ModalForm>
 		</Modal>
 	);
 }

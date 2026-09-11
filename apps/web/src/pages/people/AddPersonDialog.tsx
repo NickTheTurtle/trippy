@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { api } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
-import Modal, { ModalFooter } from '../../components/ui/Modal';
+import Modal, { ModalFooter, ModalForm } from '../../components/ui/Modal';
 import { Field } from '../../components/ui/Field';
 import { copy } from '../../copy';
 
@@ -43,7 +43,7 @@ export default function AddPersonDialog({
 
 	return (
 		<Modal open size="sm" title={c.title} onClose={onClose}>
-			<form className="mform" onSubmit={add.submit}>
+			<ModalForm onSubmit={add.submit}>
 				<div className="mbody flex flex-col gap-4">
 					<Field
 						label={c.nameLabel}
@@ -70,7 +70,7 @@ export default function AddPersonDialog({
 					busyLabel={copy.common.adding}
 					submitLabel={copy.common.add}
 				/>
-			</form>
+			</ModalForm>
 		</Modal>
 	);
 }

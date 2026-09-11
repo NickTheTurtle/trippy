@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, type ReactNode } from 'react';
+import { useEffect, useId, useRef, type FormEvent, type ReactNode } from 'react';
 import { lockScroll } from '../../lib/scroll-lock';
 import FormError from './FormError';
 import { copy } from '../../copy';
@@ -196,6 +196,43 @@ export default function Modal({
 				</>
 			)}
 		</dialog>
+	);
+}
+
+/**
+ * The form every dialog wraps its body and footer in.
+ *
+ * It exists for `noValidate`. Ten of the eleven dialog forms had left native
+ * validation on, so pressing the primary button with a required field empty
+ * produced the browser's own bubble: the OS voice ("Please fill out this
+ * field."), the OS styling, anchored to the input, gone again on its own. The
+ * eleventh, the trip dialog, switched it off on purpose and let the server
+ * answer, so its message arrived in the footer in the app's voice ("Pick a
+ * start date."). One kind of mistake was therefore reported two entirely
+ * different ways depending on which dialog the user happened to be in.
+ *
+ * Every route validates what it writes and words the refusal to the rules in
+ * DESIGN.md, so turning the browser off everywhere costs a round trip and buys
+ * one voice, in one place, saying the same kind of sentence. The inputs keep
+ * their `required`, which is what assistive technology reads; `noValidate`
+ * suppresses only the browser's own UI.
+ *
+ * Being a component rather than a prop on each form is the point: the next
+ * dialog cannot forget.
+ */
+export function ModalForm({
+	onSubmit,
+	className = '',
+	children
+}: {
+	onSubmit: (e: FormEvent) => void;
+	className?: string;
+	children: ReactNode;
+}) {
+	return (
+		<form className={`mform ${className}`.trim()} noValidate onSubmit={onSubmit}>
+			{children}
+		</form>
 	);
 }
 

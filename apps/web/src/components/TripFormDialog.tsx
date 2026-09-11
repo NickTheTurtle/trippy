@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { useMutation } from '../hooks/useMutation';
 import { currencyOptions } from '../lib/currencies';
-import Modal, { ModalFooter } from './ui/Modal';
+import Modal, { ModalFooter, ModalForm } from './ui/Modal';
 import Select from './ui/Select';
 import { Field, FieldShell } from './ui/Field';
 import { copy } from '../copy';
@@ -75,7 +75,7 @@ export default function TripFormDialog({
 			    hint at) belongs to the server, whose wording is the one the user
 			    should see. A native constraint would block the submit and that
 			    message would never arrive. */}
-			<form className="mform" noValidate onSubmit={save.submit}>
+			<ModalForm onSubmit={save.submit}>
 				<div className="mbody flex flex-col gap-3">
 					<Field label={c.nameLabel} value={name} onChange={(e) => setName(e.target.value)} />
 					<div className="flex flex-wrap gap-2.5">
@@ -114,7 +114,7 @@ export default function TripFormDialog({
 					busyLabel={busyLabel}
 					submitLabel={submitLabel}
 				/>
-			</form>
+			</ModalForm>
 		</Modal>
 	);
 }

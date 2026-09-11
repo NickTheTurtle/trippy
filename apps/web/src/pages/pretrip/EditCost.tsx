@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { api } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
-import Modal, { ModalFooter } from '../../components/ui/Modal';
+import Modal, { ModalFooter, ModalForm } from '../../components/ui/Modal';
 import { Field, FieldShell } from '../../components/ui/Field';
 import Select from '../../components/ui/Select';
 import MultiSelect from '../../components/ui/MultiSelect';
@@ -69,7 +69,7 @@ export default function EditCost({
 
 	return (
 		<Modal open size="sm" title={draft.id ? c.editTitle : c.addTitle} onClose={onClose}>
-			<form className="mform" onSubmit={save.submit}>
+			<ModalForm onSubmit={save.submit}>
 				<div className="mbody flex flex-col gap-4">
 					{/* The same 12-column grid as the expense dialog: both are a money
 					    line, so both lay their fields out the same way. */}
@@ -131,7 +131,7 @@ export default function EditCost({
 					busyLabel={draft.id ? copy.common.saving : copy.common.adding}
 					submitLabel={draft.id ? copy.common.save : copy.common.add}
 				/>
-			</form>
+			</ModalForm>
 		</Modal>
 	);
 }

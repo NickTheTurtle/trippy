@@ -156,9 +156,10 @@ test.describe('expenses', () => {
 			await signIn(page, fixture.sessionCookie);
 			await page.goto(`/trips/${fixture.tripId}/expenses`);
 
-			// In the dialog the client itself refuses to save a short allocation: it
-			// shows the remainder and disables the button, so a bad sum never leaves
-			// the form. Seed amounts of 40 and 30 against a total of 100.
+			// A short allocation used to be refused by the client, which disabled the
+			// button and left the user to work out why. The route names both figures,
+			// so the dialog now submits and repeats what it was told. Seed amounts of
+			// 40 and 30 against a total of 100.
 			await page.getByRole('button', { name: ce.addExpense, exact: true }).click();
 			const dialog = page.getByRole('dialog');
 			await dialog.getByLabel(ce.addDialog.descriptionLabel).fill('Split short');
@@ -166,23 +167,12 @@ test.describe('expenses', () => {
 			await dialog.getByRole('button', { name: ce.addDialog.modes.exact.label }).click();
 			await dialog.getByLabel(ce.addDialog.weightLabel(true, 'E2E User')).fill('40');
 			await dialog.getByLabel(ce.addDialog.weightLabel(true, 'Alice')).fill('30');
-			await expect(dialog.getByRole('button', { name: copy.common.add, exact: true })).toBeDisabled();
+			await dialog.getByRole('button', { name: copy.common.add, exact: true }).click();
 
-			// The rule itself lives on the server, which names both figures so the
-			// fix is unambiguous. Reachable only past the client, so asserted directly.
-			const res = await request.post(`${apiURL}/trips/${fixture.tripId}/expenses`, {
-				headers: { cookie: fixture.sessionCookie },
-				data: {
-					description: 'Split short',
-					amount: 100,
-					payerId: fixture.userId,
-					splitMode: 'exact',
-					participantIds: [fixture.userId, members['Alice']],
-					weights: { [fixture.userId]: 40, [members['Alice']]: 30 }
-				}
-			});
-			expect(res.status()).toBe(400);
-			expect((await res.json()).error).toBe('Amounts add up to 70.00, but the total is 100.00.');
+			await expect(dialog.getByRole('alert')).toHaveText(
+				'Amounts add up to 70.00, but the total is 100.00.'
+			);
+			await expect(dialog).toBeVisible();
 		} finally {
 			fixture.teardown();
 		}
@@ -220,7 +210,10 @@ test.describe('expenses', () => {
 		}
 	});
 
-	test('a negative amount records income and credits the participants', async ({ page, request }) => {
+	test('a negative amount records income and credits the participants', async ({
+		page,
+		request
+	}) => {
 		const fixture = await createApiFixture(request);
 		try {
 			const members = await seedMembers(request, fixture, ['Alice', 'Bob']);
@@ -307,12 +300,8 @@ test.describe('expenses', () => {
 				await pageB.goto(`/trips/${fixture.tripId}/expenses`);
 
 				// Both open the same expense at the version it currently has.
-				await pageA
-					.getByRole('button', { name: ce.row.editLabel('Original') })
-					.click();
-				await pageB
-					.getByRole('button', { name: ce.row.editLabel('Original') })
-					.click();
+				await pageA.getByRole('button', { name: ce.row.editLabel('Original') }).click();
+				await pageB.getByRole('button', { name: ce.row.editLabel('Original') }).click();
 				const dialogA = pageA.getByRole('dialog');
 				const dialogB = pageB.getByRole('dialog');
 				await expect(dialogA).toBeVisible();
@@ -440,10 +429,9 @@ test.describe('expenses', () => {
 				weights: { [fixture.userId]: 20, [ghostId]: 30 }
 			});
 
-			const removed = await request.delete(
-				`${apiURL}/trips/${fixture.tripId}/people/${ghostId}`,
-				{ headers: { cookie: fixture.sessionCookie } }
-			);
+			const removed = await request.delete(`${apiURL}/trips/${fixture.tripId}/people/${ghostId}`, {
+				headers: { cookie: fixture.sessionCookie }
+			});
 			expect(removed.status()).toBe(200);
 
 			const data = await expensesData(request, fixture);

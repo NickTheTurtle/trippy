@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { api } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
-import Modal, { ModalFooter } from '../../components/ui/Modal';
+import Modal, { ModalFooter, ModalForm } from '../../components/ui/Modal';
 import { Field, FieldShell } from '../../components/ui/Field';
 import { LinkButton } from '../../components/ui/buttons';
 import MultiSelect from '../../components/ui/MultiSelect';
@@ -68,7 +68,7 @@ export default function EditTask({
 
 	return (
 		<Modal open size="sm" title={c.title(draft.kind, editing)} onClose={onClose}>
-			<form className="mform" onSubmit={save.submit}>
+			<ModalForm onSubmit={save.submit}>
 				<div className="mbody flex flex-col gap-4">
 					<Field
 						label={c.labelField}
@@ -111,7 +111,7 @@ export default function EditTask({
 					busyLabel={editing ? copy.common.saving : copy.common.adding}
 					submitLabel={editing ? copy.common.save : copy.common.add}
 				/>
-			</form>
+			</ModalForm>
 		</Modal>
 	);
 }

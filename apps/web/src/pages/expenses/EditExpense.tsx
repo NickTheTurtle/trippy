@@ -4,7 +4,7 @@ import { api } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
 import { currencySymbol, formatMoney } from '../../lib/format';
 import { currencyOptions } from '../../lib/currencies';
-import Modal, { ModalFooter } from '../../components/ui/Modal';
+import Modal, { ModalFooter, ModalForm } from '../../components/ui/Modal';
 import Select from '../../components/ui/Select';
 import { FieldShell } from '../../components/ui/Field';
 import { IconButton, LinkButton } from '../../components/ui/buttons';
@@ -99,13 +99,6 @@ export default function EditExpense({
 	 */
 	const exactSum = splitMode === 'exact' ? chosen.reduce((a, m) => a + weightOf(m.id), 0) : 0;
 	const exactOff = splitMode === 'exact' ? Math.abs(totalCents) - exactSum : 0;
-	const canSave =
-		description.trim() !== '' &&
-		totalCents !== 0 &&
-		chosen.length > 0 &&
-		(splitMode === 'even' ||
-			(splitMode === 'shares' && chosen.some((m) => weightOf(m.id) > 0)) ||
-			(splitMode === 'exact' && exactOff === 0));
 
 	/**
 	 * Switching mode seeds every selected person, so the form is valid and says
@@ -206,7 +199,7 @@ export default function EditExpense({
 			}
 			onClose={onClose}
 		>
-			<form className="mform" onSubmit={save.submit}>
+			<ModalForm onSubmit={save.submit}>
 				<div className="mbody flex flex-col gap-4">
 					{/* A 12-column grid, so the four top fields keep their proportions
 					    instead of wrapping at hard pixel widths as the modal narrows. */}
@@ -402,11 +395,10 @@ export default function EditExpense({
 					error={save.error}
 					onClose={onClose}
 					busy={save.busy}
-					disabled={!canSave}
 					busyLabel={expense ? copy.common.saving : copy.common.adding}
 					submitLabel={expense ? copy.common.save : copy.common.add}
 				/>
-			</form>
+			</ModalForm>
 		</Modal>
 	);
 }

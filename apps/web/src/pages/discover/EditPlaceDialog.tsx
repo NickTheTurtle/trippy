@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { POI_KINDS, type PoiKind } from '@trippy/core/types';
 import { api } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
-import Modal, { ModalFooter } from '../../components/ui/Modal';
+import Modal, { ModalFooter, ModalForm } from '../../components/ui/Modal';
 import { Field } from '../../components/ui/Field';
 import type { Poi } from '../../lib/api-types';
 import { LinkField, NotesField, TypeField } from './place-fields';
@@ -49,7 +49,7 @@ export default function EditPlaceDialog({
 
 	return (
 		<Modal open title={c.title} size="md" onClose={onClose}>
-			<form className="mform" onSubmit={save.submit}>
+			<ModalForm onSubmit={save.submit}>
 				<div className="mbody">
 					<div className="flex flex-col gap-3">
 						<Field
@@ -83,7 +83,7 @@ export default function EditPlaceDialog({
 					busyLabel={copy.common.saving}
 					submitLabel={copy.common.save}
 				/>
-			</form>
+			</ModalForm>
 		</Modal>
 	);
 }

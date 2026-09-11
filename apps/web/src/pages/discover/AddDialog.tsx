@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { api } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
 import { parseMoneyToCents } from '../../lib/format';
-import Modal, { ModalFooter } from '../../components/ui/Modal';
+import Modal, { ModalFooter, ModalForm } from '../../components/ui/Modal';
 import { LinkButton } from '../../components/ui/buttons';
 import { Field, FieldShell } from '../../components/ui/Field';
 import Select from '../../components/ui/Select';
@@ -372,7 +372,7 @@ export default function AddDialog({
 
 	return (
 		<Modal open size="md" title={c.title} subtitle={city.name} onClose={onClose}>
-			<form className="mform" onSubmit={submit}>
+			<ModalForm onSubmit={submit}>
 				<div className="mbody">
 					<div className="flex flex-col gap-3">
 						{/* The Name field *is* the search: the results hang off it as an
@@ -479,7 +479,7 @@ export default function AddDialog({
 					busyLabel={copy.common.adding}
 					submitLabel={copy.common.add}
 				/>
-			</form>
+			</ModalForm>
 		</Modal>
 	);
 }

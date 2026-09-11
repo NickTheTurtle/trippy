@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { api } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
-import Modal, { ModalFooter } from '../../components/ui/Modal';
+import Modal, { ModalFooter, ModalForm } from '../../components/ui/Modal';
 import { Field, FieldShell } from '../../components/ui/Field';
 import Select from '../../components/ui/Select';
 import { currencyOptions } from '../../lib/currencies';
@@ -78,7 +78,7 @@ export default function EditStayDialog({
 
 	return (
 		<Modal open title={c.title} size="md" onClose={onClose}>
-			<form className="mform" onSubmit={submit}>
+			<ModalForm onSubmit={submit}>
 				<div className="mbody">
 					<div className="flex flex-col gap-3">
 						<Field
@@ -138,7 +138,7 @@ export default function EditStayDialog({
 					busyLabel={copy.common.saving}
 					submitLabel={copy.common.save}
 				/>
-			</form>
+			</ModalForm>
 		</Modal>
 	);
 }

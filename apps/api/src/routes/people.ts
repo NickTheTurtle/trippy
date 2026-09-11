@@ -86,7 +86,7 @@ people.patch('/:userId/email', async (c) => {
 
 people.patch('/:userId', async (c) => {
 	const name = str((await body(c)).name);
-	if (!name) return fail(c, 400, 'Enter a name.');
+	if (!name) return fail(c, 400, 'Enter a display name.');
 	if (!renameMember(c.get('trip').id, c.get('user').id, c.req.param('userId'), name)) {
 		// One message for "not the organizer" and for "that person owns their own
 		// name", so neither is discovered by trying the other.

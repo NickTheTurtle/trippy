@@ -420,7 +420,7 @@ budget to a stale one would be the bug, not the fix.
 **One conversion, one read path.** The expenses endpoint builds every row's
 home-currency figure from `expenseShares`, the same division the balances are
 built from, rather than converting the amount a second time on the way out.
-Converting again would silently use *today's* rate for the row while the
+Converting again would silently use _today's_ rate for the row while the
 ledger underneath it used the locked one, so a euro dinner's "≈ $X" and the
 trip's total spend disagreed with the balances they were supposed to explain.
 The only rows that still convert live are those with no stored rate to use.
@@ -439,12 +439,12 @@ the process at 100% CPU from a laptop. `infra/throttle.ts` gives five free
 attempts, then doubles the wait per failure up to fifteen minutes, and forgets
 everything on a success or after an hour of quiet.
 
-Failures are counted against the email *and* against the caller's address,
+Failures are counted against the email _and_ against the caller's address,
 because either key alone leaves an obvious hole: count only the email and a
 spray tries one common password against every account in turn without tripping;
 count only the address and a botnet grinds one account from a thousand of them.
 A blocked request is refused before the key derivation runs, which is the whole
-point, and does *not* extend its own block, so a third party cannot keep an
+point, and does _not_ extend its own block, so a third party cannot keep an
 account locked out by hammering it. Login, register and the password-change
 endpoint all go through it; register counts successes rather than failures,
 since one person signing up is one account. State is in memory and lost on
@@ -502,7 +502,7 @@ a row that expires and nothing else.
 
 Consequences the code has to carry, and does:
 
-- The password is hashed at the *first* step, so the plaintext never outlives
+- The password is hashed at the _first_ step, so the plaintext never outlives
   the request that carried it.
 - Asking twice replaces the first attempt rather than adding a second, and
   voids its link. Two live links to one address is one more than anyone needs.
@@ -515,7 +515,7 @@ Consequences the code has to carry, and does:
 **Resetting drops every session, not just the other ones.** Whoever is resetting
 is not holding a session, which is why they are here, so there is none worth
 keeping, and the person this defends against may well have one. For the same
-reason a reset does *not* hand back a session: the link arrived by email, and
+reason a reset does _not_ hand back a session: the link arrived by email, and
 signing in from it would undo the clear-out in exactly the case it exists for.
 Resets live one hour against registration's twenty-four, because this one opens
 an account that already exists.
@@ -551,11 +551,11 @@ represented at all, even though the money almost always involves them.
 
 Three outcomes, because there are three kinds of person being named:
 
-| Result | What was typed | What happens |
-|---|---|---|
-| `added` | an address with an account behind it | membership only; the typed name is discarded, because their name is their account's and is shared with every trip they are on |
-| `invited` | an address with no account | placeholder member plus a `trip_invites` row, waiting for them to register |
-| `created` | a name and nothing else | placeholder member, no `trip_invites` row |
+| Result    | What was typed                       | What happens                                                                                                                  |
+| --------- | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| `added`   | an address with an account behind it | membership only; the typed name is discarded, because their name is their account's and is shared with every trip they are on |
+| `invited` | an address with no account           | placeholder member plus a `trip_invites` row, waiting for them to register                                                    |
+| `created` | a name and nothing else              | placeholder member, no `trip_invites` row                                                                                     |
 
 A `created` person is a full member id: they can pay, owe, be assigned, be
 voted for and be settled with. They carry no "invited" tag, because there is no
@@ -1733,12 +1733,12 @@ it was fixed, and is pinned in `packages/server/test/concurrency.test.ts`.
 
 **None of it was SQLite.** The API is one process holding one synchronous
 connection, so writes cannot tear or interleave mid-statement. Every defect
-found was *logical*: two well-formed requests, each correct alone and wrong
+found was _logical_: two well-formed requests, each correct alone and wrong
 together. Most of them reproduce by calling the functions in sequence, which
 means concurrency did not cause them, it only made them easy to hit.
 
 **Intent, not action.** Ticking a box used to send "flip", which applies the
-caller's *action* rather than their *intent*. Two people ticking the same box
+caller's _action_ rather than their _intent_. Two people ticking the same box
 left it unticked, and both were told it worked. A double tap did the same thing.
 `toggleTask` now takes the state the caller wants and writes that, skipping both
 the write and the event when it already matches. Omitting the state still flips,
@@ -1748,7 +1748,7 @@ so a client that has not been updated keeps working.
 client's copy, so whoever saved second silently erased the first edit and got a
 200 for it. Tasks and expenses now carry a `version`, and a save quoting an old
 one is refused with 409. Merging was rejected: the roster of a task and the
-split of an expense are *sets*, and "both edits applied" is undefined for a set
+split of an expense are _sets_, and "both edits applied" is undefined for a set
 that two people rewrote differently. `isStale` treats a missing version as "not
 tracking", so the protection is opt-in and no client can be locked out by
 sending nothing.
@@ -1769,15 +1769,15 @@ dropped out of the total and the ledger quietly stopped summing to zero. What
 should happen depends on how the expense was split, because only some modes
 carry enough information to answer:
 
-- `even` and `shares` are *proportional*: what each person owes is derived from
+- `even` and `shares` are _proportional_: what each person owes is derived from
   the weights of whoever is on the expense. The leaver's row is dropped and the
   same total re-divides across the people who remain.
-- `exact` is *stated*: each person owes a number a human typed. There is no
+- `exact` is _stated_: each person owes a number a human typed. There is no
   honest way to reassign 40.00 of a 100.00 dinner without someone deciding who
   absorbs it, so the expense is left alone and marked for review. Guessing here
   moves real money between real people.
 
-An expense the leaver *paid* is untouched whatever its mode: the debt is owed to
+An expense the leaver _paid_ is untouched whatever its mode: the debt is owed to
 them, and only the group can write it off.
 
 `needsReview` is derived per request rather than stored, so it clears by itself
@@ -1831,7 +1831,7 @@ Folding it in would produce a hook that is mostly branches, which is worse than
 the duplication it removed.
 
 **A number field carries one stepper, not two.** The shares box in the expense
-split dialog had explicit `−` / `+` buttons *and* the browser's own spin arrows,
+split dialog had explicit `−` / `+` buttons _and_ the browser's own spin arrows,
 which is two answers to the same question on one control. The labelled buttons
 win and `.input.stepped` suppresses the native pair: the native arrows are a few
 pixels tall, unlabelled to a screen reader, drawn differently per browser, and
@@ -2068,15 +2068,41 @@ in exactly the ways the first three had not covered:
   said everything the organizer has to decide.
 - **`required` carries an empty field; the submit button is not disabled for
   it.** A greyed-out button states no reason, and the user is left comparing
-  fields to guess which one it is waiting on. Pressing it and getting the
-  browser's own prompt on the offending input is both louder and more specific.
-  `EditExpense` is the one exception, because its rule spans fields (the shares
-  must sum to the total) and no single input can be marked for it.
+  fields to guess which one it is waiting on. Pressing it and being told what is
+  missing is both louder and more specific. `EditExpense` was the last holdout,
+  disabling on its own copy of every rule the route already enforces, including
+  the cross-field one; the route says `Amounts add up to 40.00, but the total is
+50.00.`, which names both numbers, so the disabled button was hiding the better
+  message. The only `disabled` left on a dialog footer is `AddCityDialog`, where
+  the control is a search result rather than a field and there is no request to
+  make until one is picked.
 
-Both rules are now asserted against `packages/copy` itself in
+The hint rules are asserted against `packages/copy` itself in
 `tests-e2e/ui-consistency.spec.ts`, walking every string rather than the handful
 of dialogs a spec happens to open, so the next dialog is held to them without
 anyone having to remember they exist.
+
+#### One voice for a rejected dialog
+
+Every dialog body is a `ModalForm`, and `ModalForm` exists for one attribute:
+`noValidate`. Ten of the eleven dialog forms had left native validation on, so
+pressing the primary button with a required field empty produced the browser's
+own bubble: the OS voice (_Please fill out this field._), OS styling, anchored
+to the input, gone again on its own. The eleventh, the trip dialog, had switched
+it off on purpose and let the server answer, so its refusal arrived in the
+footer in the app's voice (`Pick a start date.`). One kind of mistake was being
+reported two entirely different ways depending on which dialog you were in.
+
+Every route already validates what it writes and words the refusal to the rules
+below, so turning the browser off everywhere costs a round trip and buys one
+voice, in one place, saying the same kind of sentence. The inputs keep their
+`required`, which is what assistive technology reads; `noValidate` suppresses
+only the browser's own UI. Making it a component rather than a prop on each form
+is the point: the next dialog cannot forget.
+
+The two calendar dialogs are the deliberate exception. They still write their
+own `<form>` and still pop native bubbles, because the schedule view is due a
+redesign and nothing there is worth converting twice.
 
 #### Every validation message says the same kind of thing
 
