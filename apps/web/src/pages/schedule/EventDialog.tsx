@@ -16,9 +16,10 @@ import {
 	dayLabel,
 	hhmm,
 	lengthLabel,
+	placeOptions,
 	withCurrent
 } from './shared';
-import type { Crew, EventRow, SavedPoi } from './types';
+import type { Cell, Crew, EventRow, SavedPoi } from './types';
 
 /**
  * One event: retitle, retype, retime, re-people, re-place, delete.
@@ -34,6 +35,8 @@ export default function EventDialog({
 	memberOptions,
 	crews,
 	saved,
+	cities,
+	cityId,
 	onClose,
 	onDone
 }: {
@@ -42,6 +45,8 @@ export default function EventDialog({
 	memberOptions: Option[];
 	crews: Crew[];
 	saved: SavedPoi[];
+	cities: (Cell | null)[];
+	cityId: string | null;
 	onClose: () => void;
 	onDone: () => void;
 }) {
@@ -62,10 +67,7 @@ export default function EventDialog({
 	// places, and free time is nowhere at all.
 	const placeable = isLocatedType(type);
 
-	const poiOptions: Option[] = [
-		{ value: '', label: 'No place' },
-		...saved.map((p) => ({ value: p.id, label: p.name }))
-	];
+	const poiOptions = placeOptions(saved, cities, cityId);
 
 	const op = (body: Record<string, unknown>) =>
 		api(`${base}/events/${event.id}/op`, { method: 'POST', body });

@@ -14,9 +14,10 @@ import {
 	dayLabel,
 	hhmm,
 	lengthLabel,
+	placeOptions,
 	withCurrent
 } from './shared';
-import type { Crew, SavedPoi } from './types';
+import type { Cell, Crew, SavedPoi } from './types';
 
 /**
  * Adds one event to a day.
@@ -29,24 +30,31 @@ export default function AddEventDialog({
 	base,
 	day,
 	defaults,
+	startMin,
 	memberOptions,
 	crews,
 	saved,
+	cities,
+	cityId,
 	onClose,
 	onDone
 }: {
 	base: string;
 	day: string;
 	defaults: { stayStart: number; stayMins: number };
+	/** Where on the clock the dialog was opened, when it was opened by pointing at a time. */
+	startMin: number | null;
 	memberOptions: Option[];
 	crews: Crew[];
 	saved: SavedPoi[];
+	cities: (Cell | null)[];
+	cityId: string | null;
 	onClose: () => void;
 	onDone: () => void;
 }) {
 	const [type, setType] = useState<EventType>('activity');
 	const [title, setTitle] = useState('');
-	const [start, setStart] = useState(String(9 * 60));
+	const [start, setStart] = useState(String(startMin ?? 9 * 60));
 	const [duration, setDuration] = useState('60');
 	const [people, setPeople] = useState<string[]>([]);
 	const [poi, setPoi] = useState('');
@@ -56,10 +64,7 @@ export default function AddEventDialog({
 	// places, so only a located type takes a link.
 	const placeable = isLocatedType(type);
 
-	const poiOptions: Option[] = [
-		{ value: '', label: 'No place' },
-		...saved.map((p) => ({ value: p.id, label: p.name }))
-	];
+	const poiOptions = placeOptions(saved, cities, cityId);
 
 	const add = useMutation(
 		async () => {
@@ -94,8 +99,9 @@ export default function AddEventDialog({
 									setType(next);
 									// A night is the one type with a useful starting guess, and
 									// typing 21:00 by hand every time is the sort of work the
-									// dialog exists to save.
-									if (next === 'stay') {
+									// dialog exists to save. A time the reader pointed at is a
+									// better guess than ours, so it is left alone.
+									if (next === 'stay' && startMin == null) {
 										setStart(String(defaults.stayStart));
 										setDuration(String(defaults.stayMins));
 									}

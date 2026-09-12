@@ -25,6 +25,7 @@
  */
 
 import { haversineKm } from './geo';
+import { layoutDay, type Layout, type LayoutEvent, type Placed } from './layout';
 import type { EventType } from './types';
 
 /** An event as the planner needs to see it. */
@@ -224,95 +225,120 @@ export interface TimedLeg {
 	people: string[];
 }
 
-/** A cluster of legs drawn as one arrow because there was no room for blocks. */
-export interface LegArrow {
-	startMin: number;
-	endMin: number;
-	/** Every leg the arrow stands in for, so a click can open the list. */
-	keys: string[];
-	people: string[];
+/** A leg the board has to place: it knows which two events it joins. */
+export interface BoardLeg extends TimedLeg {
+	fromEventId: string;
+	toEventId: string;
 }
 
-export interface LegLayout<T extends TimedLeg> {
-	/** Legs with room to be drawn as a block, each with the lane it sits in. */
-	blocks: { leg: T; lane: number; lanes: number }[];
-	arrows: LegArrow[];
+/** Legs and events share one id space in the layout, so neither can shadow the other. */
+const LEG_PREFIX = 'leg:';
+
+export function legLaneId(leg: { key: string }): string {
+	return `${LEG_PREFIX}${leg.key}`;
+}
+
+/** Whether a layout id belongs to a journey rather than an event. */
+export function isLegLaneId(id: string): boolean {
+	return id.startsWith(LEG_PREFIX);
+}
+
+export interface BoardLayout<T extends BoardLeg> {
+	layout: Layout;
+	/** Legs drawn as blocks, in the same columns as the events they join. */
+	blocks: T[];
+	/** Legs with no block, to be drawn as an arrow between their two events. */
+	stranded: T[];
 }
 
 /**
- * A journey shorter than this cannot show a mode and a duration, so drawing it
- * as a block produces a sliver with clipped text. Twenty minutes is about two
- * lines of type at the density the day column is drawn at.
+ * How much of a block's width a middle may fall outside and still count as
+ * being under it, as a fraction of the board. Covers the gutter a block leaves
+ * between itself and its neighbour.
  */
-const MIN_BLOCK_MINS = 20;
+const SAME_COLUMN = 0.02;
 
 /**
- * More than this many journeys overlapping at once and each block is too narrow
- * to read, whatever its duration. Three is the point where the column still
- * shows a title; the fourth pushes every one of them under it.
+ * A demoted leg frees a column, which can move the blocks that were beside it,
+ * which can demote another. Each pass drops at least one leg, so this only
+ * bounds how much churn is worth chasing before settling.
  */
-const MAX_LANES = 3;
+const MAX_PASSES = 4;
 
 /**
- * Decide which journeys are drawn as blocks and which collapse into an arrow.
- *
- * A day where the group splits four ways generates a lot of short legs at the
- * same moment, and drawing them all faithfully turns the middle of the
- * afternoon into a picket fence of unreadable slivers. The heuristic gives up
- * on detail exactly where detail stops being legible, and says the true thing
- * instead: people moved here, this many journeys, tap to see them.
- *
- * Two rules, applied in order:
- *
- * 1. Legs that overlap are clustered, transitively. A cluster with more than
- *    `MAX_LANES` legs collapses whole, because the problem is the width of the
- *    column and that is shared by everything in it.
- * 2. Within a surviving cluster, any leg too short to carry its own label
- *    becomes an arrow on its own, and the rest are drawn as blocks in lanes.
- *
- * Collapsing whole clusters rather than individual legs matters: half a cluster
- * as blocks and half as arrows would be drawn at two different widths for no
- * reason the reader could see.
+ * A journey too short to carry its label is still a journey, and drawing it as
+ * a thin block keeps the day reading top to bottom: the arrow is reserved for
+ * the one thing a column layout genuinely cannot show. The board gives these a
+ * floor height and tucks them under the event they arrive at.
  */
-export function layoutLegs<T extends TimedLeg>(legs: readonly T[]): LegLayout<T> {
-	const ordered = [...legs].sort((a, b) => a.startMin - b.startMin || (a.key < b.key ? -1 : 1));
 
-	// Transitive overlap clusters. `reach` is the furthest end seen so far, which
-	// is what makes it transitive: A-C overlapping B keeps B in the cluster even
-	// when A and B do not touch.
-	const clusters: T[][] = [];
-	let current: T[] = [];
-	let reach = -1;
-	for (const leg of ordered) {
-		if (current.length && leg.startMin >= reach) {
-			clusters.push(current);
-			current = [];
-		}
-		current.push(leg);
-		reach = Math.max(reach, leg.endMin);
+function middle(p: Placed): number {
+	return p.left + p.width / 2;
+}
+
+/**
+ * Whether a journey can be drawn as a block: its own middle must fall under
+ * both events it joins, so the run reads straight down.
+ *
+ * Under rather than aligned. An event the whole group attends spans the board,
+ * and a journey four of them make sits in one narrow column of it. Their
+ * middles are nowhere near each other, and yet the journey is drawn directly
+ * beneath the event and reads as leaving it, which is what matters.
+ */
+function straight<T extends BoardLeg>(layout: Layout, leg: T): boolean {
+	const from = layout.placed.get(leg.fromEventId);
+	const to = layout.placed.get(leg.toEventId);
+	const self = layout.placed.get(legLaneId(leg));
+	if (!from || !to || !self) return false;
+	const x = middle(self);
+	const under = (p: Placed) => x > p.left - SAME_COLUMN && x < p.left + p.width + SAME_COLUMN;
+	return under(from) && under(to);
+}
+
+/**
+ * Lay out a day's events and journeys together.
+ *
+ * A journey is drawn as a block wherever one can be drawn, because a block is
+ * the only form that says how long the journey takes and how much of the gap it
+ * eats. An arrow says only that people moved.
+ *
+ * A block can be drawn when the journey sits under both events it joins: then
+ * it reads straight down, and the journey is visibly the thing joining the two.
+ * When it cannot, which is what happens where a journey has to reach across to
+ * a column its departure point does not cover, a block would claim a track its
+ * travellers are not on. That is the case the arrow exists for, and the only
+ * one.
+ *
+ * Every leg starts as a candidate block. Laying them out can move the events
+ * under them, so a candidate that turns out to cross is dropped and the day is
+ * laid out again without it. This settles, because a pass only ever drops.
+ */
+export function layoutBoard<T extends BoardLeg>(
+	events: readonly LayoutEvent[],
+	legs: readonly T[]
+): BoardLayout<T> {
+	const asItems = (chosen: readonly T[]): LayoutEvent[] => [
+		...events,
+		...chosen.map((l) => ({
+			id: legLaneId(l),
+			start: l.startMin,
+			end: l.endMin,
+			people: l.people
+		}))
+	];
+
+	// Every journey starts as a candidate: preferring blocks means trying one
+	// everywhere, and only geometry takes it away.
+	let chosen: readonly T[] = legs;
+	let layout = layoutDay(asItems(chosen));
+
+	for (let pass = 1; pass < MAX_PASSES; pass++) {
+		const keep = chosen.filter((l) => straight(layout, l));
+		if (keep.length === chosen.length) break;
+		chosen = keep;
+		layout = layoutDay(asItems(chosen));
 	}
-	if (current.length) clusters.push(current);
 
-	const blocks: LegLayout<T>['blocks'] = [];
-	const arrows: LegArrow[] = [];
-
-	const arrowFor = (group: T[]): LegArrow => ({
-		startMin: Math.min(...group.map((l) => l.startMin)),
-		endMin: Math.max(...group.map((l) => l.endMin)),
-		keys: group.map((l) => l.key),
-		people: [...new Set(group.flatMap((l) => l.people))].sort()
-	});
-
-	for (const cluster of clusters) {
-		if (cluster.length > MAX_LANES) {
-			arrows.push(arrowFor(cluster));
-			continue;
-		}
-		const drawable = cluster.filter((l) => l.endMin - l.startMin >= MIN_BLOCK_MINS);
-		for (const l of cluster) if (!drawable.includes(l)) arrows.push(arrowFor([l]));
-		drawable.forEach((leg, i) => blocks.push({ leg, lane: i, lanes: drawable.length }));
-	}
-
-	arrows.sort((a, b) => a.startMin - b.startMin);
-	return { blocks, arrows };
+	const drawn = new Set(chosen.map((l) => l.key));
+	return { layout, blocks: [...chosen], stranded: legs.filter((l) => !drawn.has(l.key)) };
 }

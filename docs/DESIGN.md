@@ -288,7 +288,7 @@ sharers all offer the same shortcut in the same place. A crew row ticks on only
 when every member it can offer is already picked, and it ignores members who
 have left the trip, because a row that is on while naming somebody the menu does
 not list could never be turned off. The schedule used to show crews as chips
-under the field that *replaced* the selection; in the menu they add and remove
+under the field that _replaced_ the selection; in the menu they add and remove
 like every other row, so two crews can be combined without the second wiping the
 first. Two exceptions, both deliberate: the crew editor itself (a crew that can
 tick itself is a puzzle, not a shortcut) and the task list's "who is done" menu,
@@ -334,21 +334,37 @@ unconditionally: a stay is the previous night for the morning that follows it, a
 doing it only for stays leaves a bug where an event changes type into one and the
 next morning is never told.
 
-**Drawing dense travel** (`layoutLegs`). A day that splits four ways generates a
-lot of short legs at the same moment, and drawing them all faithfully turns the
-afternoon into a picket fence of unreadable slivers. Two rules, in order:
+**Drawing dense travel** (`layoutBoard`). A day that splits four ways generates a
+lot of short legs at the same moment. The board prefers a **block** for every one
+of them, because a block says how long the journey takes and how much of the gap
+it eats, where an arrow says only that people moved.
 
-1. Overlapping legs cluster transitively. A cluster of more than `MAX_LANES = 3`
-   collapses **whole** into one arrow, because the constraint is the width of the
-   column and everything in it shares that.
-2. Within a surviving cluster, a leg under `MIN_BLOCK_MINS = 20` becomes its own
-   arrow and the rest are drawn as blocks, in the same columns as the events
-   (see 5.0.15).
+Every leg is a candidate. They are laid out alongside the events by `layoutDay`,
+which gives them real columns, and a candidate is dropped only when its own
+middle does not fall **under both** of the events it joins. Under, not aligned:
+an event the whole group attends spans the board, and a journey four of them make
+sits in one narrow column of it. Dropping a candidate frees a column and can move
+its neighbours, so the day is laid out again, up to `MAX_PASSES`; it settles
+because a pass only ever drops.
 
-Collapsing whole clusters rather than individual legs matters: half blocks and
-half arrows would be drawn at two widths for no reason a reader could see. The
-heuristic gives up on detail exactly where detail stops being legible, and says
-the true thing instead: people moved here, this many journeys, tap to see them.
+What is left over is drawn as an arrow, which is now rare: it means a journey that
+would have had to reach across to a column its departure does not cover.
+
+Two rules the board applies on top, both about legibility rather than meaning:
+
+1. A leg shorter than about twenty minutes is drawn as a one-line rule with its
+   duration on it, floored to a height a pointer can hit. The floor grows
+   **upwards**, into the waiting time before the journey, because downwards is
+   the block it arrives at.
+2. A leg nothing else overlaps is given the whole board, which would read as the
+   whole group moving. Where it is the only journey into its arrival, it is drawn
+   in that block's column instead (see 5.0.15).
+
+There was an earlier heuristic here (`layoutLegs`, `MAX_LANES = 3`) that collapsed
+whole clusters of legs into single arrows. It existed because legs were drawn in a
+30px gutter beside the day, where four parallel journeys genuinely could not fit.
+Once they contend for real columns the constraint is gone, and collapsing them was
+throwing away the detail the board is for.
 
 > **Caveat: attendance is whole-event.** A person is on an event or is not; there
 > are no per-person partial ranges. To model somebody leaving halfway, split the
@@ -376,7 +392,7 @@ rather than disappearing: a control that vanishes makes the pair jump sideways o
 the days you can still step from.
 
 `days` rather than the trip's start and end dates on purpose. `tripDays` is a
-*union* of the date range and every day that actually holds an event, so an event
+_union_ of the date range and every day that actually holds an event, so an event
 stranded by a shortened trip stays reachable. The bound is therefore what the
 trip offers, not what its dates claim, and stepping by index skips the gap to a
 stranded day instead of landing on a day that is not there.
@@ -490,7 +506,7 @@ way.
 `Pills` is shared, and moved out of `schedule.css` when Discover needed it, so
 the schedule's Day / 3-day / People switch and Discover's filter are one
 treatment rather than two lookalikes. The schedule's segments stay `<Link>`s,
-because its view *is* addressable, and share only the styling. The expense
+because its view _is_ addressable, and share only the styling. The expense
 dialog's split control is still its own thing; it is a form field, not a view
 switch.
 
@@ -500,7 +516,6 @@ delete sit beside the city dropdown and delete acts on the city on screen,
 disabled on the last one for the same reason the column disables it: the server
 refuses to remove it, and a control that vanishes as you delete down to one
 reads as a bug.
-
 
 - Consolidated checklist: flights, lodging confirmations, visas, packing.
 - **Per-person completion.** A task can be assigned to any subset of the trip.
@@ -1024,7 +1039,7 @@ absorbed them, and `calendar` and `pretrip` are the **old spellings** of tabs
 that were renamed. An e2e test walks all four, because the redirect is the
 load-bearing half of the rename.
 
-These are the *page* slugs. The API keeps `/trips/:id/pretrip`, which is a
+These are the _page_ slugs. The API keeps `/trips/:id/pretrip`, which is a
 different namespace nobody reads off a screen, and the Expo client keeps its
 file-route names for the same reason.
 
@@ -2178,8 +2193,8 @@ and now look the same: same colour, same chrome, same name on the front.
 A leg keeps one difference, and it is a fact about the leg rather than about
 where it came from: it cannot be dragged, because its place on the clock is the
 gap between the two events it joins, and moving it would mean moving one of
-them. The journeys `layoutLegs` gives up on are not drawn at all; their arrow
-carries them instead (below).
+them. A journey that cannot be a block is not drawn at all; its arrow carries it
+instead (below).
 
 **Journeys can be named.** `travel_legs.title` is nullable and the board falls
 back to `<Mode> to <destination>`; resetting a leg to its automatic estimate
@@ -2194,24 +2209,73 @@ reading of the same fact that changed every thirty seconds while nothing on the
 day moved. Where the zone genuinely matters, which is a flight arriving on
 another offset, the event says so.
 
-**Arrows link the blocks people move between.** `layoutDay` has always returned
-`flows`, the person hops that its column ordering is optimised to keep
-un-crossed, and the board never drew them. It now does: a curve from the bottom
+**Connectors link the blocks people move between.** `layoutDay` has always
+returned `flows`, the person hops that its column ordering is optimised to keep
+un-crossed, and the board never drew them. It now does: a line from the bottom
 of one block to the top of the next, arrowhead at the far end, under the blocks
 so it stops at an edge instead of crossing a face.
 
-Only sideways hops are drawn. A block sitting directly under its predecessor is
-already read top to bottom, and an arrow there adds a line without adding a
-fact; a hop across the board is the group splitting or rejoining, which is the
-one thing columns cannot show on their own. Sideways is measured in pixels, not
-in column indices, because a block grows rightwards into whatever columns stay
-free, so two blocks in different columns are routinely drawn one above the other.
+**The lines turn, they do not swoop.** The first version drew each hop as a
+cubic bezier between block centres. On a day that splits three ways and rejoins
+that produced a cat's cradle: long curves sweeping across the whole board,
+crossing each other and the blocks between, reading as decoration rather than as
+routes. Three rules replaced it, and the shape of the day did the rest.
 
-This is also where a journey too dense to draw as a block ends up. Those used to
+A connector leaves its departure at the point on that block's bottom edge
+nearest its arrival, not from the middle. So a hop that does not actually have
+to cross is a plain vertical line, and a hop that does has exactly one corner.
+
+It turns at right angles, with the corners rounded enough to read at a 1.5px
+stroke. A right angle is how every diagram that means "route" is drawn, and
+unlike a curve it is obvious which part of the line is travel sideways and which
+is travel in time.
+
+Everything arriving at a block shares one horizontal channel a few pixels above
+it, and one stub down into it carrying the single arrowhead. That is what turns
+four people rejoining from four directions into a junction instead of four
+separate approaches, and it is the case this board exists to draw well. The
+channel sits just under the arrival, but never above the last departure feeding
+it, so a line never runs backwards in time.
+
+Three kinds of hop are never drawn.
+
+A hop that touches a journey block is dropped outright: the block is already the
+answer to "how did they get there", and a line into it and another out of it
+would triple the ink for nothing. Of what is left, a hop survives only when its
+arrival is not already under its departure. That is the same containment test the
+layout uses to choose blocks over arrows, and it falls out of the routing: if the
+arrival sits beneath the departure the connector would be a bare vertical line in
+a gap the eye already reads top to bottom, so there is nothing to draw.
+
+This is also where a journey that could not be a block ends up. Those used to
 collapse into a count in a 34px margin gutter, which was an arrow in name only:
 it pointed down the side of the day rather than at anything. The count now sits
-on the arrow between the two events the journey joins, and opens the same
-dialog, so the gutter and the separate travel lane are both gone.
+on the connector between the two events the journey joins, on its channel where
+it turns, and opens the same dialog. The gutter and the separate travel lane are
+both gone. A journey whose two events do sit in one column keeps its count pill
+on a short vertical, because the pill is the only way to open it.
+
+**Blocks beat arrows, and the rule is geometric.** The first version of the board
+demanded that a journey and both its events share a column, comparing middles. On
+a real day that almost never holds: the group's own events span the whole board
+while a journey four people make is one column wide, so seven of eight journeys
+became arrows and the day filled up with lines. The test is now containment
+(§4, `layoutBoard`): a journey is a block when its middle falls under both events
+it joins. That is what the eye actually checks, and it leaves the arrow for the
+case it was invented for.
+
+A short hop still gets a block. It is drawn as a one-line rule carrying its mode
+and duration, floored to a height a pointer can hit, and the floor grows upwards
+into the waiting time before the journey: downwards is the block it arrives at,
+and covering that block's top edge to make a three-minute walk clickable is a
+poor trade. Journeys are also drawn before events for the same reason, so where
+the floor does have to reach back past the block it left, the block stays on top.
+
+A journey nothing overlaps would otherwise be given the whole board, reading as
+the whole group moving. Where it is the only journey into its arrival it is drawn
+in that block's column instead: a rule the width of the thing it leads into, over
+the people actually on it. Only when it is the only arrival, because two journeys
+narrowed onto the same block would be drawn on top of each other.
 
 **An event can be linked to a saved place after the fact.** Adding one offered a
 Discover place from the start; editing one did not, so a block typed by hand
@@ -2226,6 +2290,39 @@ Both dialogs gate the picker on `isLocatedType`, so the offer is `activity`,
 `food` and `stay`. Free time is deliberately nowhere, and travel is the journey
 between places rather than one of them. Add used to allow travel, which was the
 looser of the two rules and the wrong one.
+
+**The place picker is grouped by city, nearest first.** A trip through four
+cities has a picker four times longer than the reader wants, and the place they
+mean is almost always in the city they are looking at. `placeOptions` sorts the
+day's own city to the top and labels each run with its name; `Select` grows an
+optional `section` on an option and draws a heading wherever it changes, which
+is the pattern `MultiSelect` already used for crews. Sections are an order plus a
+name rather than a second structure, so there is nothing to keep in step. A place
+whose city has since left the trip is offered under "Elsewhere" rather than
+hidden: it still exists and still has coordinates.
+
+**Event length steps by fifteen minutes.** The old list was eight hand-picked
+durations that jumped from two hours to three to four, so a 2h30 dinner had to be
+typed as something else. Fifteen minutes is already the granularity of the start
+picker and the shortest event the server accepts, and twelve hours of them is
+forty-eight rows, which is the same order as the 72-row start list. `withCurrent`
+still carries a value that came from a drag and does not land on the grid.
+
+**The automatic estimate is a link, not a button.** It sat in the footer beside
+Save, at the same weight, which read as one of two equal ways to leave the dialog
+when it is neither: it is a reset of two fields. It is now the last line of the
+body, next to the number it would set, and it only appears as a link when a
+pinned value is actually overriding the router. When nothing is pinned the line
+states the estimate in use, and when the router has no answer it says so.
+
+**Double-clicking the day creates an event there.** Adding used to mean the
+toolbar button and a 9:00 default, which is a guess that is wrong most of the
+time and has to be corrected by hand. A double click on empty track opens the
+same dialog with the start snapped to the fifteen minutes nearest the pointer,
+and on that path picking "stay" no longer overrides the start: a time the reader
+pointed at is a better guess than ours. Clicks landing on a block or a journey
+tag are ignored, because those open their own dialogs and a second one over the
+top would be a trap.
 
 **The grey fact strip left the event dialog.** It restated the start, the end and
 the city, all three of which the fields above it already say, and the restatement

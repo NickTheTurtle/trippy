@@ -79,12 +79,6 @@ export default function TravelDialog({
 						{leg.tight && <span className="tag warn">does not fit the gap</span>}
 					</div>
 
-					<p className="m-0 text-meta muted">
-						{leg.autoMins != null
-							? `Router: ${modeLabel(leg.autoMode)}, ${leg.autoMins}m`
-							: 'Router: no estimate yet'}
-					</p>
-
 					<div className="srow">
 						<Field
 							label="Name"
@@ -110,6 +104,25 @@ export default function TravelDialog({
 							onChange={(e) => setMins(e.target.value)}
 						/>
 					</div>
+					<p className="m-0 text-meta muted">
+						{leg.autoMins == null ? (
+							'No automatic estimate for this journey yet.'
+						) : leg.manual ? (
+							<>
+								{`Router: ${modeLabel(leg.autoMode)}, ${leg.autoMins}m. `}
+								<button
+									type="button"
+									className="link"
+									disabled={auto.busy}
+									onClick={() => void auto.run()}
+								>
+									Use it instead
+								</button>
+							</>
+						) : (
+							`Using the automatic estimate: ${modeLabel(leg.autoMode)}, ${leg.autoMins}m.`
+						)}
+					</p>
 				</div>
 
 				<ModalFooter
@@ -118,16 +131,6 @@ export default function TravelDialog({
 					busy={save.busy}
 					busyLabel={copy.common.saving}
 					submitLabel={copy.common.save}
-					start={
-						<button
-							type="button"
-							className="btn"
-							disabled={auto.busy}
-							onClick={() => void auto.run()}
-						>
-							Use the automatic estimate
-						</button>
-					}
 				/>
 			</ModalForm>
 		</Modal>

@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
+import type { LayoutEvent } from '@trippy/core/layout';
 import {
-	layoutLegs,
+	layoutBoard,
+	legLaneId,
 	peopleKey,
 	placeLeg,
 	planLegs,
+	type BoardLeg,
 	type PlannedLeg,
-	type PlannerEvent,
-	type TimedLeg
+	type PlannerEvent
 } from '@trippy/core/travel';
 
 /* Coordinates are a few streets apart in Beijing, far enough that no pair falls
@@ -241,70 +243,118 @@ describe('placeLeg', () => {
 	});
 });
 
-function timed(key: string, startMin: number, endMin: number, people = ['u1']): TimedLeg {
-	return { key, startMin, endMin, people };
+/* --- layoutBoard ---------------------------------------------------------
+ *
+ * The question these ask is only ever "block or arrow", so the events are
+ * skeletal: an id, a span, and who is on it, which is all the column layout
+ * reads. */
+
+function item(id: string, start: number, end: number, people: string[]): LayoutEvent {
+	return { id, start, end, people };
 }
 
-describe('layoutLegs', () => {
-	it('draws a lone journey as a block', () => {
-		const out = layoutLegs([timed('a', 600, 660)]);
-		expect(out.arrows).toHaveLength(0);
-		expect(out.blocks).toEqual([{ leg: timed('a', 600, 660), lane: 0, lanes: 1 }]);
+function boardLeg(
+	key: string,
+	fromEventId: string,
+	toEventId: string,
+	startMin: number,
+	endMin: number,
+	people = ['u1']
+): BoardLeg {
+	return { key, fromEventId, toEventId, startMin, endMin, people };
+}
+
+describe('layoutBoard', () => {
+	it('draws a journey between two events on one track as a block', () => {
+		const out = layoutBoard(
+			[item('a', 600, 660, ['u1']), item('b', 720, 780, ['u1'])],
+			[boardLeg('a>b', 'a', 'b', 660, 720)]
+		);
+		expect(out.blocks.map((l) => l.key)).toEqual(['a>b']);
+		expect(out.stranded).toEqual([]);
 	});
 
-	it('gives overlapping journeys their own lanes', () => {
-		const out = layoutLegs([timed('a', 600, 660), timed('b', 610, 670)]);
-		expect(out.arrows).toHaveLength(0);
-		expect(out.blocks.map((b) => b.lane)).toEqual([0, 1]);
-		expect(out.blocks.every((b) => b.lanes === 2)).toBe(true);
+	it('blocks both journeys where the group splits', () => {
+		// Two people part after 'a': 'b' and 'c' take a column each and 'a' spans
+		// both. Each journey sits in its own half, under 'a' and over its arrival,
+		// so both read straight down and neither needs an arrow.
+		const out = layoutBoard(
+			[item('a', 540, 600, ['u1', 'u2']), item('b', 720, 780, ['u1']), item('c', 720, 780, ['u2'])],
+			[boardLeg('a>b', 'a', 'b', 660, 720, ['u1']), boardLeg('a>c', 'a', 'c', 660, 720, ['u2'])]
+		);
+		expect(out.blocks.map((l) => l.key).sort()).toEqual(['a>b', 'a>c']);
+		expect(out.stranded).toEqual([]);
 	});
 
-	it('keeps non-overlapping journeys in lane zero', () => {
-		const out = layoutLegs([timed('a', 600, 660), timed('b', 660, 720)]);
-		expect(out.blocks.map((b) => b.lane)).toEqual([0, 0]);
+	it('arrows a journey whose arrival is not on the board', () => {
+		// The board hides events nobody in the filter attends, and a journey can
+		// outlive the event it arrives at. It has no column to run down to.
+		const out = layoutBoard([item('a', 600, 660, ['u1'])], [boardLeg('a>b', 'a', 'b', 660, 720)]);
+		expect(out.blocks).toEqual([]);
+		expect(out.stranded.map((l) => l.key)).toEqual(['a>b']);
 	});
 
-	it('collapses a cluster whole once it is too wide to read', () => {
-		const out = layoutLegs([
-			timed('a', 600, 680, ['u1']),
-			timed('b', 610, 680, ['u2']),
-			timed('c', 620, 680, ['u3']),
-			timed('d', 630, 680, ['u4'])
-		]);
-		// Whole, not half: blocks and arrows at two widths in one cluster would be
-		// a visible difference standing for nothing.
-		expect(out.blocks).toHaveLength(0);
-		expect(out.arrows).toHaveLength(1);
-		expect(out.arrows[0]).toMatchObject({ startMin: 600, endMin: 680 });
-		expect(out.arrows[0].keys).toEqual(['a', 'b', 'c', 'd']);
-		expect(out.arrows[0].people).toEqual(['u1', 'u2', 'u3', 'u4']);
+	it('keeps a journey inside a track as a block while the group is apart', () => {
+		const out = layoutBoard(
+			[
+				item('b1', 600, 660, ['u1']),
+				item('c1', 600, 660, ['u2']),
+				item('b2', 720, 780, ['u1']),
+				item('c2', 720, 780, ['u2'])
+			],
+			[
+				boardLeg('b1>b2', 'b1', 'b2', 660, 720, ['u1']),
+				boardLeg('c1>c2', 'c1', 'c2', 660, 720, ['u2'])
+			]
+		);
+		expect(out.blocks.map((l) => l.key).sort()).toEqual(['b1>b2', 'c1>c2']);
+		expect(out.stranded).toEqual([]);
 	});
 
-	it('clusters transitively, so a long journey holds the ones it spans together', () => {
-		const out = layoutLegs([
-			timed('a', 600, 800),
-			timed('b', 620, 660),
-			timed('c', 700, 740),
-			timed('d', 760, 790)
-		]);
-		expect(out.blocks).toHaveLength(0);
-		expect(out.arrows).toHaveLength(1);
+	it('blocks a journey too short to carry a label, rather than arrowing it', () => {
+		// Ten minutes is a sliver, but it is a sliver in the right column and the
+		// board floors its drawn height. An arrow would say less about it.
+		const out = layoutBoard(
+			[item('a', 600, 660, ['u1']), item('b', 670, 730, ['u1'])],
+			[boardLeg('a>b', 'a', 'b', 660, 670)]
+		);
+		expect(out.blocks.map((l) => l.key)).toEqual(['a>b']);
+		expect(out.stranded).toEqual([]);
 	});
 
-	it('turns a journey too short to carry a label into its own arrow', () => {
-		const out = layoutLegs([timed('a', 600, 660), timed('b', 610, 620)]);
-		expect(out.blocks.map((b) => b.leg.key)).toEqual(['a']);
-		expect(out.arrows.map((a) => a.keys)).toEqual([['b']]);
+	it('places every journey it draws, under the id the board looks it up by', () => {
+		const out = layoutBoard(
+			[item('a', 600, 660, ['u1']), item('b', 720, 780, ['u1'])],
+			[boardLeg('a>b', 'a', 'b', 660, 720)]
+		);
+		expect(out.layout.placed.has(legLaneId({ key: 'a>b' }))).toBe(true);
 	});
 
-	it('lays out nothing for an empty day', () => {
-		expect(layoutLegs([])).toEqual({ blocks: [], arrows: [] });
+	it('leaves a journey whose events it has never heard of as an arrow', () => {
+		const out = layoutBoard([], [boardLeg('a>b', 'a', 'b', 660, 720)]);
+		expect(out.blocks).toEqual([]);
+		expect(out.stranded.map((l) => l.key)).toEqual(['a>b']);
 	});
 
 	it('does not depend on the order the legs arrived in', () => {
-		const legs = [timed('c', 700, 760), timed('a', 600, 660), timed('b', 610, 670)];
-		const out = layoutLegs(legs);
-		const same = layoutLegs([...legs].reverse());
-		expect(same.blocks.map((b) => b.leg.key)).toEqual(out.blocks.map((b) => b.leg.key));
+		const events = [
+			item('a', 540, 600, ['u1', 'u2']),
+			item('b', 720, 780, ['u1']),
+			item('c', 720, 780, ['u2'])
+		];
+		const legs = [
+			boardLeg('a>b', 'a', 'b', 660, 720, ['u1']),
+			boardLeg('a>c', 'a', 'c', 660, 720, ['u2'])
+		];
+		const out = layoutBoard(events, legs);
+		const same = layoutBoard(events, [...legs].reverse());
+		expect(same.blocks.map((l) => l.key).sort()).toEqual(out.blocks.map((l) => l.key).sort());
+	});
+
+	it('lays out an empty day without complaint', () => {
+		const out = layoutBoard([], []);
+		expect(out.blocks).toEqual([]);
+		expect(out.stranded).toEqual([]);
+		expect(out.layout.placed.size).toBe(0);
 	});
 });

@@ -636,6 +636,18 @@ select.input.compact {
 	overflow-y: auto;
 	overscroll-behavior: contain;
 }
+/*
+ * The label over a run of options, when a menu is long enough to want grouping:
+ * the place picker sections its list by city. Styled as `.mopthead` is, because
+ * the two menus are the same menu to the reader.
+ */
+.selopthead {
+	padding: 0.4rem 0.5rem 0.2rem;
+	font-size: var(--text-micro);
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	color: var(--color-ink-faint);
+}
 .selopt {
 	display: flex;
 	align-items: center;

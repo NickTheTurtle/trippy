@@ -1,5 +1,6 @@
 import { EVENT_TYPES, TRANSPORT_MODES, type EventType } from '@trippy/core/types';
 import type { Option } from '../../components/ui/Select';
+import type { Cell, SavedPoi } from './types';
 
 /* --- Board geometry -------------------------------------------------------
  *
@@ -111,16 +112,51 @@ export const START_OPTIONS: Option[] = Array.from(
 	(_, i) => DAY_START + i * 15
 ).map((s) => ({ value: String(s), label: hhmm(s) }));
 
-export const DURATION_OPTIONS: Option[] = [
-	{ value: '15', label: '15m' },
-	{ value: '30', label: '30m' },
-	{ value: '45', label: '45m' },
-	{ value: '60', label: '1h' },
-	{ value: '90', label: '1h 30m' },
-	{ value: '120', label: '2h' },
-	{ value: '180', label: '3h' },
-	{ value: '240', label: '4h' }
-];
+/**
+ * Lengths in quarter-hours, which is the granularity the rest of the board
+ * works in: the start picker steps by fifteen minutes and the server's shortest
+ * event is fifteen. Twelve hours covers the longest thing anyone schedules as
+ * one block, and `withCurrent` carries anything past it.
+ */
+export const DURATION_OPTIONS: Option[] = Array.from({ length: (12 * 60) / 15 }, (_, i) => {
+	const mins = (i + 1) * 15;
+	return { value: String(mins), label: lengthLabel(mins) };
+});
+
+/**
+ * Discover's saved places, for the Place picker.
+ *
+ * Grouped by city with the day's own city first, because a trip that visits
+ * four cities has a list four times longer than the one the reader wants, and
+ * the place they mean is almost always in the city they are looking at. The
+ * grouping is an order plus a section name: `Select` draws a heading wherever
+ * the section changes.
+ */
+export function placeOptions(
+	saved: SavedPoi[],
+	cities: (Cell | null)[],
+	currentCityId: string | null
+): Option[] {
+	const known = cities.filter((c): c is Cell => c != null);
+	const names = new Map(known.map((c) => [c.id, c.name]));
+	const rank = (id: string) =>
+		id === currentCityId ? -1 : known.findIndex((c) => c.id === id) + 1 || known.length + 1;
+
+	const sorted = [...saved].sort(
+		(a, b) => rank(a.city_id) - rank(b.city_id) || a.name.localeCompare(b.name)
+	);
+
+	return [
+		{ value: '', label: 'No place' },
+		...sorted.map((p) => ({
+			value: p.id,
+			label: p.name,
+			// A place whose city has been removed from the trip still exists and
+			// still has coordinates, so it is offered rather than hidden.
+			section: names.get(p.city_id) ?? 'Elsewhere'
+		}))
+	];
+}
 
 /** "1h 15m", for a duration that is not one of the offered ones. */
 export function lengthLabel(mins: number): string {

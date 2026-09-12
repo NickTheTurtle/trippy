@@ -190,9 +190,7 @@
 	font-size: 0.72rem;
 	color: var(--color-ink-faint);
 }
-/* Journeys share the event columns, so the lane takes the whole width. The
-   margin on the right only appears on a day dense enough that `layoutLegs`
-   gave up on some of its journeys and left them as arrows. */
+/* Journeys share the event columns, so the lane takes the whole width. */
 .sched .lane {
 	position: absolute;
 	left: 56px;
@@ -312,6 +310,21 @@
 		color-mix(in srgb, var(--c) 7%, white) 6px,
 		color-mix(in srgb, var(--c) 7%, white) 12px
 	);
+}
+/* A hop of a few minutes. Reduced to one line, because the true span is too
+   thin to hold type; the board floors its height and grows it upwards into the
+   waiting time, so the block it arrives at is never covered. */
+.sched .block.leg.thin {
+	padding: 0 0.35rem;
+	display: flex;
+	align-items: center;
+	font-size: var(--text-micro);
+	overflow: hidden;
+}
+.sched .block.leg.thin .bt {
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
 }
 .sched .block.leg.tight {
 	border-color: var(--color-warn);
@@ -441,9 +454,13 @@
 	fill: none;
 	stroke: #4a6d8c;
 	stroke-width: 1.5;
-	stroke-linecap: round;
+	stroke-linecap: butt;
 	stroke-linejoin: round;
-	opacity: 0.45;
+	opacity: 0.4;
+}
+.sched .flows .head {
+	stroke-linecap: round;
+	opacity: 0.55;
 }
 .sched .flowtag {
 	position: absolute;

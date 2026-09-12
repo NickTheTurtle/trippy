@@ -1,9 +1,18 @@
-import { useRef } from 'react';
+import { Fragment, useRef } from 'react';
 import { CaretIcon, CheckIcon } from './icons';
 import { useListbox } from './useListbox';
 import { copy } from '../../copy';
 
-export type Option = { value: string; label: string };
+export type Option = {
+	value: string;
+	label: string;
+	/**
+	 * Heading this option sits under. Options are rendered in the order given, and
+	 * a heading is drawn wherever the section changes, so grouping is the caller's
+	 * to decide by sorting rather than a second structure to keep in step.
+	 */
+	section?: string;
+};
 
 /**
  * The app's dropdown. A custom control rather than a native <select> because the
@@ -82,36 +91,42 @@ export default function Select({
 					onMouseDown={(e) => e.preventDefault()}
 				>
 					{options.map((o, i) => (
-						<li
-							key={o.value}
-							id={list.optionId(i)}
-							data-index={i}
-							role="option"
-							aria-selected={o.value === value}
-							className={[
-								'selopt',
-								o.value === value ? 'on' : '',
-								i === list.active ? 'active' : ''
-							]
-								.filter(Boolean)
-								.join(' ')}
-							onMouseEnter={() => list.setActiveIndex(i)}
-							onClick={(e) => {
-								// These rows are not form controls, so a Select sitting inside a
-								// <label> would have the label forward this click on to its
-								// labelled control, which is the trigger, reopening the menu the
-								// pick just closed. Cancelling the default action stops that.
-								e.preventDefault();
-								choose(i);
-							}}
-						>
-							<span className="selopttext">{o.label}</span>
-							{o.value === value && (
-								<span className="selcheck">
-									<CheckIcon />
-								</span>
+						<Fragment key={o.value}>
+							{o.section && o.section !== options[i - 1]?.section && (
+								<li className="selopthead" role="presentation">
+									{o.section}
+								</li>
 							)}
-						</li>
+							<li
+								id={list.optionId(i)}
+								data-index={i}
+								role="option"
+								aria-selected={o.value === value}
+								className={[
+									'selopt',
+									o.value === value ? 'on' : '',
+									i === list.active ? 'active' : ''
+								]
+									.filter(Boolean)
+									.join(' ')}
+								onMouseEnter={() => list.setActiveIndex(i)}
+								onClick={(e) => {
+									// These rows are not form controls, so a Select sitting inside a
+									// <label> would have the label forward this click on to its
+									// labelled control, which is the trigger, reopening the menu the
+									// pick just closed. Cancelling the default action stops that.
+									e.preventDefault();
+									choose(i);
+								}}
+							>
+								<span className="selopttext">{o.label}</span>
+								{o.value === value && (
+									<span className="selcheck">
+										<CheckIcon />
+									</span>
+								)}
+							</li>
+						</Fragment>
 					))}
 				</ul>
 			)}
