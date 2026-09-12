@@ -65,8 +65,8 @@ function pairKey(from: string, to: string): string {
 const INSET = 10;
 /** How far above an arrival its shared channel runs. */
 const CHANNEL_GAP = 12;
-/** How far a connector drops clear of its departure before turning. */
-const MIN_DROP = 8;
+/** The narrowest two count pills on one channel may sit. */
+const TAG_GAP = 34;
 /** Corner radius, shrunk to fit when the space is tighter than this. */
 const CORNER = 8;
 
@@ -643,36 +643,36 @@ export default function Schedule() {
 			// genuinely crosses gets a corner.
 			const x1 = Math.min(Math.max(x2, from.l), from.r);
 			if (Math.abs(x1 - x2) < 1 && legs.length === 0) return [];
-			const y1 = topPx(sa.end);
-			// Two blocks that overlap leave no gap to fall through, so the line
-			// runs flat across from the end of the first instead of backwards.
-			const top = topPx(sb.start);
-			const y2 = Math.max(top, y1);
-			return [
-				{ key: pairKey(f.from, f.to), to: f.to, people: f.people, legs, x1, y1, x2, y2, top }
-			];
+			// The channel is fixed to the arrival, so everything landing there
+			// shares it whatever the departures do. A departure that runs to the
+			// channel or past it (blocks that touch exactly, or overlap) starts
+			// its line at channel height inside its own block rather than
+			// doubling back, which drew as a flat line along the seam.
+			const y2 = topPx(sb.start);
+			const ch = y2 - CHANNEL_GAP;
+			const y1 = Math.min(topPx(sa.end), ch);
+			return [{ key: pairKey(f.from, f.to), to: f.to, people: f.people, legs, x1, y1, x2, y2, ch }];
 		});
 
-		// One channel per arrival, just above it and clear of everything leaving
-		// for it, so four people rejoining meet before they land rather than
-		// each drawing their own approach.
-		const floors = new Map<string, number>();
-		for (const h of raw) floors.set(h.to, Math.max(floors.get(h.to) ?? 0, h.y1 + MIN_DROP));
-
 		const headed = new Set<string>();
+		// A pill that overlaps another pill cannot be read, so tags sharing a
+		// channel are laid out left to right along it with a gap kept between
+		// them. They stay on their own line: the channel is the line.
+		const lastTag = new Map<string, number>();
 
 		return raw.map((h) => {
-			const ch = Math.min(Math.max(h.top - CHANNEL_GAP, floors.get(h.to) ?? 0), h.y2);
 			const head = !headed.has(h.to);
 			headed.add(h.to);
 			const straightDown = Math.abs(h.x1 - h.x2) < 1;
-			return {
-				...h,
-				head,
-				d: connector(h.x1, h.y1, h.x2, h.y2, ch),
-				tagX: straightDown ? h.x1 : (h.x1 + h.x2) / 2,
-				tagY: straightDown ? (h.y1 + h.y2) / 2 : ch
-			};
+			let tagX = h.x1;
+			let tagY = straightDown ? (h.y1 + h.y2) / 2 : h.ch;
+			if (h.legs.length > 0) {
+				const key = `${h.to}:${Math.round(tagY)}`;
+				const floor = lastTag.get(key);
+				if (floor !== undefined) tagX = Math.max(tagX, floor + TAG_GAP);
+				lastTag.set(key, tagX);
+			}
+			return { ...h, head, d: connector(h.x1, h.y1, h.x2, h.y2, h.ch), tagX, tagY };
 		});
 	}
 
@@ -769,8 +769,8 @@ export default function Schedule() {
 						});
 					}}
 				>
-					{/* Under the blocks, so a connector reaches a block's edge and
-					    stops there rather than crossing its face. */}
+					{/* Over the blocks, dotted: a line that has to cross a face reads
+					    more clearly laid on top than hidden behind it. */}
 					{hops.length > 0 && (
 						<svg
 							className="flows"
