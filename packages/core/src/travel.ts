@@ -31,9 +31,9 @@ import type { EventType } from './types';
 export interface PlannerEvent {
 	id: string;
 	type: EventType;
-	/** Minutes from midnight. For a stay this is check-in, on the evening of its own day. */
+	/** Minutes from midnight, on the event's own day. */
 	startMin: number;
-	/** Minutes from midnight. For a stay this is checkout, on the MORNING AFTER its day. */
+	/** Minutes from midnight, on the event's own day. */
 	endMin: number;
 	lat: number | null;
 	lng: number | null;
@@ -98,7 +98,10 @@ function isAnchor(e: PlannerEvent): boolean {
  *
  * `events` is everything scheduled on the day. `incomingStay` is the previous
  * night's stay, which is where everyone assigned to it starts the morning; pass
- * null for the first day of a trip, or when nobody has booked anywhere.
+ * null for the first day of a trip, or when nobody has booked anywhere. It is
+ * an event on yesterday, so its own times say nothing about this morning: the
+ * journey out of it is treated as leaving at midnight, which is the honest
+ * statement that you can set off whenever you like.
  *
  * The result is ordered by arrival time, then by key, so two runs over the same
  * day produce the same list in the same order and a diff against what is stored
@@ -114,9 +117,14 @@ export function planLegs(
 	// legs either side of them would churn.
 	const ordered = [...events].sort((a, b) => a.startMin - b.startMin || (a.id < b.id ? -1 : 1));
 
+	// Yesterday's stay is an origin, not a block on this day, and its own end is
+	// a time on the day before. Anchoring the journey out of it to midnight is
+	// what says the only true thing about it: you can set off when you like.
+	const origin = incomingStay ? { ...incomingStay, startMin: 0, endMin: 0 } : null;
+
 	const everyone = new Set<string>();
 	for (const e of ordered) for (const p of e.people) everyone.add(p);
-	if (incomingStay) for (const p of incomingStay.people) everyone.add(p);
+	if (origin) for (const p of origin.people) everyone.add(p);
 
 	// Keyed on the pair of events, which is what makes a shared journey one leg:
 	// everyone moving from A to B lands in the same bucket regardless of how many
@@ -127,7 +135,7 @@ export function planLegs(
 		const mine: PlannerEvent[] = [];
 		// Last night's stay is the origin, so it goes in front of the day. It is
 		// only an origin for the people who actually slept there.
-		if (incomingStay && incomingStay.people.includes(person)) mine.push(incomingStay);
+		if (origin && origin.people.includes(person)) mine.push(origin);
 		for (const e of ordered) if (e.people.includes(person)) mine.push(e);
 
 		let prev: PlannerEvent | null = null;
@@ -171,8 +179,8 @@ export function planLegs(
 			toLat,
 			toLng,
 			km,
-			// A stay is left in the morning, so its end is the useful edge; every
-			// other event is left when it finishes, which is the same field.
+			// An event is left when it finishes; yesterday's stay was rewritten to
+			// end at midnight above, so this is the same field for both.
 			afterMin: from.endMin,
 			beforeMin: to.startMin
 		});

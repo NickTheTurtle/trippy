@@ -95,7 +95,7 @@ three lost a reason to exist when tracks did:
   split by how long it was. Travel is derived now, so the only hand-entered
   journey is `travel`, and how long it is decides nothing.
 - `lodging` was a block that said a hotel existed. `stay` is the night itself,
-  with a check-in and a checkout, and it is what the next morning's first
+  carrying the people who slept there, and it is what the next morning's first
   journey starts from.
 
 Two of the five are not places: `freetime` is deliberately nowhere, and `travel`
@@ -180,18 +180,19 @@ as built; the reasoning for the change is in M3.1.
   only counts when the pointer did not move.
 - **Live "now" line**: a red marker at the current time, drawn only on the day
   that is actually today _in the destination city's zone_ (`localDayMinutes`).
-- **"View as"**: a multi-select of members, everyone by default, filtering the
-  board to the events those people are on plus the shared ones.
+- **"View as"**: the whole trip or one member, everyone by default, filtering the
+  board to the events that person is on plus the shared ones. See M3.3.
 - **Travel is derived**, with a hand-entered `travel` event as the override of
   last resort. See 4.2.
 - **Free time** clears its place, since nobody has promised to be anywhere, and
   therefore breaks the travel chain on both sides.
-- **A stay spans midnight** as a single row: `start_min` is check-in on its own
-  evening, `end_min` is checkout the **next morning**, so `end_min < start_min`
-  is normal and must never be "corrected". It is the origin of the following
-  day's first journey.
-- **Map panel**: the trip's city pins plus the day's scheduled pins. Day view
-  only; the 3-day and people views give the board the full width.
+- **A stay is an ordinary block** on the evening it starts, like every other
+  event. It is also the origin of the following day's first journey.
+- **Map panel**: every place saved in Discover, grey, with the day's scheduled
+  places in green over them, numbered when the day has an order. Day view only;
+  the 3-day and people views give the board the full width.
+- **Agenda panel**: one person's day in order, under the map, shown only while
+  "view as" names a member.
 
 ### M3.2: Layout engine & the People swimlane
 
@@ -280,6 +281,19 @@ one selects its members and gets out of the way. Nothing reads a crew while
 drawing a day, so one can be renamed or deleted at any time without the schedule
 moving underneath anybody, and the merge rule became "it is a set".
 
+**Crews live inside the people menus, not beside them.** Every `MultiSelect`
+over people takes `groups`, and renders them as a "Crews" section above the
+"People" one: the schedule's event picker, the task assignees and the cost
+sharers all offer the same shortcut in the same place. A crew row ticks on only
+when every member it can offer is already picked, and it ignores members who
+have left the trip, because a row that is on while naming somebody the menu does
+not list could never be turned off. The schedule used to show crews as chips
+under the field that *replaced* the selection; in the menu they add and remove
+like every other row, so two crews can be combined without the second wiping the
+first. Two exceptions, both deliberate: the crew editor itself (a crew that can
+tick itself is a puzzle, not a shortcut) and the task list's "who is done" menu,
+which records what happened rather than choosing people.
+
 **Deriving the legs** (`packages/core/src/travel.ts`, `planLegs`). For each
 person, walk their own events in order and pair each consecutive two. Bucket the
 pairs by the pair of event ids, so:
@@ -328,7 +342,8 @@ afternoon into a picket fence of unreadable slivers. Two rules, in order:
    collapses **whole** into one arrow, because the constraint is the width of the
    column and everything in it shares that.
 2. Within a surviving cluster, a leg under `MIN_BLOCK_MINS = 20` becomes its own
-   arrow and the rest get lanes.
+   arrow and the rest are drawn as blocks, in the same columns as the events
+   (see 5.0.15).
 
 Collapsing whole clusters rather than individual legs matters: half blocks and
 half arrows would be drawn at two widths for no reason a reader could see. The
@@ -348,7 +363,144 @@ model exists to record. The trip's places, stays, expenses, tasks and people are
 all untouched; only the scheduled blocks were lost, and only after the owner
 confirmed they were disposable.
 
-### M4: Preparation View (`/preparation`)
+### M3.3: The toolbar is bounded at both ends
+
+Two controls decide which board you are looking at, and both were unbounded in
+ways that let the reader end up somewhere the trip does not go.
+
+**Day navigation walks `days`, not the calendar.** The arrows used to add or
+subtract a day forever, so a few clicks left the trip entirely and drew an empty
+board with nothing to say which way was back. They now step through `days`, the
+list the payload already carries, and render as disabled buttons at each end
+rather than disappearing: a control that vanishes makes the pair jump sideways on
+the days you can still step from.
+
+`days` rather than the trip's start and end dates on purpose. `tripDays` is a
+*union* of the date range and every day that actually holds an event, so an event
+stranded by a shortened trip stays reachable. The bound is therefore what the
+trip offers, not what its dates claim, and stepping by index skips the gap to a
+stranded day instead of landing on a day that is not there.
+
+**The server clamps the same way**, because the day is a URL: it can be typed,
+bookmarked, or left behind by a trip whose dates were edited afterwards. Guarding
+only the buttons would answer all three with an empty board. The existing
+malformed-day fallback is unchanged and still comes first; the clamp only applies
+to days that parse.
+
+**The 3-day view is a window, so its anchor stops early.** Anchoring it on the
+last day would draw two columns the trip has not got. The anchor stops where the
+window's far edge lands on the last day, which is why on a three-day trip the
+3-day view has exactly one anchor and both arrows are disabled.
+
+**"View as" is one person or everyone.** It was a multi-select, which allowed
+arbitrary subsets. Nobody asks what the day looks like for an arbitrary subset:
+the question is "what is my day", or one other person's. A single `Select` also
+makes the schedule agree with the estimates table and the expense ledger, which
+have always offered exactly this choice through `ViewAsBar`, down to the `(you)`
+suffix that saves reading your own name back at you. It hides below two members
+for the same reason `ViewAsBar` does: a dropdown with one name changes nothing.
+
+### M3.4: The phone pass
+
+Responsive web is in scope down to 390px; a React Native client is not (see
+`AGENTS.md`). Nothing here is a separate mobile layout. Every fix below is the
+same page, told how to give something up.
+
+**Nothing overflowed. Everything was squeezed.** The first measurement was for
+horizontal overflow at every width from 1440 to 360 and there was none, on any
+tab. The damage was all proportion: a flex child with `min-w-0` and no basis
+shrinks to nothing instead of forcing its sibling onto the next line, so the
+trip title was 12px wide and 662px tall at 390, a preparation task read `C...`,
+and an expense was `P.`. The fix in every case is a real `flex-basis` on the
+column that matters, which is what finally makes `flex-wrap` do anything.
+
+**What gets dropped is computed, not styled.** The header shows 8, 5 or 3 faces
+by measuring the viewport, rather than hiding avatars in CSS, because "+17" has
+to stay true. Same reason the People view thins its time axis to every sixth
+hour in JS: at 390 the two-hourly labels printed "6:008:0010:00", and hiding
+half of them in CSS would have left the remaining gaps uneven.
+
+**Every 190px column becomes a dropdown, not a scroller.** Below `lg` the pages
+that carry one (Preparation, Expenses, Discover's cities) drop it. The old
+fallback turned the list into a horizontal scroller, which showed two or three
+entries and ran the rest off the edge: the one thing it could not tell you was
+where you already were. A dropdown says that in its trigger, in one line. A
+drawer was tried in between and removed; M3.5 has why.
+
+One breakpoint, `lg`, shared with the grid the pages already used, and named
+once as `NARROW_QUERY` in `hooks/useMediaQuery`. The old scroller was keyed to
+860px instead, so between 860 and 1024 the column had already collapsed while
+the nav still styled itself as a sidebar.
+
+**The tab strip earns its scroll.** It was already `overflow-x-auto`, which is
+the right shape (the tabs are one flat set) but gave no sign there was more, and
+arriving on a later tab left the active tab off-screen. `TabStrip` measures both
+edges and fades whichever still has tabs behind it, and scrolls the active tab
+into view itself rather than calling `scrollIntoView`, which walks up every
+scrollable ancestor and would drag the page vertically to fix a horizontal
+problem.
+
+**Hover-only controls are revealed where there is no pointer.** Every
+`opacity-0 group-hover:opacity-100` row now carries `[@media(hover:none)]`,
+following `discover/card-controls.tsx`, which had it first.
+
+### M3.5: Destinations and controls
+
+The phone pass left the app with three mechanisms for "switch what I am looking
+at": the trip tabs, the 190px column, and the schedule's pills. The rule that
+sorts them came from React Navigation, which draws the line the same way and was
+worth borrowing since `apps/mobile` will eventually have to agree with the web.
+
+**A destination is somewhere you are; a control changes what you see while you
+stay there.** A destination belongs in a navigator, gets a path segment and can
+be linked to and returned to. A control is local state and belongs in the header
+of the thing it acts on. Under that rule the trip tabs are destinations, and
+everything the 190px column ever held is a control: a section, a city, a view.
+
+**Narrow, a column is a dropdown and the section's action sits beside it.** The
+header is the scarcest thing on a phone, so the row reads `[where you are]` then
+`[the one button you came to press]`, and the page's figures drop to the line
+below. Preparation, Expenses and Discover all do this, which is why "+ Add" is
+in the same place on all three.
+
+- The row is not rendered at all where it would be empty. Tasks and Packing have
+  no figures, and reserving the height there only opened a gap under a dropdown
+  that had already named the section.
+- The counts are left behind in the narrow form. They are a right-aligned chip
+  in the column, and folded into a dropdown's single line of text they read as
+  part of the label ("Settle up 19").
+
+**A drawer was tried first, and removed.** The sections went behind a menu
+button on a `<dialog>` sliding in from the left, on the argument that they are
+navigation. Two things were wrong with it. A menu button hides where you are
+behind a tap, which is what the scroller was punished for; and it was the app's
+fourth way to change view, sitting a swipe away from the tab strip that is the
+real navigation. The dropdown says where you are without being opened. `Modal`
+now owns `useDialog` alone.
+
+**A fixed, short set of views is pills; everything else is a dropdown.**
+Discover's type filter (All / Attractions / Food & Drink / Stays) is four short
+labels that fit one row, so it is one tap rather than two and it never covers
+the grid it filters. The sections are three labels, but one of them is
+"Estimated costs", and they are joined by an action button that a full-width
+pill row would have pushed onto its own line. Wide, the type filter goes back to
+a `Select`: the header has other work to do there and the menu is not in the
+way.
+
+`Pills` is shared, and moved out of `schedule.css` when Discover needed it, so
+the schedule's Day / 3-day / People switch and Discover's filter are one
+treatment rather than two lookalikes. The schedule's segments stay `<Link>`s,
+because its view *is* addressable, and share only the styling. The expense
+dialog's split control is still its own thing; it is a form field, not a view
+switch.
+
+**Where the controls a dropdown cannot carry went.** A list has a delete button
+per row; a dropdown has no row to hang one on. So on a phone Discover's add and
+delete sit beside the city dropdown and delete acts on the city on screen,
+disabled on the last one for the same reason the column disables it: the server
+refuses to remove it, and a control that vanishes as you delete down to one
+reads as a bug.
+
 
 - Consolidated checklist: flights, lodging confirmations, visas, packing.
 - **Per-person completion.** A task can be assigned to any subset of the trip.
@@ -908,9 +1060,19 @@ undone."** Each of the six delete flows used to explain its own blast radius,
 some of them with live counts. The result read as six different voices arguing
 for the same decision, and the longer bodies were the ones people skipped. The
 name of the thing being destroyed carries the specificity instead, so it moved
-into the title: _Delete Kyoto in Spring?_, _Remove Sam?_, _Delete Hotel
+into the title: _Delete Kyoto in Spring?_, _Delete Sam?_, _Delete Hotel
 deposit?_. `ConfirmDialog` therefore takes no `body` prop at all, which is what
 stops the explanations growing back one page at a time.
+
+**The verb is always "Delete", on the button and in the title.** The buttons had
+drifted apart: a person was "removed", a place with linked events said "Delete
+and 3 events", a trip said "Delete trip". Three verbs for one act meant a reader
+had to decide each time whether they meant different things. `useDeleteAction`
+no longer takes a `confirmLabel`, so a caller cannot reintroduce one, and
+`common.remove` is gone from `copy`. Detail that used to ride on a button rides
+in the title, the one place detail is allowed: _Delete Acropolis and 3 events?_.
+The single exception is **Leave**, which sits beside Delete on a trip and is a
+genuinely different act: you stop taking part, the trip does not end.
 
 The cost is real and was accepted deliberately: the dialog no longer names what
 a removal moves. The rule that the wording is identical everywhere was judged
@@ -1155,13 +1317,24 @@ _needed_ an owner. It is a `MultiSelect` rather than a grid of checkboxes: the
 grid was fine for three people and unreadable for twenty, and the dropdown is
 already how the row itself asks who has finished.
 
-**Packing takes no roster at all.** A task is work handed out; a packing item is
-your own bag, so asking who it is for is a question with one answer. The dialog
-for one is a single field, the row carries no menu, and the item keeps the one
-shared tick. The rule is enforced in `addTask` and `updateTask` rather than in
-the form, so no client can put a roster back on, and a migration folds any rows
-an earlier version left behind into the shared flag: an item everyone had ticked
-stays ticked.
+**Packing takes no roster at all, because the list is already one person's.** A
+task is work handed out; a packing item is your own bag, so asking who it is for
+is a question with one answer. The dialog for one is a single field, the row
+carries no menu, and the item keeps one tick, which is yours.
+
+A packing list is **private**, not the trip's. A shared list of twenty people's
+socks is nobody's list: it is unreadable, and what you pack is nobody else's
+business. `trip_tasks.owner_id` says whose row it is, null meaning the trip's
+own, which is what a task stays. `listTasks` scopes packing to the caller, and
+`addTask`, `updateTask`, `toggleTask` and `removeTask` all refuse a row owned by
+somebody else, so no client can read or write another person's bag. Nobody lost
+anything in the change: the migration hands each item from the shared era to
+every member as their own copy, carrying the tick it already had, and the first
+member keeps the original row so its id survives. Seeded trips give the packing
+list to the account looking at the trip; the sample companions pack off-screen.
+
+The rule that a packing item takes no roster is enforced in `addTask` and
+`updateTask` rather than in the form, so no client can put one back on.
 
 **"Assigned to me" takes the whole row out of the list.** The full list is sorted
 by what is outstanding across everyone, so your own two jobs can be anywhere in
@@ -1967,6 +2140,75 @@ a total that is quietly wrong.
 concurrent writes, the duplicate-city and duplicate-invite guards hold, and a
 write into a trip being deleted returns a clean 404.
 
+### 5.0.15 The schedule board: stays, journeys, the agenda and the map
+
+**A stay is a block, not a span across midnight.** It used to be one row reaching
+from check-in on its own evening to checkout the next morning, so `end_min <
+start_min` was normal and the board drew it twice: its own evening, plus a
+striped "tail" over the following morning. The model broke on the thing the
+board exists for, which is a group that divides. A span across the night is a
+statement about the night, and a trip where half the group is in an apartment in
+Plaka and half in a hotel by the airport needs two of them, each carrying its own
+people. A block already carries people, so a stay is now an ordinary block: it
+starts at 21:00, runs three hours by default, and clamps like anything else.
+It can be dragged and resized from the board, which the old model could not
+allow, because the edge under the pointer belonged to a different day.
+
+The migration repairs existing rows with `UPDATE events SET end_min = 1440 WHERE
+type = 'stay' AND end_min <= start_min`. Midnight is the honest answer: the row
+says somebody slept there that night, and nothing in it survives about the
+morning after.
+
+**What was lost, and why it did not matter.** `incomingStay` still exists
+server-side: the previous day's last stay is where the next morning's first
+journey starts. Only the _drawing_ went, along with the `incoming` field on the
+board payload. `planLegs` now normalises that origin to midnight, because a stay
+no longer records a checkout and inventing one would be a guess with a number on
+it.
+
+**Journeys share the event columns.** Travel used to live in a fixed lane down
+the right-hand side, on the reasoning that it is a consequence of the day rather
+than part of it. In use that reads as the opposite of the truth: an hour on a
+ferry is an hour you cannot be anywhere else, and drawing it beside the day left
+the gap it fills looking free. Legs are now `LaneItem`s fed into `layoutDay`
+beside the events, so they take real columns and contend for width like
+everything else. A leg and a hand-entered `travel` event describe the same act
+and now look the same: same colour, same chrome, same name on the front.
+
+A leg keeps one difference, and it is a fact about the leg rather than about
+where it came from: it cannot be dragged, because its place on the clock is the
+gap between the two events it joins, and moving it would mean moving one of
+them. Only the journeys `layoutLegs` gives up on stay in the margin as arrows,
+and the 34px gutter for them appears only on a day that has any.
+
+**Journeys can be named.** `travel_legs.title` is nullable and the board falls
+back to `<Mode> to <destination>`; resetting a leg to its automatic estimate
+leaves the name alone, because "use the router's number" and "forget what I
+called this" are different requests.
+
+**The now line is gone.** A red line at the current time is information about the
+reader, not about the plan, and the plan is almost never today. The toolbar's
+city clock stays, because that is time-zone information rather than a mark on the
+calendar.
+
+**The agenda replaces the travel list.** The panel under the map used to list the
+day's journeys. It now appears only while "view as" names one member, and shows
+that person's whole day in order, events and journeys together. For the group the
+same list is every track at once, which the board already draws better; it is one
+person's thread through a divided day that columns make hard to follow.
+
+**The map shows everything that was considered.** Every place saved in Discover
+is a pin: grey for the ones this day does not visit, green for the ones it does.
+A day is then read against the full field rather than against a blank one.
+
+Green pins are numbered only when the day is a sequence, because a number on a
+pin is a claim about order. Two tests, both about honesty. Nothing may overlap,
+since two things at once have no first. And every event must carry the same
+people, since a day that splits has one order per track and none overall; people
+with nothing scheduled do not break this, as they are simply absent from every
+list. Reading the day as one person drops the second test: their own thread is a
+sequence however the rest of the group divides.
+
 ## Shared UI conventions
 
 These exist so five pages don't each invent their own version. Reach for them
@@ -2052,7 +2294,7 @@ re-derived:
   by **Delete**, not "Delete city". The title already named the thing, and the
   button that has to restate it is a button in a dialog that failed to say what
   it was about. `ConfirmDialog` therefore defaults its label and callers pass
-  one only when the verb genuinely differs (Remove, Leave).
+  one only when the verb genuinely differs, which now means Leave alone.
 - A button whose section heading already names the thing says **Add**, with no
   noun after it. "Tasks / + Add Task" says task twice.
 - An empty list renders `EmptyState` with the shared graphic and "Nothing added

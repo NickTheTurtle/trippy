@@ -454,6 +454,69 @@ db.exec(`
 	UPDATE trip_tasks SET assignee = '' WHERE kind = 'packing' AND assignee <> '';
 `);
 
+// A packing list is one person's own, not the group's: what you pack is nobody
+// else's business and a list of twenty people's socks is nobody's list at all.
+// `owner_id` is who it belongs to. Null is the trip's own row, which is what a
+// task stays, so the column is additive and tasks are untouched by it.
+addColumn('trip_tasks', 'owner_id', 'TEXT REFERENCES users(id) ON DELETE CASCADE');
+db.exec(`CREATE INDEX IF NOT EXISTS idx_trip_tasks_owner ON trip_tasks(trip_id, kind, owner_id)`);
+
+// Nobody loses what they had: an item from the shared era becomes everyone's
+// own copy of that item, carrying the tick it already had. The first member
+// takes the original row so its id survives, and the rest get copies. Written
+// in TypeScript rather than SQL because each copy needs an id of its own.
+{
+	const shared = db
+		.prepare(`SELECT id, trip_id, label, flag, done, sort, created_at FROM trip_tasks
+		           WHERE kind = 'packing' AND owner_id IS NULL`)
+		.all() as unknown as {
+		id: string;
+		trip_id: string;
+		label: string;
+		flag: string | null;
+		done: number;
+		sort: number;
+		created_at: number;
+	}[];
+	if (shared.length > 0) {
+		const membersOf = db.prepare(`SELECT user_id FROM memberships WHERE trip_id = ?`);
+		const claim = db.prepare(`UPDATE trip_tasks SET owner_id = ? WHERE id = ?`);
+		const copy = db.prepare(
+			`INSERT INTO trip_tasks (id, trip_id, kind, label, assignee, flag, done, sort, created_at, owner_id)
+			 VALUES (?, ?, 'packing', ?, '', ?, ?, ?, ?, ?)`
+		);
+		const drop = db.prepare(`DELETE FROM trip_tasks WHERE id = ?`);
+		db.exec('BEGIN');
+		try {
+			for (const row of shared) {
+				const members = membersOf.all(row.trip_id) as unknown as { user_id: string }[];
+				// A trip with no members left has nobody to give the item to.
+				if (members.length === 0) {
+					drop.run(row.id);
+					continue;
+				}
+				claim.run(members[0].user_id, row.id);
+				for (const m of members.slice(1)) {
+					copy.run(
+						randomUUID(),
+						row.trip_id,
+						row.label,
+						row.flag,
+						row.done,
+						row.sort,
+						row.created_at,
+						m.user_id
+					);
+				}
+			}
+			db.exec('COMMIT');
+		} catch (err) {
+			db.exec('ROLLBACK');
+			throw err;
+		}
+	}
+}
+
 // A cost estimate is a guess at what something will cost, and who it is for is
 // part of the guess: a rental car everyone shares and one person's museum pass
 // are not the same line. No rows means the whole trip, the way an unassigned
@@ -648,3 +711,33 @@ db.exec(`
 		expires_at   INTEGER NOT NULL
 	);
 `);
+
+/**
+ * A journey can be named.
+ *
+ * An automatic leg and a hand-entered travel event used to be two different
+ * kinds of thing on the board: one was a derived sliver with a mode and a
+ * duration, the other a block you could title. They describe the same act, so
+ * they are now drawn the same way, and a leg needs somewhere to keep the name
+ * that goes on it. NULL means "no name of its own", and the board falls back to
+ * the mode and the place it arrives at, which is what it always showed.
+ */
+addColumn('travel_legs', 'title', 'TEXT');
+
+/**
+ * A stay ends on its own day.
+ *
+ * A stay used to be the one event spanning midnight: its `end_min` was a
+ * checkout time on the following morning, so `end_min < start_min` was the
+ * normal shape and the board drew every stay twice. That model could not say
+ * that half the group is in one hotel and half in another, because the second
+ * copy of it was a band over the whole day rather than a block with people on
+ * it. A stay is now an ordinary block, which is exactly what makes it
+ * assignable.
+ *
+ * Rows written under the old model are closed at midnight rather than at their
+ * recorded checkout: midnight is where the old board already drew them on their
+ * own day, so nothing moves that a reader could see, and no checkout time is
+ * invented on a day it did not belong to.
+ */
+db.exec(`UPDATE events SET end_min = 1440 WHERE type = 'stay' AND end_min <= start_min`);

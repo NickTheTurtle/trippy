@@ -9,13 +9,16 @@ import { MODE_OPTIONS, hhmm, modeLabel } from './shared';
 import type { LegRow } from './types';
 
 /**
- * One journey: who is on it, where it runs between, and what it costs.
+ * One journey: what it is called, who is on it, where it runs between, and what
+ * it costs.
  *
  * A leg is derived, never authored: the server plans one for every pair of
  * consecutive events a given set of people attends. So there is nothing to
- * create or delete here, only the single override the model allows, which is
- * pinning a mode and a duration. Sending both empty is the reset, which is why
- * the automatic estimate is an action rather than a value in the picker.
+ * create or delete here, only what the model lets a person say about it: the
+ * name it goes by, and a pinned mode and duration. Sending the mode and the
+ * minutes empty is the reset, which is why the automatic estimate is an action
+ * rather than a value in the picker. The name is not part of that reset: what
+ * you call the ferry is not an estimate of how long the ferry takes.
  */
 export default function TravelDialog({
 	base,
@@ -34,15 +37,16 @@ export default function TravelDialog({
 	onClose: () => void;
 	onDone: () => void;
 }) {
+	const [title, setTitle] = useState(leg.title ?? '');
 	const [mode, setMode] = useState(leg.mode ?? leg.resolvedMode);
 	const [mins, setMins] = useState(String(leg.mins ?? leg.resolvedMins));
 
-	const patch = (body: { mode: string; mins: string }) =>
+	const patch = (body: { mode: string; mins: string; title?: string }) =>
 		api(`${base}/legs/${leg.id}`, { method: 'PATCH', body });
 
 	const save = useMutation(
 		async () => {
-			await patch({ mode, mins });
+			await patch({ mode, mins, title: title.trim() });
 			onDone();
 		},
 		{ fallback: 'Could not save that journey.' }
@@ -80,6 +84,18 @@ export default function TravelDialog({
 							? `Router: ${modeLabel(leg.autoMode)}, ${leg.autoMins}m`
 							: 'Router: no estimate yet'}
 					</p>
+
+					<div className="srow">
+						<Field
+							label="Name"
+							optional
+							className="grow"
+							autoFocus
+							placeholder={`${modeLabel(leg.resolvedMode)} to ${toTitle}`}
+							value={title}
+							onChange={(e) => setTitle(e.target.value)}
+						/>
+					</div>
 
 					<div className="srow">
 						<FieldShell label="Mode" className="tf2">

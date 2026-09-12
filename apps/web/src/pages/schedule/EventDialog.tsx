@@ -9,7 +9,6 @@ import { Field, FieldShell } from '../../components/ui/Field';
 import { copy } from '../../copy';
 import PeoplePicker from './PeoplePicker';
 import {
-	CLOCK_OPTIONS,
 	DURATION_OPTIONS,
 	MODE_OPTIONS,
 	START_OPTIONS,
@@ -50,16 +49,13 @@ export default function EventDialog({
 	const [type, setType] = useState<EventType>(event.type);
 	const [start, setStart] = useState(String(event.start_min));
 	const [duration, setDuration] = useState(String(Math.max(15, event.end_min - event.start_min)));
-	const [checkIn, setCheckIn] = useState(String(event.start_min));
-	const [checkOut, setCheckOut] = useState(String(event.end_min));
 	const [people, setPeople] = useState<string[]>([...event.people]);
 	const [notes, setNotes] = useState(event.notes ?? '');
 	const [mode, setMode] = useState(event.travel_mode ?? '');
 	const [killing, setKilling] = useState(false);
 
-	const isStay = type === 'stay';
-	const startMin = Number(isStay ? checkIn : start);
-	const endMin = isStay ? Number(checkOut) : startMin + Number(duration);
+	const startMin = Number(start);
+	const endMin = startMin + Number(duration);
 
 	const op = (body: Record<string, unknown>) =>
 		api(`${base}/events/${event.id}/op`, { method: 'POST', body });
@@ -116,45 +112,22 @@ export default function EventDialog({
 						</div>
 
 						<div className="srow">
-							{isStay ? (
-								<>
-									<FieldShell label="Check-in" className="tf2">
-										<Select
-											value={checkIn}
-											onChange={setCheckIn}
-											options={withCurrent(CLOCK_OPTIONS, checkIn, hhmm)}
-											ariaLabel="Check-in"
-										/>
-									</FieldShell>
-									<FieldShell label="Checkout" className="tf2" hint="The next morning">
-										<Select
-											value={checkOut}
-											onChange={setCheckOut}
-											options={withCurrent(CLOCK_OPTIONS, checkOut, hhmm)}
-											ariaLabel="Checkout"
-										/>
-									</FieldShell>
-								</>
-							) : (
-								<>
-									<FieldShell label="Start" className="tf2">
-										<Select
-											value={start}
-											onChange={setStart}
-											options={withCurrent(START_OPTIONS, start, hhmm)}
-											ariaLabel="Start"
-										/>
-									</FieldShell>
-									<FieldShell label="Length" className="tf2">
-										<Select
-											value={duration}
-											onChange={setDuration}
-											options={withCurrent(DURATION_OPTIONS, duration, lengthLabel)}
-											ariaLabel="Length"
-										/>
-									</FieldShell>
-								</>
-							)}
+							<FieldShell label="Start" className="tf2">
+								<Select
+									value={start}
+									onChange={setStart}
+									options={withCurrent(START_OPTIONS, start, hhmm)}
+									ariaLabel="Start"
+								/>
+							</FieldShell>
+							<FieldShell label="Length" className="tf2">
+								<Select
+									value={duration}
+									onChange={setDuration}
+									options={withCurrent(DURATION_OPTIONS, duration, lengthLabel)}
+									ariaLabel="Length"
+								/>
+							</FieldShell>
 							{type === 'travel' && (
 								<FieldShell label="Mode" optional className="tf2">
 									<Select value={mode} onChange={setMode} options={MODE_OPTIONS} ariaLabel="Mode" />
@@ -182,7 +155,6 @@ export default function EventDialog({
 						<div className="dfacts">
 							<span className="dfact">
 								{hhmm(startMin)} to {hhmm(endMin)}
-								{isStay && <span className="muted"> (next morning)</span>}
 								{cityName && <span className="muted"> in {cityName}</span>}
 							</span>
 						</div>

@@ -1,4 +1,5 @@
 import type { EventType } from '@trippy/core/types';
+import type { Crew } from '../people/types';
 
 /**
  * The wire shapes of `GET /trips/:id/schedule`.
@@ -32,10 +33,7 @@ export type EventRow = {
 	type: EventType;
 	/** Minutes from midnight, in the city's zone. */
 	start_min: number;
-	/**
-	 * Minutes from midnight. For a stay this is checkout on the FOLLOWING
-	 * morning, so `end_min < start_min` is normal and is never corrected.
-	 */
+	/** Minutes from midnight, in the city's zone, on the same day as the start. */
 	end_min: number;
 	poi_id: string | null;
 	lodging_id: string | null;
@@ -55,6 +53,8 @@ export type LegRow = {
 	fromEventId: string;
 	toEventId: string;
 	people: string[];
+	/** What somebody called this journey. Null means the board names it. */
+	title: string | null;
 	/** What the router said. Null until it has answered once. */
 	autoMode: string | null;
 	autoMins: number | null;
@@ -71,7 +71,9 @@ export type LegRow = {
 	tight: boolean;
 };
 
-export type Crew = { id: string; name: string; color: string; members: string[] };
+/** A crew belongs to the roster, not to a day. Re-exported so the board's own
+    components keep importing their types from one file. */
+export type { Crew };
 
 export type SavedPoi = {
 	id: string;
@@ -86,8 +88,6 @@ export type BoardDay = {
 	city: Cell | null;
 	lodging: Lodging | null;
 	events: EventRow[];
-	/** Last night's stay. Only its tail (midnight to checkout) lands on this day. */
-	incoming: EventRow | null;
 	legs: LegRow[];
 };
 
@@ -97,9 +97,10 @@ export type ScheduleData = {
 	view: ViewMode;
 	board: BoardDay[];
 	members: Member[];
+	me: string;
 	crews: Crew[];
 	saved: SavedPoi[];
 	cities: (Cell | null)[];
-	defaults: { checkIn: number; checkOut: number };
+	defaults: { stayStart: number; stayMins: number };
 	mapsKey: string;
 };

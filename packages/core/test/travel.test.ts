@@ -123,10 +123,10 @@ describe('planLegs', () => {
 	it("starts the morning from last night's stay, for the people who slept there", () => {
 		const stay = at(P.hotel, {
 			type: 'stay',
-			// A stay checks in on its own evening and out the next morning, so its
-			// end is before its start. That is the model, not a mistake.
+			// A stay is an ordinary block on its own evening. What it says about the
+			// next morning is only where its people wake up.
 			startMin: 21 * 60,
-			endMin: 9 * 60,
+			endMin: 24 * 60,
 			people: ['u1']
 		});
 		const morning = at(P.museum, { startMin: 600, endMin: 660, people: ['u1', 'u2'] });
@@ -134,7 +134,9 @@ describe('planLegs', () => {
 		expect(legs).toHaveLength(1);
 		// u2 did not sleep there, so u2 is not on the journey out of it.
 		expect(legs[0].people).toEqual(['u1']);
-		expect(legs[0].afterMin).toBe(9 * 60);
+		// The journey out of it is anchored to midnight: the stay carries no
+		// checkout, so the only honest earliest departure is the start of the day.
+		expect(legs[0].afterMin).toBe(0);
 	});
 
 	it('keys a leg on the events and the travellers, so an unrelated edit does not churn it', () => {

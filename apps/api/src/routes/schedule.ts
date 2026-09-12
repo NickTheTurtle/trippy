@@ -7,16 +7,12 @@ import { env } from '@trippy/server/env';
 import { isEventType } from '@trippy/core/types';
 import {
 	createEvent,
-	createCrew,
 	crewsForTrip,
-	deleteCrew,
 	deleteEvent,
-	editCrew,
 	editEvent,
 	editLeg,
 	eventTrip,
 	eventsForDay,
-	incomingStay,
 	legsForDay,
 	moveEvent,
 	plannedLegsForDay,
@@ -26,7 +22,7 @@ import {
 	setEventPeople,
 	shiftDay,
 	STAY_CHECK_IN,
-	STAY_CHECK_OUT
+	STAY_MINS
 } from '@trippy/server/schedule';
 import { routeLegs } from '@trippy/server/routing';
 import { savedPoisForTrip } from '@trippy/server/pois';
@@ -111,9 +107,30 @@ schedule.get('/', async (c) => {
 	// the trip start, which is what a bare /schedule shows.
 	const fallback =
 		isoDay(days[0]) ?? isoDay(trip.start_date) ?? new Date().toISOString().slice(0, 10);
-	const day = isoDay(c.req.query('day')) ?? fallback;
 	const viewRaw = c.req.query('view') ?? 'day';
 	const view: ViewMode = VIEWS.includes(viewRaw as ViewMode) ? (viewRaw as ViewMode) : 'day';
+
+	/* Outside the trip is not a place you can be.
+	 *
+	 * Clamped here rather than only in the toolbar because the day is a url, and
+	 * a url can be typed, bookmarked or left behind by a trip whose dates were
+	 * shortened afterwards. Answering those with an empty board would show a day
+	 * the trip does not have and offer no clue which way is back.
+	 *
+	 * The 3-day view is a window, so its anchor stops early enough that the far
+	 * edge lands on the last day rather than two columns past it. `tripDays`
+	 * already includes anything scheduled outside the range, so a stranded event
+	 * stays reachable: the bound is what the trip offers, not its dates. */
+	const requested = isoDay(c.req.query('day')) ?? fallback;
+	const span = view === '3day' ? 3 : 1;
+	const last = days[Math.max(0, days.length - span)];
+	const day = !days.length
+		? requested
+		: requested < days[0]
+			? days[0]
+			: last && requested > last
+				? last
+				: requested;
 
 	// Cities are dateless itinerary places, so the first city is the trip-wide
 	// default rather than a schedule. It frames the day view's map; the pins
@@ -129,9 +146,6 @@ schedule.get('/', async (c) => {
 			city: cell(defaultCity),
 			lodging: defaultCity ? lodgingForDay(trip.id, defaultCity.id, d) : null,
 			events: eventsForDay(trip.id, d),
-			// Last night's stay is sent alongside rather than among the events: it
-			// belongs to the previous day and only its tail lands on this one.
-			incoming: incomingStay(trip.id, d),
 			legs: await dayLegs(trip.id, d)
 		});
 	}
@@ -142,10 +156,11 @@ schedule.get('/', async (c) => {
 		view,
 		board,
 		members: trip.memberList,
+		me: c.get('user').id,
 		crews: crewsForTrip(trip.id),
 		saved: savedPoisForTrip(trip.id),
 		cities: trip.cities.map((x) => cell(x)),
-		defaults: { checkIn: STAY_CHECK_IN, checkOut: STAY_CHECK_OUT },
+		defaults: { stayStart: STAY_CHECK_IN, stayMins: STAY_MINS },
 		mapsKey: env.GOOGLE_MAPS_KEY ?? ''
 	});
 });
@@ -184,9 +199,9 @@ schedule.post('/events', async (c) => {
 	if (!title) title = type === 'travel' ? 'Travel' : type === 'freetime' ? 'Free time' : '';
 	if (!title) return fail(c, 400, 'Enter a title.');
 
-	// A stay runs to the next morning, so its end is a checkout time rather than
-	// a length. Everything else is a duration on its own day.
-	const end = type === 'stay' ? (num(b.end) ?? STAY_CHECK_OUT) : start + (num(b.duration) || 60);
+	// Every event, a stay included, occupies real time on its own day, so the
+	// end is always a length from the start.
+	const end = start + (num(b.duration) || 60);
 
 	const id = createEvent(trip.id, c.get('user').id, {
 		day,
@@ -289,11 +304,12 @@ schedule.post('/events/:eventId/op', async (c) => {
 // --- Travel -----------------------------------------------------------------
 
 /**
- * Pin a leg's mode and minutes, or hand it back to the router.
+ * Name a leg, pin its mode and minutes, or hand it back to the router.
  *
  * A leg has no id of its own until it has been planned once, so this only ever
- * addresses a row the last board load created. Sending both fields empty is the
- * reset, which is why there is no separate delete.
+ * addresses a row the last board load created. Sending the mode and the minutes
+ * empty is the reset, which is why there is no separate delete. The title is
+ * absent-means-leave-alone, so a reset does not also wipe the name.
  */
 schedule.patch('/legs/:legId', async (c) => {
 	const b = await body(c);
@@ -301,46 +317,19 @@ schedule.patch('/legs/:legId', async (c) => {
 	const mins = num(b.mins);
 	return okOr(
 		c,
-		editLeg(c.req.param('legId'), c.get('trip').id, c.get('user').id, mode || null, mins),
+		editLeg(
+			c.req.param('legId'),
+			c.get('trip').id,
+			c.get('user').id,
+			mode || null,
+			mins,
+			b.title === undefined ? undefined : str(b.title) || null
+		),
 		404,
 		'Could not find that journey.'
 	);
 });
 
-// --- Crews ------------------------------------------------------------------
-
-schedule.post('/crews', async (c) => {
-	const b = await body(c);
-	const name = str(b.name);
-	if (!name) return fail(c, 400, 'Enter a name.');
-	const id = createCrew(c.get('trip').id, c.get('user').id, name, strList(b.people));
-	if (!id) return fail(c, 403, 'Not allowed');
-	return c.json({ id }, 201);
-});
-
-schedule.patch('/crews/:crewId', async (c) => {
-	const b = await body(c);
-	const name = str(b.name);
-	if (b.name !== undefined && !name) return fail(c, 400, 'Enter a name.');
-	return okOr(
-		c,
-		editCrew(
-			c.req.param('crewId'),
-			c.get('trip').id,
-			c.get('user').id,
-			name || undefined,
-			b.people === undefined ? undefined : strList(b.people)
-		),
-		404,
-		'Could not find that crew.'
-	);
-});
-
-schedule.delete('/crews/:crewId', (c) =>
-	okOr(
-		c,
-		deleteCrew(c.req.param('crewId'), c.get('trip').id, c.get('user').id),
-		404,
-		'Could not find that crew.'
-	)
-);
+// Crews are written through `/trips/:id/people/crews`: a crew is a saved group
+// of people, and the page that manages them is People. The board still reads
+// them, so they stay in this payload.

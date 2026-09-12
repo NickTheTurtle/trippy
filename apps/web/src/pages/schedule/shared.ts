@@ -1,6 +1,5 @@
 import { EVENT_TYPES, TRANSPORT_MODES, type EventType } from '@trippy/core/types';
 import type { Option } from '../../components/ui/Select';
-import type { EventRow } from './types';
 
 /* --- Board geometry -------------------------------------------------------
  *
@@ -68,20 +67,6 @@ export function pctWidth(from: number, to: number): number {
 	return ((clampMin(to) - clampMin(from)) / (DAY_END - DAY_START)) * 100;
 }
 
-/**
- * Where a block sits on a given day.
- *
- * A stay is one row spanning the night, so it is drawn twice: on its own day
- * from check-in to midnight, and on the next day from midnight to checkout.
- * `tail` picks the second half. Nothing here compares the two ends, because for
- * a stay `end_min < start_min` is the normal shape and not a mistake to fix.
- */
-export function blockSpan(e: EventRow, tail: boolean): { from: number; to: number } {
-	if (e.type === 'stay')
-		return tail ? { from: 0, to: e.end_min } : { from: e.start_min, to: DAY_END };
-	return { from: e.start_min, to: e.end_min };
-}
-
 /* --- Vocabulary ----------------------------------------------------------- */
 
 const TYPE_LABELS: Record<EventType, string> = {
@@ -125,17 +110,6 @@ export const START_OPTIONS: Option[] = Array.from(
 	{ length: (DAY_END - DAY_START) / 15 },
 	(_, i) => DAY_START + i * 15
 ).map((s) => ({ value: String(s), label: hhmm(s) }));
-
-/**
- * Every quarter hour of the clock, for a stay's check-in and checkout.
- *
- * A stay is the one event that lives outside the drawn window at both ends: it
- * checks in late in the evening and checks out early the next morning, and both
- * of those are real choices rather than edge cases.
- */
-export const CLOCK_OPTIONS: Option[] = Array.from({ length: (24 * 60) / 15 }, (_, i) => i * 15).map(
-	(s) => ({ value: String(s), label: hhmm(s) })
-);
 
 export const DURATION_OPTIONS: Option[] = [
 	{ value: '15', label: '15m' },

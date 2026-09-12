@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { db } from '../db';
 import { isEventType, isLocatedType, isTransportMode, type EventType } from '@trippy/core/types';
 import { planLegs, placeLeg, type PlannedLeg, type PlannerEvent } from '@trippy/core/travel';
-import { publish } from '../events';
+import { publish, publishMany } from '../events';
 import { isMember } from './membership';
 
 /**
@@ -34,9 +34,10 @@ const SNAP = 5;
 /** The shortest event the grid can draw with its title. */
 const MIN_EVENT_MINS = 15;
 
-/** Default check-in and checkout for a stay, when the user does not say. */
+/** Default check-in for a stay, when the user does not say. */
 export const STAY_CHECK_IN = 21 * 60;
-export const STAY_CHECK_OUT = 9 * 60;
+/** How long a new stay runs for by default: check-in to midnight. */
+export const STAY_MINS = 24 * 60 - STAY_CHECK_IN;
 
 export interface EventRow {
 	id: string;
@@ -62,6 +63,8 @@ export interface LegRow {
 	fromEventId: string;
 	toEventId: string;
 	people: string[];
+	/** The name somebody gave this journey, or null for the automatic one. */
+	title: string | null;
 	/** What the provider said. Null until the first successful lookup. */
 	autoMode: string | null;
 	autoMins: number | null;
@@ -106,9 +109,9 @@ export function eventsForDay(tripId: string, day: string): EventRow[] {
 /**
  * Last night's stay, which is where the morning starts.
  *
- * Returned separately rather than folded into the day's events, because it is
- * drawn differently (it belongs to the previous day and only its tail lands on
- * this one) and because the travel planner takes it as its own argument.
+ * Not part of the day it is read for: it is an event on yesterday, and it is
+ * returned on its own because the only thing this day does with it is plan the
+ * first journey out of it. The board never draws it.
  */
 export function incomingStay(tripId: string, day: string): EventRow | null {
 	const rows = db
@@ -218,12 +221,13 @@ export function legsForDay(tripId: string, day: string): LegRow[] {
 
 	const rows = db
 		.prepare(
-			`SELECT id, leg_key, auto_mode, auto_mins, mode, mins FROM travel_legs
+			`SELECT id, leg_key, title, auto_mode, auto_mins, mode, mins FROM travel_legs
 			 WHERE trip_id = ? AND day = ?`
 		)
 		.all(tripId, day) as unknown as {
 		id: string;
 		leg_key: string;
+		title: string | null;
 		auto_mode: string | null;
 		auto_mins: number | null;
 		mode: string | null;
@@ -248,6 +252,7 @@ export function legsForDay(tripId: string, day: string): LegRow[] {
 			fromEventId: leg.fromEventId,
 			toEventId: leg.toEventId,
 			people: leg.people,
+			title: row.title,
 			autoMode: row.auto_mode,
 			autoMins: row.auto_mins,
 			mode: row.mode,
@@ -357,12 +362,7 @@ export function createEvent(tripId: string, userId: string, e: NewEvent): string
 	const type: EventType = isEventType(e.type) ? e.type : 'activity';
 	const located = isLocatedType(type);
 	const start = Math.max(0, Math.min(Math.round(e.startMin), 24 * 60 - MIN_EVENT_MINS));
-	// A stay ends the next morning, so its end is not required to be after its
-	// start. Everything else has to occupy real time on its own day.
-	const end =
-		type === 'stay'
-			? Math.max(0, Math.min(Math.round(e.endMin), 24 * 60))
-			: Math.max(start + MIN_EVENT_MINS, Math.min(Math.round(e.endMin), 24 * 60));
+	const end = Math.max(start + MIN_EVENT_MINS, Math.min(Math.round(e.endMin), 24 * 60));
 
 	const id = randomUUID();
 	db.prepare(
@@ -409,27 +409,16 @@ export function moveEvent(
 ): boolean {
 	const where = mayEdit(eventId, userId, tripId);
 	if (!where) return false;
-	const ev = db.prepare(`SELECT start_min, end_min, type FROM events WHERE id = ?`).get(eventId) as
-		{ start_min: number; end_min: number; type: string } | undefined;
+	const ev = db.prepare(`SELECT start_min, end_min FROM events WHERE id = ?`).get(eventId) as
+		{ start_min: number; end_min: number } | undefined;
 	if (!ev) return false;
 
 	const snapped = Math.round(startMin / SNAP) * SNAP;
-	if (ev.type === 'stay') {
-		// A stay's end is a time on the following morning, so moving the check-in
-		// must not drag the checkout along with it.
-		const clamped = Math.max(0, Math.min(snapped, 24 * 60 - MIN_EVENT_MINS));
-		db.prepare(`UPDATE events SET start_min = ?, day = COALESCE(?, day) WHERE id = ?`).run(
-			clamped,
-			toDay ?? null,
-			eventId
-		);
-	} else {
-		const duration = ev.end_min - ev.start_min;
-		const clamped = Math.max(0, Math.min(snapped, 24 * 60 - duration));
-		db.prepare(
-			`UPDATE events SET start_min = ?, end_min = ?, day = COALESCE(?, day) WHERE id = ?`
-		).run(clamped, clamped + duration, toDay ?? null, eventId);
-	}
+	const duration = ev.end_min - ev.start_min;
+	const clamped = Math.max(0, Math.min(snapped, 24 * 60 - duration));
+	db.prepare(
+		`UPDATE events SET start_min = ?, end_min = ?, day = COALESCE(?, day) WHERE id = ?`
+	).run(clamped, clamped + duration, toDay ?? null, eventId);
 	touched(tripId, where.day);
 	if (toDay && toDay !== where.day) touched(tripId, toDay);
 	return true;
@@ -444,14 +433,11 @@ export function resizeEvent(
 ): boolean {
 	const where = mayEdit(eventId, userId, tripId);
 	if (!where) return false;
-	const ev = db.prepare(`SELECT start_min, type FROM events WHERE id = ?`).get(eventId) as
-		{ start_min: number; type: string } | undefined;
+	const ev = db.prepare(`SELECT start_min FROM events WHERE id = ?`).get(eventId) as
+		{ start_min: number } | undefined;
 	if (!ev) return false;
 	const snapped = Math.round(endMin / SNAP) * SNAP;
-	const clamped =
-		ev.type === 'stay'
-			? Math.max(0, Math.min(snapped, 24 * 60))
-			: Math.max(ev.start_min + MIN_EVENT_MINS, Math.min(snapped, 24 * 60));
+	const clamped = Math.max(ev.start_min + MIN_EVENT_MINS, Math.min(snapped, 24 * 60));
 	db.prepare(`UPDATE events SET end_min = ? WHERE id = ?`).run(clamped, eventId);
 	touched(tripId, where.day);
 	return true;
@@ -500,13 +486,25 @@ export function editEvent(
 		sets.push('travel_mode = ?');
 		args.push(edit.travelMode && isTransportMode(edit.travelMode) ? edit.travelMode : null);
 	}
-	if (edit.startMin !== undefined && Number.isFinite(edit.startMin)) {
-		sets.push('start_min = ?');
-		args.push(Math.max(0, Math.min(Math.round(edit.startMin), 24 * 60)));
-	}
-	if (edit.endMin !== undefined && Number.isFinite(edit.endMin)) {
-		sets.push('end_min = ?');
-		args.push(Math.max(0, Math.min(Math.round(edit.endMin), 24 * 60)));
+	// Both ends move together, because an event has to occupy real time on its
+	// own day: a stay used to be exempt, and is not any more. Whichever end the
+	// caller left out is read back from the row so a lone edit still cannot
+	// invert it.
+	if (
+		(edit.startMin !== undefined && Number.isFinite(edit.startMin)) ||
+		(edit.endMin !== undefined && Number.isFinite(edit.endMin))
+	) {
+		const cur = db.prepare(`SELECT start_min, end_min FROM events WHERE id = ?`).get(eventId) as
+			{ start_min: number; end_min: number } | undefined;
+		if (!cur) return false;
+		const wanted = Number.isFinite(edit.startMin as number)
+			? (edit.startMin as number)
+			: cur.start_min;
+		const start = Math.max(0, Math.min(Math.round(wanted), 24 * 60 - MIN_EVENT_MINS));
+		const wantedEnd = Number.isFinite(edit.endMin as number) ? (edit.endMin as number) : cur.end_min;
+		const end = Math.max(start + MIN_EVENT_MINS, Math.min(Math.round(wantedEnd), 24 * 60));
+		sets.push('start_min = ?', 'end_min = ?');
+		args.push(start, end);
 	}
 	if (!sets.length) return false;
 
@@ -533,18 +531,20 @@ export function setEventPeople(
 // --- Travel overrides -------------------------------------------------------
 
 /**
- * Pin a leg's mode and duration by hand.
+ * Pin a leg's name, mode and duration by hand.
  *
- * Passing null for both clears the override and hands the leg back to the
- * provider, which is how someone undoes a guess without having to remember what
- * the automatic answer was.
+ * Passing null for the mode and the minutes clears the override and hands the
+ * leg back to the provider, which is how someone undoes a guess without having
+ * to remember what the automatic answer was. The name is separate and survives
+ * that reset: what you call a journey is not an estimate of anything.
  */
 export function editLeg(
 	legId: string,
 	tripId: string,
 	userId: string,
 	mode: string | null,
-	mins: number | null
+	mins: number | null,
+	title?: string | null
 ): boolean {
 	if (!isMember(tripId, userId)) return false;
 	const row = db.prepare(`SELECT trip_id FROM travel_legs WHERE id = ?`).get(legId) as
@@ -555,6 +555,9 @@ export function editLeg(
 		mins != null && Number.isFinite(mins) && mins > 0 ? Math.min(Math.round(mins), 48 * 60) : null,
 		legId
 	);
+	if (title !== undefined) {
+		db.prepare(`UPDATE travel_legs SET title = ? WHERE id = ?`).run(title?.trim() || null, legId);
+	}
 	publish(tripId, 'schedule');
 	return true;
 }
@@ -579,6 +582,9 @@ export interface Crew {
  * selects its members and then gets out of the way. Nothing reads a crew while
  * drawing a day, which is why one can be renamed or deleted at any time without
  * the schedule moving underneath anybody.
+ *
+ * Two topics on every write: crews are managed on the People page and read by
+ * the board's people picker, so both have to hear about one.
  */
 export function crewsForTrip(tripId: string): Crew[] {
 	const rows = db
@@ -620,7 +626,7 @@ export function createCrew(
 		count
 	);
 	writeCrewMembers(id, tripId, members);
-	publish(tripId, 'schedule');
+	publishMany(tripId, ['schedule', 'members']);
 	return id;
 }
 
@@ -638,13 +644,13 @@ export function editCrew(
 	if (!name && !members) return false;
 	if (name) db.prepare(`UPDATE crews SET name = ? WHERE id = ?`).run(name, crewId);
 	if (members) writeCrewMembers(crewId, tripId, members);
-	publish(tripId, 'schedule');
+	publishMany(tripId, ['schedule', 'members']);
 	return true;
 }
 
 export function deleteCrew(crewId: string, tripId: string, userId: string): boolean {
 	if (!isMember(tripId, userId)) return false;
 	const res = db.prepare(`DELETE FROM crews WHERE id = ? AND trip_id = ?`).run(crewId, tripId);
-	if (res.changes > 0) publish(tripId, 'schedule');
+	if (res.changes > 0) publishMany(tripId, ['schedule', 'members']);
 	return res.changes > 0;
 }

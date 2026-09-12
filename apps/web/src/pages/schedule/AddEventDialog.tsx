@@ -7,16 +7,23 @@ import Select, { type Option } from '../../components/ui/Select';
 import { Field, FieldShell } from '../../components/ui/Field';
 import { copy } from '../../copy';
 import PeoplePicker from './PeoplePicker';
-import { CLOCK_OPTIONS, DURATION_OPTIONS, START_OPTIONS, TYPE_OPTIONS, dayLabel } from './shared';
+import {
+	DURATION_OPTIONS,
+	START_OPTIONS,
+	TYPE_OPTIONS,
+	dayLabel,
+	hhmm,
+	lengthLabel,
+	withCurrent
+} from './shared';
 import type { Crew, SavedPoi } from './types';
 
 /**
  * Adds one event to a day.
  *
- * A stay asks for check-in and checkout rather than a length, because it is the
- * one event that spans midnight: its checkout is a time on the following
- * morning, so a duration would have to be counted through the night to mean
- * anything.
+ * A stay is an ordinary block like everything else, so it is asked for the same
+ * way: it only arrives with a later start and a longer length, because that is
+ * what a night usually looks like rather than something the model enforces.
  */
 export default function AddEventDialog({
 	base,
@@ -30,7 +37,7 @@ export default function AddEventDialog({
 }: {
 	base: string;
 	day: string;
-	defaults: { checkIn: number; checkOut: number };
+	defaults: { stayStart: number; stayMins: number };
 	memberOptions: Option[];
 	crews: Crew[];
 	saved: SavedPoi[];
@@ -41,13 +48,10 @@ export default function AddEventDialog({
 	const [title, setTitle] = useState('');
 	const [start, setStart] = useState(String(9 * 60));
 	const [duration, setDuration] = useState('60');
-	const [checkIn, setCheckIn] = useState(String(defaults.checkIn));
-	const [checkOut, setCheckOut] = useState(String(defaults.checkOut));
 	const [people, setPeople] = useState<string[]>([]);
 	const [poi, setPoi] = useState('');
 	const [notes, setNotes] = useState('');
 
-	const isStay = type === 'stay';
 	// Free time is deliberately nowhere: the server clears a place off it, so
 	// offering one here would promise something the save undoes.
 	const placeable = type !== 'freetime';
@@ -65,11 +69,8 @@ export default function AddEventDialog({
 					day,
 					title: title.trim(),
 					type,
-					start: Number(isStay ? checkIn : start),
+					start: Number(start),
 					duration: Number(duration),
-					// Only a stay carries an end: for everything else the server reads
-					// the duration and keeps the event on its own day.
-					end: isStay ? Number(checkOut) : undefined,
 					poiId: placeable && poi ? poi : undefined,
 					notes: notes.trim() || undefined,
 					people
@@ -88,7 +89,17 @@ export default function AddEventDialog({
 						<FieldShell label="Type" className="tf2">
 							<Select
 								value={type}
-								onChange={(v) => setType(v as EventType)}
+								onChange={(v) => {
+									const next = v as EventType;
+									setType(next);
+									// A night is the one type with a useful starting guess, and
+									// typing 21:00 by hand every time is the sort of work the
+									// dialog exists to save.
+									if (next === 'stay') {
+										setStart(String(defaults.stayStart));
+										setDuration(String(defaults.stayMins));
+									}
+								}}
 								options={TYPE_OPTIONS}
 								ariaLabel="Type"
 							/>
@@ -104,45 +115,22 @@ export default function AddEventDialog({
 					</div>
 
 					<div className="srow">
-						{isStay ? (
-							<>
-								<FieldShell label="Check-in" className="tf2">
-									<Select
-										value={checkIn}
-										onChange={setCheckIn}
-										options={CLOCK_OPTIONS}
-										ariaLabel="Check-in"
-									/>
-								</FieldShell>
-								<FieldShell label="Checkout" className="tf2" hint="The next morning">
-									<Select
-										value={checkOut}
-										onChange={setCheckOut}
-										options={CLOCK_OPTIONS}
-										ariaLabel="Checkout"
-									/>
-								</FieldShell>
-							</>
-						) : (
-							<>
-								<FieldShell label="Start" className="tf2">
-									<Select
-										value={start}
-										onChange={setStart}
-										options={START_OPTIONS}
-										ariaLabel="Start"
-									/>
-								</FieldShell>
-								<FieldShell label="Length" className="tf2">
-									<Select
-										value={duration}
-										onChange={setDuration}
-										options={DURATION_OPTIONS}
-										ariaLabel="Length"
-									/>
-								</FieldShell>
-							</>
-						)}
+						<FieldShell label="Start" className="tf2">
+							<Select
+								value={start}
+								onChange={setStart}
+								options={withCurrent(START_OPTIONS, start, hhmm)}
+								ariaLabel="Start"
+							/>
+						</FieldShell>
+						<FieldShell label="Length" className="tf2">
+							<Select
+								value={duration}
+								onChange={setDuration}
+								options={withCurrent(DURATION_OPTIONS, duration, lengthLabel)}
+								ariaLabel="Length"
+							/>
+						</FieldShell>
 						<PeoplePicker
 							people={people}
 							onChange={setPeople}

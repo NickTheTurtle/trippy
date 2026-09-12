@@ -9,6 +9,12 @@ export type MapTrack = {
 	line?: boolean;
 	/** True to draw small dots rather than numbered pins. */
 	dot?: boolean;
+	/**
+	 * False to draw plain pins with nothing written on them. A number on a pin
+	 * is a claim about order, so it is only honest when the track has one: a day
+	 * whose events overlap is not a sequence, and numbering it would invent one.
+	 */
+	numbered?: boolean;
 };
 export type MapCenter = {
 	lat: number | null;
@@ -116,10 +122,10 @@ export default function GoogleMap({
 		const g = gRef.current;
 		if (!map || !g) return;
 
-		const pinIcon = (color: string, n: number) => {
+		const pinIcon = (color: string, n: number | null) => {
 			const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="36" viewBox="0 0 28 36">
 			<path d="M14 0C6.3 0 0 6.1 0 13.7 0 24 14 36 14 36s14-12 14-22.3C28 6.1 21.7 0 14 0z" fill="${color}" stroke="#fff" stroke-width="2"/>
-			<text x="14" y="18" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="700" fill="#fff">${n}</text>
+			${n === null ? '' : `<text x="14" y="18" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="700" fill="#fff">${n}</text>`}
 		</svg>`;
 			return {
 				url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
@@ -151,12 +157,13 @@ export default function GoogleMap({
 			const path: { lat: number; lng: number }[] = [];
 			located.forEach((i, idx) => {
 				const pos = { lat: i.lat as number, lng: i.lng as number };
+				const n = t.numbered === false ? null : idx + 1;
 				path.push(pos);
 				bounds.extend(pos);
 				wantMarkers.push({
 					pos,
-					iconKey: t.dot ? `dot:${t.color}` : `pin:${t.color}:${idx + 1}`,
-					icon: t.dot ? dotIcon(t.color) : pinIcon(t.color, idx + 1),
+					iconKey: t.dot ? `dot:${t.color}` : `pin:${t.color}:${n ?? '-'}`,
+					icon: t.dot ? dotIcon(t.color) : pinIcon(t.color, n),
 					title: t.dot ? i.title : `${i.title} · ${t.name}`
 				});
 			});

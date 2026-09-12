@@ -209,8 +209,8 @@ describe('legs follow the events', () => {
 	});
 });
 
-describe('a stay spans midnight', () => {
-	it('stores a checkout earlier than its check-in without correcting it', () => {
+describe('a stay is a block like any other', () => {
+	it('clamps a checkout earlier than its check-in, like any other event', () => {
 		const stay = add({
 			type: 'stay',
 			startMin: 21 * 60,
@@ -222,25 +222,42 @@ describe('a stay spans midnight', () => {
 			start_min: number;
 			end_min: number;
 		};
-		expect(row).toEqual({ start_min: 21 * 60, end_min: 9 * 60 });
+		// A stay no longer reaches into the next morning, so an end before its
+		// start is not a model any more, just a backwards event.
+		expect(row.start_min).toBe(21 * 60);
+		expect(row.end_min).toBeGreaterThan(row.start_min);
 	});
 
-	it('moves the check-in without dragging the checkout into the next evening', () => {
+	it('drags its end along when it is moved', () => {
 		const stay = add({
 			type: 'stay',
-			startMin: 21 * 60,
-			endMin: 9 * 60,
+			startMin: 20 * 60,
+			endMin: 23 * 60,
 			people: [alice],
 			...HOTEL
 		});
-		expect(schedule.moveEvent(stay, alice, 22 * 60, tripId)).toBe(true);
+		expect(schedule.moveEvent(stay, alice, 21 * 60, tripId)).toBe(true);
 		expect(
 			db.prepare(`SELECT start_min, end_min FROM events WHERE id = ?`).get(stay)
-		).toMatchObject({ start_min: 22 * 60, end_min: 9 * 60 });
+		).toMatchObject({ start_min: 21 * 60, end_min: 24 * 60 });
+	});
+
+	it('can be resized from the board, because its end is a time on its own day', () => {
+		const stay = add({
+			type: 'stay',
+			startMin: 20 * 60,
+			endMin: 22 * 60,
+			people: [alice],
+			...HOTEL
+		});
+		expect(schedule.resizeEvent(stay, alice, 23 * 60, tripId)).toBe(true);
+		expect(
+			db.prepare(`SELECT start_min, end_min FROM events WHERE id = ?`).get(stay)
+		).toMatchObject({ start_min: 20 * 60, end_min: 23 * 60 });
 	});
 
 	it("starts the next morning's first journey from last night's stay", () => {
-		add({ type: 'stay', startMin: 21 * 60, endMin: 9 * 60, people: [alice, bob], ...HOTEL });
+		add({ type: 'stay', startMin: 21 * 60, endMin: 24 * 60, people: [alice, bob], ...HOTEL });
 		add({ day: NEXT, startMin: 600, endMin: 660, people: [alice, bob], ...MUSEUM });
 
 		const legs = schedule.legsForDay(tripId, NEXT);
@@ -261,7 +278,7 @@ describe('a stay spans midnight', () => {
 
 		// The write lands on DAY, but the day it changes is the one after it. This
 		// is why every write recomputes both.
-		add({ type: 'stay', startMin: 21 * 60, endMin: 9 * 60, people: [alice], ...HOTEL });
+		add({ type: 'stay', startMin: 21 * 60, endMin: 24 * 60, people: [alice], ...HOTEL });
 		expect(schedule.legsForDay(tripId, NEXT)).toHaveLength(1);
 	});
 });

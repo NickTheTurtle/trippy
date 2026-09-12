@@ -44,10 +44,19 @@
 	font-size: 1.1rem;
 	line-height: 1;
 	text-decoration: none;
+	font-family: inherit;
+	padding: 0;
+	cursor: pointer;
 }
-.sched .navbtn:hover {
+.sched .navbtn:hover:not(:disabled) {
 	border-color: var(--color-accent);
 	color: var(--color-accent-ink);
+}
+/* The first and last day the trip offers. Kept in place rather than hidden, so
+   the pair does not shuffle sideways on the days you can still step from. */
+.sched .navbtn:disabled {
+	opacity: 0.35;
+	cursor: default;
 }
 .sched .curday {
 	font-family: var(--font-serif);
@@ -55,26 +64,8 @@
 	min-width: 8rem;
 	text-align: center;
 }
-.sched .viewswitch {
-	display: inline-flex;
-	border: 1px solid var(--color-line);
-	border-radius: 999px;
-	overflow: hidden;
-}
-.sched .vbtn {
-	padding: 0.35rem 0.8rem;
-	font-size: 0.82rem;
-	color: var(--color-ink-soft);
-	text-decoration: none;
-	border-right: 1px solid var(--color-line);
-}
-.sched .vbtn:last-child {
-	border-right: none;
-}
-.sched .vbtn.on {
-	background: var(--color-accent);
-	color: #fff;
-}
+/* The view switch shares `.pills` with Discover's type filter; see index.css.
+   The links stay links because the schedule's view is addressable. */
 .sched .tools {
 	display: flex;
 	gap: 0.6rem;
@@ -104,11 +95,11 @@
 	gap: 0.4rem;
 	font-size: 0.82rem;
 }
-/* `.msel`'s default width is a percentage against a shrink-to-fit parent, which
+/* `.sel`'s default width is a percentage against a shrink-to-fit parent, which
    cannot be resolved while measuring it, so the box came out narrower than its
    own trigger. A flat width here has no such cycle. */
-.sched .viewas .msel {
-	width: 9rem;
+.sched .viewas .sel {
+	width: 9.5rem;
 	min-width: 0;
 }
 
@@ -216,27 +207,25 @@
 	font-size: 0.72rem;
 	color: var(--color-ink-faint);
 }
-/* Events take the width; journeys sit in a fixed lane on the right, so a day
-   with no travel does not reflow the blocks of a day that has some. */
+/* Journeys share the event columns, so the lane takes the whole width. The
+   margin on the right only appears on a day dense enough that `layoutLegs`
+   gave up on some of its journeys and left them as arrows. */
 .sched .lane {
 	position: absolute;
 	left: 56px;
-	right: 100px;
+	right: 0;
 	top: 0;
 	bottom: 0;
+}
+.sched .grid.witharrows .lane {
+	right: 34px;
 }
 .sched .travellane {
 	position: absolute;
 	right: 0;
-	width: 92px;
+	width: 30px;
 	top: 0;
 	bottom: 0;
-}
-.sched .multiboard .lane {
-	right: 62px;
-}
-.sched .multiboard .travellane {
-	width: 56px;
 }
 
 /* --- Motion --------------------------------------------------------------
@@ -337,9 +326,11 @@
 	outline-offset: -1px;
 	z-index: 8;
 }
-/* Last night's stay reaching into this morning. It is not this day's row, so it
-   does not offer this day's handles. */
-.sched .block.tail {
+/* An automatic journey. The same block as a travel event somebody typed, with
+   one difference that is a fact about the journey rather than about its
+   origin: it cannot be dragged, because its place on the clock is the gap
+   between the two events it joins. */
+.sched .block.leg {
 	cursor: pointer;
 	background: repeating-linear-gradient(
 		-45deg,
@@ -348,6 +339,10 @@
 		color-mix(in srgb, var(--c) 7%, white) 6px,
 		color-mix(in srgb, var(--c) 7%, white) 12px
 	);
+}
+.sched .block.leg.tight {
+	border-color: var(--color-warn);
+	color: var(--color-warn);
 }
 .sched .bresize {
 	position: absolute;
@@ -451,62 +446,11 @@
 	color: #5c4a80;
 }
 
-/* --- Travel lane --------------------------------------------------------- */
+/* --- Travel arrows -------------------------------------------------------
+ *
+ * Only the journeys a day was too dense to draw. Everything else is a block in
+ * the lane with the events. */
 
-.sched .legblock {
-	position: absolute;
-	box-sizing: border-box;
-	display: flex;
-	flex-direction: column;
-	justify-content: center;
-	gap: 0.05rem;
-	padding: 0.1rem 0.3rem;
-	border: 1px dashed color-mix(in srgb, #4a6d8c 45%, white);
-	border-radius: var(--radius-sm);
-	background: repeating-linear-gradient(
-		-45deg,
-		color-mix(in srgb, #4a6d8c 12%, white),
-		color-mix(in srgb, #4a6d8c 12%, white) 5px,
-		transparent 5px,
-		transparent 10px
-	);
-	font: inherit;
-	font-size: 0.66rem;
-	color: var(--color-ink-soft);
-	text-align: left;
-	overflow: hidden;
-	cursor: pointer;
-	z-index: 4;
-	transition:
-		top var(--sched-settle),
-		height var(--sched-settle),
-		left var(--sched-settle),
-		width var(--sched-settle),
-		border-color 140ms ease-out,
-		color 140ms ease-out;
-	animation: sched-block-in 180ms ease-out;
-}
-.sched .legblock:hover {
-	border-color: var(--color-accent);
-	color: var(--color-accent-ink);
-}
-.sched .legblock .legmode {
-	font-weight: 600;
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
-}
-.sched .legblock.manual {
-	border-style: solid;
-	border-color: #8c7ab0;
-}
-/* The journey does not fit the gap. Drawn where it would have to run rather
-   than shrunk to fit, because shrinking it hides the problem. */
-.sched .legblock.tight {
-	border-color: var(--color-warn);
-	color: var(--color-warn);
-	background: var(--color-warn-soft);
-}
 .sched .legarrow {
 	position: absolute;
 	left: 50%;
@@ -535,40 +479,7 @@
 	color: var(--color-accent-ink);
 }
 
-/* --- Now line ------------------------------------------------------------ */
-
-.sched .nowline {
-	position: absolute;
-	left: 56px;
-	right: 0;
-	border-top: 2px solid #c2453b;
-	pointer-events: none;
-	z-index: 10;
-}
-.sched .nowline::before {
-	content: '';
-	position: absolute;
-	left: -4px;
-	top: -4px;
-	width: 7px;
-	height: 7px;
-	border-radius: 50%;
-	background: #c2453b;
-}
-.sched .nowtag {
-	position: absolute;
-	right: 2px;
-	top: -0.62rem;
-	font-size: 0.62rem;
-	font-weight: 700;
-	padding: 0.06rem 0.34rem;
-	border-radius: 999px;
-	background: #c2453b;
-	color: #fff;
-	white-space: nowrap;
-}
-
-/* --- Map and the day's journeys ------------------------------------------ */
+/* --- Map and the day's agenda -------------------------------------------- */
 
 .sched .mapwrap {
 	padding: 0;
@@ -576,14 +487,14 @@
 	position: sticky;
 	top: 80px;
 }
-.sched .legs {
+.sched .agenda {
 	padding: 1rem 1.1rem 1.2rem;
 }
-.sched .legs h4 {
+.sched .agenda h4 {
 	margin: 0 0 0.6rem;
 	font-size: 0.9rem;
 }
-.sched .legs ul {
+.sched .agenda ul {
 	list-style: none;
 	margin: 0;
 	padding: 0;
@@ -591,7 +502,7 @@
 	flex-direction: column;
 	gap: 0.3rem;
 }
-.sched .legrow {
+.sched .agendarow {
 	display: flex;
 	align-items: baseline;
 	gap: 0.5rem;
@@ -606,22 +517,22 @@
 	text-align: left;
 	cursor: pointer;
 }
-.sched .legrow:hover {
+.sched .agendarow:hover {
 	background: var(--color-surface-2);
 }
-.sched .legwhen {
+.sched .agendawhen {
 	flex: 0 0 auto;
 	font-variant-numeric: tabular-nums;
 	color: var(--color-ink-faint);
 }
-.sched .legwhat {
+.sched .agendawhat {
 	flex: 1;
 	min-width: 0;
 	overflow: hidden;
 	white-space: nowrap;
 	text-overflow: ellipsis;
 }
-.sched .legcost {
+.sched .agendameta {
 	flex: 0 0 auto;
 	display: inline-flex;
 	align-items: center;
@@ -629,7 +540,7 @@
 	color: var(--color-ink-soft);
 	font-size: 0.8rem;
 }
-.sched .legrow.tight .legcost {
+.sched .agendarow.tight .agendameta {
 	color: var(--color-warn);
 }
 
@@ -753,22 +664,6 @@
 .sched .swimbody {
 	position: relative;
 }
-.sched .swimlines {
-	position: absolute;
-	left: 80px;
-	right: 0;
-	top: 0;
-	bottom: 0;
-	pointer-events: none;
-	z-index: 5;
-}
-.sched .swimnow {
-	position: absolute;
-	top: 0;
-	bottom: 0;
-	width: 0;
-	border-left: 2px solid #c2453b;
-}
 
 /* --- Dialogs ------------------------------------------------------------- */
 
@@ -803,29 +698,6 @@
 .sched .schedule .dfact {
 	font-size: 0.78rem;
 	color: var(--color-ink-soft);
-}
-.sched .schedule .crewchips {
-	display: flex;
-	flex-wrap: wrap;
-	gap: 0.3rem;
-	margin-top: 0.35rem;
-}
-/* Not `.chip`: the app's chip is a static label, this one is a button that
-   writes a saved group of people into the picker above it. */
-.sched .schedule .tchip {
-	font: inherit;
-	font-size: 0.72rem;
-	padding: 0.2rem 0.6rem;
-	border-radius: 999px;
-	border: 1px solid color-mix(in srgb, var(--c, var(--color-accent)) 45%, white);
-	background: var(--color-surface);
-	color: var(--color-ink-soft);
-	cursor: pointer;
-}
-.sched .schedule .tchip:hover {
-	border-color: var(--color-accent);
-	color: var(--color-accent-ink);
-	background: var(--color-accent-soft);
 }
 
 /* --- Reduced motion ------------------------------------------------------
