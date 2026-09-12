@@ -72,23 +72,6 @@
 	align-items: center;
 	flex-wrap: wrap;
 }
-.sched .zone {
-	display: inline-flex;
-	align-items: center;
-	gap: 0.4rem;
-	font-size: 0.82rem;
-	color: var(--color-ink-soft);
-	padding: 0.3rem 0.6rem;
-	border: 1px solid var(--color-line);
-	border-radius: 999px;
-	white-space: nowrap;
-}
-.sched .zdot {
-	width: 7px;
-	height: 7px;
-	border-radius: 50%;
-	background: var(--color-accent);
-}
 .sched .viewas {
 	display: inline-flex;
 	align-items: center;
@@ -214,16 +197,6 @@
 	position: absolute;
 	left: 56px;
 	right: 0;
-	top: 0;
-	bottom: 0;
-}
-.sched .grid.witharrows .lane {
-	right: 34px;
-}
-.sched .travellane {
-	position: absolute;
-	right: 0;
-	width: 30px;
 	top: 0;
 	bottom: 0;
 }
@@ -451,9 +424,29 @@
  * Only the journeys a day was too dense to draw. Everything else is a block in
  * the lane with the events. */
 
-.sched .legarrow {
+/* --- Flow arrows ---------------------------------------------------------
+ *
+ * The arrow says who leaves one block for another, so it is drawn thin and
+ * quiet: it is a reading aid over the day, not another thing competing with
+ * the blocks for attention. */
+
+.sched .flows {
 	position: absolute;
-	left: 50%;
+	left: 0;
+	top: 0;
+	pointer-events: none;
+	overflow: visible;
+}
+.sched .flows path {
+	fill: none;
+	stroke: #4a6d8c;
+	stroke-width: 1.5;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+	opacity: 0.45;
+}
+.sched .flowtag {
+	position: absolute;
 	transform: translate(-50%, -50%);
 	min-width: 22px;
 	height: 20px;
@@ -467,14 +460,16 @@
 	font-weight: 700;
 	cursor: pointer;
 	z-index: 5;
-	transition: top var(--sched-settle);
+	transition:
+		top var(--sched-settle),
+		left var(--sched-settle);
 }
-.sched .legarrow::before {
+.sched .flowtag::before {
 	content: '↓';
 	margin-right: 0.15rem;
 	font-weight: 400;
 }
-.sched .legarrow:hover {
+.sched .flowtag:hover {
 	border-color: var(--color-accent);
 	color: var(--color-accent-ink);
 }
@@ -712,8 +707,7 @@
 	.sched .block,
 	.sched .block.dragging,
 	.sched .block.resizing,
-	.sched .legblock,
-	.sched .legarrow {
+	.sched .flowtag {
 		transition: none;
 		animation: none;
 	}

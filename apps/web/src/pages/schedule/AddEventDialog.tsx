@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { EventType } from '@trippy/core/types';
+import { isLocatedType, type EventType } from '@trippy/core/types';
 import { api } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
 import Modal, { ModalFooter, ModalForm } from '../../components/ui/Modal';
@@ -52,9 +52,9 @@ export default function AddEventDialog({
 	const [poi, setPoi] = useState('');
 	const [notes, setNotes] = useState('');
 
-	// Free time is deliberately nowhere: the server clears a place off it, so
-	// offering one here would promise something the save undoes.
-	const placeable = type !== 'freetime';
+	// Free time is deliberately nowhere and travel is the journey between
+	// places, so only a located type takes a link.
+	const placeable = isLocatedType(type);
 
 	const poiOptions: Option[] = [
 		{ value: '', label: 'No place' },

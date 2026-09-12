@@ -2178,18 +2178,60 @@ and now look the same: same colour, same chrome, same name on the front.
 A leg keeps one difference, and it is a fact about the leg rather than about
 where it came from: it cannot be dragged, because its place on the clock is the
 gap between the two events it joins, and moving it would mean moving one of
-them. Only the journeys `layoutLegs` gives up on stay in the margin as arrows,
-and the 34px gutter for them appears only on a day that has any.
+them. The journeys `layoutLegs` gives up on are not drawn at all; their arrow
+carries them instead (below).
 
 **Journeys can be named.** `travel_legs.title` is nullable and the board falls
 back to `<Mode> to <destination>`; resetting a leg to its automatic estimate
 leaves the name alone, because "use the router's number" and "forget what I
 called this" are different requests.
 
-**The now line is gone.** A red line at the current time is information about the
-reader, not about the plan, and the plan is almost never today. The toolbar's
-city clock stays, because that is time-zone information rather than a mark on the
-calendar.
+**The now line is gone, and so is the clock.** A red line at the current time is
+information about the reader, not about the plan, and the plan is almost never
+today. The toolbar's city clock followed it for the same reason: every time on
+the board is already destination-local, so a live clock beside them was a second
+reading of the same fact that changed every thirty seconds while nothing on the
+day moved. Where the zone genuinely matters, which is a flight arriving on
+another offset, the event says so.
+
+**Arrows link the blocks people move between.** `layoutDay` has always returned
+`flows`, the person hops that its column ordering is optimised to keep
+un-crossed, and the board never drew them. It now does: a curve from the bottom
+of one block to the top of the next, arrowhead at the far end, under the blocks
+so it stops at an edge instead of crossing a face.
+
+Only sideways hops are drawn. A block sitting directly under its predecessor is
+already read top to bottom, and an arrow there adds a line without adding a
+fact; a hop across the board is the group splitting or rejoining, which is the
+one thing columns cannot show on their own. Sideways is measured in pixels, not
+in column indices, because a block grows rightwards into whatever columns stay
+free, so two blocks in different columns are routinely drawn one above the other.
+
+This is also where a journey too dense to draw as a block ends up. Those used to
+collapse into a count in a 34px margin gutter, which was an arrow in name only:
+it pointed down the side of the day rather than at anything. The count now sits
+on the arrow between the two events the journey joins, and opens the same
+dialog, so the gutter and the separate travel lane are both gone.
+
+**An event can be linked to a saved place after the fact.** Adding one offered a
+Discover place from the start; editing one did not, so a block typed by hand
+could never be given coordinates and stayed off the map and out of the travel
+chain forever. The edit dialog now offers the same picker, and the server's
+`edit` op takes `poiId`: absent leaves the link alone, empty unlinks it. The
+coordinates travel with the link and are resolved by the route, because the
+chain is planned off the event's own lat/lng and a link without them would put
+an event nowhere while claiming a place.
+
+Both dialogs gate the picker on `isLocatedType`, so the offer is `activity`,
+`food` and `stay`. Free time is deliberately nowhere, and travel is the journey
+between places rather than one of them. Add used to allow travel, which was the
+looser of the two rules and the wrong one.
+
+**The grey fact strip left the event dialog.** It restated the start, the end and
+the city, all three of which the fields above it already say, and the restatement
+went stale the moment a select changed. The travel dialog keeps its strip,
+because what that one shows, the two events a journey joins and who is on it, is
+not a field anywhere in the form.
 
 **The agenda replaces the travel list.** The panel under the map used to list the
 day's journeys. It now appears only while "view as" names one member, and shows

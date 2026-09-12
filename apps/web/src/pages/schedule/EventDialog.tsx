@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { EventType } from '@trippy/core/types';
+import { isLocatedType, type EventType } from '@trippy/core/types';
 import { api } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
 import Modal, { ModalFooter, ModalForm } from '../../components/ui/Modal';
@@ -18,10 +18,10 @@ import {
 	lengthLabel,
 	withCurrent
 } from './shared';
-import type { Crew, EventRow } from './types';
+import type { Crew, EventRow, SavedPoi } from './types';
 
 /**
- * One event: retitle, retype, retime, re-people, delete.
+ * One event: retitle, retype, retime, re-people, re-place, delete.
  *
  * Changing the type to free time clears the event's place on the server. That
  * is the point of free time rather than a side effect: nobody has promised to
@@ -31,17 +31,17 @@ import type { Crew, EventRow } from './types';
 export default function EventDialog({
 	base,
 	event,
-	cityName,
 	memberOptions,
 	crews,
+	saved,
 	onClose,
 	onDone
 }: {
 	base: string;
 	event: EventRow;
-	cityName: string | null;
 	memberOptions: Option[];
 	crews: Crew[];
+	saved: SavedPoi[];
 	onClose: () => void;
 	onDone: () => void;
 }) {
@@ -52,10 +52,20 @@ export default function EventDialog({
 	const [people, setPeople] = useState<string[]>([...event.people]);
 	const [notes, setNotes] = useState(event.notes ?? '');
 	const [mode, setMode] = useState(event.travel_mode ?? '');
+	const [poi, setPoi] = useState(event.poi_id ?? '');
 	const [killing, setKilling] = useState(false);
 
 	const startMin = Number(start);
 	const endMin = startMin + Number(duration);
+
+	// Only a located type stands somewhere: travel is the journey between
+	// places, and free time is nowhere at all.
+	const placeable = isLocatedType(type);
+
+	const poiOptions: Option[] = [
+		{ value: '', label: 'No place' },
+		...saved.map((p) => ({ value: p.id, label: p.name }))
+	];
 
 	const op = (body: Record<string, unknown>) =>
 		api(`${base}/events/${event.id}/op`, { method: 'POST', body });
@@ -73,7 +83,9 @@ export default function EventDialog({
 				startMin,
 				endMin,
 				// Absent leaves it alone; empty hands the journey back to the router.
-				travelMode: type === 'travel' ? mode : undefined
+				travelMode: type === 'travel' ? mode : undefined,
+				// Absent leaves the place alone; empty unlinks it.
+				poiId: placeable ? poi : undefined
 			});
 			await api(`${base}/events/${event.id}/people`, { method: 'PUT', body: { people } });
 			onDone();
@@ -143,6 +155,11 @@ export default function EventDialog({
 						</div>
 
 						<div className="srow">
+							{placeable && (
+								<FieldShell label="Place" optional className="grow">
+									<Select value={poi} onChange={setPoi} options={poiOptions} ariaLabel="Place" />
+								</FieldShell>
+							)}
 							<Field
 								label="Notes"
 								optional
@@ -150,13 +167,6 @@ export default function EventDialog({
 								value={notes}
 								onChange={(e) => setNotes(e.target.value)}
 							/>
-						</div>
-
-						<div className="dfacts">
-							<span className="dfact">
-								{hhmm(startMin)} to {hhmm(endMin)}
-								{cityName && <span className="muted"> in {cityName}</span>}
-							</span>
 						</div>
 					</div>
 

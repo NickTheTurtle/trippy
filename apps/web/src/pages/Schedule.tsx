@@ -10,7 +10,7 @@ import EmptyState from '../components/ui/EmptyState';
 import Select from '../components/ui/Select';
 import GoogleMap, { type MapTrack } from '../components/GoogleMap';
 import TripMap from '../components/TripMap';
-import { localTime, zoneAbbr } from '@trippy/core/tz';
+
 import { layoutDay, personBands } from '@trippy/core/layout';
 import { layoutLegs } from '@trippy/core/travel';
 import { copy } from '../copy';
@@ -47,6 +47,11 @@ type LaneItem = { kind: 'event'; ev: EventRow } | { kind: 'leg'; leg: LegRow };
 /** Lane keys are shared with `layoutDay`, so a leg cannot collide with an event. */
 function legKey(leg: LegRow): string {
 	return `leg:${leg.id}`;
+}
+
+/** One arrow per pair of blocks, however many people or journeys it carries. */
+function pairKey(from: string, to: string): string {
+	return `${from}>${to}`;
 }
 
 export default function Schedule() {
@@ -134,13 +139,6 @@ export default function Schedule() {
 		const ro = new ResizeObserver(() => setLaneW(node.clientWidth));
 		ro.observe(node);
 		return () => ro.disconnect();
-	}, []);
-
-	// Live clock, for the "now" line in the destination's zone.
-	const [now, setNow] = useState(() => new Date());
-	useEffect(() => {
-		const id = setInterval(() => setNow(new Date()), 30_000);
-		return () => clearInterval(id);
 	}, []);
 
 	async function act(fn: () => Promise<unknown>) {
@@ -539,28 +537,49 @@ export default function Schedule() {
 	}
 
 	/**
-	 * The journeys a day could not draw, as arrows in the margin.
+	 * People moving from one block to the next, as arrows between the blocks.
 	 *
-	 * A cluster too dense to draw as blocks collapses into one arrow rather than
-	 * a picket fence of unreadable slivers. Clicking it opens the first of its
-	 * journeys; the rest are reachable from the block that survived beside them,
-	 * and from the agenda when one person is being read.
+	 * Only sideways hops are drawn. A block sitting under its predecessor is
+	 * already read top to bottom, and an arrow there repeats what the eye does
+	 * for free; a hop across the board is the group splitting or rejoining,
+	 * which is the one thing a column layout cannot show on its own.
+	 *
+	 * Sideways is measured in pixels rather than in columns, because a block
+	 * grows into the free columns beside it: two blocks can be in different
+	 * columns and still be drawn one directly above the other.
+	 *
+	 * A journey `layoutLegs` gave up on has no block to click, so its arrow
+	 * carries the count and opens it. That is what the margin used to do, moved
+	 * onto the arrow it belongs to.
 	 */
-	function arrowNodes(entry: BoardDay, arrows: ReturnType<typeof layoutLegs>['arrows']) {
-		return arrows.map((a) => {
-			const first = entry.legs.find((l) => l.key === a.keys[0]);
-			return (
-				<button
-					key={a.keys.join('|')}
-					type="button"
-					className="legarrow"
-					style={{ top: `${topPx(a.startMin)}px` }}
-					title={`${a.keys.length} journeys, ${peopleLabel(a.people)}`}
-					onClick={() => first && setOpenLegId(first.id)}
-				>
-					{a.keys.length}
-				</button>
-			);
+	function flowArrows(
+		place: ReturnType<typeof layoutDay>,
+		spans: Map<string, { start: number; end: number }>,
+		stranded: Map<string, LegRow[]>,
+		lanePx: number
+	) {
+		if (lanePx <= 0) return [];
+		// The blocks are a hair narrower than their column, so their middle is
+		// not the column's middle and an arrow drawn to one would sit off-centre.
+		const centre = (p: { left: number; width: number }) =>
+			p.left * lanePx + (p.width * lanePx - 6) / 2;
+
+		return place.flows.flatMap((f) => {
+			const a = place.placed.get(f.from);
+			const b = place.placed.get(f.to);
+			const sa = spans.get(f.from);
+			const sb = spans.get(f.to);
+			if (!a || !b || !sa || !sb) return [];
+			const legs = stranded.get(pairKey(f.from, f.to)) ?? [];
+			const x1 = centre(a);
+			const x2 = centre(b);
+			if (Math.abs(x1 - x2) < 8 && legs.length === 0) return [];
+			const y1 = topPx(sa.end);
+			// Two blocks that overlap leave no gap to fall through, so the arrow
+			// runs flat across from the end of the first instead of backwards.
+			const y2 = Math.max(topPx(sb.start), y1);
+			const bend = Math.max(10, (y2 - y1) / 2);
+			return [{ key: pairKey(f.from, f.to), people: f.people, legs, x1, y1, x2, y2, bend }];
 		});
 	}
 
@@ -579,13 +598,29 @@ export default function Schedule() {
 		/* Journeys share the event columns rather than sitting in a lane of their
 		   own. Travel is part of the day, not a footnote to it: an hour on a
 		   ferry is an hour you cannot be anywhere else, and drawing it beside the
-		   day made the gap it fills look free. Only the journeys `layoutLegs`
-		   gives up on stay in the margin, as arrows. */
+		   day made the gap it fills look free. The journeys `layoutLegs` gives up
+		   on keep their arrow between the two events instead. */
 		const { blocks: legBlocks, arrows } = layoutLegs(entry.legs);
 		const items: LaneItem[] = [
 			...entry.events.map((ev) => ({ kind: 'event', ev }) as const),
 			...legBlocks.map(({ leg }) => ({ kind: 'leg', leg }) as const)
 		];
+
+		const spans = new Map<string, { start: number; end: number }>();
+		for (const it of items) {
+			if (it.kind === 'event') spans.set(it.ev.id, { start: it.ev.start_min, end: it.ev.end_min });
+			else spans.set(legKey(it.leg), { start: it.leg.startMin, end: it.leg.endMin });
+		}
+
+		const undrawn = new Set(arrows.flatMap((a) => a.keys));
+		const stranded = new Map<string, LegRow[]>();
+		for (const leg of entry.legs) {
+			if (!undrawn.has(leg.key)) continue;
+			const k = pairKey(leg.fromEventId, leg.toEventId);
+			const list = stranded.get(k);
+			if (list) list.push(leg);
+			else stranded.set(k, [leg]);
+		}
 
 		const place = layoutDay(
 			items.map((it) =>
@@ -610,11 +645,10 @@ export default function Schedule() {
 			)
 		);
 
+		const hops = flowArrows(place, spans, stranded, opts.lanePx);
+
 		return (
-			<div
-				className={arrows.length ? 'grid witharrows' : 'grid'}
-				style={{ height: `${(DAY_END - DAY_START) * PX_PER_MIN + 16}px` }}
-			>
+			<div className="grid" style={{ height: `${(DAY_END - DAY_START) * PX_PER_MIN + 16}px` }}>
 				<div className="axis">
 					{HOURS.map((h) => (
 						<div
@@ -628,14 +662,52 @@ export default function Schedule() {
 				</div>
 
 				<div className="lane" ref={opts.measure ? laneRef : undefined}>
+					{/* Under the blocks, so an arrow reaches a block's edge and stops
+					    there rather than crossing its face. */}
+					{hops.length > 0 && (
+						<svg
+							className="flows"
+							width={opts.lanePx}
+							height={(DAY_END - DAY_START) * PX_PER_MIN}
+							aria-hidden="true"
+						>
+							{hops.map((h) => (
+								<g key={h.key}>
+									<path
+										d={`M ${h.x1} ${h.y1} C ${h.x1} ${h.y1 + h.bend}, ${h.x2} ${h.y2 - h.bend}, ${h.x2} ${h.y2}`}
+									/>
+									<path
+										className="head"
+										d={`M ${h.x2 - 4} ${h.y2 - 6} L ${h.x2} ${h.y2} L ${h.x2 + 4} ${h.y2 - 6}`}
+									/>
+								</g>
+							))}
+						</svg>
+					)}
 					{items.map((it) =>
 						it.kind === 'event'
 							? blockNode(it.ev, entry.day, opts.lanePx, place)
 							: legNode(it.leg, opts.lanePx, place)
 					)}
+					{hops
+						.filter((h) => h.legs.length > 0)
+						.map((h) => (
+							<button
+								key={h.key}
+								type="button"
+								className="flowtag"
+								style={{ left: `${(h.x1 + h.x2) / 2}px`, top: `${(h.y1 + h.y2) / 2}px` }}
+								title={
+									h.legs.length === 1
+										? legTitle(h.legs[0])
+										: `${h.legs.length} journeys, ${peopleLabel(h.people)}`
+								}
+								onClick={() => setOpenLegId(h.legs[0].id)}
+							>
+								{h.legs.length}
+							</button>
+						))}
 				</div>
-
-				{arrows.length > 0 && <div className="travellane">{arrowNodes(entry, arrows)}</div>}
 			</div>
 		);
 	}
@@ -870,12 +942,6 @@ export default function Schedule() {
 				</div>
 
 				<div className="tools">
-					{anchorCity && (
-						<span className="zone" title={`Times are ${anchorCity.name} local time`}>
-							<span className="zdot" />
-							{anchorCity.name} {localTime(anchorCity.tz, now)} {zoneAbbr(anchorCity.tz, now)}
-						</span>
-					)}
 					{/* On a solo trip the only person to read the board as is you, and the
 					    control would be a dropdown with one name that changes nothing. */}
 					{members.length > 1 && (
@@ -988,9 +1054,9 @@ export default function Schedule() {
 					key={openEvent.id}
 					base={base}
 					event={openEvent}
-					cityName={anchorCity?.name ?? null}
 					memberOptions={memberOptions}
 					crews={data.crews}
+					saved={data.saved}
 					onClose={() => setOpenEventId('')}
 					onDone={() => {
 						setOpenEventId('');

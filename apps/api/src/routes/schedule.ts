@@ -4,7 +4,7 @@ import { body, isoDay, num, str, strList } from '../parse';
 import { fail, okOr } from '../respond';
 import type { Env, Trip } from '../types';
 import { env } from '@trippy/server/env';
-import { isEventType } from '@trippy/core/types';
+import { isEventType, isLocatedType } from '@trippy/core/types';
 import {
 	createEvent,
 	crewsForTrip,
@@ -167,6 +167,18 @@ schedule.get('/', async (c) => {
 
 // --- Events -----------------------------------------------------------------
 
+/**
+ * Turn a saved-place id into the place an event sits at.
+ *
+ * An unknown id unlinks rather than fails: the alternative is an event that
+ * claims a place the trip no longer saves.
+ */
+function placeFor(tripId: string, poiId: string) {
+	if (!poiId) return null;
+	const poi = savedPoisForTrip(tripId).find((p) => p.id === poiId);
+	return poi ? { poiId: poi.id, name: poi.name, lat: poi.lat, lng: poi.lng } : null;
+}
+
 schedule.post('/events', async (c) => {
 	const trip = c.get('trip');
 	const b = await body(c);
@@ -181,20 +193,10 @@ schedule.post('/events', async (c) => {
 	const type = isEventType(typeRaw) ? typeRaw : 'activity';
 
 	let title = str(b.title);
-	let lat: number | null = null;
-	let lng: number | null = null;
-	let linkedPoi: string | null = null;
-
-	const poiId = str(b.poiId);
-	if (poiId && type !== 'freetime') {
-		const poi = savedPoisForTrip(trip.id).find((p) => p.id === poiId);
-		if (poi) {
-			title = title || poi.name;
-			lat = poi.lat;
-			lng = poi.lng;
-			linkedPoi = poi.id;
-		}
-	}
+	// Free time is deliberately nowhere, and travel is the journey between
+	// places rather than one of them, so only a located type takes a link.
+	const place = isLocatedType(type) ? placeFor(trip.id, str(b.poiId)) : null;
+	if (place && !title) title = place.name;
 
 	if (!title) title = type === 'travel' ? 'Travel' : type === 'freetime' ? 'Free time' : '';
 	if (!title) return fail(c, 400, 'Enter a title.');
@@ -209,10 +211,10 @@ schedule.post('/events', async (c) => {
 		type,
 		startMin: start,
 		endMin: end,
-		poiId: linkedPoi,
+		poiId: place?.poiId ?? null,
 		cityId: str(b.cityId) || trip.cities[0]?.id || null,
-		lat,
-		lng,
+		lat: place?.lat ?? null,
+		lng: place?.lng ?? null,
 		notes: str(b.notes) || null,
 		travelMode: str(b.travelMode) || null,
 		people: strList(b.people)
@@ -286,7 +288,9 @@ schedule.post('/events/:eventId/op', async (c) => {
 								? null
 								: String(b.travelMode),
 					startMin: b.startMin === undefined ? undefined : (num(b.startMin) ?? undefined),
-					endMin: b.endMin === undefined ? undefined : (num(b.endMin) ?? undefined)
+					endMin: b.endMin === undefined ? undefined : (num(b.endMin) ?? undefined),
+					// Same three cases again: absent leaves the link, empty unlinks.
+					place: b.poiId === undefined ? undefined : placeFor(trip.id, str(b.poiId))
 				},
 				trip.id
 			);

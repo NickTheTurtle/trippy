@@ -450,6 +450,15 @@ export interface EventEdit {
 	travelMode?: string | null;
 	startMin?: number;
 	endMin?: number;
+	/**
+	 * The saved place this event happens at, already resolved by the caller.
+	 *
+	 * Absent leaves the link alone, null unlinks it. The coordinates travel with
+	 * the link rather than being looked up here, because the chain is planned off
+	 * the event's own lat/lng: a link without them would put the event nowhere
+	 * while claiming a place.
+	 */
+	place?: { poiId: string; lat: number | null; lng: number | null } | null;
 }
 
 export function editEvent(
@@ -481,6 +490,16 @@ export function editEvent(
 	if (edit.notes !== undefined) {
 		sets.push('notes = ?');
 		args.push(edit.notes?.trim() || null);
+	}
+	// Free time has just cleared its place above, and re-setting one here would
+	// undo that in the same statement.
+	if (edit.place !== undefined && edit.type !== 'freetime') {
+		if (edit.place) {
+			sets.push('poi_id = ?', 'lat = ?', 'lng = ?');
+			args.push(edit.place.poiId, edit.place.lat, edit.place.lng);
+		} else {
+			sets.push('poi_id = NULL', 'lat = NULL', 'lng = NULL');
+		}
 	}
 	if (edit.travelMode !== undefined) {
 		sets.push('travel_mode = ?');
