@@ -788,10 +788,17 @@ export default function Schedule() {
 
 	const mapTracks: MapTrack[] = [];
 	if (restPins.length) {
+		const cityName = new Map(data.cities.filter((c) => c !== null).map((c) => [c.id, c.name]));
 		mapTracks.push({
 			name: 'Saved places',
 			color: '#9aa39c',
-			items: restPins.map((p) => ({ title: p.name, lat: p.lat, lng: p.lng })),
+			items: restPins.map((p) => ({
+				title: p.name,
+				lat: p.lat,
+				lng: p.lng,
+				// Which city it is in, which the colour and the track name do not say.
+				detail: [cityName.get(p.city_id)].filter((n): n is string => Boolean(n))
+			})),
 			line: false,
 			numbered: false
 		});
@@ -802,7 +809,15 @@ export default function Schedule() {
 			color: '#2f6d5e',
 			items: [...dayPins]
 				.sort((a, b) => a.start_min - b.start_min)
-				.map((e) => ({ title: e.title, lat: e.lat, lng: e.lng })),
+				.map((e) => ({
+					title: e.title,
+					lat: e.lat,
+					lng: e.lng,
+					detail: [
+						`${typeLabel(e.type)} · ${hhmm(e.start_min)}-${hhmm(e.end_min)}`,
+						peopleLabel(e.people)
+					]
+				})),
 			numbered: ordered
 		});
 	}

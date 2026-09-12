@@ -32,11 +32,11 @@ export default function TripMap({ tracks }: { tracks: MapTrack[] }) {
 		// Built as DOM rather than as an HTML string. Track colours come back from
 		// the API as member-editable text, so interpolating one into markup would
 		// let a crew name a colour that closes the attribute and injects tags.
-		const pin = (color: string, n: number) => {
+		const pin = (color: string, n: number | null) => {
 			const wrap = document.createElement('span');
 			wrap.style.setProperty('--pin', color);
 			const b = document.createElement('b');
-			b.textContent = String(n);
+			b.textContent = n === null ? '' : String(n);
 			wrap.appendChild(b);
 			return L.divIcon({
 				className: 'wp-pin',
@@ -47,16 +47,19 @@ export default function TripMap({ tracks }: { tracks: MapTrack[] }) {
 			});
 		};
 
-		// Same reasoning as `pin`: the title and the track name are typed by trip
-		// members, so they are set as text and never parsed as HTML.
-		const popup = (title: string, track: string) => {
+		// Same reasoning as `pin`: the title and the lines under it are typed by
+		// trip members, so they are set as text and never parsed as HTML.
+		const popup = (title: string, lines: string[]) => {
 			const wrap = document.createElement('div');
+			wrap.className = 'mapcard';
 			const strong = document.createElement('strong');
 			strong.textContent = title;
-			const name = document.createElement('span');
-			name.style.color = 'var(--color-ink-soft)';
-			name.textContent = track;
-			wrap.append(strong, document.createElement('br'), name);
+			wrap.appendChild(strong);
+			for (const line of lines) {
+				const span = document.createElement('span');
+				span.textContent = line;
+				wrap.appendChild(span);
+			}
 			return wrap;
 		};
 
@@ -67,7 +70,13 @@ export default function TripMap({ tracks }: { tracks: MapTrack[] }) {
 				const ll: [number, number] = [i.lat as number, i.lng as number];
 				line.push(ll);
 				pts.push(ll);
-				const m = L.marker(ll, { icon: pin(t.color, idx + 1) }).bindPopup(popup(i.title, t.name));
+				const m = L.marker(ll, {
+					icon: pin(t.color, t.numbered === false ? null : idx + 1)
+				}).bindPopup(popup(i.title, [...(i.detail ?? []), t.name]));
+				// Hovering is enough, the same as on the Google map. The popup still
+				// opens on click, so it survives a tap.
+				m.on('mouseover', () => m.openPopup());
+				m.on('mouseout', () => m.closePopup());
 				m.addTo(map);
 				overlays.current.push(m);
 			});

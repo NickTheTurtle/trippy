@@ -2209,6 +2209,23 @@ with nothing scheduled do not break this, as they are simply absent from every
 list. Reading the day as one person drops the second test: their own thread is a
 sequence however the rest of the group divides.
 
+**A pin says more when you point at it.** The browser's own tooltip arrived after
+a delay, held one line of unstyleable plain text and closed with the pointer, so
+a pin could give its name and nothing else. Hovering now opens a card: the place,
+then what kind of thing it is and when, then who is going, then which day. A grey
+pin gives its city, which is the one thing neither its colour nor its track name
+says. Both maps do it, `GoogleMap` through a single reused `InfoWindow` and
+`TripMap` through Leaflet's popup, and the card is built as DOM rather than
+interpolated into markup, because every line of it is typed by trip members.
+
+The card's content is read out of a ref by marker index rather than captured in
+the hover listener, so a pin that keeps its slot through a re-layout shows its new
+times without its listeners being rebuilt. The card opens above its pin and the
+map box clips its overflow, so `fitBounds` pads the top by 76px: a pin 40px from
+the edge would open a card half outside the frame. Padding the fit is quieter
+than letting the window pan the map, which would slide the pin out from under the
+pointer and close what it had just opened.
+
 ## Shared UI conventions
 
 These exist so five pages don't each invent their own version. Reach for them

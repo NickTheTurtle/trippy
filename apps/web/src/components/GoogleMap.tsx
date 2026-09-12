@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 
-export type MapItem = { title: string; lat: number | null; lng: number | null };
+export type MapItem = {
+	title: string;
+	lat: number | null;
+	lng: number | null;
+	/** Lines shown under the title when the pin is hovered. */
+	detail?: string[];
+};
 export type MapTrack = {
 	name: string;
 	color: string;
@@ -69,6 +75,12 @@ export default function GoogleMap({
 	const lines = useRef<Gm[]>([]);
 	/** Last icon applied to each marker, so an unchanged one is never re-set. */
 	const iconKeys = useRef<string[]>([]);
+	/* One InfoWindow for the whole map, and what each marker should put in it.
+	   The card is read out of this ref by index rather than captured in the
+	   hover listener, so a marker that keeps its slot through a re-layout shows
+	   its new times without its listeners being torn down and rebuilt. */
+	const infoRef = useRef<Gm>(null);
+	const cards = useRef<{ title: string; lines: string[] }[]>([]);
 	/** Bumped once the map exists, so the draw effect below reruns for it. */
 	const [ready, setReady] = useState(0);
 
@@ -110,9 +122,12 @@ export default function GoogleMap({
 			cancelled = true;
 			for (const o of markers.current) o.setMap?.(null);
 			for (const o of lines.current) o.setMap?.(null);
+			infoRef.current?.close?.();
+			infoRef.current = null;
 			markers.current = [];
 			lines.current = [];
 			iconKeys.current = [];
+			cards.current = [];
 			mapRef.current = null;
 		};
 	}, [apiKey]);
@@ -142,12 +157,34 @@ export default function GoogleMap({
 			strokeWeight: 2
 		});
 
+		/* Built as DOM rather than as an HTML string. A pin's title and the lines
+		   under it are typed by trip members, so interpolating them into markup
+		   would let somebody name a place in tags. */
+		const card = (c: { title: string; lines: string[] }) => {
+			const wrap = document.createElement('div');
+			wrap.className = 'mapcard';
+			const strong = document.createElement('strong');
+			strong.textContent = c.title;
+			wrap.appendChild(strong);
+			for (const line of c.lines) {
+				const p = document.createElement('span');
+				p.textContent = line;
+				wrap.appendChild(p);
+			}
+			return wrap;
+		};
+
 		/* Work out what the map should show, then reconcile the overlays already
 		   on it towards that, rather than clearing and rebuilding. A Marker that
 		   is removed and replaced flashes; one that is told its new position or
 		   icon does not. Renumbering after a reorder is a `setIcon`, which is the
 		   common case and is now invisible. */
-		type Want = { pos: { lat: number; lng: number }; iconKey: string; icon: Gm; title: string };
+		type Want = {
+			pos: { lat: number; lng: number };
+			iconKey: string;
+			icon: Gm;
+			card: { title: string; lines: string[] };
+		};
 		const wantMarkers: Want[] = [];
 		const wantLines: { path: { lat: number; lng: number }[]; color: string }[] = [];
 		const bounds = new g.maps.LatLngBounds();
@@ -164,23 +201,42 @@ export default function GoogleMap({
 					pos,
 					iconKey: t.dot ? `dot:${t.color}` : `pin:${t.color}:${n ?? '-'}`,
 					icon: t.dot ? dotIcon(t.color) : pinIcon(t.color, n),
-					title: t.dot ? i.title : `${i.title} · ${t.name}`
+					card: { title: i.title, lines: [...(i.detail ?? []), t.name] }
 				});
 			});
 			if (t.line !== false && path.length > 1) wantLines.push({ path, color: t.color });
 		}
 
+		/* One hover card, not the browser's tooltip. The tooltip arrives after a
+		   delay, holds one line of plain text and cannot be styled, so a pin
+		   could say what it was called and nothing about when it is.
+		   `headerDisabled` drops the close button: this window is opened and
+		   closed by the pointer, and a control that offers a second way to close
+		   it only steals room from the title. */
+		if (!infoRef.current) {
+			infoRef.current = new g.maps.InfoWindow({ disableAutoPan: true, headerDisabled: true });
+		}
+		const info = infoRef.current;
+
 		wantMarkers.forEach((w, i) => {
 			const dot = w.iconKey.startsWith('dot:');
+			cards.current[i] = w.card;
 			const m = markers.current[i];
 			if (!m) {
-				markers.current[i] = new g.maps.Marker({
+				const marker = new g.maps.Marker({
 					position: w.pos,
 					map,
 					icon: w.icon,
-					title: w.title,
 					zIndex: dot ? 1 : 10
 				});
+				marker.addListener('mouseover', () => {
+					const c = cards.current[i];
+					if (!c) return;
+					info.setContent(card(c));
+					info.open({ map, anchor: marker });
+				});
+				marker.addListener('mouseout', () => info.close());
+				markers.current[i] = marker;
 				iconKeys.current[i] = w.iconKey;
 				return;
 			}
@@ -191,13 +247,13 @@ export default function GoogleMap({
 				m.setZIndex(dot ? 1 : 10);
 				iconKeys.current[i] = w.iconKey;
 			}
-			if (m.getTitle() !== w.title) m.setTitle(w.title);
 		});
 		for (let i = wantMarkers.length; i < markers.current.length; i++) {
 			markers.current[i].setMap(null);
 		}
 		markers.current.length = wantMarkers.length;
 		iconKeys.current.length = wantMarkers.length;
+		cards.current.length = wantMarkers.length;
 
 		wantLines.forEach((w, i) => {
 			const l = lines.current[i];
@@ -220,7 +276,13 @@ export default function GoogleMap({
 		const count = wantMarkers.length;
 		const c = centerRef.current;
 		if (count > 1) {
-			map.fitBounds(bounds, 40);
+			/* Extra room at the top so the hover card has somewhere to go. The card
+			   opens above its pin and the map box clips its overflow, so a pin
+			   sitting 40px from the top edge would open a card half outside it.
+			   Padding the fit is quieter than letting the window pan the map, which
+			   would slide the pin out from under the pointer and close what it just
+			   opened. */
+			map.fitBounds(bounds, { top: 76, right: 40, bottom: 40, left: 40 });
 		} else if (count === 1) {
 			map.setCenter(bounds.getCenter());
 			map.setZoom(14);

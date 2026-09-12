@@ -471,13 +471,97 @@ select.input.compact {
 		justify-content: center;
 	}
 }
+
+/* --- Pills ---------------------------------------------------------------- */
+
+/*
+ * A joined row of segments, one of which is on. The schedule's Day / 3-day /
+ * People switch, Discover's phone-width type filter, and the section switcher
+ * on Preparation and Expenses at the same widths.
+ *
+ * Plain CSS rather than utilities because the segments are joined by a shared
+ * border that only the last one drops, and because it has to sit on an `<a>`
+ * and a `<button>` alike: the schedule's view is addressable so its segments
+ * are links, and a filter held in state cannot be. The button reset below is
+ * what makes the two render identically.
+ */
+.pills {
+	display: inline-flex;
+	border: 1px solid var(--color-line);
+	border-radius: 999px;
+	overflow: hidden;
+}
+.pill {
+	padding: 0.35rem 0.8rem;
+	font-size: 0.82rem;
+	font-family: inherit;
+	color: var(--color-ink-soft);
+	text-decoration: none;
+	white-space: nowrap;
+	background: none;
+	border: none;
+	border-right: 1px solid var(--color-line);
+	cursor: pointer;
+}
+.pill:last-child {
+	border-right: none;
+}
+.pill.on {
+	background: var(--color-accent);
+	color: #fff;
+}
+/* --- Trip tab strip ------------------------------------------------------ */
+
+/*
+ * The tabs scroll when they do not fit, and `TabStrip` measures which edge
+ * still has tabs behind it. The fade is drawn here rather than as a utility
+ * because it needs ::before/::after and a gradient in the header's own colour,
+ * and the scrollbar is hidden because the fade is the affordance: two of them
+ * on one row read as two different controls.
+ */
+.tabswrap {
+	position: relative;
+	margin-top: 1.25rem;
+}
+.tabs {
+	display: flex;
+	gap: 0.25rem;
+	overflow-x: auto;
+	scrollbar-width: none;
+	scroll-behavior: smooth;
+}
+.tabs::-webkit-scrollbar {
+	display: none;
+}
+.tabswrap::before,
+.tabswrap::after {
+	content: '';
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	width: 2rem;
+	pointer-events: none;
+	opacity: 0;
+	transition: opacity 0.15s ease;
+}
+.tabswrap::before {
+	left: 0;
+	background: linear-gradient(to right, var(--color-surface), transparent);
+}
+.tabswrap::after {
+	right: 0;
+	background: linear-gradient(to left, var(--color-surface), transparent);
+}
+.tabswrap.more-l::before,
+.tabswrap.more-r::after {
+	opacity: 1;
+}
 /*
  * Select and SectionNav.
  *
  * Plain CSS for the same reason the dialog block is: the menu is positioned by
- * `useAnchor` at runtime, it needs `position: fixed` to escape the modal body's
- * overflow, and the narrow-screen SectionNav hides its scrollbar through
- * ::-webkit-scrollbar. None of that is expressible as utility classes.
+ * `useAnchor` at runtime and it needs `position: fixed` to escape the modal
+ * body's overflow. None of that is expressible as utility classes.
  */
 .sel {
 	position: relative;
@@ -643,24 +727,9 @@ select.input.compact {
 	color: var(--color-accent);
 }
 
-@media (max-width: 860px) {
-	.secnav {
-		flex-direction: row;
-		position: static;
-		overflow-x: auto;
-		scrollbar-width: none;
-		padding-bottom: 0.2rem;
-		border-bottom: 1px solid var(--color-line);
-		margin-bottom: 1rem;
-	}
-	.secnav::-webkit-scrollbar {
-		display: none;
-	}
-	.sec {
-		width: auto;
-		flex: 0 0 auto;
-	}
-}
+/* No narrow-screen variant: below `lg` this column is not rendered at all and
+   `SectionNav` renders a dropdown instead. */
+
 /* --- Button variants used by cards ------------------------------------- */
 
 .btn.small {
@@ -803,6 +872,9 @@ select.input.compact {
 		width: 100%;
 		transform: none;
 		opacity: 0.6;
+	}
+	.tabs {
+		scroll-behavior: auto;
 	}
 }
 /* --- Search dropdown ----------------------------------------------------- */
@@ -954,6 +1026,21 @@ select.input.compact {
 	width: max-content;
 	max-width: min(20rem, calc(100vw - 1rem));
 }
+/*
+ * The label over a run of rows, when the menu offers crews above the people
+ * they are made of. Two kinds of row in one menu need saying apart, and a
+ * heading does it without a second tick column.
+ *
+ * Not `.mhead`: that is the modal header, and the `m` prefix is shared by the
+ * modal and this menu.
+ */
+.mopthead {
+	padding: 0.4rem 0.5rem 0.2rem;
+	font-size: var(--text-micro);
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	color: var(--color-ink-faint);
+}
 .mopt {
 	display: flex;
 	align-items: center;
@@ -1068,4 +1155,25 @@ select.input.compact {
 	transform: rotate(45deg);
 	color: #fff;
 	font: 600 0.75rem/1 var(--font-sans);
+}
+/* The hover card both maps put over a pin. Google's InfoWindow and Leaflet's
+   popup each draw their own frame, so this styles only what goes inside. */
+.mapcard {
+	display: flex;
+	flex-direction: column;
+	gap: 0.1rem;
+	/* The window measures its content, and a bold title sized in rem is wider
+	   than the frame allows for, so the last letter sat on the border. */
+	padding: 0.1rem 0.5rem 0.1rem 0.1rem;
+	max-width: 15rem;
+	font-family: var(--font-sans);
+	line-height: 1.35;
+}
+.mapcard strong {
+	font-size: 0.86rem;
+	color: var(--color-ink);
+}
+.mapcard span {
+	font-size: 0.78rem;
+	color: var(--color-ink-soft);
 }
