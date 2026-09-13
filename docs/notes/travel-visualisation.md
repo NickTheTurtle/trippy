@@ -1,5 +1,11 @@
 # Drawing travel on the schedule board: options
 
+> **The conclusion here is superseded by `travel-decision.md`**, which argues the
+> recommended option in detail against later measurements. This document remains
+> the record of what was considered and why the rest was rejected. Note that the
+> fan objection raised against option H below was measured afterwards and turned
+> out to be wrong.
+
 Written 12 Sep 2026, after you flagged that the 3-day view "gets really busy".
 
 Everything below is measured or rendered from the real Athens trip, not sketched.
