@@ -46,6 +46,18 @@ export type EventRow = {
 	people: string[];
 };
 
+/**
+ * An unsaved edit, drawn on the board while its dialog is open.
+ *
+ * The fields an edit can move a block by, and nothing else: a preview is the
+ * same row with these overwritten, so anything the board reads that is not
+ * here (its place, its coordinates, its day) keeps the saved answer.
+ */
+export type EventDraft = Pick<
+	EventRow,
+	'id' | 'title' | 'type' | 'start_min' | 'end_min' | 'people'
+>;
+
 export type LegRow = {
 	id: string;
 	day: string;

@@ -32,7 +32,15 @@ import {
 	typeLabel,
 	whoBudget
 } from './schedule/shared';
-import type { BoardDay, EventRow, LegRow, Member, ScheduleData, ViewMode } from './schedule/types';
+import type {
+	BoardDay,
+	EventDraft,
+	EventRow,
+	LegRow,
+	Member,
+	ScheduleData,
+	ViewMode
+} from './schedule/types';
 import '../styles/schedule.css';
 
 const VIEW_OPTIONS: { v: ViewMode; label: string }[] = [
@@ -97,6 +105,15 @@ export default function Schedule() {
 	const [openEventId, setOpenEventId] = useState('');
 	const [openLegId, setOpenLegId] = useState('');
 	const [notice, setNotice] = useState('');
+	/** The open edit dialog's unsaved draft, drawn on the board as it is typed. */
+	const [preview, setPreview] = useState<EventDraft | null>(null);
+
+	/* Whether there is room beside the board for the edit dialog to stand.
+	 *
+	 * Below this the panel would cover what it is previewing, so it goes back to
+	 * being an ordinary centred dialog. The preview is still computed: it costs
+	 * nothing and the board is correct the moment the dialog is dismissed. */
+	const roomToDock = useMediaQuery('(min-width: 1100px)');
 
 	/* How many hours apart the People view labels its time axis.
 	 *
@@ -200,23 +217,52 @@ export default function Schedule() {
 	}, [viewAs, memberIds]);
 
 	/**
-	 * The board with "view as" applied.
+	 * The board with "view as" and the edit in progress applied.
 	 *
 	 * An event with nobody on it belongs to the whole group and is always shown;
 	 * otherwise the chosen person has to be on it. Travel legs are not: a leg
 	 * belongs to the people making that journey, and a leg they are not on is not
 	 * part of their day.
+	 *
+	 * A draft is patched in before the filter rather than drawn as a second
+	 * ghost block. Everything downstream (the layout, the map, the agenda, who
+	 * fits in a block) then reads one board, so the preview cannot disagree with
+	 * itself, and an edit that takes the reader off the event correctly removes
+	 * it from their day.
+	 *
+	 * Journeys touching a draft that moved are dropped rather than left where
+	 * they were. The server replans travel from the saved times, so a journey
+	 * still arriving where the block no longer is would be a claim about the day
+	 * that is already false. A retitle changes no times, so it keeps them.
 	 */
 	const board: BoardDay[] = useMemo(() => {
 		const showEvent = (e: EventRow) =>
 			e.people.length === 0 || e.people.some((p) => selected.has(p));
 		const showLeg = (l: LegRow) => l.people.some((p) => selected.has(p));
-		return (data?.board ?? []).map((entry) => ({
+
+		const days = data?.board ?? [];
+		const saved = preview
+			? days.flatMap((d) => d.events).find((e) => e.id === preview.id)
+			: undefined;
+		const replanned =
+			!!preview &&
+			!!saved &&
+			(preview.start_min !== saved.start_min ||
+				preview.end_min !== saved.end_min ||
+				preview.type !== saved.type ||
+				preview.people.join() !== saved.people.join());
+
+		return days.map((entry) => ({
 			...entry,
-			events: entry.events.filter(showEvent),
-			legs: entry.legs.filter(showLeg)
+			events: entry.events
+				.map((e) => (preview && e.id === preview.id ? { ...e, ...preview } : e))
+				.filter(showEvent),
+			legs: entry.legs.filter(
+				(l) =>
+					showLeg(l) && !(replanned && (l.fromEventId === preview.id || l.toEventId === preview.id))
+			)
 		}));
-	}, [data, selected]);
+	}, [data, selected, preview]);
 
 	const anchor = useMemo(
 		() => (data ? (board.find((b) => b.day === data.day) ?? board[0] ?? null) : null),
@@ -243,8 +289,54 @@ export default function Schedule() {
 		return out;
 	}, [board]);
 
-	const openEvent = openEventId ? (eventById.get(openEventId) ?? null) : null;
+	/* The saved row, deliberately not the previewed one: the dialog is the
+	   source of the draft and handing it back its own edit would make the two
+	   states race. It also keeps the delete confirmation naming the event as it
+	   stands on the server rather than as it is being renamed. */
+	const openEvent = useMemo(() => {
+		if (!openEventId) return null;
+		for (const entry of data?.board ?? [])
+			for (const e of entry.events) if (e.id === openEventId) return e;
+		return null;
+	}, [openEventId, data]);
 	const openLeg = openLegId ? (legById.get(openLegId) ?? null) : null;
+
+	/* Which edge the edit dialog stands at: whichever one is not showing the day
+	   being edited. In the day and people views the board is on the left and the
+	   map on the right, so the panel takes the map's side; across three days it
+	   takes the side the event is furthest from. */
+	const dockSide: 'left' | 'right' = useMemo(() => {
+		if (!openEvent) return 'right';
+		const at = board.findIndex((b) => b.day === openEvent.day);
+		return at >= 0 && at >= board.length / 2 ? 'left' : 'right';
+	}, [openEvent, board]);
+
+	/* Keep the block being edited in sight.
+	 *
+	 * The board is as tall as the day, so a start moved from breakfast to
+	 * midnight lands off screen and the preview would be showing nothing.
+	 *
+	 * The target is computed from the draft rather than measured off the block,
+	 * because a block eases into its new position over `--sched-settle` and the
+	 * rect at this point is still most of a day away from where it is going. The
+	 * lane it sits in does not move, so its top plus the draft's own offset is
+	 * the answer the animation is heading for. Only ever scrolls when the block
+	 * would otherwise be out of view, and only as far as it has to. */
+	useEffect(() => {
+		if (!preview || !roomToDock) return;
+		const lane = document.querySelector('.sched .block.editingnow')?.closest('.lane');
+		if (!lane) return;
+		const laneTop = lane.getBoundingClientRect().top;
+		const top = laneTop + topPx(preview.start_min);
+		const bottom = laneTop + topPx(preview.end_min);
+		const margin = 56;
+		const over = bottom - (window.innerHeight - margin);
+		const under = top - margin;
+		// Never past the block's own top: a long event cannot be shown whole, and
+		// the end of one is worth less than knowing where it begins.
+		const by = under < 0 ? under : over > 0 ? Math.min(over, under) : 0;
+		if (by) window.scrollBy({ top: by, behavior: 'smooth' });
+	}, [preview, roomToDock]);
 
 	const peopleLabel = useCallback(
 		(ids: string[]) => {
@@ -1011,6 +1103,8 @@ export default function Schedule() {
 					saved={data.saved}
 					cities={data.cities}
 					cityId={openEvent.city_id ?? cityOfDay(openEvent.day)}
+					dock={roomToDock ? dockSide : undefined}
+					onPreview={setPreview}
 					onClose={() => setOpenEventId('')}
 					onDone={() => {
 						setOpenEventId('');

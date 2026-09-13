@@ -372,6 +372,25 @@ select.input.compact {
 	backdrop-filter: blur(2px);
 }
 
+/* Docked: the panel stands at one edge so the page it edits stays legible.
+   A dimmed backdrop would undo that, so it keeps only a shadow, which is what
+   separates it from the page instead. Narrower than a centred dialog of the
+   same size for the same reason: what it leaves uncovered is the point. */
+.modal.docked {
+	width: min(var(--mw), 40vw, calc(100vw - 2rem));
+	max-height: calc(100vh - 2rem);
+}
+.modal.docked.right {
+	margin: auto 1rem auto auto;
+}
+.modal.docked.left {
+	margin: auto auto auto 1rem;
+}
+.modal.docked::backdrop {
+	background: transparent;
+	backdrop-filter: none;
+}
+
 .mhead {
 	display: flex;
 	align-items: center;

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { isLocatedType, type EventType } from '@trippy/core/types';
 import { api } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
@@ -19,7 +19,7 @@ import {
 	placeOptions,
 	withCurrent
 } from './shared';
-import type { Cell, Crew, EventRow, SavedPoi } from './types';
+import type { Cell, Crew, EventDraft, EventRow, SavedPoi } from './types';
 
 /**
  * One event: retitle, retype, retime, re-people, re-place, delete.
@@ -28,6 +28,10 @@ import type { Cell, Crew, EventRow, SavedPoi } from './types';
  * is the point of free time rather than a side effect: nobody has promised to
  * be anywhere, so the travel chain breaks on both sides of it and the next
  * journey starts from whatever the person is committed to afterwards.
+ *
+ * Every field that moves the block reports upward as it is typed, so the board
+ * redraws under the dialog rather than after it. `dock` is what makes that
+ * worth doing: it stands the panel at one edge and leaves the board uncovered.
  */
 export default function EventDialog({
 	base,
@@ -37,6 +41,8 @@ export default function EventDialog({
 	saved,
 	cities,
 	cityId,
+	dock,
+	onPreview,
 	onClose,
 	onDone
 }: {
@@ -47,6 +53,10 @@ export default function EventDialog({
 	saved: SavedPoi[];
 	cities: (Cell | null)[];
 	cityId: string | null;
+	/** Which edge to stand at, or undefined to sit in the middle and cover the page. */
+	dock?: 'left' | 'right';
+	/** The edit so far, or null once this dialog is gone. */
+	onPreview?: (draft: EventDraft | null) => void;
 	onClose: () => void;
 	onDone: () => void;
 }) {
@@ -62,6 +72,27 @@ export default function EventDialog({
 
 	const startMin = Number(start);
 	const endMin = startMin + Number(duration);
+
+	/* Held in a ref so a caller passing an inline function does not restart the
+	   effect, and so the teardown can fire without the effect depending on it. */
+	const preview = useRef(onPreview);
+	preview.current = onPreview;
+	useEffect(() => {
+		preview.current?.({
+			id: event.id,
+			// An empty title is not savable, and a nameless block on the board reads
+			// as a bug rather than as an unfinished edit, so the saved name stands
+			// until there is a new one.
+			title: title.trim() || event.title,
+			type,
+			start_min: startMin,
+			end_min: endMin,
+			people
+		});
+	}, [event.id, event.title, title, type, startMin, endMin, people]);
+	// Separate from the effect above, and mount-scoped: the board must drop the
+	// preview when the dialog goes, whether it was saved, cancelled or escaped.
+	useEffect(() => () => preview.current?.(null), []);
 
 	// Only a located type stands somewhere: travel is the journey between
 	// places, and free time is nowhere at all.
@@ -100,6 +131,7 @@ export default function EventDialog({
 			<Modal
 				open={!killing}
 				size="lg"
+				dock={dock}
 				title="Event"
 				subtitle={dayLabel(event.day)}
 				onClose={onClose}

@@ -1,15 +1,14 @@
-import { useEffect, useId, useRef, type FormEvent, type ReactNode } from 'react';
-import { lockScroll } from '../../lib/scroll-lock';
+import { useId, type FormEvent, type ReactNode } from 'react';
+import { useDialog } from './useDialog';
 import FormError from './FormError';
 import { copy } from '../../copy';
 
 /**
  * The one dialog used across the app.
  *
- * Built on the native <dialog> element via showModal(), which hands us focus
- * trapping, Escape-to-close, focus restore, background inertness and top-layer
- * rendering for free: all things a hand-rolled version has to reimplement, and
- * the reason this is not a positioned <div>.
+ * Built on the native <dialog> element via showModal(). That plumbing, and the
+ * reasons for each part of it, live in `useDialog`. What is local here is the
+ * header, the width and where the caret lands when it opens.
  *
  * Layout is a flex column: the header and footer stay pinned and only .mbody
  * scrolls, so a tall dialog produces exactly one scrollbar instead of nesting
@@ -58,6 +57,7 @@ export default function Modal({
 	subtitle,
 	swatch,
 	size = 'md',
+	dock,
 	onClose,
 	children
 }: {
@@ -68,101 +68,35 @@ export default function Modal({
 	/** Small swatch before the title, for colour-coded things like tracks. */
 	swatch?: string;
 	size?: 'sm' | 'md' | 'lg';
+	/**
+	 * Pin the panel to one edge instead of centring it, and leave the page
+	 * undimmed and scrollable behind it. For a dialog whose edits are drawn live
+	 * on the page: covering them would defeat the point. The caller picks the
+	 * side, because only it knows which half of the page it must not cover.
+	 */
+	dock?: 'left' | 'right';
 	onClose: () => void;
 	children: ReactNode;
 }) {
-	const ref = useRef<HTMLDialogElement>(null);
 	// Points the dialog at its own visible heading, so it is announced by name
 	// instead of as an anonymous dialog.
 	const titleId = useId();
-	// Tracks whether the press that may become a click started on the backdrop,
-	// so a drag that merely *ends* outside the panel does not close it.
-	const downOutside = useRef(false);
-	// What had focus when the dialog opened. <dialog> restores focus itself, but
-	// only when `close()` actually runs on a connected element. Most callers
-	// render this component as `{editing && <Modal/>}`, so React unmounts the
-	// whole dialog before the close effect can fire and the native restore never
-	// happens: focus falls to <body> and a keyboard user is dropped at the top of
-	// the page. Remembering the trigger here covers both shapes.
-	const opener = useRef<HTMLElement | null>(null);
-
-	useEffect(() => {
-		const d = ref.current;
-		if (!d) return;
-		if (open && !d.open) {
-			opener.current = document.activeElement as HTMLElement | null;
-			d.showModal();
-			focusFirstField(d);
-		} else if (!open && d.open) d.close();
-	}, [open]);
-
-	// Closing on unmount is what makes the focus restore below possible at all.
-	// A modal <dialog> makes the rest of the document inert, and React unmounts
-	// this component without ever calling close(), so the page would be left
-	// inert for as long as it takes the node to be removed: any focus() aimed at
-	// the trigger in that window is silently dropped. Mount-scoped on purpose, so
-	// it fires only for the real teardown and not on every `open` change.
-	useEffect(() => {
-		const d = ref.current;
-		return () => {
-			if (d?.open) d.close();
-		};
-	}, []);
-
-	// Runs when `open` goes false *and* when an open dialog is unmounted, which
-	// is the case the native behaviour misses. Deferred to a microtask because
-	// React tears the DOM down after running this cleanup: focusing here
-	// directly works, and is then undone a moment later when the still-focused
-	// dialog is removed and the browser falls back to <body>. Guarded on
-	// `isConnected` because the trigger is often a row the dialog just deleted.
-	useEffect(() => {
-		if (!open) return;
-		return () => {
-			const trigger = opener.current;
-			opener.current = null;
-			if (!trigger) return;
-			queueMicrotask(() => {
-				if (trigger.isConnected) trigger.focus();
-			});
-		};
-	}, [open]);
-
-	// The page behind must not scroll with the dialog; without this you get the
-	// dialog's scrollbar and the document's side by side.
-	useEffect(() => (open ? lockScroll() : undefined), [open]);
-
-	/**
-	 * A <dialog>'s backdrop is part of the element itself, so a click on it
-	 * targets the dialog, but so does a click on the dialog's own padding.
-	 * Comparing against the border box is what tells the two apart.
-	 */
-	function hitBackdrop(e: { target: EventTarget | null; clientX: number; clientY: number }) {
-		const d = ref.current;
-		if (!d || e.target !== d) return false;
-		const r = d.getBoundingClientRect();
-		return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
-	}
+	const { ref, dialogProps } = useDialog({
+		open,
+		onClose,
+		onOpened: focusFirstField,
+		lockPage: !dock
+	});
 
 	const width = { sm: '460px', md: '620px', lg: '860px' }[size];
 
 	return (
 		<dialog
 			ref={ref}
-			className="modal"
+			className={dock ? `modal docked ${dock}` : 'modal'}
 			aria-labelledby={titleId}
 			style={{ ['--mw' as string]: width }}
-			onCancel={(e) => {
-				// Escape fires `cancel`, which closes the dialog directly and would
-				// leave `open` true. Preventing it keeps React the only thing that
-				// decides whether the dialog is open.
-				e.preventDefault();
-				onClose();
-			}}
-			onMouseDown={(e) => (downOutside.current = hitBackdrop(e))}
-			onClick={(e) => {
-				if (downOutside.current && hitBackdrop(e)) onClose();
-				downOutside.current = false;
-			}}
+			{...dialogProps}
 		>
 			{open && (
 				<>
@@ -259,9 +193,14 @@ export function ModalFooter({
 }: {
 	error?: ReactNode;
 	onClose: () => void;
-	submitLabel: string;
+	/**
+	 * Omitted for a dialog with nothing to save, which is a dialog that only
+	 * shows a thing and offers to delete it. Cancel becomes the way out and the
+	 * primary button is not drawn, rather than being drawn inert.
+	 */
+	submitLabel?: string;
 	/** What the primary button reads while the request is in flight. */
-	busyLabel: string;
+	busyLabel?: string;
 	busy?: boolean;
 	/** Refuses the submit for a reason of the form's own, beyond being busy. */
 	disabled?: boolean;
@@ -274,16 +213,18 @@ export function ModalFooter({
 			{start && <div className="mr-auto">{start}</div>}
 			<FormError message={error} />
 			<button className="btn" type="button" onClick={onClose}>
-				{copy.common.cancel}
+				{submitLabel ? copy.common.cancel : copy.ui.modal.closeLabel}
 			</button>
-			<button
-				className="btn primary"
-				type={onSubmit ? 'button' : 'submit'}
-				disabled={busy || disabled}
-				onClick={onSubmit}
-			>
-				{busy ? busyLabel : submitLabel}
-			</button>
+			{submitLabel && (
+				<button
+					className="btn primary"
+					type={onSubmit ? 'button' : 'submit'}
+					disabled={busy || disabled}
+					onClick={onSubmit}
+				>
+					{busy ? (busyLabel ?? copy.common.working) : submitLabel}
+				</button>
+			)}
 		</div>
 	);
 }
