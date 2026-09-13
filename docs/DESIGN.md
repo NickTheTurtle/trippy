@@ -335,30 +335,47 @@ doing it only for stays leaves a bug where an event changes type into one and th
 next morning is never told.
 
 **Drawing dense travel** (`layoutBoard`). A day that splits four ways generates a
-lot of short legs at the same moment. The board prefers a **block** for every one
-of them, because a block says how long the journey takes and how much of the gap
-it eats, where an arrow says only that people moved.
+lot of short legs at the same moment. Every one of them is drawn as a **block**,
+because a block says how long the journey takes and how much of the gap it eats,
+where a line says only that people moved.
 
-Every leg is a candidate. They are laid out alongside the events by `layoutDay`,
-which gives them real columns, and a candidate is dropped only when its own
-middle does not fall **under both** of the events it joins. Under, not aligned:
-an event the whole group attends spans the board, and a journey four of them make
-sits in one narrow column of it. Dropping a candidate frees a column and can move
-its neighbours, so the day is laid out again, up to `MAX_PASSES`; it settles
-because a pass only ever drops.
+Each journey hangs under **the event it arrives at**, in that event's column and
+directly on top of it. A journey means "this is how these people get into this
+event", so the arrival is what it belongs to, and anchoring it there makes
+containment true by construction rather than something to test for. There is
+nothing left for a connector to explain, so the board draws no lines at all.
 
-What is left over is drawn as an arrow, which is now rare: it means a journey that
-would have had to reach across to a column its departure does not cover.
+The arrival rather than the departure, for two reasons. It is the anchor the
+clock already uses: `placeLeg` ends every journey exactly when its arrival
+starts, because the fixed point is the thing you are trying not to be late for.
+And it is the end that is reliably there. Measured over the seeded trip, 9 of 37
+journeys have no departure event on their day, all of them leaving the lodging in
+the morning, while **no journey lacks its arrival**. The old rule needed both
+ends and so drew those nine nowhere.
 
-Two rules the board applies on top, both about legibility rather than meaning:
+Journeys take no column of their own. Events are laid out exactly as if journeys
+did not exist, which is the widest they can ever be, and the journeys are then
+hung underneath. Where several land on the same event they share its width,
+ordered by the column they came from, so the fan carries positionally what the
+crossing arrows used to: the leftmost bar is the group from the leftmost column.
+A fan is never the narrowest mark on the board, because many arrivals means many
+people means a whole-group event, and those are full width.
 
-1. A leg shorter than about twenty minutes is drawn as a one-line rule with its
+Three rules the board applies on top, all about legibility rather than meaning:
+
+1. A leg too short to hold two lines is drawn as a one-line rule with its
    duration on it, floored to a height a pointer can hit. The floor grows
    **upwards**, into the waiting time before the journey, because downwards is
    the block it arrives at.
-2. A leg nothing else overlaps is given the whole board, which would read as the
-   whole group moving. Where it is the only journey into its arrival, it is drawn
-   in that block's column instead (see 5.0.15).
+2. A bar names where it came **from**, not where it lands, and only while it has
+   the width to: its position already says where it lands. The origin is the one
+   thing the drawing no longer carries, so the label carries it.
+3. Below about sixty pixels a bar drops its padding and its type drops a step,
+   because at seven columns a bar that reads "10m" is worth more than one that
+   reads "1...".
+
+The rejected alternatives, and the measurements behind this, are in
+`docs/notes/travel-decision.md` and `docs/notes/travel-visualisation.md`.
 
 There was an earlier heuristic here (`layoutLegs`, `MAX_LANES = 3`) that collapsed
 whole clusters of legs into single arrows. It existed because legs were drawn in a
@@ -2193,13 +2210,13 @@ and now look the same: same colour, same chrome, same name on the front.
 A leg keeps one difference, and it is a fact about the leg rather than about
 where it came from: it cannot be dragged, because its place on the clock is the
 gap between the two events it joins, and moving it would mean moving one of
-them. A journey that cannot be a block is not drawn at all; its arrow carries it
-instead (below).
+them. Every journey is drawn, hung under the event it arrives at (below).
 
 **Journeys can be named.** `travel_legs.title` is nullable and the board falls
-back to `<Mode> to <destination>`; resetting a leg to its automatic estimate
-leaves the name alone, because "use the router's number" and "forget what I
-called this" are different requests.
+back to `<Mode> from <origin>`, or to the bare mode where there is no room for
+the origin or no departure event to name; resetting a leg to its automatic
+estimate leaves the name alone, because "use the router's number" and "forget
+what I called this" are different requests.
 
 **The now line is gone, and so is the clock.** A red line at the current time is
 information about the reader, not about the plan, and the plan is almost never
@@ -2209,73 +2226,47 @@ reading of the same fact that changed every thirty seconds while nothing on the
 day moved. Where the zone genuinely matters, which is a flight arriving on
 another offset, the event says so.
 
-**Connectors link the blocks people move between.** `layoutDay` has always
-returned `flows`, the person hops that its column ordering is optimised to keep
-un-crossed, and the board never drew them. It now does: a line from the bottom
-of one block to the top of the next, arrowhead at the far end, under the blocks
-so it stops at an edge instead of crossing a face.
+**Journeys hang under the event they arrive at, and the board draws no lines.**
+This replaced a connector system, and the history is worth keeping because the
+same mistake is easy to make again.
 
-**The lines turn, they do not swoop.** The first version drew each hop as a
-cubic bezier between block centres. On a day that splits three ways and rejoins
-that produced a cat's cradle: long curves sweeping across the whole board,
-crossing each other and the blocks between, reading as decoration rather than as
-routes. Three rules replaced it, and the shape of the day did the rest.
+The board used to hand journeys to the same packer that places events, then
+reject any whose middle did not fall under both of the events it joined. It
+asked a question it never tried to make true: the packer puts a journey wherever
+a column happens to be free, which is rarely under either endpoint. On the
+densest day that rejected 17 of 24 journeys, and each rejection became a line.
+Three rounds of work went into making those lines read well, curves to right
+angles, then shared channels and one arrowhead per arrival, then dotted and
+drawn over the blocks. They were the best available version of the wrong idea:
+35 marks on one day, of which 7 carried any information.
 
-A connector leaves its departure at the point on that block's bottom edge
-nearest its arrival, not from the middle. So a hop that does not actually have
-to cross is a plain vertical line, and a hop that does has exactly one corner.
+Anchoring each journey to its arrival removes the question. A bar is under the
+event it leads into by construction, so there is nothing for a line to explain,
+and `flowArrows`, the channel routing, the count pills and the multi-pass
+demotion loop all went with it. Every journey is now a block that names its mode
+and duration, and the rejoin case that the connectors handled worst, five groups
+converging on lunch, is the case the bars draw best: a funnel across the lunch
+block.
 
-It turns at right angles, with the corners rounded enough to read at a 1.5px
-stroke. A right angle is how every diagram that means "route" is drawn, and
-unlike a curve it is obvious which part of the line is travel sideways and which
-is travel in time.
+The measured argument, the alternatives considered, and the two cases where this
+is weak (a group splitting is not drawn, and an impossible journey between
+overlapping events still looks ordinary) are in `docs/notes/travel-decision.md`.
 
-Everything arriving at a block shares one horizontal channel a few pixels above
-it, and one stub down into it carrying the single arrowhead. That is what turns
-four people rejoining from four directions into a junction instead of four
-separate approaches, and it is the case this board exists to draw well. The
-channel sits just under the arrival, but never above the last departure feeding
-it, so a line never runs backwards in time.
+A short hop is drawn as a one-line rule carrying its mode and duration, floored
+to a height a pointer can hit, and the floor grows upwards into the waiting time
+before the journey: downwards is the block it arrives at, and covering that
+block's top edge to make a three-minute walk clickable is a poor trade. Journeys
+are also drawn before events for the same reason, so where the floor does have to
+reach back past the block it left, the block stays on top. One line rather than
+two whenever the true height is under `TWO_LINE_H`, which is what a name plus a
+meta row actually needs; below that the second line clips rather than shrinks.
 
-Three kinds of hop are never drawn.
-
-A hop that touches a journey block is dropped outright: the block is already the
-answer to "how did they get there", and a line into it and another out of it
-would triple the ink for nothing. Of what is left, a hop survives only when its
-arrival is not already under its departure. That is the same containment test the
-layout uses to choose blocks over arrows, and it falls out of the routing: if the
-arrival sits beneath the departure the connector would be a bare vertical line in
-a gap the eye already reads top to bottom, so there is nothing to draw.
-
-This is also where a journey that could not be a block ends up. Those used to
-collapse into a count in a 34px margin gutter, which was an arrow in name only:
-it pointed down the side of the day rather than at anything. The count now sits
-on the connector between the two events the journey joins, on its channel where
-it turns, and opens the same dialog. The gutter and the separate travel lane are
-both gone. A journey whose two events do sit in one column keeps its count pill
-on a short vertical, because the pill is the only way to open it.
-
-**Blocks beat arrows, and the rule is geometric.** The first version of the board
-demanded that a journey and both its events share a column, comparing middles. On
-a real day that almost never holds: the group's own events span the whole board
-while a journey four people make is one column wide, so seven of eight journeys
-became arrows and the day filled up with lines. The test is now containment
-(§4, `layoutBoard`): a journey is a block when its middle falls under both events
-it joins. That is what the eye actually checks, and it leaves the arrow for the
-case it was invented for.
-
-A short hop still gets a block. It is drawn as a one-line rule carrying its mode
-and duration, floored to a height a pointer can hit, and the floor grows upwards
-into the waiting time before the journey: downwards is the block it arrives at,
-and covering that block's top edge to make a three-minute walk clickable is a
-poor trade. Journeys are also drawn before events for the same reason, so where
-the floor does have to reach back past the block it left, the block stays on top.
-
-A journey nothing overlaps would otherwise be given the whole board, reading as
-the whole group moving. Where it is the only journey into its arrival it is drawn
-in that block's column instead: a rule the width of the thing it leads into, over
-the people actually on it. Only when it is the only arrival, because two journeys
-narrowed onto the same block would be drawn on top of each other.
+A bar names its **origin**, not its destination, and only while it has the width
+for it. Its position already says where it lands, so naming the arrival would
+repeat the drawing; the origin is the one fact the drawing gave up when the lines
+went. Below `TINY_W` the bar gives up its padding and drops a type step instead
+of its duration, because at seven columns across a 3-day view a bar is about
+thirty pixels wide and "10m" is worth more than "1...".
 
 **An event can be linked to a saved place after the fact.** Adding one offered a
 Discover place from the start; editing one did not, so a block typed by hand

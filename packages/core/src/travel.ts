@@ -25,7 +25,7 @@
  */
 
 import { haversineKm } from './geo';
-import { layoutDay, type Layout, type LayoutEvent, type Placed } from './layout';
+import { layoutDay, type Layout, type LayoutEvent } from './layout';
 import type { EventType } from './types';
 
 /** An event as the planner needs to see it. */
@@ -231,114 +231,80 @@ export interface BoardLeg extends TimedLeg {
 	toEventId: string;
 }
 
-/** Legs and events share one id space in the layout, so neither can shadow the other. */
+/** Legs and events share one id space, so a journey's key cannot shadow an event's. */
 const LEG_PREFIX = 'leg:';
 
 export function legLaneId(leg: { key: string }): string {
 	return `${LEG_PREFIX}${leg.key}`;
 }
 
-/** Whether a layout id belongs to a journey rather than an event. */
-export function isLegLaneId(id: string): boolean {
-	return id.startsWith(LEG_PREFIX);
-}
-
 export interface BoardLayout<T extends BoardLeg> {
 	layout: Layout;
-	/** Legs drawn as blocks, in the same columns as the events they join. */
-	blocks: T[];
-	/** Legs with no block, to be drawn as an arrow between their two events. */
-	stranded: T[];
+	/** Every journey the board can draw, each with the box it occupies. */
+	bars: LegBar<T>[];
+}
+
+/** A journey and the slice of the board it is drawn in, as fractions 0..1. */
+export interface LegBar<T extends BoardLeg> {
+	leg: T;
+	left: number;
+	width: number;
 }
 
 /**
- * How much of a block's width a middle may fall outside and still count as
- * being under it, as a fraction of the board. Covers the gutter a block leaves
- * between itself and its neighbour.
- */
-const SAME_COLUMN = 0.02;
-
-/**
- * A demoted leg frees a column, which can move the blocks that were beside it,
- * which can demote another. Each pass drops at least one leg, so this only
- * bounds how much churn is worth chasing before settling.
- */
-const MAX_PASSES = 4;
-
-/**
- * A journey too short to carry its label is still a journey, and drawing it as
- * a thin block keeps the day reading top to bottom: the arrow is reserved for
- * the one thing a column layout genuinely cannot show. The board gives these a
- * floor height and tucks them under the event they arrive at.
- */
-
-function middle(p: Placed): number {
-	return p.left + p.width / 2;
-}
-
-/**
- * Whether a journey can be drawn as a block: its own middle must fall under
- * both events it joins, so the run reads straight down.
+ * Lay out a day's events, then hang each journey under the event it arrives at.
  *
- * Under rather than aligned. An event the whole group attends spans the board,
- * and a journey four of them make sits in one narrow column of it. Their
- * middles are nowhere near each other, and yet the journey is drawn directly
- * beneath the event and reads as leaving it, which is what matters.
- */
-function straight<T extends BoardLeg>(layout: Layout, leg: T): boolean {
-	const from = layout.placed.get(leg.fromEventId);
-	const to = layout.placed.get(leg.toEventId);
-	const self = layout.placed.get(legLaneId(leg));
-	if (!from || !to || !self) return false;
-	const x = middle(self);
-	const under = (p: Placed) => x > p.left - SAME_COLUMN && x < p.left + p.width + SAME_COLUMN;
-	return under(from) && under(to);
-}
-
-/**
- * Lay out a day's events and journeys together.
+ * A journey means "this is how these people get into this event". Drawing it
+ * anywhere else makes the reader work out which event it belongs to, which is
+ * the job a connector used to do badly. Anchored to its arrival, a journey is
+ * under the event it leads into by construction, so there is nothing left for a
+ * line to explain and the board needs no lines at all.
  *
- * A journey is drawn as a block wherever one can be drawn, because a block is
- * the only form that says how long the journey takes and how much of the gap it
- * eats. An arrow says only that people moved.
+ * The arrival rather than the departure, for two reasons. It is the anchor the
+ * clock already uses: `placeLeg` ends every journey exactly when its arrival
+ * starts, because the fixed point is the thing you are trying not to be late
+ * for. And it is the end that is actually there: a journey out of the lodging
+ * on the first morning has no departure event on the day, so a rule anchored to
+ * departures cannot draw it.
  *
- * A block can be drawn when the journey sits under both events it joins: then
- * it reads straight down, and the journey is visibly the thing joining the two.
- * When it cannot, which is what happens where a journey has to reach across to
- * a column its departure point does not cover, a block would claim a track its
- * travellers are not on. That is the case the arrow exists for, and the only
- * one.
+ * Journeys are not packed. They take no column of their own, so events lay out
+ * exactly as if journeys did not exist, which is the widest they can ever be.
  *
- * Every leg starts as a candidate block. Laying them out can move the events
- * under them, so a candidate that turns out to cross is dropped and the day is
- * laid out again without it. This settles, because a pass only ever drops.
+ * Where several journeys land on the same event they share its width, ordered
+ * by the column they came from. The fan then carries positionally what the
+ * crossing arrows used to: the leftmost bar is the group from the leftmost
+ * column.
  */
 export function layoutBoard<T extends BoardLeg>(
 	events: readonly LayoutEvent[],
 	legs: readonly T[]
 ): BoardLayout<T> {
-	const asItems = (chosen: readonly T[]): LayoutEvent[] => [
-		...events,
-		...chosen.map((l) => ({
-			id: legLaneId(l),
-			start: l.startMin,
-			end: l.endMin,
-			people: l.people
-		}))
-	];
+	const layout = layoutDay([...events]);
 
-	// Every journey starts as a candidate: preferring blocks means trying one
-	// everywhere, and only geometry takes it away.
-	let chosen: readonly T[] = legs;
-	let layout = layoutDay(asItems(chosen));
-
-	for (let pass = 1; pass < MAX_PASSES; pass++) {
-		const keep = chosen.filter((l) => straight(layout, l));
-		if (keep.length === chosen.length) break;
-		chosen = keep;
-		layout = layoutDay(asItems(chosen));
+	const byArrival = new Map<string, T[]>();
+	for (const leg of legs) {
+		// A journey whose arrival is not on this day has nothing to hang under.
+		if (!layout.placed.has(leg.toEventId)) continue;
+		const list = byArrival.get(leg.toEventId);
+		if (list) list.push(leg);
+		else byArrival.set(leg.toEventId, [leg]);
 	}
 
-	const drawn = new Set(chosen.map((l) => l.key));
-	return { layout, blocks: [...chosen], stranded: legs.filter((l) => !drawn.has(l.key)) };
+	const bars: LegBar<T>[] = [];
+	for (const [arrivalId, fan] of byArrival) {
+		const to = layout.placed.get(arrivalId);
+		if (!to) continue;
+		// A departure that is not on the board sorts to its arrival's own
+		// position, so it keeps its place in the fan instead of jumping to one end.
+		const originOf = (l: T) => layout.placed.get(l.fromEventId)?.left ?? to.left;
+		// Sorted on the leg itself, never on input order, so the same day always
+		// draws the same way.
+		const order = [...fan].sort(
+			(a, b) => originOf(a) - originOf(b) || a.startMin - b.startMin || (a.key < b.key ? -1 : 1)
+		);
+		const slot = to.width / order.length;
+		order.forEach((leg, i) => bars.push({ leg, left: to.left + i * slot, width: slot }));
+	}
+
+	return { layout, bars };
 }

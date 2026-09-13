@@ -11,8 +11,8 @@ import Select from '../components/ui/Select';
 import GoogleMap, { type MapTrack } from '../components/GoogleMap';
 import TripMap from '../components/TripMap';
 
-import { personBands, type Layout, type Placed } from '@trippy/core/layout';
-import { isLegLaneId, layoutBoard, legLaneId } from '@trippy/core/travel';
+import { personBands, type Layout } from '@trippy/core/layout';
+import { layoutBoard, legLaneId } from '@trippy/core/travel';
 import { copy } from '../copy';
 import AddEventDialog from './schedule/AddEventDialog';
 import EventDialog from './schedule/EventDialog';
@@ -42,51 +42,26 @@ const VIEW_OPTIONS: { v: ViewMode; label: string }[] = [
 ];
 
 /** The lane holds both kinds of block, and they are laid out together. */
-type LaneItem = { kind: 'event'; ev: EventRow } | { kind: 'leg'; leg: LegRow };
+type LaneItem =
+	{ kind: 'event'; ev: EventRow } | { kind: 'leg'; leg: LegRow; left: number; width: number };
 
-/** Lane keys are shared with `layoutDay`, so a leg cannot collide with an event. */
+/** Lane keys are namespaced, so a leg cannot collide with an event. */
 const legKey = legLaneId;
 
-/** One connector per pair of blocks, however many people or journeys it carries. */
-function pairKey(from: string, to: string): string {
-	return `${from}>${to}`;
-}
-
-/* --- Connector geometry ---------------------------------------------------
- *
- * A connector leaves the bottom edge of one block and arrives at the top edge
- * of another. Right angles rather than curves: a curve across a column layout
- * crosses the blocks it passes and reads as decoration, where a line that turns
- * once reads as a route. The corners are rounded so the turn is legible at a
- * 1.5px stroke.
+/**
+ * The shortest journey that can be drawn with a name on one line and its times
+ * on another: two lines of type plus the block's own padding. Anything shorter
+ * is drawn as a single rule, because two lines in less than this clip.
  */
+const TWO_LINE_H = 44;
 
-/** How far inside a block's edges a connector may leave it. */
-const INSET = 10;
-/** How far above an arrival its shared channel runs. */
-const CHANNEL_GAP = 12;
-/** The narrowest two count pills on one channel may sit. */
-const TAG_GAP = 34;
-/** Corner radius, shrunk to fit when the space is tighter than this. */
-const CORNER = 8;
-
-function connector(x1: number, y1: number, x2: number, y2: number, ch: number): string {
-	const r = (n: number) => Math.round(n * 10) / 10;
-	if (Math.abs(x1 - x2) < 1) return `M ${r(x1)} ${r(y1)} L ${r(x1)} ${r(y2)}`;
-	const dir = x2 > x1 ? 1 : -1;
-	const c = Math.max(
-		0,
-		Math.min(CORNER, Math.abs(x2 - x1) / 2, Math.max(0, ch - y1), Math.max(0, y2 - ch))
-	);
-	return [
-		`M ${r(x1)} ${r(y1)}`,
-		`L ${r(x1)} ${r(ch - c)}`,
-		`Q ${r(x1)} ${r(ch)} ${r(x1 + dir * c)} ${r(ch)}`,
-		`L ${r(x2 - dir * c)} ${r(ch)}`,
-		`Q ${r(x2)} ${r(ch)} ${r(x2)} ${r(ch + c)}`,
-		`L ${r(x2)} ${r(y2)}`
-	].join(' ');
-}
+/**
+ * The width below which a bar has to give up its padding to keep its duration.
+ * Seven columns of a 3-day day leave about thirty pixels each, which is less
+ * than the ordinary padding wants, and the duration is the last thing that
+ * should go.
+ */
+const TINY_W = 64;
 
 export default function Schedule() {
 	const { trip } = useTrip();
@@ -505,15 +480,24 @@ export default function Schedule() {
 		);
 	}
 
-	/** What a journey is called: the name somebody gave it, or where it lands. */
-	function legName(leg: LegRow): string {
+	/**
+	 * What a journey is called: the name somebody gave it, or where it came from.
+	 *
+	 * Where it came from, not where it lands. The bar sits on the event it leads
+	 * into, so naming its arrival would repeat what the position already says.
+	 * The origin is the one thing the drawing no longer carries, so the label
+	 * carries it instead, and only while there is room to read it.
+	 */
+	function legName(leg: LegRow, wpx: number): string {
 		if (leg.title) return leg.title;
-		const to = eventById.get(leg.toEventId)?.title;
-		return to ? `${modeLabel(leg.resolvedMode)} to ${to}` : modeLabel(leg.resolvedMode);
+		const mode = modeLabel(leg.resolvedMode);
+		const from = eventById.get(leg.fromEventId)?.title;
+		return wpx > 230 && from ? `${mode} from ${from}` : mode;
 	}
 
 	/**
-	 * A journey, drawn as the block it is.
+	 * A journey, drawn as the block it is, in the column of the event it arrives
+	 * at and directly on top of it.
 	 *
 	 * An automatic leg and a travel event somebody typed describe the same act,
 	 * so they are the same block: same colour, same column, same name on the
@@ -522,17 +506,9 @@ export default function Schedule() {
 	 * is the gap between the two events it joins, and moving it would mean
 	 * moving one of them.
 	 */
-	function legNode(leg: LegRow, lanePx: number, place: Layout, soleArrival: boolean) {
-		const p = place.placed.get(legKey(leg));
-		if (!p) return null;
-
-		/* A journey nothing else overlaps is given the whole board, which reads
-		   as the whole group moving. Where it is the only journey into its
-		   arrival, it is drawn in that block's column instead: a rule the width
-		   of the thing it leads into, over the people actually on it. */
-		const to = place.placed.get(leg.toEventId);
-		const box = soleArrival && to && to.width < p.width ? to : p;
-		const name = legName(leg);
+	function legNode(leg: LegRow, lanePx: number, box: { left: number; width: number }) {
+		const wpx = box.width * lanePx;
+		const name = legName(leg, wpx);
 		const mins = leg.endMin - leg.startMin;
 		// A short hop cannot carry two lines of type, so it is drawn as a rule
 		// across the gap with its duration on it, floored to a height a pointer
@@ -540,13 +516,14 @@ export default function Schedule() {
 		// journey, because downwards is the block it arrives at.
 		const trueH = heightPx(leg.startMin, leg.endMin);
 		const h = Math.max(trueH, 15);
-		const thin = trueH < 24;
+		const thin = trueH < TWO_LINE_H;
 		const bud = whoBudget(box.width, mins, name, lanePx);
 		const cls = [
 			'block',
 			'travel',
 			'leg',
 			thin ? 'thin' : '',
+			wpx < TINY_W ? 'tiny' : '',
 			leg.tight ? 'tight' : '',
 			openLegId === leg.id ? 'editingnow' : '',
 			box.width < 0.34 ? 'narrow' : ''
@@ -578,7 +555,16 @@ export default function Schedule() {
 					}
 				}}
 			>
-				<div className="bt">{thin ? `${name}, ${leg.resolvedMins}m` : name}</div>
+				<div className="bt">
+					{thin
+						? // A bar one column wide holds a duration and nothing else. It is
+							// still the more legible mark: at that width the event title
+							// beneath it has already truncated.
+							wpx > 90
+							? `${name} ${leg.resolvedMins}m`
+							: `${leg.resolvedMins}m`
+						: name}
+				</div>
 				{!thin && (
 					<div className="bmeta">
 						{bud.showTime && <span>{`${hhmm(leg.startMin)}-${hhmm(leg.endMin)}`}</span>}
@@ -587,93 +573,6 @@ export default function Schedule() {
 				)}
 			</div>
 		);
-	}
-
-	/**
-	 * People moving from one block to the next, as connectors between them.
-	 *
-	 * The board draws journeys as blocks wherever it can, so a connector is the
-	 * exception: a move the blocks alone do not account for.
-	 *
-	 * A hop that touches a journey block is never drawn. The block is already
-	 * the answer to "how did they get there", and a line into and out of it
-	 * would triple the ink for nothing.
-	 *
-	 * Of what is left, a hop is drawn only when the block it arrives at is not
-	 * already under the block it leaves. The same containment rule the layout
-	 * uses to choose blocks over arrows: if the next thing sits beneath the last
-	 * one, the eye reads that for free and a line would only repeat it.
-	 *
-	 * The line itself leaves the departure at the point nearest its arrival
-	 * rather than from the middle, so a hop that does not have to cross is a
-	 * plain vertical, and a hop that does has exactly one corner. Everything
-	 * arriving at a block shares one horizontal channel just above it and one
-	 * stub down into it, which is what turns four people rejoining from four
-	 * directions into a junction instead of four crossing curves.
-	 *
-	 * A journey that could not be a block has nothing to click, so its connector
-	 * carries the count and opens it.
-	 */
-	function flowArrows(
-		place: Layout,
-		spans: Map<string, { start: number; end: number }>,
-		stranded: Map<string, LegRow[]>,
-		lanePx: number
-	) {
-		if (lanePx <= 0) return [];
-		// The blocks are a hair narrower than their column, so their middle is
-		// not the column's middle and a line drawn to one would sit off-centre.
-		const centre = (p: Placed) => p.left * lanePx + (p.width * lanePx - 6) / 2;
-		const edges = (p: Placed) => ({
-			l: p.left * lanePx + INSET,
-			r: (p.left + p.width) * lanePx - 6 - INSET
-		});
-
-		const raw = place.flows.flatMap((f) => {
-			if (isLegLaneId(f.from) || isLegLaneId(f.to)) return [];
-			const a = place.placed.get(f.from);
-			const b = place.placed.get(f.to);
-			const sa = spans.get(f.from);
-			const sb = spans.get(f.to);
-			if (!a || !b || !sa || !sb) return [];
-			const legs = stranded.get(pairKey(f.from, f.to)) ?? [];
-			const from = edges(a);
-			const x2 = centre(b);
-			// Leaving from the point nearest the arrival, so only a hop that
-			// genuinely crosses gets a corner.
-			const x1 = Math.min(Math.max(x2, from.l), from.r);
-			if (Math.abs(x1 - x2) < 1 && legs.length === 0) return [];
-			// The channel is fixed to the arrival, so everything landing there
-			// shares it whatever the departures do. A departure that runs to the
-			// channel or past it (blocks that touch exactly, or overlap) starts
-			// its line at channel height inside its own block rather than
-			// doubling back, which drew as a flat line along the seam.
-			const y2 = topPx(sb.start);
-			const ch = y2 - CHANNEL_GAP;
-			const y1 = Math.min(topPx(sa.end), ch);
-			return [{ key: pairKey(f.from, f.to), to: f.to, people: f.people, legs, x1, y1, x2, y2, ch }];
-		});
-
-		const headed = new Set<string>();
-		// A pill that overlaps another pill cannot be read, so tags sharing a
-		// channel are laid out left to right along it with a gap kept between
-		// them. They stay on their own line: the channel is the line.
-		const lastTag = new Map<string, number>();
-
-		return raw.map((h) => {
-			const head = !headed.has(h.to);
-			headed.add(h.to);
-			const straightDown = Math.abs(h.x1 - h.x2) < 1;
-			let tagX = h.x1;
-			let tagY = straightDown ? (h.y1 + h.y2) / 2 : h.ch;
-			if (h.legs.length > 0) {
-				const key = `${h.to}:${Math.round(tagY)}`;
-				const floor = lastTag.get(key);
-				if (floor !== undefined) tagX = Math.max(tagX, floor + TAG_GAP);
-				lastTag.set(key, tagX);
-			}
-			return { ...h, head, d: connector(h.x1, h.y1, h.x2, h.y2, h.ch), tagX, tagY };
-		});
 	}
 
 	function legTitle(leg: LegRow): string {
@@ -691,14 +590,10 @@ export default function Schedule() {
 		/* Journeys share the event columns rather than sitting in a lane of their
 		   own. Travel is part of the day, not a footnote to it: an hour on a
 		   ferry is an hour you cannot be anywhere else, and drawing it beside the
-		   day made the gap it fills look free. A journey that would have to cross
-		   the board to join its two events cannot be a block in either of their
-		   columns, so that one is an arrow. */
-		const {
-			layout: place,
-			blocks: legBlocks,
-			stranded: stray
-		} = layoutBoard(
+		   day made the gap it fills look free. Each journey hangs under the event
+		   it arrives at, so it is under the thing it leads into by construction
+		   and the board needs no lines. */
+		const { layout: place, bars } = layoutBoard(
 			entry.events.map((ev) => ({
 				id: ev.id,
 				// The stored times, not the dragged ones: re-laying out the columns
@@ -716,27 +611,9 @@ export default function Schedule() {
 		const items: LaneItem[] = [
 			// Journeys first, so where a short hop's floored height has to reach
 			// back past the block it left, the block stays on top of it.
-			...legBlocks.map((leg) => ({ kind: 'leg', leg }) as const),
+			...bars.map((b) => ({ kind: 'leg', leg: b.leg, left: b.left, width: b.width }) as const),
 			...entry.events.map((ev) => ({ kind: 'event', ev }) as const)
 		];
-
-		// Arrows run between events only, so only events need a span.
-		const spans = new Map(
-			entry.events.map((ev) => [ev.id, { start: ev.start_min, end: ev.end_min }])
-		);
-
-		const arrivals = new Map<string, number>();
-		for (const l of legBlocks) arrivals.set(l.toEventId, (arrivals.get(l.toEventId) ?? 0) + 1);
-
-		const stranded = new Map<string, LegRow[]>();
-		for (const leg of stray) {
-			const k = pairKey(leg.fromEventId, leg.toEventId);
-			const list = stranded.get(k);
-			if (list) list.push(leg);
-			else stranded.set(k, [leg]);
-		}
-
-		const hops = flowArrows(place, spans, stranded, opts.lanePx);
 
 		return (
 			<div className="grid" style={{ height: `${(DAY_END - DAY_START) * PX_PER_MIN + 16}px` }}>
@@ -757,9 +634,9 @@ export default function Schedule() {
 					ref={opts.measure ? laneRef : undefined}
 					onDoubleClick={(e) => {
 						// A double click on empty track is "put something here". On a
-						// block or a journey tag it is not: those have their own dialogs,
-						// and opening a second one over the top would be a trap.
-						if ((e.target as HTMLElement).closest('.block, .flowtag')) return;
+						// block it is not: blocks have their own dialogs, and opening a
+						// second one over the top would be a trap.
+						if ((e.target as HTMLElement).closest('.block')) return;
 						const rect = e.currentTarget.getBoundingClientRect();
 						const mins = DAY_START + (e.clientY - rect.top) / PX_PER_MIN;
 						const snapped = Math.round(mins / 15) * 15;
@@ -769,51 +646,11 @@ export default function Schedule() {
 						});
 					}}
 				>
-					{/* Over the blocks, dotted: a line that has to cross a face reads
-					    more clearly laid on top than hidden behind it. */}
-					{hops.length > 0 && (
-						<svg
-							className="flows"
-							width={opts.lanePx}
-							height={(DAY_END - DAY_START) * PX_PER_MIN}
-							aria-hidden="true"
-						>
-							{hops.map((h) => (
-								<g key={h.key}>
-									<path d={h.d} />
-									{h.head && (
-										<path
-											className="head"
-											d={`M ${h.x2 - 4} ${h.y2 - 5} L ${h.x2} ${h.y2} L ${h.x2 + 4} ${h.y2 - 5}`}
-										/>
-									)}
-								</g>
-							))}
-						</svg>
-					)}
 					{items.map((it) =>
 						it.kind === 'event'
 							? blockNode(it.ev, entry.day, opts.lanePx, place)
-							: legNode(it.leg, opts.lanePx, place, arrivals.get(it.leg.toEventId) === 1)
+							: legNode(it.leg, opts.lanePx, { left: it.left, width: it.width })
 					)}
-					{hops
-						.filter((h) => h.legs.length > 0)
-						.map((h) => (
-							<button
-								key={h.key}
-								type="button"
-								className="flowtag"
-								style={{ left: `${h.tagX}px`, top: `${h.tagY}px` }}
-								title={
-									h.legs.length === 1
-										? legTitle(h.legs[0])
-										: `${h.legs.length} journeys, ${peopleLabel(h.people)}`
-								}
-								onClick={() => setOpenLegId(h.legs[0].id)}
-							>
-								{h.legs.length}
-							</button>
-						))}
 				</div>
 			</div>
 		);
@@ -921,7 +758,8 @@ export default function Schedule() {
 					...(anchor?.legs ?? []).map((leg) => ({
 						key: legKey(leg),
 						start: leg.startMin,
-						title: legName(leg),
+						// A list row has a full line to itself, so it always names the origin.
+						title: legName(leg, Number.POSITIVE_INFINITY),
 						meta: `${modeLabel(leg.resolvedMode)} · ${leg.resolvedMins}m`,
 						tight: leg.tight,
 						open: () => setOpenLegId(leg.id)
