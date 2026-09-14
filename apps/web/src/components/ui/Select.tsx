@@ -7,6 +7,12 @@ export type Option = {
 	value: string;
 	label: string;
 	/**
+	 * A fact about this option, shown muted on the right of its row in the menu
+	 * and nowhere else. It is for the cost of a choice, which is worth seeing
+	 * while choosing and is only clutter beside the answer once chosen.
+	 */
+	hint?: string;
+	/**
 	 * Heading this option sits under. Options are rendered in the order given, and
 	 * a heading is drawn wherever the section changes, so grouping is the caller's
 	 * to decide by sorting rather than a second structure to keep in step.
@@ -120,6 +126,7 @@ export default function Select({
 								}}
 							>
 								<span className="selopttext">{o.label}</span>
+								{o.hint && <span className="selopthint">{o.hint}</span>}
 								{o.value === value && (
 									<span className="selcheck">
 										<CheckIcon />

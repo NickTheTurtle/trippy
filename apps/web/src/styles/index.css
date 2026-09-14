@@ -739,9 +739,18 @@ select.input.compact {
 	white-space: nowrap;
 }
 .selopttext {
+	flex: 1 1 auto;
 	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
+}
+/* The cost of a choice, shown while choosing. Muted and never bolded, so the
+   row still reads as its label first. */
+.selopthint {
+	flex: 0 0 auto;
+	color: var(--color-ink-faint);
+	font-size: var(--text-meta);
+	font-weight: 400;
 }
 .selcheck {
 	display: flex;
@@ -1052,8 +1061,13 @@ select.input.compact {
 	color: var(--color-ink);
 	cursor: pointer;
 	text-align: left;
+	/* The same height as every other single-line control, so a picker sitting
+	   beside a text box or a Select lines up with it rather than four pixels
+	   short of it. */
+	height: var(--control-h);
 }
 .msel.compact .mtrigger {
+	height: var(--control-h-sm);
 	padding: 0.3rem 0.5rem;
 	font-size: var(--text-meta);
 }

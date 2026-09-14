@@ -206,9 +206,17 @@ export function planLegs(
 				continue;
 			}
 			if (!isAnchor(e)) {
-				// Free time ends the current chain: the next journey is planned from
-				// whatever comes after it, not across it.
-				prev = null;
+				// Free time ends the current chain: nobody has promised to be
+				// anywhere, so the next journey is planned from whatever comes after
+				// it rather than across it.
+				//
+				// A block with no location is different, and is passed over rather
+				// than treated as a break. It says when someone is busy, not where
+				// they are, so it does not unsay where they were: the journey from
+				// the last known place to the next one is still real, and breaking
+				// on it would mean adding a nameless placeholder to a day silently
+				// deleted the travel times around it.
+				if (e.type === 'freetime') prev = null;
 				continue;
 			}
 			if (prev) {

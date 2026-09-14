@@ -141,6 +141,18 @@ describe('planLegs', () => {
 		expect(planLegs([a, b])).toHaveLength(0);
 	});
 
+	it('plans across an event with no coordinates, which says when but not where', () => {
+		const a = at(P.hotel, { startMin: 540, endMin: 600, people: ['u1'] });
+		const nowhere = ev({ startMin: 610, endMin: 650, people: ['u1'], lat: null, lng: null });
+		const b = at(P.market, { startMin: 660, endMin: 720, people: ['u1'] });
+		const legs = planLegs([a, nowhere, b]);
+		// Adding a block nobody has given an address yet must not delete the
+		// travel time either side of it.
+		expect(legs).toHaveLength(1);
+		expect(legs[0].fromEventId).toBe(a.id);
+		expect(legs[0].toEventId).toBe(b.id);
+	});
+
 	it("starts the morning from last night's stay, for the people who slept there", () => {
 		const stay = at(P.hotel, {
 			type: 'stay',

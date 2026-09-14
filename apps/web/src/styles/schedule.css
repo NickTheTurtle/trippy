@@ -673,6 +673,15 @@
 	border-left: 3px solid var(--color-accent);
 	padding-left: 0.5rem;
 }
+.sched .schedule .jwho {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.4rem;
+	margin: 0;
+	font-size: var(--text-meta);
+	color: var(--color-ink-soft);
+}
 .sched .schedule .jfields {
 	display: flex;
 	align-items: center;
@@ -683,7 +692,7 @@
 	min-width: 0;
 }
 .sched .schedule .jmode {
-	flex: 0 0 7.5rem;
+	flex: 0 0 10.5rem;
 }
 /* The unit belongs inside the box with the number, not floating past its edge. */
 .sched .schedule .jmins {
@@ -719,18 +728,6 @@
 }
 .sched .schedule .jmins span {
 	font-size: var(--text-meta);
-	color: var(--color-ink-faint);
-}
-.sched .schedule .jnote {
-	display: flex;
-	flex-wrap: wrap;
-	align-items: center;
-	gap: 0.45rem;
-}
-/* Facts on one line read as columns without something between them. */
-.sched .schedule .jnote > span:not(.tag) + span:not(.tag)::before {
-	content: '·';
-	margin-right: 0.45rem;
 	color: var(--color-ink-faint);
 }
 

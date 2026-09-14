@@ -108,30 +108,6 @@ export function modeLabel(m: string | null): string {
 	return m ? (MODE_LABELS[m] ?? m) : '';
 }
 
-/** 15-minute steps keep the picker short; dragging still snaps to 5. */
-export const START_OPTIONS: Option[] = Array.from(
-	{ length: (DAY_END - DAY_START) / 15 },
-	(_, i) => DAY_START + i * 15
-).map((s) => ({ value: String(s), label: hhmm(s) }));
-
-/**
- * The ends offered for an event that starts at `startMin`.
- *
- * Quarter-hours, the same step the start picker uses and the shortest event the
- * server allows, from the first one after the start to the end of the board.
- * Listing only ends that are after the start is what makes the pair safe to ask
- * for directly: there is no way to describe an event that finishes before it
- * begins, so there is no refusal to word. `withCurrent` carries a time off the
- * grid, which is what dragging and resizing produce.
- */
-export function endOptions(startMin: number): Option[] {
-	const out: Option[] = [];
-	for (let m = Math.floor(startMin / 15) * 15 + 15; m <= DAY_END; m += 15) {
-		out.push({ value: String(m), label: hhmm(m) });
-	}
-	return out;
-}
-
 /**
  * Discover's saved places, for the location picker.
  *
@@ -165,26 +141,6 @@ export function placeOptions(
 			section: names.get(p.city_id) ?? 'Elsewhere'
 		}))
 	];
-}
-
-/**
- * Guarantees the picker can render the value it is holding.
- *
- * The option lists are round numbers, but the real values are not: dragging
- * snaps to five minutes against a 15-minute start list, and resizing produces
- * lengths like 75m. A `Select` given a value no option matches falls back to
- * its placeholder, so the field reads "Select..." on a perfectly valid event
- * and looks unset. Offer the actual value too.
- */
-export function withCurrent(
-	options: Option[],
-	value: string,
-	label: (v: number) => string
-): Option[] {
-	if (options.some((o) => o.value === value)) return options;
-	const n = Number(value);
-	if (!Number.isFinite(n)) return options;
-	return [...options, { value, label: label(n) }].sort((a, b) => Number(a.value) - Number(b.value));
 }
 
 /**

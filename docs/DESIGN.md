@@ -102,11 +102,11 @@ Only one of the five is not a place: `freetime` is deliberately nowhere.
 `LOCATED_EVENT_TYPES` and `isLocatedType` name that distinction, because
 switching to free time clears the coordinates.
 
-A `travel` event carries a location too, and it means where the journey *ends*:
+A `travel` event carries a location too, and it means where the journey _ends_:
 the ferry drops you on the island, so the address is the island. That makes it a
-one-way anchor, and `planLegs` treats it as one. Nothing is ever planned *to* a
+one-way anchor, and `planLegs` treats it as one. Nothing is ever planned _to_ a
 hand-entered journey, because a walk to the middle of your own flight is not a
-thing anyone does; but the chain resumes *from* where it lands, so the next stop
+thing anyone does; but the chain resumes _from_ where it lands, so the next stop
 gets its journey from the ferry terminal rather than from wherever you were
 before you boarded. A `travel` event with no end location still breaks the chain
 outright, which is the old behaviour and the right answer when nobody has said
@@ -315,6 +315,12 @@ That is the whole of splitting and rejoining. Three rules keep it honest:
 - **Free time breaks the chain on both sides.** Not because it has no location,
   but because nobody has promised to be anywhere, so planning a journey out of it
   would be inventing a fact.
+- **An event with no location is passed over, not treated as a break.** A block
+  with no coordinates says _when_ someone is busy, not _where_ they are, so the
+  chain runs on through it and the journeys either side survive. The earlier rule
+  broke the chain on anything that was not an anchor, which meant adding a
+  reminder in the middle of an afternoon silently deleted the two travel times
+  around it and planned none in their place.
 - **A hand-entered `travel` event is never an endpoint**, so no automatic leg is
   planned into or out of it. Saying how you are getting from A to B is how you
   turn the planner off for that hop.
@@ -2345,6 +2351,11 @@ dialogs use, so a field keeps its width whether or not the one beside it is
 showing: Mode comes and goes with the type, and the old flex row re-flowed the
 whole form each time it did.
 
+Every control on that grid is `--control-h` tall. The people picker was not: its
+trigger sized itself from its chips and came out four pixels short, so "Who" sat
+off the baseline its neighbour shared with every other field in the app. Height
+belongs to the control, not to what it happens to be holding.
+
 **A journey is edited where it arrives, in the event's own dialog.** A leg is
 not a thing anybody creates: the server plans one for every pair of consecutive
 events a set of people attends, so it has no life apart from the block it leads
@@ -2354,10 +2365,9 @@ now a section at the foot of the event dialog, and `TravelDialog` is gone.
 
 It is a list, not a field, because an event can have several approaches: one per
 group of people converging on it, and the densest day of the Athens trip has six
-arriving at lunch. Each journey is a card, its name, mode and minutes on one
-line with the facts under it: who is on it, whether the minutes are the estimate
-or a pin, and the link that hands the journey back to the estimate. The origin is
-the card's
+arriving at lunch. Each journey is a card: who is on it reads above the fields,
+and the name, mode and minutes sit on one line under it. The origin is the
+card's
 placeholder rather than a label, since it is only ever a fallback name, and the
 board's bar falls back the same way when the previous event is not loaded: the
 first journey of a day starts at the night before it.
@@ -2373,8 +2383,27 @@ what the reader saw, since an edit to the people replans them.
 answer to a question the mode asks, so leaving the old one in place when the
 mode changes states a duration nobody believes: a walk and a taxi over the same
 ground are not the same twelve minutes. Picking a mode now re-estimates, and
-picking the planned mode back at its own estimate reads "Automatic" again rather
-than a pin that happens to agree.
+picking the planned mode back at its own estimate leaves the journey unpinned
+rather than pinning a number that happens to agree.
+
+**Each mode carries its estimate in the menu, not on the card.** The reader
+choosing between walking and the metro wants the two durations side by side, and
+before this they had to pick one to find out. The menu now reads "Walk 26 min",
+"Transit 20 min", and the chosen duration becomes the value in the box beside
+the picker. The hint is a menu-row affordance only: the closed trigger still
+reads "Walk", because once a mode is chosen its duration is already in the next
+field and saying it twice on one line is noise.
+
+**Automatic is derived, not flagged and not labelled.** The edit state used to
+carry an `auto` boolean and the card a line reading "Pinned" or "Automatic" with
+a link back to the estimate. All three said the same thing the fields already
+said: a journey sitting at its own mode and its own estimate is not pinned, and
+typing that estimate back is how it is handed to the router. The flag is gone,
+the note line is gone, and the save compares the edit with what the day would
+have worked out anyway. The comparison accepts the straight-line guess as well
+as a bought answer, because a routing reply can land between the pick and the
+save, and a journey nobody meant to pin should not be pinned by the provider's
+timing.
 
 The estimate is arithmetic, not a purchase. The routing provider answers for one
 mode, which is the one the server planned, so offering a bought answer for each

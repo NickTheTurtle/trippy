@@ -22,17 +22,16 @@ import {
 import type { Cell, Crew, EventDraft, EventRow, LegRow, SavedPoi } from './types';
 
 /** What a reader can say about a journey, and the automatic estimate it began at. */
-type LegEdit = { title: string; mode: string; mins: string; auto: boolean };
+type LegEdit = { title: string; mode: string; mins: string };
 
 const legEdit = (l: LegRow): LegEdit => ({
 	title: l.title ?? '',
 	mode: l.resolvedMode,
-	mins: String(l.resolvedMins),
-	auto: !l.manual
+	mins: String(l.resolvedMins)
 });
 
 const sameEdit = (a: LegEdit, b: LegEdit) =>
-	a.auto === b.auto && a.mode === b.mode && a.mins === b.mins && a.title.trim() === b.title.trim();
+	a.mode === b.mode && a.mins === b.mins && a.title.trim() === b.title.trim();
 
 /**
  * What this journey is reckoned to take by a given mode.
@@ -45,11 +44,37 @@ const sameEdit = (a: LegEdit, b: LegEdit) =>
 const estimateFor = (l: LegRow, mode: string) =>
 	mode === l.autoMode && l.autoMins != null ? l.autoMins : minsByMode(l.km, mode);
 
-/** What the journey resolves to with nothing pinned: the provider, or the guess. */
+/** What the journey resolves to with nothing said about it. */
 const automatic = (l: LegRow) => {
 	const mode = l.autoMode ?? guessLeg(l.km).mode;
 	return { mode, mins: estimateFor(l, mode) };
 };
+
+/**
+ * Whether an edit is just what the day would have worked out anyway.
+ *
+ * Derived rather than tracked, so there is no flag to keep in step and no
+ * label to explain: a journey left at its own mode and its own estimate is
+ * stored as unpinned, and typing that estimate back is how it is unpinned.
+ */
+const isAutomatic = (l: LegRow, e: LegEdit) => {
+	const a = automatic(l);
+	const mins = Number(e.mins);
+	/* A routing answer can land between the pick and the save, so the straight
+	   line guess the reader was shown counts as automatic too; otherwise a
+	   journey nobody meant to pin would be pinned by the provider's timing. */
+	return e.mode === a.mode && (mins === a.mins || mins === minsByMode(l.km, e.mode));
+};
+
+/**
+ * The modes, each with what this journey would take by it.
+ *
+ * The estimate is a hint rather than part of the label, so it shows while the
+ * reader is choosing and not afterwards: once a mode is picked its duration is
+ * in the box beside the picker, and saying it twice on one line is noise.
+ */
+const modeOptionsFor = (l: LegRow): Option[] =>
+	MODE_OPTIONS.map((o) => ({ ...o, hint: `${estimateFor(l, o.value)} min` }));
 
 /**
  * One event: rename, retype, retime, re-people, relocate, delete, and set the
@@ -131,20 +156,8 @@ export default function EventDialog({
 	/* Changing the mode re-answers the question the number is an answer to. A
 	   walk and a taxi over the same ground are not the same twelve minutes, and
 	   leaving the old number there would state a duration nobody believes. */
-	const pickMode = (l: LegRow, mode: string) => {
-		const mins = estimateFor(l, mode);
-		setJourney(l.id, {
-			mode,
-			mins: String(mins),
-			// Picking the planned mode back, at its own estimate, is the automatic
-			// answer again rather than a pin that happens to agree with it.
-			auto: mode === l.autoMode && mins === l.autoMins
-		});
-	};
-	const resetJourney = (l: LegRow) => {
-		const a = automatic(l);
-		setJourney(l.id, { mode: a.mode, mins: String(a.mins), auto: true });
-	};
+	const pickMode = (l: LegRow, mode: string) =>
+		setJourney(l.id, { mode, mins: String(estimateFor(l, mode)) });
 
 	const startMin = Number(start);
 	const endMin = Number(end);
@@ -224,7 +237,9 @@ export default function EventDialog({
 				await api(`${base}/legs/${l.id}`, {
 					method: 'PATCH',
 					// Empty mode and minutes is the reset, and the name is not part of it.
-					body: now.auto ? { mode: '', mins: '', title } : { mode: now.mode, mins: now.mins, title }
+					body: isAutomatic(l, now)
+						? { mode: '', mins: '', title }
+						: { mode: now.mode, mins: now.mins, title }
 				});
 			}
 			// Two calls, because the people are their own endpoint: they are what
@@ -355,6 +370,12 @@ export default function EventDialog({
 											className={`jrow${focusLegId === l.id ? ' on' : ''}`}
 											aria-label={`Journey, ${who}`}
 										>
+											{/* Who is on it names the journey: it is the only thing
+											    telling six approaches to the same lunch apart. */}
+											<p className="jwho">
+												<span>{who}</span>
+												{l.tight && <span className="tag warn">does not fit the gap</span>}
+											</p>
 											<div className="jfields">
 												<input
 													className="input jname"
@@ -369,7 +390,7 @@ export default function EventDialog({
 													<Select
 														value={j.mode}
 														onChange={(v) => pickMode(l, v)}
-														options={MODE_OPTIONS}
+														options={modeOptionsFor(l)}
 														ariaLabel={`Mode, ${who}`}
 													/>
 												</div>
@@ -380,33 +401,11 @@ export default function EventDialog({
 														data-autofocus={focusLegId === l.id ? '' : undefined}
 														aria-label={`Minutes, ${who}`}
 														value={j.mins}
-														onChange={(e) =>
-															setJourney(l.id, { mins: e.target.value, auto: false })
-														}
+														onChange={(e) => setJourney(l.id, { mins: e.target.value })}
 													/>
 													<span>min</span>
 												</div>
 											</div>
-											<p className="jnote m-0 text-meta muted">
-												<span>{who}</span>
-												{j.auto ? (
-													<span>Automatic</span>
-												) : (
-													<>
-														<span>Pinned</span>
-														<span>
-															<button
-																type="button"
-																className="link"
-																onClick={() => resetJourney(l)}
-															>
-																Use the estimate
-															</button>
-														</span>
-													</>
-												)}
-												{l.tight && <span className="tag warn">does not fit the gap</span>}
-											</p>
 										</div>
 									);
 								})}
