@@ -73,3 +73,29 @@ export function Field({
 		</FieldShell>
 	);
 }
+
+/**
+ * The same pair for prose. Notes are the one thing a traveller writes more than
+ * a line of, and a single-line box hides all but the end of it while they type.
+ * Three rows by default, growable, which is the shape every notes field in the
+ * app already had before they were one component.
+ */
+export function TextArea({
+	label,
+	optional = false,
+	hint,
+	className = '',
+	rows = 3,
+	...area
+}: {
+	label: React.ReactNode;
+	optional?: boolean;
+	hint?: string;
+	className?: string;
+} & React.ComponentPropsWithRef<'textarea'>) {
+	return (
+		<FieldShell label={label} optional={optional} hint={hint} className={className}>
+			<textarea {...area} rows={rows} className="input w-full resize-y leading-relaxed" />
+		</FieldShell>
+	);
+}

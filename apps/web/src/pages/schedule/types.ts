@@ -95,6 +95,8 @@ export type SavedPoi = {
 	city_id: string;
 	lat: number | null;
 	lng: number | null;
+	/** How many people have voted for it in Discover. */
+	votes: number;
 };
 
 export type BoardDay = {
@@ -102,6 +104,8 @@ export type BoardDay = {
 	city: Cell | null;
 	lodging: Lodging | null;
 	events: EventRow[];
+	/** Last night's stay, where the morning starts. Never drawn: it is on yesterday. */
+	incoming: EventRow | null;
 	legs: LegRow[];
 };
 

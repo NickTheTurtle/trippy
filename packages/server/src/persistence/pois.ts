@@ -87,15 +87,21 @@ export function savedPoisForTrip(tripId: string): {
 	city_id: string;
 	lat: number | null;
 	lng: number | null;
+	votes: number;
 }[] {
 	return db
-		.prepare(`SELECT id, name, city_id, lat, lng FROM pois WHERE trip_id = ? ORDER BY name`)
+		.prepare(
+			`SELECT id, name, city_id, lat, lng,
+			        (SELECT COUNT(*) FROM poi_votes v WHERE v.poi_id = p.id) AS votes
+			 FROM pois p WHERE trip_id = ? ORDER BY name`
+		)
 		.all(tripId) as unknown as {
 		id: string;
 		name: string;
 		city_id: string;
 		lat: number | null;
 		lng: number | null;
+		votes: number;
 	}[];
 }
 

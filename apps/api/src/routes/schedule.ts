@@ -13,6 +13,7 @@ import {
 	editLeg,
 	eventTrip,
 	eventsForDay,
+	incomingStay,
 	legsForDay,
 	moveEvent,
 	plannedLegsForDay,
@@ -146,6 +147,10 @@ schedule.get('/', async (c) => {
 			city: cell(defaultCity),
 			lodging: defaultCity ? lodgingForDay(trip.id, defaultCity.id, d) : null,
 			events: eventsForDay(trip.id, d),
+			// Where the morning starts. Not drawn: the client needs it only to plan
+			// the day's travel the same way the server does, which is what lets an
+			// unsaved change to who is going redraw the journeys as it is typed.
+			incoming: incomingStay(trip.id, d),
 			legs: await dayLegs(trip.id, d)
 		});
 	}

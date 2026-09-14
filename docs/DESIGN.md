@@ -3074,6 +3074,66 @@ keeps the gutter reserved, so a fixed constant would _create_ a jump in three of
 those four cases. The lock is reference-counted so overlapping dialogs can't
 unlock each other.
 
+**Journeys are edited where they arrive, and the dialog replans them live.**
+The server plans travel from the events themselves: a journey exists for every
+pair of consecutive events a given set of people attends, which is why nobody
+creates one and why they are edited inside the event dialog rather than in one
+of their own. The consequence is that changing who is going is not a detail on
+the side: it is the thing that makes journeys appear, merge and vanish. A
+dialog that showed the journeys it loaded with would be stating last minute's
+plan while the reader edits this one.
+
+`planLegs` lives in `packages/core`, so `apps/web/src/pages/schedule/replan.ts`
+runs exactly the planner the server runs, over the day's events with the draft
+applied. The board and the dialog read the same replanned list, so ticking a
+name redraws both. The board payload carries `incoming` (last night's stay) for
+this reason alone: without it the client drops the first journey of every
+morning, because the thing it leaves is not on the day being drawn.
+
+**Journey edits are keyed by leg key, not by row id.** A journey the reader
+sets up may have no row yet: the row only exists once the server replans off
+the people just saved. `leg_key` (`from>to>sortedPeople`) is computed the same
+way on both sides, so the dialog holds edits under the key, and the save reads
+the day back afterwards and matches. That also reorders the save: the event and
+its people go first, then the journeys, which is the reverse of the old order.
+The old order existed to write journeys "while the ids still mean what the
+reader saw"; keys do that job now, and they do it for journeys that did not
+exist when the dialog opened.
+
+Only touched journeys are written. A journey is automatic by default, and
+sending every one back would pin a whole day's travel as the price of renaming
+one event.
+
+**Journeys from the same place merge into one card.** Six groups converging on
+a lunch is six cards, but several of them commonly leave the same building, and
+setting the same twenty minutes six times is work the reader should not be
+doing. Journeys are grouped by origin coordinates rounded to five decimals
+(about a metre); a group whose journeys already agree reads as a single card,
+and editing it writes through to every journey under it. Split and Merge are
+links on the card's meta line, and both are dialog-session state: nothing about
+the plan changes, so there is nothing to store. Merge copies the card's values
+across the group, because merging is an answer about the group and not just a
+change of layout.
+
+**`.sched .grid` was colliding with Tailwind.** The board's clock gutter was
+`padding-left: 56px` on `.sched .grid`. Dialogs render inside `.sched`, so every
+twelve-column dialog form, which uses Tailwind's own `grid` utility, inherited
+that indent and stood 56px off its own labels. Renamed to `.daygrid`. Worth
+remembering as a shape: a plain utility name under a page-scoped ancestor will
+eventually be claimed by the framework.
+
+**The place field takes the event's noun, and the menu counts votes.** "Location"
+said nothing the reader did not know; "Activity", "Food" and "Stay" say which
+list is about to open, and a journey gets "Ends at" because its place is where
+it puts you rather than where it is. The menu is sectioned by city with the
+current one first, and each place carries its vote count as a hint: the group
+has already said what it wants, and the picker is where that is worth knowing.
+
+**Ticks go before the label.** `Select` drew its tick after the option, pushed
+right, which left the labels aligned but the ticks wandering with the text.
+`MultiSelect` already drew its box first. `Select` now matches, with the tick as
+a fixed 16px slot so every label starts on the same edge.
+
 ## Implementation status
 
 Built and verified:

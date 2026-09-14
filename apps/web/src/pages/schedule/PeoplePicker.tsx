@@ -34,14 +34,14 @@ export default function PeoplePicker({
 	className?: string;
 }) {
 	return (
-		<FieldShell label="Who" className={className}>
+		<FieldShell label="Participants" className={className}>
 			<MultiSelect
 				selected={people}
 				onChange={onChange}
 				options={memberOptions}
 				groups={crewGroups(crews)}
 				placeholder="Everyone"
-				ariaLabel="Who is on this event"
+				ariaLabel="Participants"
 			/>
 		</FieldShell>
 	);

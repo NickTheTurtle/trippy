@@ -16,6 +16,7 @@ import { layoutBoard, legLaneId } from '@trippy/core/travel';
 import { copy } from '../copy';
 import AddEventDialog from './schedule/AddEventDialog';
 import EventDialog from './schedule/EventDialog';
+import { replanLegs } from './schedule/replan';
 import {
 	DAY_END,
 	DAY_START,
@@ -244,40 +245,24 @@ export default function Schedule() {
 	 * itself, and an edit that takes the reader off the event correctly removes
 	 * it from their day.
 	 *
-	 * Journeys arriving at a draft that has moved move with it, by the same
-	 * minutes, because a journey's place on the clock is the gap in front of the
-	 * thing it leads into: leaving them behind would strand a walk under a block
-	 * that is no longer there. Changing who is on an event, or making it free
-	 * time, does not move its journeys but decides whether they exist at all,
-	 * and that is the server's answer to give, so those are dropped instead.
+	 * The day's journeys are replanned against that draft rather than shifted or
+	 * dropped. Who is on an event is the whole of splitting and rejoining, so an
+	 * edit to it makes journeys appear, merge and vanish; waiting for the server
+	 * to say so meant the board stood with holes in it while the reader decided.
+	 * Pins survive, because a replanned journey is matched to its stored row by
+	 * key.
 	 */
 	const board: BoardDay[] = useMemo(() => {
 		const showEvent = (e: EventRow) =>
 			e.people.length === 0 || e.people.some((p) => selected.has(p));
 		const showLeg = (l: LegRow) => l.people.some((p) => selected.has(p));
 
-		const days = data?.board ?? [];
-		const saved = preview
-			? days.flatMap((d) => d.events).find((e) => e.id === preview.id)
-			: undefined;
-		const replanned =
-			!!preview &&
-			!!saved &&
-			(preview.type !== saved.type || preview.people.join() !== saved.people.join());
-		const shift = preview && saved ? preview.start_min - saved.start_min : 0;
-
-		return days.map((entry) => ({
+		return (data?.board ?? []).map((entry) => ({
 			...entry,
 			events: entry.events
 				.map((e) => (preview && e.id === preview.id ? { ...e, ...preview } : e))
 				.filter(showEvent),
-			legs: entry.legs
-				.filter(
-					(l) =>
-						showLeg(l) &&
-						!(replanned && (l.fromEventId === preview.id || l.toEventId === preview.id))
-				)
-				.map((l) => (preview && l.toEventId === preview.id ? shiftLeg(l, shift) : l))
+			legs: (preview ? replanLegs(entry, preview) : entry.legs).filter(showLeg)
 		}));
 	}, [data, selected, preview]);
 
@@ -329,14 +314,13 @@ export default function Schedule() {
 		return null;
 	}, [openEventId, data]);
 
-	/* The journeys that dialog edits: the saved ones too, and in the order the
-	   server planned them so the list does not reshuffle under an open panel. */
+	/* The journeys that dialog edits, replanned live: an edit to who is going
+	   makes groups split and merge as it is typed, and this is the same list the
+	   board is drawing behind the panel. */
 	const openLegs = useMemo(() => {
 		if (!openEventId) return [];
-		return (data?.board ?? []).flatMap((entry) =>
-			entry.legs.filter((l) => l.toEventId === openEventId)
-		);
-	}, [openEventId, data]);
+		return board.flatMap((entry) => entry.legs.filter((l) => l.toEventId === openEventId));
+	}, [openEventId, board]);
 
 	/* Which edge the edit dialog stands at: whichever one is not showing the day
 	   being edited. In the day and people views the board is on the left and the
@@ -757,7 +741,7 @@ export default function Schedule() {
 		];
 
 		return (
-			<div className="grid" style={{ height: `${(DAY_END - DAY_START) * PX_PER_MIN + 16}px` }}>
+			<div className="daygrid" style={{ height: `${(DAY_END - DAY_START) * PX_PER_MIN + 16}px` }}>
 				<div className="axis">
 					{HOURS.map((h) => (
 						<div
@@ -1152,7 +1136,7 @@ export default function Schedule() {
 					event={openEvent}
 					legs={openLegs}
 					focusLegId={openLegId}
-					titleOf={(id) => eventById.get(id)?.title ?? null}
+					eventOf={(id) => eventById.get(id) ?? null}
 					peopleLabel={peopleLabel}
 					memberOptions={memberOptions}
 					crews={data.crews}

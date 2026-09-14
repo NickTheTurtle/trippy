@@ -1,13 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { isLocatedType, type EventType } from '@trippy/core/types';
 import { guessLeg, minsByMode } from '@trippy/core/travel';
 import { api } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
 import Modal, { ModalFooter, ModalForm } from '../../components/ui/Modal';
-import ConfirmDialog from '../../components/ui/ConfirmDialog';
+import { useDeleteAction } from '../../components/ui/useDeleteAction';
 import Select, { type Option } from '../../components/ui/Select';
 import TimeField from '../../components/ui/TimeField';
-import { Field, FieldShell } from '../../components/ui/Field';
+import { Field, FieldShell, TextArea } from '../../components/ui/Field';
 import { copy } from '../../copy';
 import PeoplePicker from './PeoplePicker';
 import {
@@ -17,11 +17,12 @@ import {
 	TYPE_OPTIONS,
 	dayLabel,
 	modeLabel,
+	placeLabel,
 	placeOptions
 } from './shared';
 import type { Cell, Crew, EventDraft, EventRow, LegRow, SavedPoi } from './types';
 
-/** What a reader can say about a journey, and the automatic estimate it began at. */
+/** What a reader can say about a journey. */
 type LegEdit = { title: string; mode: string; mins: string };
 
 const legEdit = (l: LegRow): LegEdit => ({
@@ -77,6 +78,35 @@ const modeOptionsFor = (l: LegRow): Option[] =>
 	MODE_OPTIONS.map((o) => ({ ...o, hint: `${estimateFor(l, o.value)} min` }));
 
 /**
+ * A card in "Getting here": one journey, or several that start in the same place.
+ *
+ * Journeys are derived from who is going, so two groups that set off from the
+ * same spot for the same block are two rows saying the same thing, and anyone
+ * changing one means both. They are shown as one card, and the card writes to
+ * every journey under it. Splitting is for the day where it is not one answer
+ * after all: half the party takes a taxi and the rest walk.
+ *
+ * A group is only offered as one card when its journeys start in the same
+ * place. Everything else is genuinely a different journey, however alike the
+ * numbers happen to look.
+ */
+type Journey = { key: string; legs: LegRow[]; merged: boolean };
+
+/**
+ * Where a journey sets off from, as an identity two journeys can share.
+ *
+ * The coordinates rather than the event, because two different blocks at the
+ * same hotel are the same starting point to a traveller. Five decimal places is
+ * about a metre. A journey whose origin is not on the board (the first one of
+ * the morning leaves last night's stay) stands alone rather than being guessed
+ * at.
+ */
+const originKey = (l: LegRow, from: EventRow | null) =>
+	from && from.lat != null && from.lng != null
+		? `${from.lat.toFixed(5)},${from.lng.toFixed(5)}`
+		: `at:${l.fromEventId}`;
+
+/**
  * One event: rename, retype, retime, re-people, relocate, delete, and set the
  * journeys that arrive at it.
  *
@@ -100,7 +130,7 @@ export default function EventDialog({
 	event,
 	legs,
 	focusLegId,
-	titleOf,
+	eventOf,
 	peopleLabel,
 	memberOptions,
 	crews,
@@ -115,12 +145,12 @@ export default function EventDialog({
 }: {
 	base: string;
 	event: EventRow;
-	/** The journeys that arrive at this event, in the order the board drew them. */
+	/** The journeys that arrive at this event, replanned as the edit is typed. */
 	legs: LegRow[];
 	/** The journey the reader pointed at, if they arrived here by clicking one. */
 	focusLegId?: string;
-	/** The name of another event on the board, or null when it is not loaded. */
-	titleOf: (eventId: string) => string | null;
+	/** Another event on the board, or null when it is not loaded. */
+	eventOf: (eventId: string) => EventRow | null;
 	peopleLabel: (ids: string[]) => string;
 	memberOptions: Option[];
 	crews: Crew[];
@@ -144,20 +174,39 @@ export default function EventDialog({
 	const [notes, setNotes] = useState(event.notes ?? '');
 	const [mode, setMode] = useState(event.travel_mode ?? '');
 	const [poi, setPoi] = useState(event.poi_id ?? '');
-	const [killing, setKilling] = useState(false);
-	/* Keyed by leg id and seeded once: the dialog is mounted per event, and the
-	   list it was opened with is the list it saves. */
-	const [journeys, setJourneys] = useState<Record<string, LegEdit>>(() =>
-		Object.fromEntries(legs.map((l) => [l.id, legEdit(l)]))
-	);
-	const setJourney = (id: string, patch: Partial<LegEdit>) =>
-		setJourneys((m) => ({ ...m, [id]: { ...m[id], ...patch } }));
+
+	/* What the reader has said about a journey, keyed by leg key rather than by
+	   leg id: an edit to who is going replans the day, so the row a journey is
+	   stored in can appear, vanish or arrive only on save, while the key is what
+	   both ends compute from the same facts. Only touched journeys are held, so
+	   an untouched one always shows the live estimate. */
+	const [edits, setEdits] = useState<Record<string, LegEdit>>({});
+	/* Groups the reader has taken apart, and groups they have put together. Two
+	   sets rather than one flag because the default is neither: a group whose
+	   journeys already agree reads as one card until somebody says otherwise. */
+	const [split, setSplit] = useState<Set<string>>(new Set());
+	const [joined, setJoined] = useState<Set<string>>(new Set());
+
+	const editOf = (l: LegRow) => edits[l.key] ?? legEdit(l);
+	const setEdit = (group: LegRow[], patch: Partial<LegEdit>) =>
+		setEdits((m) => {
+			const next = { ...m };
+			for (const l of group) next[l.key] = { ...(m[l.key] ?? legEdit(l)), ...patch };
+			return next;
+		});
+
+	const toggle = (set: Set<string>, key: string, on: boolean) => {
+		const next = new Set(set);
+		if (on) next.add(key);
+		else next.delete(key);
+		return next;
+	};
 
 	/* Changing the mode re-answers the question the number is an answer to. A
 	   walk and a taxi over the same ground are not the same twelve minutes, and
 	   leaving the old number there would state a duration nobody believes. */
-	const pickMode = (l: LegRow, mode: string) =>
-		setJourney(l.id, { mode, mins: String(estimateFor(l, mode)) });
+	const pickMode = (group: LegRow[], mode: string) =>
+		setEdit(group, { mode, mins: String(estimateFor(group[0], mode)) });
 
 	const startMin = Number(start);
 	const endMin = Number(end);
@@ -209,9 +258,40 @@ export default function EventDialog({
 	// A journey's location is the far end of it: where it puts you, and where
 	// the rest of the day is then planned from.
 	const placeable = isLocatedType(type);
-	const placeLabel = type === 'travel' ? 'Ends at' : 'Location';
+	const placeText = placeLabel(type);
 
 	const poiOptions = placeOptions(saved, cities, cityId);
+
+	/**
+	 * The journeys as cards: one per starting place, unless the reader has taken
+	 * a place's journeys apart.
+	 *
+	 * Recomputed from the live list, so a change to who is going lands here as
+	 * groups appearing, merging and disappearing rather than as a stale list.
+	 */
+	const journeys: Journey[] = useMemo(() => {
+		const order: string[] = [];
+		const byOrigin = new Map<string, LegRow[]>();
+		for (const l of legs) {
+			const k = originKey(l, eventOf(l.fromEventId));
+			const list = byOrigin.get(k);
+			if (list) list.push(l);
+			else {
+				byOrigin.set(k, [l]);
+				order.push(k);
+			}
+		}
+		return order.flatMap((k): Journey[] => {
+			const group = byOrigin.get(k) as LegRow[];
+			const first = editOf(group[0]);
+			const agree = group.every((l) => sameEdit(editOf(l), first));
+			const merged = group.length > 1 && !split.has(k) && (joined.has(k) || agree);
+			return merged
+				? [{ key: k, legs: group, merged: true }]
+				: group.map((l) => ({ key: k, legs: [l], merged: false }));
+		});
+		// `edits` decides whether a group still agrees, so it belongs here.
+	}, [legs, edits, split, joined, eventOf]);
 
 	/* Sent only when it has actually changed.
 	 *
@@ -225,23 +305,20 @@ export default function EventDialog({
 	const op = (body: Record<string, unknown>) =>
 		api(`${base}/events/${event.id}/op`, { method: 'POST', body });
 
+	/* The delete goes straight through `api` rather than a mutation, so a refusal
+	   throws and the confirmation shows the server's own message instead of
+	   closing over the top of a delete that did not happen. */
+	const del = useDeleteAction({
+		title: `Delete ${event.title}?`,
+		busyLabel: copy.common.deleting,
+		onDelete: async () => {
+			await op({ op: 'delete' });
+			onDone();
+		}
+	});
+
 	const save = useMutation(
 		async () => {
-			/* Journeys first, while the ids still mean what the reader saw. Only the
-			   ones actually touched: a leg is unpinned by default, and writing every
-			   row back would pin the whole day just for opening this dialog. */
-			for (const l of legs) {
-				const now = journeys[l.id];
-				if (!now || sameEdit(now, legEdit(l))) continue;
-				const title = now.title.trim();
-				await api(`${base}/legs/${l.id}`, {
-					method: 'PATCH',
-					// Empty mode and minutes is the reset, and the name is not part of it.
-					body: isAutomatic(l, now)
-						? { mode: '', mins: '', title }
-						: { mode: now.mode, mins: now.mins, title }
-				});
-			}
 			// Two calls, because the people are their own endpoint: they are what
 			// splits and rejoins the group, and the server recomputes the day's
 			// travel off them rather than off anything in the edit.
@@ -258,6 +335,37 @@ export default function EventDialog({
 				poiId: placeable && placeMoved ? poi : undefined
 			});
 			await api(`${base}/events/${event.id}/people`, { method: 'PUT', body: { people } });
+
+			/* The journeys last, and matched by key rather than by id.
+			 *
+			 * A journey the reader set up may not have had a row when they set it
+			 * up: changing who is going is what makes journeys exist, and the row
+			 * only arrives when the server replans off the people just saved. The
+			 * key is the same on both sides, so reading the day back is what turns
+			 * what they said into the rows to write.
+			 *
+			 * Only touched journeys are written. A journey is unpinned by default,
+			 * so sending every one back would pin a whole day's travel as the price
+			 * of renaming one event. */
+			const touched = legs.filter((l) => edits[l.key] && !sameEdit(edits[l.key], legEdit(l)));
+			if (touched.length) {
+				const fresh = await api<{ board: { legs: LegRow[] }[] }>(`${base}?day=${event.day}`);
+				const rows = new Map(fresh.board.flatMap((b) => b.legs).map((l) => [l.key, l]));
+				for (const l of touched) {
+					const row = rows.get(l.key);
+					// A journey the save has planned away is not one to write to.
+					if (!row) continue;
+					const now = edits[l.key];
+					const legTitle = now.title.trim();
+					await api(`${base}/legs/${row.id}`, {
+						method: 'PATCH',
+						// Empty mode and minutes is the reset, and the name is not part of it.
+						body: isAutomatic(row, now)
+							? { mode: '', mins: '', title: legTitle }
+							: { mode: now.mode, mins: now.mins, title: legTitle }
+					});
+				}
+			}
 			onDone();
 		},
 		{ fallback: 'Could not save that event.' }
@@ -266,7 +374,7 @@ export default function EventDialog({
 	return (
 		<>
 			<Modal
-				open={!killing}
+				open={!del.asking}
 				size="lg"
 				dock={dock}
 				peek={peek}
@@ -331,7 +439,7 @@ export default function EventDialog({
 							)}
 							{placeable && (
 								<FieldShell
-									label={placeLabel}
+									label={placeText}
 									optional
 									className={type === 'travel' ? 'col-span-8' : 'col-span-12'}
 								>
@@ -339,11 +447,11 @@ export default function EventDialog({
 										value={poi}
 										onChange={setPoi}
 										options={poiOptions}
-										ariaLabel={placeLabel}
+										ariaLabel={placeText}
 									/>
 								</FieldShell>
 							)}
-							<Field
+							<TextArea
 								label="Notes"
 								optional
 								className="col-span-12"
@@ -352,45 +460,83 @@ export default function EventDialog({
 							/>
 						</div>
 
-						{legs.length > 0 && (
+						{journeys.length > 0 && (
 							<section className="jsec">
 								<h3 className="jhead">Getting here</h3>
-								{legs.map((l) => {
-									const j = journeys[l.id];
-									if (!j) return null;
+								{journeys.map((j) => {
+									const lead = j.legs[0];
+									const now = editOf(lead);
 									// The origin is not always loaded: the first journey of a day
 									// starts at the night before it, which the board may not be
 									// showing. The bar on the board falls back to the bare mode in
 									// exactly the same case, so the placeholder does too.
-									const from = titleOf(l.fromEventId);
-									const who = peopleLabel(l.people);
+									const from = eventOf(lead.fromEventId)?.title ?? null;
+									const who = peopleLabel(j.legs.flatMap((l) => l.people));
+									const tight = j.legs.some((l) => l.tight);
+									// A journey planned but not yet saved has no id, so an absent
+									// focus must not be allowed to match it.
+									const focused = !!focusLegId && j.legs.some((l) => l.id === focusLegId);
+									// A group of one cannot be split, and can only be merged when
+									// there is another journey starting where it does.
+									const siblings = journeys.filter((o) => o.key === j.key).length;
 									return (
 										<div
-											key={l.id}
-											className={`jrow${focusLegId === l.id ? ' on' : ''}`}
+											key={j.merged ? j.key : lead.key}
+											className={`jrow${focused ? ' on' : ''}`}
 											aria-label={`Journey, ${who}`}
 										>
 											{/* Who is on it names the journey: it is the only thing
 											    telling six approaches to the same lunch apart. */}
 											<p className="jwho">
 												<span>{who}</span>
-												{l.tight && <span className="tag warn">does not fit the gap</span>}
+												{tight && <span className="tag warn">does not fit the gap</span>}
+												{j.merged && (
+													<button
+														type="button"
+														className="jlink"
+														onClick={() => {
+															setSplit((s) => toggle(s, j.key, true));
+															setJoined((s) => toggle(s, j.key, false));
+														}}
+													>
+														Split
+													</button>
+												)}
+												{!j.merged && siblings > 1 && (
+													<button
+														type="button"
+														className="jlink"
+														onClick={() => {
+															setSplit((s) => toggle(s, j.key, false));
+															setJoined((s) => toggle(s, j.key, true));
+															// Merging is an answer, not just a layout: the card
+															// about to stand for the group says what this one
+															// said, so every journey under it is set to match.
+															setEdit(
+																legs.filter((l) => originKey(l, eventOf(l.fromEventId)) === j.key),
+																now
+															);
+														}}
+													>
+														Merge
+													</button>
+												)}
 											</p>
 											<div className="jfields">
 												<input
 													className="input jname"
 													aria-label={`Journey name, ${who}`}
 													placeholder={
-														from ? `${modeLabel(j.mode)} from ${from}` : modeLabel(j.mode)
+														from ? `${modeLabel(now.mode)} from ${from}` : modeLabel(now.mode)
 													}
-													value={j.title}
-													onChange={(e) => setJourney(l.id, { title: e.target.value })}
+													value={now.title}
+													onChange={(e) => setEdit(j.legs, { title: e.target.value })}
 												/>
 												<div className="jmode">
 													<Select
-														value={j.mode}
-														onChange={(v) => pickMode(l, v)}
-														options={modeOptionsFor(l)}
+														value={now.mode}
+														onChange={(v) => pickMode(j.legs, v)}
+														options={modeOptionsFor(lead)}
 														ariaLabel={`Mode, ${who}`}
 													/>
 												</div>
@@ -398,10 +544,10 @@ export default function EventDialog({
 													<input
 														type="number"
 														min={1}
-														data-autofocus={focusLegId === l.id ? '' : undefined}
+														data-autofocus={focused ? '' : undefined}
 														aria-label={`Minutes, ${who}`}
-														value={j.mins}
-														onChange={(e) => setJourney(l.id, { mins: e.target.value })}
+														value={now.mins}
+														onChange={(e) => setEdit(j.legs, { mins: e.target.value })}
 													/>
 													<span>min</span>
 												</div>
@@ -419,28 +565,12 @@ export default function EventDialog({
 						busy={save.busy}
 						busyLabel={copy.common.saving}
 						submitLabel={copy.common.save}
-						start={
-							<button type="button" className="btn danger" onClick={() => setKilling(true)}>
-								{copy.common.delete}
-							</button>
-						}
+						start={del.button}
 					/>
 				</ModalForm>
 			</Modal>
 
-			{/* The delete goes straight through `api` rather than a mutation, so a
-			    refusal throws and `ConfirmDialog` shows the server's own message
-			    instead of closing over the top of a delete that did not happen. */}
-			<ConfirmDialog
-				open={killing}
-				title={`Delete ${event.title}?`}
-				busyLabel={copy.common.deleting}
-				onCancel={() => setKilling(false)}
-				onConfirm={async () => {
-					await op({ op: 'delete' });
-					onDone();
-				}}
-			/>
+			{del.confirm}
 		</>
 	);
 }

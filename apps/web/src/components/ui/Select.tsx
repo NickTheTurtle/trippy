@@ -125,13 +125,9 @@ export default function Select({
 									choose(i);
 								}}
 							>
+								<span className="selcheck">{o.value === value && <CheckIcon />}</span>
 								<span className="selopttext">{o.label}</span>
 								{o.hint && <span className="selopthint">{o.hint}</span>}
-								{o.value === value && (
-									<span className="selcheck">
-										<CheckIcon />
-									</span>
-								)}
 							</li>
 						</Fragment>
 					))}

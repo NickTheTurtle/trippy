@@ -306,6 +306,11 @@ textarea.input {
 	display: inline-flex;
 	align-items: center;
 	height: var(--control-h);
+	/* Stated, not inherited: `.field` sets a smaller size for its label, and a
+	   div with `font: inherit` took it, so the clock read a size under the text
+	   box beside it. */
+	font-size: var(--text-body);
+	line-height: 1.4;
 	font-variant-numeric: tabular-nums;
 	cursor: text;
 }
@@ -725,8 +730,7 @@ select.input.compact {
 .selopt {
 	display: flex;
 	align-items: center;
-	justify-content: space-between;
-	gap: 0.75rem;
+	gap: 0.5rem;
 	width: 100%;
 	text-align: left;
 	border: none;
@@ -748,14 +752,20 @@ select.input.compact {
    row still reads as its label first. */
 .selopthint {
 	flex: 0 0 auto;
+	margin-left: 0.75rem;
 	color: var(--color-ink-faint);
 	font-size: var(--text-meta);
 	font-weight: 400;
 }
+/* The tick leads the row, as it does in the multi-pick menu, and its slot is
+   there whether or not it is ticked: a tick that trailed the label put every
+   label at a different distance from the one above it. */
 .selcheck {
-	display: flex;
-	color: var(--color-accent-ink);
+	display: inline-grid;
+	place-items: center;
+	width: 16px;
 	flex: 0 0 auto;
+	color: var(--color-accent-ink);
 }
 .selopt:hover {
 	background: var(--color-accent-soft);

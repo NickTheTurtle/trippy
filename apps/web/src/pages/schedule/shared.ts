@@ -116,6 +116,10 @@ export function modeLabel(m: string | null): string {
  * the place they mean is almost always in the city they are looking at. The
  * grouping is an order plus a section name: `Select` draws a heading wherever
  * the section changes.
+ *
+ * Each place carries its Discover votes, because scheduling is where the group's
+ * shortlist is spent: the question being answered is "what are we doing", and
+ * how many people asked for a place is the trip's own answer to it.
  */
 export function placeOptions(
 	saved: SavedPoi[],
@@ -128,7 +132,7 @@ export function placeOptions(
 		id === currentCityId ? -1 : known.findIndex((c) => c.id === id) + 1 || known.length + 1;
 
 	const sorted = [...saved].sort(
-		(a, b) => rank(a.city_id) - rank(b.city_id) || a.name.localeCompare(b.name)
+		(a, b) => rank(a.city_id) - rank(b.city_id) || b.votes - a.votes || a.name.localeCompare(b.name)
 	);
 
 	return [
@@ -136,11 +140,23 @@ export function placeOptions(
 		...sorted.map((p) => ({
 			value: p.id,
 			label: p.name,
+			hint: p.votes ? `${p.votes} ${p.votes === 1 ? 'vote' : 'votes'}` : undefined,
 			// A place whose city has been removed from the trip still exists and
 			// still has coordinates, so it is offered rather than hidden.
 			section: names.get(p.city_id) ?? 'Elsewhere'
 		}))
 	];
+}
+
+/**
+ * What the place field is called for a given type.
+ *
+ * The event's own noun, so the field says what is being picked: an activity
+ * block is picking the activity, and a stay is picking the stay. A journey is
+ * the exception, since its place is where it puts you rather than where it is.
+ */
+export function placeLabel(type: EventType): string {
+	return type === 'travel' ? 'Ends at' : typeLabel(type);
 }
 
 /**

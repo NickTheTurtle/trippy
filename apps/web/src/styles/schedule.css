@@ -164,7 +164,10 @@
 
 /* --- Day grid ------------------------------------------------------------ */
 
-.sched .grid {
+/* The day's own grid. Named rather than `.grid`, which is Tailwind's display
+   utility: the dialogs are rendered inside `.sched` and every 12-column form in
+   them was inheriting this clock gutter as a 56px indent. */
+.sched .daygrid {
 	position: relative;
 	padding-left: 56px;
 }
@@ -681,6 +684,21 @@
 	margin: 0;
 	font-size: var(--text-meta);
 	color: var(--color-ink-soft);
+}
+/* Splitting and merging are afterthoughts about a card that already reads
+   correctly, so they sit at the end of its meta line as text rather than as a
+   button competing with the fields under them. */
+.sched .schedule .jlink {
+	margin-left: auto;
+	border: 0;
+	background: none;
+	padding: 0;
+	color: var(--color-accent-ink);
+	font: inherit;
+	cursor: pointer;
+}
+.sched .schedule .jlink:hover {
+	text-decoration: underline;
 }
 .sched .schedule .jfields {
 	display: flex;

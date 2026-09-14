@@ -5,10 +5,17 @@ import { useMutation } from '../../hooks/useMutation';
 import Modal, { ModalFooter, ModalForm } from '../../components/ui/Modal';
 import Select, { type Option } from '../../components/ui/Select';
 import TimeField from '../../components/ui/TimeField';
-import { Field, FieldShell } from '../../components/ui/Field';
+import { Field, FieldShell, TextArea } from '../../components/ui/Field';
 import { copy } from '../../copy';
 import PeoplePicker from './PeoplePicker';
-import { DAY_END, MIN_EVENT_MINS, TYPE_OPTIONS, dayLabel, placeOptions } from './shared';
+import {
+	DAY_END,
+	MIN_EVENT_MINS,
+	TYPE_OPTIONS,
+	dayLabel,
+	placeLabel,
+	placeOptions
+} from './shared';
 import type { Cell, Crew, SavedPoi } from './types';
 
 /**
@@ -69,7 +76,7 @@ export default function AddEventDialog({
 	// Free time is deliberately nowhere, so it is the one type with no location.
 	// A journey's location is the far end of it: where it puts you.
 	const placeable = isLocatedType(type);
-	const placeLabel = type === 'travel' ? 'Ends at' : 'Location';
+	const placeText = placeLabel(type);
 
 	const poiOptions = placeOptions(saved, cities, cityId);
 
@@ -153,11 +160,11 @@ export default function AddEventDialog({
 						/>
 
 						{placeable && (
-							<FieldShell label={placeLabel} optional className="col-span-12">
-								<Select value={poi} onChange={setPoi} options={poiOptions} ariaLabel={placeLabel} />
+							<FieldShell label={placeText} optional className="col-span-12">
+								<Select value={poi} onChange={setPoi} options={poiOptions} ariaLabel={placeText} />
 							</FieldShell>
 						)}
-						<Field
+						<TextArea
 							label="Notes"
 							optional
 							className="col-span-12"

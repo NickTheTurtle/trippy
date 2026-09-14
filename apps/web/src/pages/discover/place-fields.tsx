@@ -1,5 +1,5 @@
 import Select from '../../components/ui/Select';
-import { Field, FieldShell } from '../../components/ui/Field';
+import { Field, FieldShell, TextArea } from '../../components/ui/Field';
 import { copy } from '../../copy';
 
 const c = copy.discover.placeFields;
@@ -45,14 +45,12 @@ export function NotesField({
 	onChange: (value: string) => void;
 }) {
 	return (
-		<FieldShell label={c.notesLabel} optional>
-			<textarea
-				rows={3}
-				value={value}
-				onChange={(e) => onChange(e.target.value)}
-				className="input w-full resize-y leading-relaxed"
-			/>
-		</FieldShell>
+		<TextArea
+			label={c.notesLabel}
+			optional
+			value={value}
+			onChange={(e) => onChange(e.target.value)}
+		/>
 	);
 }
 
