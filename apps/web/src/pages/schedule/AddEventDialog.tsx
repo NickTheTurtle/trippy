@@ -99,9 +99,11 @@ export default function AddEventDialog({
 	return (
 		<Modal open size="lg" title="Add event" subtitle={dayLabel(day)} onClose={onClose}>
 			<ModalForm className="schedule" onSubmit={add.submit}>
-				<div className="mbody">
-					<div className="srow">
-						<FieldShell label="Type" className="tf2">
+				<div className="mbody flex flex-col gap-4">
+					{/* The same 12-column grid as the edit dialog: the two ask for the
+					    same thing and should read the same way. */}
+					<div className="grid grid-cols-12 gap-x-2.5 gap-y-3.5">
+						<FieldShell label="Type" className="col-span-4">
 							<Select
 								value={type}
 								onChange={(v) => {
@@ -122,16 +124,14 @@ export default function AddEventDialog({
 						</FieldShell>
 						<Field
 							label="Name"
-							className="grow"
+							className="col-span-8"
 							autoFocus
 							required
 							value={title}
 							onChange={(e) => setTitle(e.target.value)}
 						/>
-					</div>
 
-					<div className="srow">
-						<FieldShell label="Start" className="tf2">
+						<FieldShell label="Start" className="col-span-3">
 							<Select
 								value={start}
 								onChange={moveStart}
@@ -139,7 +139,7 @@ export default function AddEventDialog({
 								ariaLabel="Start"
 							/>
 						</FieldShell>
-						<FieldShell label="End" className="tf2">
+						<FieldShell label="End" className="col-span-3">
 							<Select
 								value={end}
 								onChange={setEnd}
@@ -152,20 +152,18 @@ export default function AddEventDialog({
 							onChange={setPeople}
 							memberOptions={memberOptions}
 							crews={crews}
-							className="grow"
+							className="col-span-6"
 						/>
-					</div>
 
-					<div className="srow">
 						{placeable && (
-							<FieldShell label={placeLabel} optional className="grow">
+							<FieldShell label={placeLabel} optional className="col-span-6">
 								<Select value={poi} onChange={setPoi} options={poiOptions} ariaLabel={placeLabel} />
 							</FieldShell>
 						)}
 						<Field
 							label="Notes"
 							optional
-							className="grow"
+							className={placeable ? 'col-span-6' : 'col-span-12'}
 							value={notes}
 							onChange={(e) => setNotes(e.target.value)}
 						/>

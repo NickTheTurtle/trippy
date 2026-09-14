@@ -16,7 +16,6 @@ import { layoutBoard, legLaneId } from '@trippy/core/travel';
 import { copy } from '../copy';
 import AddEventDialog from './schedule/AddEventDialog';
 import EventDialog from './schedule/EventDialog';
-import TravelDialog from './schedule/TravelDialog';
 import {
 	DAY_END,
 	DAY_START,
@@ -301,11 +300,23 @@ export default function Schedule() {
 		return out;
 	}, [board]);
 
-	const legById = useMemo(() => {
-		const out = new Map<string, LegRow>();
-		for (const entry of board) for (const l of entry.legs) out.set(l.id, l);
-		return out;
-	}, [board]);
+	/* Pointing at a journey opens the event it arrives at, because that is where
+	   a journey is edited: it belongs to its arrival rather than standing on its
+	   own. The id is kept so the dialog can open on the journey that was meant,
+	   since a block can have one arriving group of people or five. */
+	const openLeg = (leg: LegRow) => {
+		setOpenLegId(leg.id);
+		setOpenEventId(leg.toEventId);
+	};
+	/** The same panel, opened at the event itself rather than at an approach. */
+	const openBlock = (id: string) => {
+		setOpenLegId('');
+		setOpenEventId(id);
+	};
+	const closeEvent = () => {
+		setOpenEventId('');
+		setOpenLegId('');
+	};
 
 	/* The saved row, deliberately not the previewed one: the dialog is the
 	   source of the draft and handing it back its own edit would make the two
@@ -317,7 +328,15 @@ export default function Schedule() {
 			for (const e of entry.events) if (e.id === openEventId) return e;
 		return null;
 	}, [openEventId, data]);
-	const openLeg = openLegId ? (legById.get(openLegId) ?? null) : null;
+
+	/* The journeys that dialog edits: the saved ones too, and in the order the
+	   server planned them so the list does not reshuffle under an open panel. */
+	const openLegs = useMemo(() => {
+		if (!openEventId) return [];
+		return (data?.board ?? []).flatMap((entry) =>
+			entry.legs.filter((l) => l.toEventId === openEventId)
+		);
+	}, [openEventId, data]);
 
 	/* Which edge the edit dialog stands at: whichever one is not showing the day
 	   being edited. In the day and people views the board is on the left and the
@@ -543,12 +562,12 @@ export default function Schedule() {
 				onClick={(e) => {
 					if ((e.target as HTMLElement).closest('.bresize')) return;
 					if (didDrag.current) return;
-					setOpenEventId(ev.id);
+					openBlock(ev.id);
 				}}
 				onKeyDown={(e) => {
 					if (e.key === 'Enter' || e.key === ' ') {
 						e.preventDefault();
-						setOpenEventId(ev.id);
+						openBlock(ev.id);
 					}
 				}}
 			>
@@ -657,11 +676,11 @@ export default function Schedule() {
 					['--trows' as string]: bud.trows,
 					['--wrows' as string]: bud.wrows
 				}}
-				onClick={() => setOpenLegId(leg.id)}
+				onClick={() => openLeg(leg)}
 				onKeyDown={(e) => {
 					if (e.key === 'Enter' || e.key === ' ') {
 						e.preventDefault();
-						setOpenLegId(leg.id);
+						openLeg(leg);
 					}
 				}}
 			>
@@ -841,7 +860,7 @@ export default function Schedule() {
 											className={`swimband ${ev.type}`}
 											style={pos}
 											title={`${ev.title}, ${hhmm(band.start)} to ${hhmm(band.end)}\n${peopleLabel(ev.people)}`}
-											onClick={() => setOpenEventId(ev.id)}
+											onClick={() => openBlock(ev.id)}
 										>
 											<span className="swimlabel">{ev.title}</span>
 										</button>
@@ -875,7 +894,7 @@ export default function Schedule() {
 						title: ev.title,
 						meta: `${typeLabel(ev.type)} · ${hhmm(ev.start_min)}-${hhmm(ev.end_min)}`,
 						tight: false,
-						open: () => setOpenEventId(ev.id)
+						open: () => openBlock(ev.id)
 					})),
 					...(anchor?.legs ?? []).map((leg) => ({
 						key: legKey(leg),
@@ -884,7 +903,7 @@ export default function Schedule() {
 						title: legName(leg, Number.POSITIVE_INFINITY),
 						meta: `${modeLabel(leg.resolvedMode)} · ${leg.resolvedMins}m`,
 						tight: leg.tight,
-						open: () => setOpenLegId(leg.id)
+						open: () => openLeg(leg)
 					}))
 				].sort((a, b) => a.start - b.start)
 			: null;
@@ -1131,6 +1150,10 @@ export default function Schedule() {
 					key={openEvent.id}
 					base={base}
 					event={openEvent}
+					legs={openLegs}
+					focusLegId={openLegId}
+					titleOf={(id) => eventById.get(id)?.title ?? null}
+					peopleLabel={peopleLabel}
 					memberOptions={memberOptions}
 					crews={data.crews}
 					saved={data.saved}
@@ -1139,25 +1162,9 @@ export default function Schedule() {
 					dock={dockSide}
 					peek={roomToDock}
 					onPreview={setPreview}
-					onClose={() => setOpenEventId('')}
+					onClose={closeEvent}
 					onDone={() => {
-						setOpenEventId('');
-						reload();
-					}}
-				/>
-			)}
-
-			{openLeg && (
-				<TravelDialog
-					key={openLeg.id}
-					base={base}
-					leg={openLeg}
-					fromTitle={eventById.get(openLeg.fromEventId)?.title ?? '?'}
-					toTitle={eventById.get(openLeg.toEventId)?.title ?? '?'}
-					whoLabel={peopleLabel(openLeg.people)}
-					onClose={() => setOpenLegId('')}
-					onDone={() => {
-						setOpenLegId('');
+						closeEvent();
 						reload();
 					}}
 				/>

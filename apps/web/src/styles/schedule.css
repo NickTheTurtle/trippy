@@ -436,12 +436,6 @@
 	background: var(--color-warn-soft);
 	color: var(--color-warn);
 }
-/* A pinned journey is worth seeing at a glance: it is the one number on the
-   board that the router did not produce. */
-.sched .tag.manual {
-	background: #e7e2f0;
-	color: #5c4a80;
-}
 
 /* --- Travel arrows -------------------------------------------------------
  *
@@ -641,32 +635,58 @@
 	flex-direction: column;
 	gap: 0.8rem;
 }
-.sched .schedule .srow {
+/* --- Event dialog --------------------------------------------------------
+ *
+ * The fields sit on the app's shared 12-column grid, so only the parts with no
+ * counterpart elsewhere are styled here: the journeys arriving at the event.
+ * There is one row per group of people converging on the block, so the section
+ * is a list, and each row carries its name, its mode and its minutes on one
+ * line with the facts about it muted underneath. */
+.sched .schedule .jsec {
 	display: flex;
-	gap: 0.7rem;
-	flex-wrap: wrap;
-	align-items: flex-start;
+	flex-direction: column;
+	gap: 0.85rem;
+	border-top: 1px solid var(--color-line);
+	padding-top: 0.9rem;
 }
-.sched .schedule .grow {
-	flex: 1 1 170px;
+.sched .schedule .jhead {
+	margin: 0;
+	font-family: var(--font-sans);
+	font-size: var(--text-meta);
+	font-weight: 600;
+	color: var(--color-ink-soft);
 }
-/* The time fields hold short fixed-format values, so they do not take slack. */
-.sched .schedule .tf2 {
-	width: 130px;
+/* The journey the reader pointed at to get here, marked so a block with five
+   arrivals opens on the one they meant. */
+.sched .schedule .jrow.on {
+	margin-left: -0.7rem;
+	padding-left: 0.55rem;
+	border-left: 2px solid var(--color-accent);
 }
-.sched .schedule .dfacts {
+.sched .schedule .jmins {
+	display: flex;
+	align-items: center;
+	gap: 0.35rem;
+}
+.sched .schedule .jmins .input {
+	min-width: 0;
+	flex: 1 1 auto;
+}
+.sched .schedule .jmins span {
+	font-size: var(--text-meta);
+	color: var(--color-ink-faint);
+}
+.sched .schedule .jnote {
 	display: flex;
 	flex-wrap: wrap;
 	align-items: center;
 	gap: 0.45rem;
-	padding: 0.5rem 0.65rem;
-	border: 1px solid var(--color-line);
-	border-radius: var(--radius-sm);
-	background: var(--color-surface-2);
 }
-.sched .schedule .dfact {
-	font-size: 0.78rem;
-	color: var(--color-ink-soft);
+/* Facts on one line read as columns without something between them. */
+.sched .schedule .jnote > span:not(.tag) + span:not(.tag)::before {
+	content: '·';
+	margin-right: 0.45rem;
+	color: var(--color-ink-faint);
 }
 
 /* --- Reduced motion ------------------------------------------------------

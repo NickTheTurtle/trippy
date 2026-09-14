@@ -16,13 +16,28 @@ import {
 	dayLabel,
 	endOptions,
 	hhmm,
+	modeLabel,
 	placeOptions,
 	withCurrent
 } from './shared';
-import type { Cell, Crew, EventDraft, EventRow, SavedPoi } from './types';
+import type { Cell, Crew, EventDraft, EventRow, LegRow, SavedPoi } from './types';
+
+/** What a reader can say about a journey, and the automatic estimate it began at. */
+type LegEdit = { title: string; mode: string; mins: string; auto: boolean };
+
+const legEdit = (l: LegRow): LegEdit => ({
+	title: l.title ?? '',
+	mode: l.resolvedMode,
+	mins: String(l.resolvedMins),
+	auto: !l.manual
+});
+
+const sameEdit = (a: LegEdit, b: LegEdit) =>
+	a.auto === b.auto && a.mode === b.mode && a.mins === b.mins && a.title.trim() === b.title.trim();
 
 /**
- * One event: rename, retype, retime, re-people, relocate, delete.
+ * One event: rename, retype, retime, re-people, relocate, delete, and set the
+ * journeys that arrive at it.
  *
  * Changing the type to free time clears the event's location on the server.
  * That is the point of free time rather than a side effect: nobody has promised
@@ -32,10 +47,20 @@ import type { Cell, Crew, EventDraft, EventRow, SavedPoi } from './types';
  * Every field that moves the block reports upward as it is typed, so the board
  * redraws under the dialog rather than after it. `peek` is what makes that
  * worth doing: it leaves the board uncovered and legible behind the panel.
+ *
+ * A journey has no dialog of its own. It is not a thing anybody creates: the
+ * server plans one for every pair of consecutive events a given set of people
+ * attends, so it only exists as the approach to the event it arrives at, and
+ * that is where it is now edited. There can be several, one per group of people
+ * converging on the same block, which is why this is a list and not a field.
  */
 export default function EventDialog({
 	base,
 	event,
+	legs,
+	focusLegId,
+	titleOf,
+	peopleLabel,
 	memberOptions,
 	crews,
 	saved,
@@ -49,6 +74,13 @@ export default function EventDialog({
 }: {
 	base: string;
 	event: EventRow;
+	/** The journeys that arrive at this event, in the order the board drew them. */
+	legs: LegRow[];
+	/** The journey the reader pointed at, if they arrived here by clicking one. */
+	focusLegId?: string;
+	/** The name of another event on the board, or null when it is not loaded. */
+	titleOf: (eventId: string) => string | null;
+	peopleLabel: (ids: string[]) => string;
 	memberOptions: Option[];
 	crews: Crew[];
 	saved: SavedPoi[];
@@ -72,6 +104,13 @@ export default function EventDialog({
 	const [mode, setMode] = useState(event.travel_mode ?? '');
 	const [poi, setPoi] = useState(event.poi_id ?? '');
 	const [killing, setKilling] = useState(false);
+	/* Keyed by leg id and seeded once: the dialog is mounted per event, and the
+	   list it was opened with is the list it saves. */
+	const [journeys, setJourneys] = useState<Record<string, LegEdit>>(() =>
+		Object.fromEntries(legs.map((l) => [l.id, legEdit(l)]))
+	);
+	const setJourney = (id: string, patch: Partial<LegEdit>) =>
+		setJourneys((m) => ({ ...m, [id]: { ...m[id], ...patch } }));
 
 	const startMin = Number(start);
 	const endMin = Number(end);
@@ -119,11 +158,33 @@ export default function EventDialog({
 
 	const poiOptions = placeOptions(saved, cities, cityId);
 
+	/* Sent only when it has actually changed.
+	 *
+	 * An empty place means "unlink", and it clears the event's coordinates with
+	 * it. But an event can hold coordinates without a saved place at all, and
+	 * for one of those the picker reads "No location" the moment it opens: a
+	 * reader who came here to change the end time and pressed Save would have
+	 * wiped the spot the day is planned around, and every journey to it. */
+	const placeMoved = poi !== (event.poi_id ?? '');
+
 	const op = (body: Record<string, unknown>) =>
 		api(`${base}/events/${event.id}/op`, { method: 'POST', body });
 
 	const save = useMutation(
 		async () => {
+			/* Journeys first, while the ids still mean what the reader saw. Only the
+			   ones actually touched: a leg is unpinned by default, and writing every
+			   row back would pin the whole day just for opening this dialog. */
+			for (const l of legs) {
+				const now = journeys[l.id];
+				if (!now || sameEdit(now, legEdit(l))) continue;
+				const title = now.title.trim();
+				await api(`${base}/legs/${l.id}`, {
+					method: 'PATCH',
+					// Empty mode and minutes is the reset, and the name is not part of it.
+					body: now.auto ? { mode: '', mins: '', title } : { mode: now.mode, mins: now.mins, title }
+				});
+			}
 			// Two calls, because the people are their own endpoint: they are what
 			// splits and rejoins the group, and the server recomputes the day's
 			// travel off them rather than off anything in the edit.
@@ -137,7 +198,7 @@ export default function EventDialog({
 				// Absent leaves it alone; empty hands the journey back to the router.
 				travelMode: type === 'travel' ? mode : undefined,
 				// Absent leaves the place alone; empty unlinks it.
-				poiId: placeable ? poi : undefined
+				poiId: placeable && placeMoved ? poi : undefined
 			});
 			await api(`${base}/events/${event.id}/people`, { method: 'PUT', body: { people } });
 			onDone();
@@ -157,9 +218,13 @@ export default function EventDialog({
 				onClose={onClose}
 			>
 				<ModalForm className="schedule" onSubmit={save.submit}>
-					<div className="mbody">
-						<div className="srow">
-							<FieldShell label="Type" className="tf2">
+					<div className="mbody flex flex-col gap-4">
+						{/* The same 12-column grid the rest of the app's dialogs use, so a
+						    field keeps its width whether or not the row beside it is
+						    showing: the mode field comes and goes with the type, and the
+						    old flexbox row re-flowed everything each time it did. */}
+						<div className="grid grid-cols-12 gap-x-2.5 gap-y-3.5">
+							<FieldShell label="Type" className="col-span-4">
 								<Select
 									value={type}
 									onChange={(v) => setType(v as EventType)}
@@ -169,16 +234,14 @@ export default function EventDialog({
 							</FieldShell>
 							<Field
 								label="Name"
-								className="grow"
+								className="col-span-8"
 								autoFocus
 								required
 								value={title}
 								onChange={(e) => setTitle(e.target.value)}
 							/>
-						</div>
 
-						<div className="srow">
-							<FieldShell label="Start" className="tf2">
+							<FieldShell label="Start" className="col-span-3">
 								<Select
 									value={start}
 									onChange={moveStart}
@@ -186,7 +249,7 @@ export default function EventDialog({
 									ariaLabel="Start"
 								/>
 							</FieldShell>
-							<FieldShell label="End" className="tf2">
+							<FieldShell label="End" className="col-span-3">
 								<Select
 									value={end}
 									onChange={setEnd}
@@ -194,23 +257,25 @@ export default function EventDialog({
 									ariaLabel="End"
 								/>
 							</FieldShell>
-							{type === 'travel' && (
-								<FieldShell label="Mode" optional className="tf2">
-									<Select value={mode} onChange={setMode} options={MODE_OPTIONS} ariaLabel="Mode" />
-								</FieldShell>
-							)}
 							<PeoplePicker
 								people={people}
 								onChange={setPeople}
 								memberOptions={memberOptions}
 								crews={crews}
-								className="grow"
+								className="col-span-6"
 							/>
-						</div>
 
-						<div className="srow">
+							{type === 'travel' && (
+								<FieldShell label="Mode" optional className="col-span-4">
+									<Select value={mode} onChange={setMode} options={MODE_OPTIONS} ariaLabel="Mode" />
+								</FieldShell>
+							)}
 							{placeable && (
-								<FieldShell label={placeLabel} optional className="grow">
+								<FieldShell
+									label={placeLabel}
+									optional
+									className={type === 'travel' ? 'col-span-8' : 'col-span-6'}
+								>
 									<Select
 										value={poi}
 										onChange={setPoi}
@@ -222,11 +287,93 @@ export default function EventDialog({
 							<Field
 								label="Notes"
 								optional
-								className="grow"
+								className={placeable && type !== 'travel' ? 'col-span-6' : 'col-span-12'}
 								value={notes}
 								onChange={(e) => setNotes(e.target.value)}
 							/>
 						</div>
+
+						{legs.length > 0 && (
+							<section className="jsec">
+								<h3 className="jhead">Getting here</h3>
+								{legs.map((l) => {
+									const j = journeys[l.id];
+									if (!j) return null;
+									// The origin is not always loaded: the first journey of a day
+									// starts at the night before it, which the board may not be
+									// showing. The bar on the board falls back to the bare mode in
+									// exactly the same case, so the placeholder does too.
+									const from = titleOf(l.fromEventId);
+									const who = peopleLabel(l.people);
+									return (
+										<div
+											key={l.id}
+											className={`jrow grid grid-cols-12 gap-x-2.5 gap-y-2${
+												focusLegId === l.id ? ' on' : ''
+											}`}
+										>
+											<input
+												className="input col-span-5"
+												aria-label={`Journey, ${who}`}
+												placeholder={
+													from
+														? `${modeLabel(l.resolvedMode)} from ${from}`
+														: modeLabel(l.resolvedMode)
+												}
+												value={j.title}
+												onChange={(e) => setJourney(l.id, { title: e.target.value })}
+											/>
+											<div className="col-span-4">
+												<Select
+													value={j.mode}
+													onChange={(v) => setJourney(l.id, { mode: v, auto: false })}
+													options={MODE_OPTIONS}
+													ariaLabel={`Mode, ${who}`}
+												/>
+											</div>
+											<div className="jmins col-span-3">
+												<input
+													className="input"
+													type="number"
+													min={1}
+													data-autofocus={focusLegId === l.id ? '' : undefined}
+													aria-label={`Minutes, ${who}`}
+													value={j.mins}
+													onChange={(e) => setJourney(l.id, { mins: e.target.value, auto: false })}
+												/>
+												<span>min</span>
+											</div>
+											<p className="jnote col-span-12 m-0 text-meta muted">
+												<span>{who}</span>
+												{l.autoMins == null ? (
+													<span>No estimate yet</span>
+												) : (
+													<span>{`Estimated: ${modeLabel(l.autoMode)}, ${l.autoMins}m`}</span>
+												)}
+												{!j.auto && l.autoMins != null && (
+													<span>
+														<button
+															type="button"
+															className="link"
+															onClick={() =>
+																setJourney(l.id, {
+																	auto: true,
+																	mode: l.autoMode ?? l.resolvedMode,
+																	mins: String(l.autoMins)
+																})
+															}
+														>
+															Use it instead
+														</button>
+													</span>
+												)}
+												{l.tight && <span className="tag warn">does not fit the gap</span>}
+											</p>
+										</div>
+									);
+								})}
+							</section>
+						)}
 					</div>
 
 					<ModalFooter

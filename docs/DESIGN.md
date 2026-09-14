@@ -2340,7 +2340,46 @@ resizing produce.
 The dialog's wording follows the rest of the app rather than the schema: the
 title is **Edit event** beside Add event, Edit place and Edit cost, and the
 first field is **Name**, which is what a place, a stay, a task and a journey all
-call theirs.
+call theirs. Its fields sit on the same twelve-column grid the expense and cost
+dialogs use, so a field keeps its width whether or not the one beside it is
+showing: Mode comes and goes with the type, and the old flex row re-flowed the
+whole form each time it did.
+
+**A journey is edited where it arrives, in the event's own dialog.** A leg is
+not a thing anybody creates: the server plans one for every pair of consecutive
+events a set of people attends, so it has no life apart from the block it leads
+into. Giving it a dialog of its own said otherwise, and made the common edit,
+"we will need longer to get here", two panels instead of one. "Getting here" is
+now a section at the foot of the event dialog, and `TravelDialog` is gone.
+
+It is a list, not a field, because an event can have several approaches: one per
+group of people converging on it, and the densest day of the Athens trip has six
+arriving at lunch. Each row carries the name, the mode and the minutes on one
+line with the facts under it: who is on it, the router's estimate, and the link
+that hands the journey back to that estimate. The origin is the row's
+placeholder rather than a label, since it is only ever a fallback name, and the
+board's bar falls back the same way when the previous event is not loaded: the
+first journey of a day starts at the night before it.
+
+Only the rows actually touched are written. A leg is unpinned by default, so
+sending every row back on Save would pin a whole day's travel as the price of
+renaming one event. The comparison is against the values the dialog opened with,
+and it includes the reset: handing a journey back to the router is a change like
+any other. The journeys are saved before the event, while their ids still mean
+what the reader saw, since an edit to the people replans them.
+
+**Pointing at a journey opens its arrival.** The bar on the board is still
+clickable, and it opens the same panel, scrolled to that journey's row with the
+row marked and its minutes focused. A block with six approaches would otherwise
+open a form the reader has to search.
+
+**An unchanged place is never sent.** `poiId` is absent-means-leave-alone and
+empty-means-unlink, and the dialog used to send the picker's value every time.
+For an event that holds coordinates without a saved place, and the whole Athens
+seed is like that, the picker reads "No location" the moment it opens, so a
+reader who came to move the end time and pressed Save silently wiped the spot
+the day was planned around, and every journey to it with it. The field is sent
+only when it differs from what was loaded.
 
 **The place picker is grouped by city, nearest first.** A trip through four
 cities has a picker four times longer than the reader wants, and the place they
@@ -2361,10 +2400,11 @@ still carries a value that came from a drag and does not land on the grid.
 
 **The automatic estimate is a link, not a button.** It sat in the footer beside
 Save, at the same weight, which read as one of two equal ways to leave the dialog
-when it is neither: it is a reset of two fields. It is now the last line of the
-body, next to the number it would set, and it only appears as a link when a
-pinned value is actually overriding the router. When nothing is pinned the line
-states the estimate in use, and when the router has no answer it says so.
+when it is neither: it is a reset of two fields. It now sits in the muted line
+under the journey it belongs to, next to the number it would set, and it only
+appears as a link when a pinned value is actually overriding the router. When
+nothing is pinned the line states the estimate in use, and when the router has no
+answer it says so.
 
 **Double-clicking the day creates an event there.** Adding used to mean the
 toolbar button and a 9:00 default, which is a guess that is wrong most of the
@@ -2377,9 +2417,9 @@ top would be a trap.
 
 **The grey fact strip left the event dialog.** It restated the start, the end and
 the city, all three of which the fields above it already say, and the restatement
-went stale the moment a select changed. The travel dialog keeps its strip,
-because what that one shows, the two events a journey joins and who is on it, is
-not a field anywhere in the form.
+went stale the moment a select changed. What the travel dialog's strip carried
+that no field did, the two events a journey joins and who is on it, is now the
+muted line under each journey row.
 
 **The agenda replaces the travel list.** The panel under the map used to list the
 day's journeys. It now appears only while "view as" names one member, and shows
