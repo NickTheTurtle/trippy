@@ -11,7 +11,14 @@ export type MapTrack = {
 	name: string;
 	color: string;
 	items: MapItem[];
-	/** False to draw pins without joining them up (used for unscheduled places). */
+	/**
+	 * False to draw pins without joining them up.
+	 *
+	 * A line between two pins claims that one follows the other, which is the
+	 * same claim a number on a pin makes and is false in the same cases: an
+	 * unscheduled set of places has no order at all, and a day the group splits
+	 * across has one order per group and none overall.
+	 */
 	line?: boolean;
 	/** True to draw small dots rather than numbered pins. */
 	dot?: boolean;
@@ -99,6 +106,21 @@ export default function GoogleMap({
 	tracksRef.current = tracks;
 	const sig = JSON.stringify([tracks, center]);
 
+	/* What the camera is allowed to react to: where the pins are, and nothing
+	   else about them.
+	 *
+	 * Refitting on every redraw meant that retitling an event, moving it an hour
+	 * or putting somebody else on it threw away the reader's pan and zoom, and
+	 * with the board previewing an edit as it is typed that happened on every
+	 * keystroke. None of those change where anything is. Coordinates are rounded
+	 * to about a metre so that a re-read of the same places, which can differ in
+	 * the last float digit, is not a move. */
+	const fitSig = JSON.stringify(
+		tracks.map((t) => t.items.map((i) => [i.lat?.toFixed(5) ?? null, i.lng?.toFixed(5) ?? null]))
+	);
+	/** The last set of points the camera was fitted to. */
+	const fitted = useRef('');
+
 	useEffect(() => {
 		let cancelled = false;
 		loadMaps(apiKey)
@@ -128,6 +150,7 @@ export default function GoogleMap({
 			lines.current = [];
 			iconKeys.current = [];
 			cards.current = [];
+			fitted.current = '';
 			mapRef.current = null;
 		};
 	}, [apiKey]);
@@ -275,6 +298,10 @@ export default function GoogleMap({
 
 		const count = wantMarkers.length;
 		const c = centerRef.current;
+		// Only when the points themselves have changed. Everything above this
+		// redraws on any edit; the camera is the one thing the reader owns.
+		if (fitted.current === fitSig) return;
+		fitted.current = fitSig;
 		if (count > 1) {
 			/* Extra room at the top so the hover card has somewhere to go. The card
 			   opens above its pin and the map box clips its overflow, so a pin
@@ -290,7 +317,7 @@ export default function GoogleMap({
 			map.setCenter({ lat: c.lat, lng: c.lng });
 			map.setZoom(12);
 		}
-	}, [sig, ready]);
+	}, [sig, fitSig, ready]);
 
 	return <div ref={elRef} className="gmapbox" />;
 }

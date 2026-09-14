@@ -193,8 +193,8 @@ schedule.post('/events', async (c) => {
 	const type = isEventType(typeRaw) ? typeRaw : 'activity';
 
 	let title = str(b.title);
-	// Free time is deliberately nowhere, and travel is the journey between
-	// places rather than one of them, so only a located type takes a link.
+	// Free time is deliberately nowhere, so it is the one type with no link. A
+	// journey's link is the far end of it: where it lands.
 	const place = isLocatedType(type) ? placeFor(trip.id, str(b.poiId)) : null;
 	if (place && !title) title = place.name;
 

@@ -98,10 +98,19 @@ three lost a reason to exist when tracks did:
   carrying the people who slept there, and it is what the next morning's first
   journey starts from.
 
-Two of the five are not places: `freetime` is deliberately nowhere, and `travel`
-is itself a journey. `LOCATED_EVENT_TYPES` and `isLocatedType` name that
-distinction, because two rules turn on it (only a located event anchors a leg,
-and switching to free time clears the coordinates).
+Only one of the five is not a place: `freetime` is deliberately nowhere.
+`LOCATED_EVENT_TYPES` and `isLocatedType` name that distinction, because
+switching to free time clears the coordinates.
+
+A `travel` event carries a location too, and it means where the journey *ends*:
+the ferry drops you on the island, so the address is the island. That makes it a
+one-way anchor, and `planLegs` treats it as one. Nothing is ever planned *to* a
+hand-entered journey, because a walk to the middle of your own flight is not a
+thing anyone does; but the chain resumes *from* where it lands, so the next stop
+gets its journey from the ferry terminal rather than from wherever you were
+before you boarded. A `travel` event with no end location still breaks the chain
+outright, which is the old behaviour and the right answer when nobody has said
+where they came out.
 
 `TRANSPORT_MODES` is the companion list, for what a journey is made by:
 
@@ -2268,6 +2277,38 @@ went. Below `TINY_W` the bar gives up its padding and drops a type step instead
 of its duration, because at seven columns across a 3-day view a bar is about
 thirty pixels wide and "10m" is worth more than "1...".
 
+**An edit is drawn on the board while it is typed.** A dialog that covers the day
+makes the reader guess: a 20-minute nudge or a type change could only be judged
+after saving and looking. `EventDialog` reports its draft upward and `Schedule`
+patches it into the board memo, so the block retitles, recolours and moves as the
+fields change, and Escape puts it back.
+
+That needs the board left legible, so the dialog **peeks**: it takes a narrower
+panel and drops the dim, leaving the page readable and scrollable behind it.
+Below 1100px there is no room to leave uncovered, so it dims and holds the page
+still like any other dialog; the preview is still computed, and the board is
+right the moment the dialog closes. Which edge it stands at is the one not
+showing the day being edited (`dockSide`). If the edit takes the block off
+screen, the board scrolls to keep it, computed from the draft's own minutes
+against the lane's rect rather than from the block: `.block` transitions `top`,
+so measuring it straight after a change reads where it was, not where it is
+going, and `scrollIntoView` then does nothing because the stale rect is still on
+screen.
+
+**A block that moves takes its journeys with it.** A journey is anchored to its
+arrival, so its place on the clock is the gap in front of that block. Whenever
+the board is showing an event somewhere the server has not agreed to yet, under
+the pointer during a drag, during the write that follows, or in an edit preview,
+the arriving journeys are shifted by the same minutes (`shiftLeg`); otherwise
+they are left drawn under empty track. Their duration is untouched, because
+moving an event later does not make the walk to it shorter.
+
+Two limits are deliberate. The event columns are still packed from the stored
+times, since re-packing under the pointer would move every other block on the day
+while one is being nudged. And a change of type or of people drops the affected
+journeys rather than shifting them: those decide whether a journey exists at all,
+which is the server's answer to give, not a guess the board can draw.
+
 **An event can be linked to a saved place after the fact.** Adding one offered a
 Discover place from the start; editing one did not, so a block typed by hand
 could never be given coordinates and stayed off the map and out of the travel
@@ -2277,10 +2318,29 @@ coordinates travel with the link and are resolved by the route, because the
 chain is planned off the event's own lat/lng and a link without them would put
 an event nowhere while claiming a place.
 
-Both dialogs gate the picker on `isLocatedType`, so the offer is `activity`,
-`food` and `stay`. Free time is deliberately nowhere, and travel is the journey
-between places rather than one of them. Add used to allow travel, which was the
-looser of the two rules and the wrong one.
+Both dialogs gate the picker on `isLocatedType`, which now admits `travel` as
+well: only free time is deliberately nowhere. On a journey the field is labelled
+**Ends at** rather than **Location**, because a journey's address is where it put
+you and asking "where is this flight" has no answer. The field is called
+"Location" everywhere else, and its empty option "No location". "Place" was the
+internal word for a Discover row leaking into the UI: a member reading the dialog
+is saying where something is, not which database row it points at.
+
+**An event is asked for as a start and an end, not a start and a length.** The
+pair matches how the board draws it and how people say it ("two to four", not
+"two for two hours"), and it removes the arithmetic from the common edit, which
+is moving the far end. Both pickers step by fifteen minutes, the shortest event
+the server allows, and the end list starts one step after the start, so an event
+that finishes before it begins cannot be described and there is no refusal to
+word. Moving the start carries the end with it and keeps the length, because
+that edit is far more often "this happens later" than "this runs longer".
+`withCurrent` still carries a time off the grid, which is what dragging and
+resizing produce.
+
+The dialog's wording follows the rest of the app rather than the schema: the
+title is **Edit event** beside Add event, Edit place and Edit cost, and the
+first field is **Name**, which is what a place, a stay, a task and a journey all
+call theirs.
 
 **The place picker is grouped by city, nearest first.** A trip through four
 cities has a picker four times longer than the reader wants, and the place they
@@ -2338,6 +2398,21 @@ people, since a day that splits has one order per track and none overall; people
 with nothing scheduled do not break this, as they are simply absent from every
 list. Reading the day as one person drops the second test: their own thread is a
 sequence however the rest of the group divides.
+
+The same test gates the route line, for the same reason and more strongly. A
+number on an out-of-order pin is a small lie; a line through pins from two tracks
+draws a route nobody takes, hopping between groups that never met. So the day's
+polyline appears exactly when the numbering does, and a split day gets pins only.
+
+**The camera answers to coordinates, not to edits.** `fitBounds` used to run on
+every redraw, because the draw effect keyed on the whole track list. Retitling an
+event, nudging it an hour or changing who is on it all threw away the reader's
+pan and zoom, and with the live edit preview (5.0.15) it happened on every
+keystroke. Both maps now derive a separate key from the pin coordinates alone and
+refit only when that changes, so moving the camera is something the reader does
+and something new places do, not something typing does. `TripMap` also keys its
+draw on a serialised copy of the tracks rather than on the caller's inline array,
+which was a new identity on every render.
 
 **A pin says more when you point at it.** The browser's own tooltip arrived after
 a delay, held one line of unstyleable plain text and closed with the pointer, so
@@ -2542,6 +2617,20 @@ trapping, Escape-to-close, background inertness and top-layer rendering (immune
 to z-index and `transform` clipping) for free. The one thing
 `<dialog>` does _not_ do is lock body scroll, so the component does that
 explicitly; that was the actual cause of the double-scrollbar bug.
+
+**Every dialog stands at an edge, not in the middle.** What a dialog edits is
+almost always on the page behind it, a row in a list, a block on the board, a
+pin on a map, and a centred panel covers precisely that. Docking is therefore
+the default rather than a schedule-only trick: `dock` picks the side (right
+unless the caller knows that side is the one it must not cover) and the panel
+runs nearly the full height, which is also what stops a tall form from being a
+letterbox. The backdrop still dims, because the page behind an ordinary dialog
+is there to be read rather than used.
+
+`peek` gives the dim up as well, and narrows the panel to 40vw to leave more
+showing. It is for a dialog whose edits are drawn live on the page (5.0.15),
+where dimming what is being previewed would defeat the point, and it is the one
+case where the page stays scrollable while a dialog is open.
 
 **Focus restore is the app's job, not the browser's.** The native restore only
 fires when the dialog is closed while still in the document, which covers the

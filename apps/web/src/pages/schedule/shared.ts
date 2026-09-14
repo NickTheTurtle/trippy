@@ -113,18 +113,25 @@ export const START_OPTIONS: Option[] = Array.from(
 ).map((s) => ({ value: String(s), label: hhmm(s) }));
 
 /**
- * Lengths in quarter-hours, which is the granularity the rest of the board
- * works in: the start picker steps by fifteen minutes and the server's shortest
- * event is fifteen. Twelve hours covers the longest thing anyone schedules as
- * one block, and `withCurrent` carries anything past it.
+ * The ends offered for an event that starts at `startMin`.
+ *
+ * Quarter-hours, the same step the start picker uses and the shortest event the
+ * server allows, from the first one after the start to the end of the board.
+ * Listing only ends that are after the start is what makes the pair safe to ask
+ * for directly: there is no way to describe an event that finishes before it
+ * begins, so there is no refusal to word. `withCurrent` carries a time off the
+ * grid, which is what dragging and resizing produce.
  */
-export const DURATION_OPTIONS: Option[] = Array.from({ length: (12 * 60) / 15 }, (_, i) => {
-	const mins = (i + 1) * 15;
-	return { value: String(mins), label: lengthLabel(mins) };
-});
+export function endOptions(startMin: number): Option[] {
+	const out: Option[] = [];
+	for (let m = Math.floor(startMin / 15) * 15 + 15; m <= DAY_END; m += 15) {
+		out.push({ value: String(m), label: hhmm(m) });
+	}
+	return out;
+}
 
 /**
- * Discover's saved places, for the Place picker.
+ * Discover's saved places, for the location picker.
  *
  * Grouped by city with the day's own city first, because a trip that visits
  * four cities has a list four times longer than the one the reader wants, and
@@ -147,7 +154,7 @@ export function placeOptions(
 	);
 
 	return [
-		{ value: '', label: 'No place' },
+		{ value: '', label: 'No location' },
 		...sorted.map((p) => ({
 			value: p.id,
 			label: p.name,
@@ -156,14 +163,6 @@ export function placeOptions(
 			section: names.get(p.city_id) ?? 'Elsewhere'
 		}))
 	];
-}
-
-/** "1h 15m", for a duration that is not one of the offered ones. */
-export function lengthLabel(mins: number): string {
-	if (mins < 60) return `${mins}m`;
-	const h = Math.floor(mins / 60);
-	const m = mins % 60;
-	return m ? `${h}h ${m}m` : `${h}h`;
 }
 
 /**

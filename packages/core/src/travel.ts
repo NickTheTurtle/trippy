@@ -84,14 +84,28 @@ export function peopleKey(people: readonly string[]): string {
  * both sides, and the next journey starts from whatever the person is committed
  * to after it.
  *
- * A `travel` event is excluded for a different reason: it IS a journey, entered
- * by hand. Because it is never an endpoint, no automatic leg is planned into or
- * out of it, which is exactly what a person wants when they have already said
- * how they are getting from A to B.
+ * A `travel` event is excluded here for a different reason, and only on this
+ * side: it IS a journey, entered by hand, so planning a second journey *to* it
+ * would be planning how to get to the middle of the flight you are already on.
+ * Where it ends is a different question, answered by `landsAt` below.
  */
 function isAnchor(e: PlannerEvent): boolean {
 	if (e.type === 'freetime' || e.type === 'travel') return false;
 	return e.lat != null && e.lng != null;
+}
+
+/**
+ * Where a hand-entered journey puts a person once it is over, if it says.
+ *
+ * A journey has two ends and the event records the far one, because that is
+ * the one the rest of the day depends on: after the ferry you are on the
+ * island, and the walk to dinner starts from the port rather than from
+ * wherever you were this morning. A travel event with no location still breaks
+ * the chain, which is what it did before this existed: nobody can say where
+ * the person ends up, so nothing is invented.
+ */
+function landsAt(e: PlannerEvent): boolean {
+	return e.type === 'travel' && e.lat != null && e.lng != null;
 }
 
 /**
@@ -141,10 +155,16 @@ export function planLegs(
 
 		let prev: PlannerEvent | null = null;
 		for (const e of mine) {
+			// A hand-entered journey is one-way as an anchor: nothing is planned to
+			// it, but where it lands is where the person then is, so it starts the
+			// next leg. One that does not say where it lands breaks the chain.
+			if (e.type === 'travel') {
+				prev = landsAt(e) ? e : null;
+				continue;
+			}
 			if (!isAnchor(e)) {
-				// Free time and hand-entered travel both end the current chain: the
-				// next journey is planned from whatever comes after them, not across
-				// them.
+				// Free time ends the current chain: the next journey is planned from
+				// whatever comes after it, not across it.
 				prev = null;
 				continue;
 			}

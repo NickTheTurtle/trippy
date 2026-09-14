@@ -372,12 +372,15 @@ select.input.compact {
 	backdrop-filter: blur(2px);
 }
 
-/* Docked: the panel stands at one edge so the page it edits stays legible.
-   A dimmed backdrop would undo that, so it keeps only a shadow, which is what
-   separates it from the page instead. Narrower than a centred dialog of the
-   same size for the same reason: what it leaves uncovered is the point. */
+/* Every dialog stands at an edge rather than in the middle, because the thing it
+   edits is on the page behind it and a centred panel covers exactly that. The
+   backdrop still dims by default: the page is there to be read, not used.
+
+   A peeking dialog gives that up too, for the one case where the page must stay
+   live: the schedule's edit, which is drawn on the board as it is typed. It
+   takes a narrower panel as well, because what it leaves uncovered is the
+   point. */
 .modal.docked {
-	width: min(var(--mw), 40vw, calc(100vw - 2rem));
 	max-height: calc(100vh - 2rem);
 }
 .modal.docked.right {
@@ -386,7 +389,10 @@ select.input.compact {
 .modal.docked.left {
 	margin: auto auto auto 1rem;
 }
-.modal.docked::backdrop {
+.modal.peek {
+	width: min(var(--mw), 40vw, calc(100vw - 2rem));
+}
+.modal.peek::backdrop {
 	background: transparent;
 	backdrop-filter: none;
 }

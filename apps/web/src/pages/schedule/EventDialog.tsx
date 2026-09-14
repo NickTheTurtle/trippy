@@ -9,29 +9,29 @@ import { Field, FieldShell } from '../../components/ui/Field';
 import { copy } from '../../copy';
 import PeoplePicker from './PeoplePicker';
 import {
-	DURATION_OPTIONS,
+	DAY_END,
 	MODE_OPTIONS,
 	START_OPTIONS,
 	TYPE_OPTIONS,
 	dayLabel,
+	endOptions,
 	hhmm,
-	lengthLabel,
 	placeOptions,
 	withCurrent
 } from './shared';
 import type { Cell, Crew, EventDraft, EventRow, SavedPoi } from './types';
 
 /**
- * One event: retitle, retype, retime, re-people, re-place, delete.
+ * One event: rename, retype, retime, re-people, relocate, delete.
  *
- * Changing the type to free time clears the event's place on the server. That
- * is the point of free time rather than a side effect: nobody has promised to
- * be anywhere, so the travel chain breaks on both sides of it and the next
+ * Changing the type to free time clears the event's location on the server.
+ * That is the point of free time rather than a side effect: nobody has promised
+ * to be anywhere, so the travel chain breaks on both sides of it and the next
  * journey starts from whatever the person is committed to afterwards.
  *
  * Every field that moves the block reports upward as it is typed, so the board
- * redraws under the dialog rather than after it. `dock` is what makes that
- * worth doing: it stands the panel at one edge and leaves the board uncovered.
+ * redraws under the dialog rather than after it. `peek` is what makes that
+ * worth doing: it leaves the board uncovered and legible behind the panel.
  */
 export default function EventDialog({
 	base,
@@ -42,6 +42,7 @@ export default function EventDialog({
 	cities,
 	cityId,
 	dock,
+	peek,
 	onPreview,
 	onClose,
 	onDone
@@ -53,8 +54,10 @@ export default function EventDialog({
 	saved: SavedPoi[];
 	cities: (Cell | null)[];
 	cityId: string | null;
-	/** Which edge to stand at, or undefined to sit in the middle and cover the page. */
+	/** Which edge to stand at. */
 	dock?: 'left' | 'right';
+	/** Whether there is room to leave the board showing rather than covering it. */
+	peek?: boolean;
 	/** The edit so far, or null once this dialog is gone. */
 	onPreview?: (draft: EventDraft | null) => void;
 	onClose: () => void;
@@ -63,7 +66,7 @@ export default function EventDialog({
 	const [title, setTitle] = useState(event.title);
 	const [type, setType] = useState<EventType>(event.type);
 	const [start, setStart] = useState(String(event.start_min));
-	const [duration, setDuration] = useState(String(Math.max(15, event.end_min - event.start_min)));
+	const [end, setEnd] = useState(String(event.end_min));
 	const [people, setPeople] = useState<string[]>([...event.people]);
 	const [notes, setNotes] = useState(event.notes ?? '');
 	const [mode, setMode] = useState(event.travel_mode ?? '');
@@ -71,7 +74,21 @@ export default function EventDialog({
 	const [killing, setKilling] = useState(false);
 
 	const startMin = Number(start);
-	const endMin = startMin + Number(duration);
+	const endMin = Number(end);
+
+	/**
+	 * Moving the start carries the end with it, keeping the length.
+	 *
+	 * The board asks for two times because that is what an event is, but moving
+	 * one is far more often "this happens later" than "this runs longer", and
+	 * making the reader fix the end afterwards would put the work back that the
+	 * pair was meant to save. Pushed past the end of the board it simply stops
+	 * there, which is the same clamp the board draws with.
+	 */
+	const moveStart = (next: string) => {
+		setStart(next);
+		setEnd(String(Math.min(DAY_END, Number(next) + (endMin - startMin))));
+	};
 
 	/* Held in a ref so a caller passing an inline function does not restart the
 	   effect, and so the teardown can fire without the effect depending on it. */
@@ -94,9 +111,11 @@ export default function EventDialog({
 	// preview when the dialog goes, whether it was saved, cancelled or escaped.
 	useEffect(() => () => preview.current?.(null), []);
 
-	// Only a located type stands somewhere: travel is the journey between
-	// places, and free time is nowhere at all.
+	// Only a located type stands somewhere: free time is deliberately nowhere.
+	// A journey's location is the far end of it: where it puts you, and where
+	// the rest of the day is then planned from.
 	const placeable = isLocatedType(type);
+	const placeLabel = type === 'travel' ? 'Ends at' : 'Location';
 
 	const poiOptions = placeOptions(saved, cities, cityId);
 
@@ -132,7 +151,8 @@ export default function EventDialog({
 				open={!killing}
 				size="lg"
 				dock={dock}
-				title="Event"
+				peek={peek}
+				title="Edit event"
 				subtitle={dayLabel(event.day)}
 				onClose={onClose}
 			>
@@ -148,7 +168,7 @@ export default function EventDialog({
 								/>
 							</FieldShell>
 							<Field
-								label="Title"
+								label="Name"
 								className="grow"
 								autoFocus
 								required
@@ -161,17 +181,17 @@ export default function EventDialog({
 							<FieldShell label="Start" className="tf2">
 								<Select
 									value={start}
-									onChange={setStart}
+									onChange={moveStart}
 									options={withCurrent(START_OPTIONS, start, hhmm)}
 									ariaLabel="Start"
 								/>
 							</FieldShell>
-							<FieldShell label="Length" className="tf2">
+							<FieldShell label="End" className="tf2">
 								<Select
-									value={duration}
-									onChange={setDuration}
-									options={withCurrent(DURATION_OPTIONS, duration, lengthLabel)}
-									ariaLabel="Length"
+									value={end}
+									onChange={setEnd}
+									options={withCurrent(endOptions(startMin), end, hhmm)}
+									ariaLabel="End"
 								/>
 							</FieldShell>
 							{type === 'travel' && (
@@ -190,8 +210,13 @@ export default function EventDialog({
 
 						<div className="srow">
 							{placeable && (
-								<FieldShell label="Place" optional className="grow">
-									<Select value={poi} onChange={setPoi} options={poiOptions} ariaLabel="Place" />
+								<FieldShell label={placeLabel} optional className="grow">
+									<Select
+										value={poi}
+										onChange={setPoi}
+										options={poiOptions}
+										ariaLabel={placeLabel}
+									/>
 								</FieldShell>
 							)}
 							<Field

@@ -57,7 +57,8 @@ export default function Modal({
 	subtitle,
 	swatch,
 	size = 'md',
-	dock,
+	dock = 'right',
+	peek = false,
 	onClose,
 	children
 }: {
@@ -69,12 +70,20 @@ export default function Modal({
 	swatch?: string;
 	size?: 'sm' | 'md' | 'lg';
 	/**
-	 * Pin the panel to one edge instead of centring it, and leave the page
-	 * undimmed and scrollable behind it. For a dialog whose edits are drawn live
-	 * on the page: covering them would defeat the point. The caller picks the
-	 * side, because only it knows which half of the page it must not cover.
+	 * Which edge the panel stands at. Dialogs stand at one rather than sitting in
+	 * the middle, because the thing being edited is nearly always on the page
+	 * behind them and a centred panel covers exactly what the reader is working
+	 * from. The right is the default; a caller picks the left when that is the
+	 * side it must not cover.
 	 */
 	dock?: 'left' | 'right';
+	/**
+	 * Leave the page undimmed, scrollable and legible behind the panel, and take
+	 * a narrower one to keep it that way. For a dialog whose edits are drawn live
+	 * on the page: dimming them would defeat the point. Off by default, because
+	 * an ordinary dialog wants the page held still while it is open.
+	 */
+	peek?: boolean;
 	onClose: () => void;
 	children: ReactNode;
 }) {
@@ -85,7 +94,7 @@ export default function Modal({
 		open,
 		onClose,
 		onOpened: focusFirstField,
-		lockPage: !dock
+		lockPage: !peek
 	});
 
 	const width = { sm: '460px', md: '620px', lg: '860px' }[size];
@@ -93,7 +102,7 @@ export default function Modal({
 	return (
 		<dialog
 			ref={ref}
-			className={dock ? `modal docked ${dock}` : 'modal'}
+			className={`modal docked ${dock}${peek ? ' peek' : ''}`}
 			aria-labelledby={titleId}
 			style={{ ['--mw' as string]: width }}
 			{...dialogProps}

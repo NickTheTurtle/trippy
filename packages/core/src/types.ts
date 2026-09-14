@@ -22,7 +22,7 @@
  *   starts at last night's stay and the last one returns to tonight's.
  * - `travel` is a journey. Most are planned automatically from the events
  *   either side; a manually added one is the same record with its mode and
- *   duration pinned.
+ *   duration pinned. Its location, if it has one, is where it ends.
  * - `freetime` is an explicit absence of plan. It is the only type with no
  *   location, and it deliberately breaks the travel chain, because nobody can
  *   say where a person will be when the block ends.
@@ -35,8 +35,17 @@ export function isEventType(v: string): v is EventType {
 	return (EVENT_TYPES as readonly string[]).includes(v);
 }
 
-/** Types that put a person somewhere, and so can be an end of a journey. */
-export const LOCATED_EVENT_TYPES: readonly EventType[] = ['activity', 'food', 'stay'];
+/**
+ * Types that record where a person is, and so can carry coordinates.
+ *
+ * Free time is the one exclusion: it is deliberately nowhere, because nobody
+ * has promised to be anywhere. Travel belongs here even though it is a journey
+ * rather than a place, because the place it records is where it ends, which is
+ * where the person is once it is over. Being here is not the same as being an
+ * end of an automatic journey: nothing is ever planned *to* a travel event.
+ * `planLegs` owns that distinction.
+ */
+export const LOCATED_EVENT_TYPES: readonly EventType[] = ['activity', 'food', 'stay', 'travel'];
 
 export function isLocatedType(t: EventType): boolean {
 	return LOCATED_EVENT_TYPES.includes(t);

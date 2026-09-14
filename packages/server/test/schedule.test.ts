@@ -299,9 +299,19 @@ describe('what an event type means', () => {
 		expect(schedule.legsForDay(tripId, DAY)).toHaveLength(0);
 	});
 
-	it('suppresses automatic travel across a journey entered by hand', () => {
+	it('plans nothing into a journey entered by hand, and resumes from where it lands', () => {
 		add({ startMin: 540, endMin: 600, people: [alice], ...HOTEL });
-		add({ type: 'travel', startMin: 600, endMin: 660, people: [alice], ...MUSEUM });
+		const manual = add({ type: 'travel', startMin: 600, endMin: 660, people: [alice], ...MUSEUM });
+		const park = add({ startMin: 660, endMin: 720, people: [alice], ...PARK });
+		const legs = schedule.legsForDay(tripId, DAY);
+		expect(legs).toHaveLength(1);
+		expect(legs[0].fromEventId).toBe(manual);
+		expect(legs[0].toEventId).toBe(park);
+	});
+
+	it('breaks the chain at a journey entered by hand with no end location', () => {
+		add({ startMin: 540, endMin: 600, people: [alice], ...HOTEL });
+		add({ type: 'travel', startMin: 600, endMin: 660, people: [alice] });
 		add({ startMin: 660, endMin: 720, people: [alice], ...PARK });
 		expect(schedule.legsForDay(tripId, DAY)).toHaveLength(0);
 	});

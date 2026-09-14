@@ -71,6 +71,20 @@ const TWO_LINE_H = 44;
  */
 const TINY_W = 64;
 
+/**
+ * The same journey, moved by `by` minutes.
+ *
+ * Used wherever the board is showing an event somewhere the server has not
+ * agreed to yet: under the pointer during a drag, and while an edit dialog is
+ * open. A journey is anchored to the thing it arrives at, so a block that moves
+ * has to take its journeys with it or they are left pointing at empty track.
+ * The duration is untouched: moving an event later does not make the walk to it
+ * any shorter.
+ */
+function shiftLeg(leg: LegRow, by: number): LegRow {
+	return by ? { ...leg, startMin: leg.startMin + by, endMin: leg.endMin + by } : leg;
+}
+
 export default function Schedule() {
 	const { trip } = useTrip();
 	const base = `/trips/${trip.id}/schedule`;
@@ -108,11 +122,12 @@ export default function Schedule() {
 	/** The open edit dialog's unsaved draft, drawn on the board as it is typed. */
 	const [preview, setPreview] = useState<EventDraft | null>(null);
 
-	/* Whether there is room beside the board for the edit dialog to stand.
+	/* Whether there is room beside the board for the edit dialog to peek.
 	 *
-	 * Below this the panel would cover what it is previewing, so it goes back to
-	 * being an ordinary centred dialog. The preview is still computed: it costs
-	 * nothing and the board is correct the moment the dialog is dismissed. */
+	 * Below this the panel covers what it is previewing whichever edge it stands
+	 * at, so it dims the page and holds it still like any other dialog. The
+	 * preview is still computed: it costs nothing and the board is correct the
+	 * moment the dialog is dismissed. */
 	const roomToDock = useMediaQuery('(min-width: 1100px)');
 
 	/* How many hours apart the People view labels its time axis.
@@ -230,10 +245,12 @@ export default function Schedule() {
 	 * itself, and an edit that takes the reader off the event correctly removes
 	 * it from their day.
 	 *
-	 * Journeys touching a draft that moved are dropped rather than left where
-	 * they were. The server replans travel from the saved times, so a journey
-	 * still arriving where the block no longer is would be a claim about the day
-	 * that is already false. A retitle changes no times, so it keeps them.
+	 * Journeys arriving at a draft that has moved move with it, by the same
+	 * minutes, because a journey's place on the clock is the gap in front of the
+	 * thing it leads into: leaving them behind would strand a walk under a block
+	 * that is no longer there. Changing who is on an event, or making it free
+	 * time, does not move its journeys but decides whether they exist at all,
+	 * and that is the server's answer to give, so those are dropped instead.
 	 */
 	const board: BoardDay[] = useMemo(() => {
 		const showEvent = (e: EventRow) =>
@@ -247,20 +264,21 @@ export default function Schedule() {
 		const replanned =
 			!!preview &&
 			!!saved &&
-			(preview.start_min !== saved.start_min ||
-				preview.end_min !== saved.end_min ||
-				preview.type !== saved.type ||
-				preview.people.join() !== saved.people.join());
+			(preview.type !== saved.type || preview.people.join() !== saved.people.join());
+		const shift = preview && saved ? preview.start_min - saved.start_min : 0;
 
 		return days.map((entry) => ({
 			...entry,
 			events: entry.events
 				.map((e) => (preview && e.id === preview.id ? { ...e, ...preview } : e))
 				.filter(showEvent),
-			legs: entry.legs.filter(
-				(l) =>
-					showLeg(l) && !(replanned && (l.fromEventId === preview.id || l.toEventId === preview.id))
-			)
+			legs: entry.legs
+				.filter(
+					(l) =>
+						showLeg(l) &&
+						!(replanned && (l.fromEventId === preview.id || l.toEventId === preview.id))
+				)
+				.map((l) => (preview && l.toEventId === preview.id ? shiftLeg(l, shift) : l))
 		}));
 	}, [data, selected, preview]);
 
@@ -684,7 +702,19 @@ export default function Schedule() {
 		   ferry is an hour you cannot be anywhere else, and drawing it beside the
 		   day made the gap it fills look free. Each journey hangs under the event
 		   it arrives at, so it is under the thing it leads into by construction
-		   and the board needs no lines. */
+		   and the board needs no lines.
+
+		   A block being dragged or waiting on its write takes its arriving
+		   journeys with it, since they are drawn in the gap in front of it. The
+		   columns are laid out from the stored times either way: re-packing them
+		   under the pointer would move every other block on the day while one is
+		   being nudged. */
+		const byId = new Map(entry.events.map((e) => [e.id, e]));
+		const legs = entry.legs.map((l) => {
+			const to = byId.get(l.toEventId);
+			return to ? shiftLeg(l, startFor(to) - to.start_min) : l;
+		});
+
 		const { layout: place, bars } = layoutBoard(
 			entry.events.map((ev) => ({
 				id: ev.id,
@@ -697,7 +727,7 @@ export default function Schedule() {
 				// what keeps it from being ranked as a lane of its own.
 				people: ev.people.length ? ev.people : memberIds
 			})),
-			entry.legs
+			legs
 		);
 
 		const items: LaneItem[] = [
@@ -874,15 +904,17 @@ export default function Schedule() {
 
 	/**
 	 * Whether the day's places are a sequence, and so whether the pins may be
-	 * numbered.
+	 * numbered and joined up.
 	 *
 	 * Two conditions, both about honesty rather than tidiness. Nothing may
 	 * overlap, because two things at once have no first. And everybody on the
 	 * day must be doing the same things, because a day that splits has one order
-	 * per track and no order overall. People with nothing scheduled do not
-	 * break it: they are simply absent from every event's list. Reading the day
-	 * as one person drops the second condition, because their own thread through
-	 * a day is a sequence however the rest of the group divides.
+	 * per track and no order overall: a line through those pins would draw a
+	 * route nobody takes, crossing between groups that never met. People with
+	 * nothing scheduled do not break it: they are simply absent from every
+	 * event's list. Reading the day as one person drops the second condition,
+	 * because their own thread through a day is a sequence however the rest of
+	 * the group divides.
 	 */
 	const ordered = ((): boolean => {
 		const evs = [...dayPins].sort((a, b) => a.start_min - b.start_min);
@@ -927,7 +959,8 @@ export default function Schedule() {
 						peopleLabel(e.people)
 					]
 				})),
-			numbered: ordered
+			numbered: ordered,
+			line: ordered
 		});
 	}
 
@@ -1103,7 +1136,8 @@ export default function Schedule() {
 					saved={data.saved}
 					cities={data.cities}
 					cityId={openEvent.city_id ?? cityOfDay(openEvent.day)}
-					dock={roomToDock ? dockSide : undefined}
+					dock={dockSide}
+					peek={roomToDock}
 					onPreview={setPreview}
 					onClose={() => setOpenEventId('')}
 					onDone={() => {

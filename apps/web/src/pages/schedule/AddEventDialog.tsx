@@ -8,12 +8,12 @@ import { Field, FieldShell } from '../../components/ui/Field';
 import { copy } from '../../copy';
 import PeoplePicker from './PeoplePicker';
 import {
-	DURATION_OPTIONS,
+	DAY_END,
 	START_OPTIONS,
 	TYPE_OPTIONS,
 	dayLabel,
+	endOptions,
 	hhmm,
-	lengthLabel,
 	placeOptions,
 	withCurrent
 } from './shared';
@@ -23,8 +23,8 @@ import type { Cell, Crew, SavedPoi } from './types';
  * Adds one event to a day.
  *
  * A stay is an ordinary block like everything else, so it is asked for the same
- * way: it only arrives with a later start and a longer length, because that is
- * what a night usually looks like rather than something the model enforces.
+ * way: it only arrives with a later start and a later end, because that is what
+ * a night usually looks like rather than something the model enforces.
  */
 export default function AddEventDialog({
 	base,
@@ -55,14 +55,24 @@ export default function AddEventDialog({
 	const [type, setType] = useState<EventType>('activity');
 	const [title, setTitle] = useState('');
 	const [start, setStart] = useState(String(startMin ?? 9 * 60));
-	const [duration, setDuration] = useState('60');
+	const [end, setEnd] = useState(String((startMin ?? 9 * 60) + 60));
 	const [people, setPeople] = useState<string[]>([]);
 	const [poi, setPoi] = useState('');
 	const [notes, setNotes] = useState('');
 
-	// Free time is deliberately nowhere and travel is the journey between
-	// places, so only a located type takes a link.
+	const startAt = Number(start);
+	const endAt = Number(end);
+
+	/** Moving the start carries the end with it: see `EventDialog`. */
+	const moveStart = (next: string) => {
+		setStart(next);
+		setEnd(String(Math.min(DAY_END, Number(next) + (endAt - startAt))));
+	};
+
+	// Free time is deliberately nowhere, so it is the one type with no location.
+	// A journey's location is the far end of it: where it puts you.
 	const placeable = isLocatedType(type);
+	const placeLabel = type === 'travel' ? 'Ends at' : 'Location';
 
 	const poiOptions = placeOptions(saved, cities, cityId);
 
@@ -75,7 +85,7 @@ export default function AddEventDialog({
 					title: title.trim(),
 					type,
 					start: Number(start),
-					duration: Number(duration),
+					duration: endAt - startAt,
 					poiId: placeable && poi ? poi : undefined,
 					notes: notes.trim() || undefined,
 					people
@@ -103,7 +113,7 @@ export default function AddEventDialog({
 									// better guess than ours, so it is left alone.
 									if (next === 'stay' && startMin == null) {
 										setStart(String(defaults.stayStart));
-										setDuration(String(defaults.stayMins));
+										setEnd(String(Math.min(DAY_END, defaults.stayStart + defaults.stayMins)));
 									}
 								}}
 								options={TYPE_OPTIONS}
@@ -111,7 +121,7 @@ export default function AddEventDialog({
 							/>
 						</FieldShell>
 						<Field
-							label="Title"
+							label="Name"
 							className="grow"
 							autoFocus
 							required
@@ -124,17 +134,17 @@ export default function AddEventDialog({
 						<FieldShell label="Start" className="tf2">
 							<Select
 								value={start}
-								onChange={setStart}
+								onChange={moveStart}
 								options={withCurrent(START_OPTIONS, start, hhmm)}
 								ariaLabel="Start"
 							/>
 						</FieldShell>
-						<FieldShell label="Length" className="tf2">
+						<FieldShell label="End" className="tf2">
 							<Select
-								value={duration}
-								onChange={setDuration}
-								options={withCurrent(DURATION_OPTIONS, duration, lengthLabel)}
-								ariaLabel="Length"
+								value={end}
+								onChange={setEnd}
+								options={withCurrent(endOptions(startAt), end, hhmm)}
+								ariaLabel="End"
 							/>
 						</FieldShell>
 						<PeoplePicker
@@ -148,8 +158,8 @@ export default function AddEventDialog({
 
 					<div className="srow">
 						{placeable && (
-							<FieldShell label="Place" optional className="grow">
-								<Select value={poi} onChange={setPoi} options={poiOptions} ariaLabel="Place" />
+							<FieldShell label={placeLabel} optional className="grow">
+								<Select value={poi} onChange={setPoi} options={poiOptions} ariaLabel={placeLabel} />
 							</FieldShell>
 						)}
 						<Field

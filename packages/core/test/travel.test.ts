@@ -103,9 +103,28 @@ describe('planLegs', () => {
 		expect(planLegs([a, free, b])).toHaveLength(0);
 	});
 
-	it('suppresses automatic travel across a journey entered by hand', () => {
+	it('plans nothing into a journey entered by hand, and resumes from where it lands', () => {
 		const a = at(P.hotel, { startMin: 540, endMin: 600, people: ['u1'] });
 		const manual = at(P.museum, { type: 'travel', startMin: 600, endMin: 660, people: ['u1'] });
+		const b = at(P.market, { startMin: 660, endMin: 720, people: ['u1'] });
+		const legs = planLegs([a, manual, b]);
+		// Nothing is planned to the middle of your own flight, and nothing spans it:
+		// the only journey left is out of the address the flight put you at.
+		expect(legs).toHaveLength(1);
+		expect(legs[0].fromEventId).toBe(manual.id);
+		expect(legs[0].toEventId).toBe(b.id);
+	});
+
+	it('breaks the chain at a journey entered by hand with no end location', () => {
+		const a = at(P.hotel, { startMin: 540, endMin: 600, people: ['u1'] });
+		const manual = ev({
+			type: 'travel',
+			startMin: 600,
+			endMin: 660,
+			people: ['u1'],
+			lat: null,
+			lng: null
+		});
 		const b = at(P.market, { startMin: 660, endMin: 720, people: ['u1'] });
 		expect(planLegs([a, manual, b])).toHaveLength(0);
 	});

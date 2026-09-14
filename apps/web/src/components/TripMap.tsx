@@ -19,6 +19,8 @@ export default function TripMap({ tracks }: { tracks: MapTrack[] }) {
 	// Held in a ref so the map is built once and only the pins are redrawn.
 	const tracksRef = useRef(tracks);
 	tracksRef.current = tracks;
+	/** The last set of points the camera was fitted to. */
+	const fitted = useRef('');
 
 	function draw() {
 		const map = mapRef.current;
@@ -92,8 +94,16 @@ export default function TripMap({ tracks }: { tracks: MapTrack[] }) {
 			}
 		}
 
+		if (pts.length === 0) return;
+		/* The camera is the reader's. It follows the points when they change and
+		   is left alone otherwise, so retitling an event or nudging it an hour
+		   does not throw away a pan: none of that moves anything. Rounded so a
+		   re-read of the same coordinates does not read as a move. */
+		const where = pts.map((p) => `${p[0].toFixed(5)},${p[1].toFixed(5)}`).join('|');
+		if (where === fitted.current) return;
+		fitted.current = where;
 		if (pts.length === 1) map.setView(pts[0], 14);
-		else if (pts.length > 1) map.fitBounds(L.latLngBounds(pts).pad(0.25));
+		else map.fitBounds(L.latLngBounds(pts).pad(0.25));
 	}
 
 	useEffect(() => {
@@ -123,8 +133,12 @@ export default function TripMap({ tracks }: { tracks: MapTrack[] }) {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
+	/* Redrawn on what the tracks say, not on the array holding it: callers build
+	   that inline, so it is a new object on every render and the board renders at
+	   pointer rate while a block is dragged. */
+	const sig = JSON.stringify(tracks);
 	// eslint-disable-next-line react-hooks/exhaustive-deps
-	useEffect(draw, [tracks]);
+	useEffect(draw, [sig]);
 
 	const hasPoints = tracks.some((t) => t.items.some((i) => i.lat != null && i.lng != null));
 
