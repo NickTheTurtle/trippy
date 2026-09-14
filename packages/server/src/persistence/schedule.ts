@@ -1,7 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { db } from '../db';
 import { isEventType, isLocatedType, isTransportMode, type EventType } from '@trippy/core/types';
-import { planLegs, placeLeg, type PlannedLeg, type PlannerEvent } from '@trippy/core/travel';
+import {
+	guessLeg,
+	planLegs,
+	placeLeg,
+	type PlannedLeg,
+	type PlannerEvent
+} from '@trippy/core/travel';
 import { publish, publishMany } from '../events';
 import { isMember } from './membership';
 
@@ -74,6 +80,8 @@ export interface LegRow {
 	/** The two above, resolved. */
 	resolvedMode: string;
 	resolvedMins: number;
+	/** Straight-line distance, so a client can re-estimate for another mode. */
+	km: number;
 	manual: boolean;
 	startMin: number;
 	endMin: number;
@@ -196,14 +204,7 @@ export function recomputeLegs(tripId: string, day: string): void {
 
 /** The straight-line guess, used until a provider has said better. */
 function fallbackEstimate(leg: PlannedLeg): { mode: string; mins: number } {
-	const dist = leg.km * 1.3;
-	if (dist < 1.1) return { mode: 'walk', mins: Math.max(3, Math.round((dist / 4.8) * 60)) };
-	if (dist < 8) return { mode: 'transit', mins: Math.max(8, Math.round((dist / 16) * 60) + 6) };
-	if (dist < 500) return { mode: 'drive', mins: Math.max(10, Math.round((dist / 60) * 60) + 5) };
-	// Past a few hundred kilometres nobody is driving, and an eight-hour block
-	// across the middle of a day is a worse lie than a flight with its airport
-	// time included.
-	return { mode: 'flight', mins: Math.max(90, Math.round((dist / 700) * 60) + 120) };
+	return guessLeg(leg.km);
 }
 
 /**
@@ -259,6 +260,7 @@ export function legsForDay(tripId: string, day: string): LegRow[] {
 			mins: row.mins,
 			resolvedMode,
 			resolvedMins,
+			km: leg.km,
 			manual: row.mode != null || row.mins != null,
 			...placeLeg(leg, resolvedMins)
 		});
@@ -520,7 +522,9 @@ export function editEvent(
 			? (edit.startMin as number)
 			: cur.start_min;
 		const start = Math.max(0, Math.min(Math.round(wanted), 24 * 60 - MIN_EVENT_MINS));
-		const wantedEnd = Number.isFinite(edit.endMin as number) ? (edit.endMin as number) : cur.end_min;
+		const wantedEnd = Number.isFinite(edit.endMin as number)
+			? (edit.endMin as number)
+			: cur.end_min;
 		const end = Math.max(start + MIN_EVENT_MINS, Math.min(Math.round(wantedEnd), 24 * 60));
 		sets.push('start_min = ?', 'end_min = ?');
 		args.push(start, end);

@@ -26,7 +26,7 @@
 
 import { haversineKm } from './geo';
 import { layoutDay, type Layout, type LayoutEvent } from './layout';
-import type { EventType } from './types';
+import type { EventType, TransportMode } from './types';
 
 /** An event as the planner needs to see it. */
 export interface PlannerEvent {
@@ -73,6 +73,49 @@ const SAME_PLACE_KM = 0.03;
 /** The people key half of a leg key: sorted ids, so it does not depend on write order. */
 export function peopleKey(people: readonly string[]): string {
 	return [...new Set(people)].sort().join(',');
+}
+
+/**
+ * What a journey of a given length takes, by mode, before a provider answers.
+ *
+ * Straight-line distance understates every real route, so it is scaled once
+ * here rather than at each call. The rest is a pace, a fixed overhead for the
+ * parts that are not movement (waiting for the bus, parking, standing in an
+ * airport) and a floor, because no journey worth drawing takes a minute.
+ *
+ * It lives in core, not on the server, because both ends need it and they must
+ * agree: the server uses it for a leg no provider has answered for, and the
+ * dialog uses it to answer "and how long if we walk instead", which is a
+ * question about the same distance rather than a new route to buy.
+ */
+const ROUTE_FACTOR = 1.3;
+
+const PACE: Record<TransportMode, { kmh: number; fixed: number; floor: number }> = {
+	walk: { kmh: 4.8, fixed: 0, floor: 3 },
+	cycle: { kmh: 15, fixed: 0, floor: 4 },
+	transit: { kmh: 16, fixed: 6, floor: 8 },
+	drive: { kmh: 60, fixed: 5, floor: 10 },
+	ferry: { kmh: 35, fixed: 30, floor: 20 },
+	flight: { kmh: 700, fixed: 120, floor: 90 }
+};
+
+export function minsByMode(km: number, mode: string): number {
+	const pace = PACE[mode as TransportMode] ?? PACE.transit;
+	return Math.max(pace.floor, Math.round(((km * ROUTE_FACTOR) / pace.kmh) * 60) + pace.fixed);
+}
+
+/**
+ * The mode and the duration a journey of this length is most likely made by.
+ *
+ * Past a few hundred kilometres nobody is driving, and an eight-hour block
+ * across the middle of a day is a worse lie than a flight with its airport time
+ * included.
+ */
+export function guessLeg(km: number): { mode: TransportMode; mins: number } {
+	const dist = km * ROUTE_FACTOR;
+	const mode: TransportMode =
+		dist < 1.1 ? 'walk' : dist < 8 ? 'transit' : dist < 500 ? 'drive' : 'flight';
+	return { mode, mins: minsByMode(km, mode) };
 }
 
 /**

@@ -15,6 +15,8 @@ import type { Cell, SavedPoi } from './types';
  */
 export const DAY_START = 6 * 60;
 export const DAY_END = 24 * 60;
+/** The shortest event the server will store, and so the shortest one offerable. */
+export const MIN_EVENT_MINS = 15;
 /** One pixel a minute: a 15-minute event, the shortest the server allows, is 15px. */
 export const PX_PER_MIN = 1;
 /** Width of the hour gutter, and of the lane journeys are drawn in. */

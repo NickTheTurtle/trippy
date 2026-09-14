@@ -4,19 +4,11 @@ import { api } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
 import Modal, { ModalFooter, ModalForm } from '../../components/ui/Modal';
 import Select, { type Option } from '../../components/ui/Select';
+import TimeField from '../../components/ui/TimeField';
 import { Field, FieldShell } from '../../components/ui/Field';
 import { copy } from '../../copy';
 import PeoplePicker from './PeoplePicker';
-import {
-	DAY_END,
-	START_OPTIONS,
-	TYPE_OPTIONS,
-	dayLabel,
-	endOptions,
-	hhmm,
-	placeOptions,
-	withCurrent
-} from './shared';
+import { DAY_END, MIN_EVENT_MINS, TYPE_OPTIONS, dayLabel, placeOptions } from './shared';
 import type { Cell, Crew, SavedPoi } from './types';
 
 /**
@@ -69,6 +61,11 @@ export default function AddEventDialog({
 		setEnd(String(Math.min(DAY_END, Number(next) + (endAt - startAt))));
 	};
 
+	/** A typed end is only held to being an end once it is finished: see `EventDialog`. */
+	const fixEnd = () => {
+		if (endAt < startAt + MIN_EVENT_MINS) setEnd(String(startAt + MIN_EVENT_MINS));
+	};
+
 	// Free time is deliberately nowhere, so it is the one type with no location.
 	// A journey's location is the far end of it: where it puts you.
 	const placeable = isLocatedType(type);
@@ -103,6 +100,14 @@ export default function AddEventDialog({
 					{/* The same 12-column grid as the edit dialog: the two ask for the
 					    same thing and should read the same way. */}
 					<div className="grid grid-cols-12 gap-x-2.5 gap-y-3.5">
+						<Field
+							label="Name"
+							className="col-span-8"
+							autoFocus
+							required
+							value={title}
+							onChange={(e) => setTitle(e.target.value)}
+						/>
 						<FieldShell label="Type" className="col-span-4">
 							<Select
 								value={type}
@@ -122,30 +127,22 @@ export default function AddEventDialog({
 								ariaLabel="Type"
 							/>
 						</FieldShell>
-						<Field
-							label="Name"
-							className="col-span-8"
-							autoFocus
-							required
-							value={title}
-							onChange={(e) => setTitle(e.target.value)}
-						/>
 
-						<FieldShell label="Start" className="col-span-3">
-							<Select
-								value={start}
-								onChange={moveStart}
-								options={withCurrent(START_OPTIONS, start, hhmm)}
-								ariaLabel="Start"
-							/>
-						</FieldShell>
-						<FieldShell label="End" className="col-span-3">
-							<Select
-								value={end}
-								onChange={setEnd}
-								options={withCurrent(endOptions(startAt), end, hhmm)}
-								ariaLabel="End"
-							/>
+						<FieldShell label="When" className="col-span-6">
+							<div className="tfpair">
+								<TimeField
+									value={startAt}
+									onChange={(v) => moveStart(String(v))}
+									ariaLabel="Start"
+								/>
+								<span className="tfto">to</span>
+								<TimeField
+									value={endAt}
+									onChange={(v) => setEnd(String(v))}
+									onCommit={fixEnd}
+									ariaLabel="End"
+								/>
+							</div>
 						</FieldShell>
 						<PeoplePicker
 							people={people}
@@ -156,14 +153,14 @@ export default function AddEventDialog({
 						/>
 
 						{placeable && (
-							<FieldShell label={placeLabel} optional className="col-span-6">
+							<FieldShell label={placeLabel} optional className="col-span-12">
 								<Select value={poi} onChange={setPoi} options={poiOptions} ariaLabel={placeLabel} />
 							</FieldShell>
 						)}
 						<Field
 							label="Notes"
 							optional
-							className={placeable ? 'col-span-6' : 'col-span-12'}
+							className="col-span-12"
 							value={notes}
 							onChange={(e) => setNotes(e.target.value)}
 						/>

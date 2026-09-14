@@ -2354,9 +2354,10 @@ now a section at the foot of the event dialog, and `TravelDialog` is gone.
 
 It is a list, not a field, because an event can have several approaches: one per
 group of people converging on it, and the densest day of the Athens trip has six
-arriving at lunch. Each row carries the name, the mode and the minutes on one
-line with the facts under it: who is on it, the router's estimate, and the link
-that hands the journey back to that estimate. The origin is the row's
+arriving at lunch. Each journey is a card, its name, mode and minutes on one
+line with the facts under it: who is on it, whether the minutes are the estimate
+or a pin, and the link that hands the journey back to the estimate. The origin is
+the card's
 placeholder rather than a label, since it is only ever a fallback name, and the
 board's bar falls back the same way when the previous event is not loaded: the
 first journey of a day starts at the night before it.
@@ -2367,6 +2368,47 @@ renaming one event. The comparison is against the values the dialog opened with,
 and it includes the reset: handing a journey back to the router is a change like
 any other. The journeys are saved before the event, while their ids still mean
 what the reader saw, since an edit to the people replans them.
+
+**Changing the mode rewrites the minutes.** The number beside the mode is an
+answer to a question the mode asks, so leaving the old one in place when the
+mode changes states a duration nobody believes: a walk and a taxi over the same
+ground are not the same twelve minutes. Picking a mode now re-estimates, and
+picking the planned mode back at its own estimate reads "Automatic" again rather
+than a pin that happens to agree.
+
+The estimate is arithmetic, not a purchase. The routing provider answers for one
+mode, which is the one the server planned, so offering a bought answer for each
+of six modes would mean six routes to display one. `minsByMode` in
+`packages/core/travel.ts` turns the straight-line kilometres into minutes at a
+pace per mode, with a fixed overhead and a floor, and `guessLeg` picks the mode
+the same way the server's fallback did. The server now calls the same function,
+so the number the dialog shows for the planned mode is the number the server
+would have fallen back to, and the two can never drift. It costs `km` on the leg
+wire shape, which the board was already computing.
+
+**A time is typed, not picked.** The start and end were dropdowns of every
+quarter-hour, which is 72 rows: setting 14:45 meant opening a list, scrolling
+most of the way down it and hitting one row among seventy, and the reader
+already knew the answer before they opened it. `TimeField` is the macOS shape,
+two segments in one box: digits replace, arrows step, and the caret moves to the
+minutes by itself once the hour can take no more digits, so "1445" lands on
+14:45. Two segments rather than a free text box because a free box has to parse
+what it is given and can be wrong ("2pm", "1430", "half two"), while a segment
+holding a number has no input to refuse. It carries minutes past midnight, the
+unit the board and the server already speak, so nothing parses a clock. The hour
+runs to 24 rather than wrapping to 0, because midnight is the end of the board
+and not the start of it.
+
+The pair is one field labelled "When", since a start without an end is not an
+answer. A typed end can be behind the start for as long as it takes to press the
+second key, so nothing is refused while the field has focus; the shortest event
+the server accepts is what it settles on when focus leaves. Moving the start
+still carries the end.
+
+**A journey is marked, not filled.** The card for the journey the reader
+pointed at takes a rule down its edge rather than an accent fill: lunch has six
+arrivals, and six filled cards are a wall of colour where the mark only has to
+answer "which one".
 
 **Pointing at a journey opens its arrival.** The bar on the board is still
 clickable, and it opens the same panel, scrolled to that journey's row with the

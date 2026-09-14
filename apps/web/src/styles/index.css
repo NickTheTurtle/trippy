@@ -296,6 +296,55 @@ textarea.input {
 	opacity: 0.6;
 	cursor: not-allowed;
 }
+/* --- Time field ----------------------------------------------------------
+ *
+ * A clock typed rather than picked. The box is an ordinary `.input`; the two
+ * segments inside it are what take focus, so the frame lights up when either
+ * does and the reader sees one control rather than two. A segment is sized for
+ * its widest value so the colon does not move as digits change. */
+.tfield {
+	display: inline-flex;
+	align-items: center;
+	height: var(--control-h);
+	font-variant-numeric: tabular-nums;
+	cursor: text;
+}
+.tfield:focus-within {
+	border-color: var(--color-accent);
+}
+.tfseg {
+	min-width: 1.15rem;
+	padding: 0 0.15rem;
+	border-radius: 4px;
+	outline: none;
+}
+/* The hour leans on the colon and the minute leans off it, so a one-digit hour
+   does not open a gap in the middle of the time. */
+.tfh {
+	text-align: right;
+}
+.tfm {
+	text-align: left;
+}
+.tfseg:focus {
+	background: var(--color-accent);
+	color: #fff;
+}
+.tfcolon {
+	margin: 0 -0.05rem;
+	color: var(--color-ink-faint);
+}
+/* A start and an end read as one answer, so they sit in one field with a word
+   between them rather than under two labels. */
+.tfpair {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+}
+.tfto {
+	font-size: var(--text-meta);
+	color: var(--color-ink-soft);
+}
 /* For number boxes and toolbar fields, sized to sit level with `.btn.small`. */
 .input.compact {
 	padding: 0.25rem 0.4rem;

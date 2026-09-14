@@ -75,6 +75,8 @@ export type LegRow = {
 	mins: number | null;
 	resolvedMode: string;
 	resolvedMins: number;
+	/** Straight-line distance, which is what a re-estimate for another mode uses. */
+	km: number;
 	manual: boolean;
 	/** Where the journey sits on the clock: anchored to its arrival. */
 	startMin: number;

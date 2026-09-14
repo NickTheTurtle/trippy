@@ -1,24 +1,23 @@
 import { useEffect, useRef, useState } from 'react';
 import { isLocatedType, type EventType } from '@trippy/core/types';
+import { guessLeg, minsByMode } from '@trippy/core/travel';
 import { api } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
 import Modal, { ModalFooter, ModalForm } from '../../components/ui/Modal';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
 import Select, { type Option } from '../../components/ui/Select';
+import TimeField from '../../components/ui/TimeField';
 import { Field, FieldShell } from '../../components/ui/Field';
 import { copy } from '../../copy';
 import PeoplePicker from './PeoplePicker';
 import {
 	DAY_END,
+	MIN_EVENT_MINS,
 	MODE_OPTIONS,
-	START_OPTIONS,
 	TYPE_OPTIONS,
 	dayLabel,
-	endOptions,
-	hhmm,
 	modeLabel,
-	placeOptions,
-	withCurrent
+	placeOptions
 } from './shared';
 import type { Cell, Crew, EventDraft, EventRow, LegRow, SavedPoi } from './types';
 
@@ -34,6 +33,23 @@ const legEdit = (l: LegRow): LegEdit => ({
 
 const sameEdit = (a: LegEdit, b: LegEdit) =>
 	a.auto === b.auto && a.mode === b.mode && a.mins === b.mins && a.title.trim() === b.title.trim();
+
+/**
+ * What this journey is reckoned to take by a given mode.
+ *
+ * The provider answers for one mode, the one the day is planned on, so any
+ * other mode is answered from the distance by the same rule the server falls
+ * back on. Asking the provider for each mode as the picker is opened would buy
+ * five routes to show one.
+ */
+const estimateFor = (l: LegRow, mode: string) =>
+	mode === l.autoMode && l.autoMins != null ? l.autoMins : minsByMode(l.km, mode);
+
+/** What the journey resolves to with nothing pinned: the provider, or the guess. */
+const automatic = (l: LegRow) => {
+	const mode = l.autoMode ?? guessLeg(l.km).mode;
+	return { mode, mins: estimateFor(l, mode) };
+};
 
 /**
  * One event: rename, retype, retime, re-people, relocate, delete, and set the
@@ -112,6 +128,24 @@ export default function EventDialog({
 	const setJourney = (id: string, patch: Partial<LegEdit>) =>
 		setJourneys((m) => ({ ...m, [id]: { ...m[id], ...patch } }));
 
+	/* Changing the mode re-answers the question the number is an answer to. A
+	   walk and a taxi over the same ground are not the same twelve minutes, and
+	   leaving the old number there would state a duration nobody believes. */
+	const pickMode = (l: LegRow, mode: string) => {
+		const mins = estimateFor(l, mode);
+		setJourney(l.id, {
+			mode,
+			mins: String(mins),
+			// Picking the planned mode back, at its own estimate, is the automatic
+			// answer again rather than a pin that happens to agree with it.
+			auto: mode === l.autoMode && mins === l.autoMins
+		});
+	};
+	const resetJourney = (l: LegRow) => {
+		const a = automatic(l);
+		setJourney(l.id, { mode: a.mode, mins: String(a.mins), auto: true });
+	};
+
 	const startMin = Number(start);
 	const endMin = Number(end);
 
@@ -127,6 +161,14 @@ export default function EventDialog({
 	const moveStart = (next: string) => {
 		setStart(next);
 		setEnd(String(Math.min(DAY_END, Number(next) + (endMin - startMin))));
+	};
+
+	/* A typed end can be mid-thought: "9:15" on the way to "19:15" is behind the
+	   start for as long as it takes to press the second key. Nothing is refused
+	   while the field has focus; the shortest event the server accepts is what
+	   it settles on once focus leaves. */
+	const fixEnd = () => {
+		if (endMin < startMin + MIN_EVENT_MINS) setEnd(String(startMin + MIN_EVENT_MINS));
 	};
 
 	/* Held in a ref so a caller passing an inline function does not restart the
@@ -224,14 +266,6 @@ export default function EventDialog({
 						    showing: the mode field comes and goes with the type, and the
 						    old flexbox row re-flowed everything each time it did. */}
 						<div className="grid grid-cols-12 gap-x-2.5 gap-y-3.5">
-							<FieldShell label="Type" className="col-span-4">
-								<Select
-									value={type}
-									onChange={(v) => setType(v as EventType)}
-									options={TYPE_OPTIONS}
-									ariaLabel="Type"
-								/>
-							</FieldShell>
 							<Field
 								label="Name"
 								className="col-span-8"
@@ -240,22 +274,32 @@ export default function EventDialog({
 								value={title}
 								onChange={(e) => setTitle(e.target.value)}
 							/>
-
-							<FieldShell label="Start" className="col-span-3">
+							<FieldShell label="Type" className="col-span-4">
 								<Select
-									value={start}
-									onChange={moveStart}
-									options={withCurrent(START_OPTIONS, start, hhmm)}
-									ariaLabel="Start"
+									value={type}
+									onChange={(v) => setType(v as EventType)}
+									options={TYPE_OPTIONS}
+									ariaLabel="Type"
 								/>
 							</FieldShell>
-							<FieldShell label="End" className="col-span-3">
-								<Select
-									value={end}
-									onChange={setEnd}
-									options={withCurrent(endOptions(startMin), end, hhmm)}
-									ariaLabel="End"
-								/>
+
+							{/* One field, because a start without an end is not an answer:
+							    an event is a span, and the pair reads as one on a line. */}
+							<FieldShell label="When" className="col-span-6">
+								<div className="tfpair">
+									<TimeField
+										value={startMin}
+										onChange={(v) => moveStart(String(v))}
+										ariaLabel="Start"
+									/>
+									<span className="tfto">to</span>
+									<TimeField
+										value={endMin}
+										onChange={(v) => setEnd(String(v))}
+										onCommit={fixEnd}
+										ariaLabel="End"
+									/>
+								</div>
 							</FieldShell>
 							<PeoplePicker
 								people={people}
@@ -274,7 +318,7 @@ export default function EventDialog({
 								<FieldShell
 									label={placeLabel}
 									optional
-									className={type === 'travel' ? 'col-span-8' : 'col-span-6'}
+									className={type === 'travel' ? 'col-span-8' : 'col-span-12'}
 								>
 									<Select
 										value={poi}
@@ -287,7 +331,7 @@ export default function EventDialog({
 							<Field
 								label="Notes"
 								optional
-								className={placeable && type !== 'travel' ? 'col-span-6' : 'col-span-12'}
+								className="col-span-12"
 								value={notes}
 								onChange={(e) => setNotes(e.target.value)}
 							/>
@@ -308,64 +352,58 @@ export default function EventDialog({
 									return (
 										<div
 											key={l.id}
-											className={`jrow grid grid-cols-12 gap-x-2.5 gap-y-2${
-												focusLegId === l.id ? ' on' : ''
-											}`}
+											className={`jrow${focusLegId === l.id ? ' on' : ''}`}
+											aria-label={`Journey, ${who}`}
 										>
-											<input
-												className="input col-span-5"
-												aria-label={`Journey, ${who}`}
-												placeholder={
-													from
-														? `${modeLabel(l.resolvedMode)} from ${from}`
-														: modeLabel(l.resolvedMode)
-												}
-												value={j.title}
-												onChange={(e) => setJourney(l.id, { title: e.target.value })}
-											/>
-											<div className="col-span-4">
-												<Select
-													value={j.mode}
-													onChange={(v) => setJourney(l.id, { mode: v, auto: false })}
-													options={MODE_OPTIONS}
-													ariaLabel={`Mode, ${who}`}
-												/>
-											</div>
-											<div className="jmins col-span-3">
+											<div className="jfields">
 												<input
-													className="input"
-													type="number"
-													min={1}
-													data-autofocus={focusLegId === l.id ? '' : undefined}
-													aria-label={`Minutes, ${who}`}
-													value={j.mins}
-													onChange={(e) => setJourney(l.id, { mins: e.target.value, auto: false })}
+													className="input jname"
+													aria-label={`Journey name, ${who}`}
+													placeholder={
+														from ? `${modeLabel(j.mode)} from ${from}` : modeLabel(j.mode)
+													}
+													value={j.title}
+													onChange={(e) => setJourney(l.id, { title: e.target.value })}
 												/>
-												<span>min</span>
+												<div className="jmode">
+													<Select
+														value={j.mode}
+														onChange={(v) => pickMode(l, v)}
+														options={MODE_OPTIONS}
+														ariaLabel={`Mode, ${who}`}
+													/>
+												</div>
+												<div className="input jmins">
+													<input
+														type="number"
+														min={1}
+														data-autofocus={focusLegId === l.id ? '' : undefined}
+														aria-label={`Minutes, ${who}`}
+														value={j.mins}
+														onChange={(e) =>
+															setJourney(l.id, { mins: e.target.value, auto: false })
+														}
+													/>
+													<span>min</span>
+												</div>
 											</div>
-											<p className="jnote col-span-12 m-0 text-meta muted">
+											<p className="jnote m-0 text-meta muted">
 												<span>{who}</span>
-												{l.autoMins == null ? (
-													<span>No estimate yet</span>
+												{j.auto ? (
+													<span>Automatic</span>
 												) : (
-													<span>{`Estimated: ${modeLabel(l.autoMode)}, ${l.autoMins}m`}</span>
-												)}
-												{!j.auto && l.autoMins != null && (
-													<span>
-														<button
-															type="button"
-															className="link"
-															onClick={() =>
-																setJourney(l.id, {
-																	auto: true,
-																	mode: l.autoMode ?? l.resolvedMode,
-																	mins: String(l.autoMins)
-																})
-															}
-														>
-															Use it instead
-														</button>
-													</span>
+													<>
+														<span>Pinned</span>
+														<span>
+															<button
+																type="button"
+																className="link"
+																onClick={() => resetJourney(l)}
+															>
+																Use the estimate
+															</button>
+														</span>
+													</>
 												)}
 												{l.tight && <span className="tag warn">does not fit the gap</span>}
 											</p>
