@@ -40,6 +40,32 @@ function plannerEvent(e: EventRow): PlannerEvent {
 }
 
 /**
+ * The day's events with the draft applied.
+ *
+ * A draft whose id is on the day overwrites that event; one whose id is not is
+ * a block being added, so it is appended. Everything downstream then reads one
+ * list, and an add previews exactly the way an edit does.
+ */
+export function applyDraft(entry: BoardDay, draft: EventDraft | null): EventRow[] {
+	if (!draft || draft.day !== entry.day) return entry.events;
+	if (entry.events.some((e) => e.id === draft.id))
+		return entry.events.map((e) => (e.id === draft.id ? { ...e, ...draft } : e));
+	return [
+		...entry.events,
+		{
+			poi_id: null,
+			lodging_id: null,
+			city_id: entry.city?.id ?? null,
+			notes: null,
+			travel_mode: null,
+			...draft
+		}
+		// The same total order the planner and the layout read days in, so a block
+		// being added sits where it will sit rather than on the end.
+	].sort((a, b) => a.start_min - b.start_min || (a.id < b.id ? -1 : 1));
+}
+
+/**
  * The journeys a day implies, as the board and the dialogs read them.
  *
  * `draft` is the edit in progress, or null. Stored rows are matched by key,
@@ -47,7 +73,7 @@ function plannerEvent(e: EventRow): PlannerEvent {
  * straight-line estimate, the same one the server falls back to.
  */
 export function replanLegs(entry: BoardDay, draft: EventDraft | null): LegRow[] {
-	const events = entry.events.map((e) => (draft && e.id === draft.id ? { ...e, ...draft } : e));
+	const events = applyDraft(entry, draft);
 	const planned = planLegs(
 		events.map(plannerEvent),
 		entry.incoming ? plannerEvent(entry.incoming) : null

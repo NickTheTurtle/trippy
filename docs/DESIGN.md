@@ -3134,6 +3134,19 @@ right, which left the labels aligned but the ticks wandering with the text.
 `MultiSelect` already drew its box first. `Select` now matches, with the tick as
 a fixed 16px slot so every label starts on the same edge.
 
+**Both schedule dialogs dock, and both preview.** Adding an event covered the
+page while editing one stood at the edge with the board drawn behind it. Same
+question, same board, two different-feeling answers, which reads as a bug
+rather than as a distinction. `EventDraft` now carries `day` and coordinates as
+well, so a draft whose id is not on the day is a block being added and is
+inserted into it rather than overwriting anything; `applyDraft` in `replan.ts`
+is the one place that decides which. The add dialog reports its draft under the
+id `draft` and is docked and peeked by the same props the edit dialog gets.
+
+Coordinates on the draft also mean picking a place moves the block, the map pin
+and the day's journeys while the picker is still open, which they did not
+before: the preview used to keep the saved location whatever the reader chose.
+
 ## Implementation status
 
 Built and verified:

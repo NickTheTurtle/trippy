@@ -47,15 +47,19 @@ export type EventRow = {
 };
 
 /**
- * An unsaved edit, drawn on the board while its dialog is open.
+ * An unsaved event, drawn on the board while its dialog is open.
  *
- * The fields an edit can move a block by, and nothing else: a preview is the
- * same row with these overwritten, so anything the board reads that is not
- * here (its place, its coordinates, its day) keeps the saved answer.
+ * Both dialogs report one. An edit names an event that exists and overwrites
+ * these fields on it; an add names one that does not yet, and it is inserted
+ * into its day instead. `day` is what tells the board which one it is looking
+ * at, and it also lets an edit be ignored on the days it is not on.
+ *
+ * The place is carried as coordinates rather than as a poi id, because that is
+ * what the board, the map and the planner all actually read.
  */
 export type EventDraft = Pick<
 	EventRow,
-	'id' | 'title' | 'type' | 'start_min' | 'end_min' | 'people'
+	'id' | 'day' | 'title' | 'type' | 'start_min' | 'end_min' | 'people' | 'lat' | 'lng'
 >;
 
 export type LegRow = {

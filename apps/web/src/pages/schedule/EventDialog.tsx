@@ -237,9 +237,23 @@ export default function EventDialog({
 	   effect, and so the teardown can fire without the effect depending on it. */
 	const preview = useRef(onPreview);
 	preview.current = onPreview;
+
+	// Only a located type stands somewhere: free time is deliberately nowhere.
+	// A journey's location is the far end of it: where it puts you, and where
+	// the rest of the day is then planned from.
+	const placeable = isLocatedType(type);
+	const placeText = placeLabel(type);
+
+	/* Where the draft stands, which the board, the map and the planner all read
+	   as coordinates. An event can hold coordinates without a saved place, so an
+	   untouched picker keeps them; choosing "No location" is what clears them. */
+	const spot = saved.find((p) => p.id === poi) ?? null;
+	const lat = placeable ? (spot ? spot.lat : poi ? null : event.lat) : null;
+	const lng = placeable ? (spot ? spot.lng : poi ? null : event.lng) : null;
 	useEffect(() => {
 		preview.current?.({
 			id: event.id,
+			day: event.day,
 			// An empty title is not savable, and a nameless block on the board reads
 			// as a bug rather than as an unfinished edit, so the saved name stands
 			// until there is a new one.
@@ -247,18 +261,14 @@ export default function EventDialog({
 			type,
 			start_min: startMin,
 			end_min: endMin,
-			people
+			people,
+			lat,
+			lng
 		});
-	}, [event.id, event.title, title, type, startMin, endMin, people]);
+	}, [event.id, event.day, event.title, title, type, startMin, endMin, people, lat, lng]);
 	// Separate from the effect above, and mount-scoped: the board must drop the
 	// preview when the dialog goes, whether it was saved, cancelled or escaped.
 	useEffect(() => () => preview.current?.(null), []);
-
-	// Only a located type stands somewhere: free time is deliberately nowhere.
-	// A journey's location is the far end of it: where it puts you, and where
-	// the rest of the day is then planned from.
-	const placeable = isLocatedType(type);
-	const placeText = placeLabel(type);
 
 	const poiOptions = placeOptions(saved, cities, cityId);
 

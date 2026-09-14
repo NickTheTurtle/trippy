@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { isLocatedType, type EventType } from '@trippy/core/types';
 import { api } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
@@ -16,7 +16,10 @@ import {
 	placeLabel,
 	placeOptions
 } from './shared';
-import type { Cell, Crew, SavedPoi } from './types';
+import type { Cell, Crew, EventDraft, SavedPoi } from './types';
+
+/** The id a block being added stands under until it has one of its own. */
+const DRAFT_ID = 'draft';
 
 /**
  * Adds one event to a day.
@@ -24,6 +27,11 @@ import type { Cell, Crew, SavedPoi } from './types';
  * A stay is an ordinary block like everything else, so it is asked for the same
  * way: it only arrives with a later start and a later end, because that is what
  * a night usually looks like rather than something the model enforces.
+ *
+ * It docks and previews exactly as the edit dialog does. The two ask the same
+ * question about the same board, and one of them standing at the edge with the
+ * block drawn behind it while the other covered the page was the difference
+ * reading as a bug.
  */
 export default function AddEventDialog({
 	base,
@@ -35,6 +43,9 @@ export default function AddEventDialog({
 	saved,
 	cities,
 	cityId,
+	dock,
+	peek,
+	onPreview,
 	onClose,
 	onDone
 }: {
@@ -48,6 +59,12 @@ export default function AddEventDialog({
 	saved: SavedPoi[];
 	cities: (Cell | null)[];
 	cityId: string | null;
+	/** Which edge to stand at. */
+	dock?: 'left' | 'right';
+	/** Whether there is room to leave the board showing rather than covering it. */
+	peek?: boolean;
+	/** The block so far, or null once this dialog is gone. */
+	onPreview?: (draft: EventDraft | null) => void;
 	onClose: () => void;
 	onDone: () => void;
 }) {
@@ -80,6 +97,29 @@ export default function AddEventDialog({
 
 	const poiOptions = placeOptions(saved, cities, cityId);
 
+	/* The same preview the edit dialog reports, under an id no event has: the
+	   board inserts it into the day rather than overwriting a block, so the
+	   reader watches the thing they are describing take its place. */
+	const preview = useRef(onPreview);
+	preview.current = onPreview;
+	const spot = placeable ? (saved.find((p) => p.id === poi) ?? null) : null;
+	useEffect(() => {
+		preview.current?.({
+			id: DRAFT_ID,
+			day,
+			// An unnamed block still has to read as a block rather than as a gap.
+			title: title.trim() || 'New event',
+			type,
+			start_min: startAt,
+			end_min: endAt,
+			people,
+			lat: spot?.lat ?? null,
+			lng: spot?.lng ?? null
+		});
+	}, [day, title, type, startAt, endAt, people, spot?.lat, spot?.lng]);
+	// Mount-scoped, so the board drops the block whether it was added or not.
+	useEffect(() => () => preview.current?.(null), []);
+
 	const add = useMutation(
 		async () => {
 			await api(`${base}/events`, {
@@ -101,7 +141,15 @@ export default function AddEventDialog({
 	);
 
 	return (
-		<Modal open size="lg" title="Add event" subtitle={dayLabel(day)} onClose={onClose}>
+		<Modal
+			open
+			size="lg"
+			dock={dock}
+			peek={peek}
+			title="Add event"
+			subtitle={dayLabel(day)}
+			onClose={onClose}
+		>
 			<ModalForm className="schedule" onSubmit={add.submit}>
 				<div className="mbody flex flex-col gap-4">
 					{/* The same 12-column grid as the edit dialog: the two ask for the

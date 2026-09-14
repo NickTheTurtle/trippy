@@ -16,7 +16,7 @@ import { layoutBoard, legLaneId } from '@trippy/core/travel';
 import { copy } from '../copy';
 import AddEventDialog from './schedule/AddEventDialog';
 import EventDialog from './schedule/EventDialog';
-import { replanLegs } from './schedule/replan';
+import { applyDraft, replanLegs } from './schedule/replan';
 import {
 	DAY_END,
 	DAY_START,
@@ -243,7 +243,8 @@ export default function Schedule() {
 	 * ghost block. Everything downstream (the layout, the map, the agenda, who
 	 * fits in a block) then reads one board, so the preview cannot disagree with
 	 * itself, and an edit that takes the reader off the event correctly removes
-	 * it from their day.
+	 * it from their day. A block being added is inserted the same way, which is
+	 * what makes the two dialogs behave alike.
 	 *
 	 * The day's journeys are replanned against that draft rather than shifted or
 	 * dropped. Who is on an event is the whole of splitting and rejoining, so an
@@ -259,9 +260,7 @@ export default function Schedule() {
 
 		return (data?.board ?? []).map((entry) => ({
 			...entry,
-			events: entry.events
-				.map((e) => (preview && e.id === preview.id ? { ...e, ...preview } : e))
-				.filter(showEvent),
+			events: applyDraft(entry, preview).filter(showEvent),
 			legs: (preview ? replanLegs(entry, preview) : entry.legs).filter(showLeg)
 		}));
 	}, [data, selected, preview]);
@@ -322,15 +321,16 @@ export default function Schedule() {
 		return board.flatMap((entry) => entry.legs.filter((l) => l.toEventId === openEventId));
 	}, [openEventId, board]);
 
-	/* Which edge the edit dialog stands at: whichever one is not showing the day
-	   being edited. In the day and people views the board is on the left and the
+	/* Which edge the open dialog stands at. On one day the board is beside the
 	   map on the right, so the panel takes the map's side; across three days it
-	   takes the side the event is furthest from. */
+	   takes the side the event is furthest from. Whichever dialog is open: an
+	   add and an edit are the same panel over the same board. */
 	const dockSide: 'left' | 'right' = useMemo(() => {
-		if (!openEvent) return 'right';
-		const at = board.findIndex((b) => b.day === openEvent.day);
+		const day = openEvent?.day ?? adding?.day;
+		if (!day) return 'right';
+		const at = board.findIndex((b) => b.day === day);
 		return at >= 0 && at >= board.length / 2 ? 'left' : 'right';
-	}, [openEvent, board]);
+	}, [openEvent, adding, board]);
 
 	/* Keep the block being edited in sight.
 	 *
@@ -520,7 +520,7 @@ export default function Schedule() {
 			ev.type,
 			drag?.id === ev.id ? 'dragging' : '',
 			resize?.id === ev.id ? 'resizing' : '',
-			openEventId === ev.id ? 'editingnow' : '',
+			preview?.id === ev.id ? 'editingnow' : '',
 			p.width < 0.34 ? 'narrow' : ''
 		]
 			.filter(Boolean)
@@ -1121,6 +1121,9 @@ export default function Schedule() {
 					saved={data.saved}
 					cities={data.cities}
 					cityId={cityOfDay(adding.day)}
+					dock={dockSide}
+					peek={roomToDock}
+					onPreview={setPreview}
 					onClose={() => setAdding(null)}
 					onDone={() => {
 						setAdding(null);
