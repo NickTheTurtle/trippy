@@ -37,6 +37,21 @@ export function dayLabel(iso: string): string {
 	return `${WEEKDAYS[wd]}, ${MONTHS[m - 1]} ${d}`;
 }
 
+/**
+ * "Apr 17 to Apr 19", the span a stay covers.
+ *
+ * Weekdayless where `dayLabel` carries one: two of them on a line is more date
+ * than a subtitle can hold, and the day of the week is not what a reader is
+ * checking when they are reading a range.
+ */
+export function rangeLabel(from: string, to: string): string {
+	const short = (iso: string) => {
+		const [, m, d] = iso.split('-').map(Number);
+		return `${MONTHS[m - 1]} ${d}`;
+	};
+	return `${short(from)} to ${short(to)}`;
+}
+
 export function hhmm(min: number): string {
 	const h = Math.floor(min / 60);
 	const m = min % 60;

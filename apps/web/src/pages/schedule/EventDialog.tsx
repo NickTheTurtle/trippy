@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { isLocatedType, type EventType } from '@trippy/core/types';
+import { isLocatedType, STAY_CHECK_IN, type EventType } from '@trippy/core/types';
 import { guessLeg, minsByMode } from '@trippy/core/travel';
 import { api } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
@@ -18,8 +18,11 @@ import {
 	dayLabel,
 	modeLabel,
 	placeLabel,
-	placeOptions
+	placeOptions,
+	rangeLabel,
+	shiftDay
 } from './shared';
+import StayDates from './StayDates';
 import type { Cell, Crew, EventDraft, EventRow, LegRow, SavedPoi } from './types';
 
 /** What a reader can say about a journey. */
@@ -170,6 +173,10 @@ export default function EventDialog({
 	const [type, setType] = useState<EventType>(event.type);
 	const [start, setStart] = useState(String(event.start_min));
 	const [end, setEnd] = useState(String(event.end_min));
+	/* A stay's dates, which are what it has instead of a clock. Defaulted for a
+	   block that is not a stay yet, so switching type to one has an answer. */
+	const [checkIn, setCheckIn] = useState(event.day);
+	const [checkOut, setCheckOut] = useState(event.end_day ?? shiftDay(event.day, 1));
 	const [people, setPeople] = useState<string[]>([...event.people]);
 	const [notes, setNotes] = useState(event.notes ?? '');
 	const [mode, setMode] = useState(event.travel_mode ?? '');
@@ -210,6 +217,7 @@ export default function EventDialog({
 
 	const startMin = Number(start);
 	const endMin = Number(end);
+	const staying = type === 'stay';
 
 	/**
 	 * Moving the start carries the end with it, keeping the length.
@@ -253,19 +261,34 @@ export default function EventDialog({
 	useEffect(() => {
 		preview.current?.({
 			id: event.id,
-			day: event.day,
+			day: staying ? checkIn : event.day,
+			end_day: staying ? checkOut : null,
 			// An empty title is not savable, and a nameless block on the board reads
 			// as a bug rather than as an unfinished edit, so the saved name stands
 			// until there is a new one.
 			title: title.trim() || event.title,
 			type,
-			start_min: startMin,
-			end_min: endMin,
+			start_min: staying ? STAY_CHECK_IN : startMin,
+			end_min: staying ? DAY_END : endMin,
 			people,
 			lat,
 			lng
 		});
-	}, [event.id, event.day, event.title, title, type, startMin, endMin, people, lat, lng]);
+	}, [
+		event.id,
+		event.day,
+		event.title,
+		staying,
+		checkIn,
+		checkOut,
+		title,
+		type,
+		startMin,
+		endMin,
+		people,
+		lat,
+		lng
+	]);
 	// Separate from the effect above, and mount-scoped: the board must drop the
 	// preview when the dialog goes, whether it was saved, cancelled or escaped.
 	useEffect(() => () => preview.current?.(null), []);
@@ -337,8 +360,11 @@ export default function EventDialog({
 				title: title.trim(),
 				type,
 				notes: notes.trim(),
-				startMin,
-				endMin,
+				startMin: staying ? undefined : startMin,
+				endMin: staying ? undefined : endMin,
+				// A stay moves and stretches by its dates instead of by its clock.
+				day: staying ? checkIn : undefined,
+				endDay: staying ? checkOut : undefined,
 				// Absent leaves it alone; empty hands the journey back to the router.
 				travelMode: type === 'travel' ? mode : undefined,
 				// Absent leaves the place alone; empty unlinks it.
@@ -389,7 +415,7 @@ export default function EventDialog({
 				dock={dock}
 				peek={peek}
 				title="Edit event"
-				subtitle={dayLabel(event.day)}
+				subtitle={staying ? rangeLabel(checkIn, checkOut) : dayLabel(event.day)}
 				onClose={onClose}
 			>
 				<ModalForm className="schedule" onSubmit={save.submit}>
@@ -417,29 +443,39 @@ export default function EventDialog({
 							</FieldShell>
 
 							{/* One field, because a start without an end is not an answer:
-							    an event is a span, and the pair reads as one on a line. */}
-							<FieldShell label="When" className="col-span-6">
-								<div className="tfpair">
-									<TimeField
-										value={startMin}
-										onChange={(v) => moveStart(String(v))}
-										ariaLabel="Start"
-									/>
-									<span className="tfto">to</span>
-									<TimeField
-										value={endMin}
-										onChange={(v) => setEnd(String(v))}
-										onCommit={fixEnd}
-										ariaLabel="End"
-									/>
-								</div>
-							</FieldShell>
+							    an event is a span, and the pair reads as one on a line. A
+							    stay's span is in nights, so it asks for dates instead. */}
+							{staying ? (
+								<StayDates
+									checkIn={checkIn}
+									checkOut={checkOut}
+									onCheckIn={setCheckIn}
+									onCheckOut={setCheckOut}
+								/>
+							) : (
+								<FieldShell label="When" className="col-span-6">
+									<div className="tfpair">
+										<TimeField
+											value={startMin}
+											onChange={(v) => moveStart(String(v))}
+											ariaLabel="Start"
+										/>
+										<span className="tfto">to</span>
+										<TimeField
+											value={endMin}
+											onChange={(v) => setEnd(String(v))}
+											onCommit={fixEnd}
+											ariaLabel="End"
+										/>
+									</div>
+								</FieldShell>
+							)}
 							<PeoplePicker
 								people={people}
 								onChange={setPeople}
 								memberOptions={memberOptions}
 								crews={crews}
-								className="col-span-6"
+								className={staying ? 'col-span-4' : 'col-span-6'}
 							/>
 
 							{type === 'travel' && (

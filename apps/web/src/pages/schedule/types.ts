@@ -24,11 +24,17 @@ export type Cell = {
 	lng: number | null;
 };
 
-export type Lodging = { name: string; tag: string; locked: number; url: string | null };
-
 export type EventRow = {
 	id: string;
 	day: string;
+	/**
+	 * The morning a stay is checked out of, exclusive. Null on everything else.
+	 *
+	 * A stay is the one event that is a range rather than a point: it covers
+	 * every day from `day` up to but not including this one, which is how
+	 * lodging has always read.
+	 */
+	end_day: string | null;
 	title: string;
 	type: EventType;
 	/** Minutes from midnight, in the city's zone. */
@@ -59,7 +65,7 @@ export type EventRow = {
  */
 export type EventDraft = Pick<
 	EventRow,
-	'id' | 'day' | 'title' | 'type' | 'start_min' | 'end_min' | 'people' | 'lat' | 'lng'
+	'id' | 'day' | 'end_day' | 'title' | 'type' | 'start_min' | 'end_min' | 'people' | 'lat' | 'lng'
 >;
 
 export type LegRow = {
@@ -106,10 +112,11 @@ export type SavedPoi = {
 export type BoardDay = {
 	day: string;
 	city: Cell | null;
-	lodging: Lodging | null;
 	events: EventRow[];
-	/** Last night's stay, where the morning starts. Never drawn: it is on yesterday. */
-	incoming: EventRow | null;
+	/** Tonight's lodgings, drawn as bands. More than one when the group splits. */
+	stays: EventRow[];
+	/** Last night's stays, where the morning starts. Never drawn: they are on yesterday. */
+	incoming: EventRow[];
 	legs: LegRow[];
 };
 
@@ -123,6 +130,5 @@ export type ScheduleData = {
 	crews: Crew[];
 	saved: SavedPoi[];
 	cities: (Cell | null)[];
-	defaults: { stayStart: number; stayMins: number };
 	mapsKey: string;
 };

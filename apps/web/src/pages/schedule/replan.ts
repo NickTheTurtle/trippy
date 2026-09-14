@@ -19,8 +19,9 @@
  * would plan a day the server does not.
  */
 import { guessLeg, placeLeg, planLegs, type PlannerEvent } from '@trippy/core/travel';
-import { isLocatedType } from '@trippy/core/types';
+import { isLocatedType, STAY_CHECK_IN } from '@trippy/core/types';
 import type { BoardDay, EventDraft, EventRow, LegRow } from './types';
+import { shiftDay } from './shared';
 
 /**
  * Free time is deliberately nowhere, so a block switched to it loses its
@@ -40,29 +41,48 @@ function plannerEvent(e: EventRow): PlannerEvent {
 }
 
 /**
- * The day's events with the draft applied.
+ * The day's events and lodgings with the draft applied.
  *
  * A draft whose id is on the day overwrites that event; one whose id is not is
  * a block being added, so it is appended. Everything downstream then reads one
  * list, and an add previews exactly the way an edit does.
+ *
+ * Stays are held apart because they are not on the clock: a stay is a range of
+ * nights, so it lands on this day only if the range covers it. That also makes
+ * the two interesting drafts work: changing a block's type to a stay lifts it
+ * out of the day into the band, and dragging a stay's dates off this day takes
+ * it off the board entirely while the dialog is still open.
  */
-export function applyDraft(entry: BoardDay, draft: EventDraft | null): EventRow[] {
-	if (!draft || draft.day !== entry.day) return entry.events;
-	if (entry.events.some((e) => e.id === draft.id))
-		return entry.events.map((e) => (e.id === draft.id ? { ...e, ...draft } : e));
-	return [
-		...entry.events,
-		{
-			poi_id: null,
-			lodging_id: null,
-			city_id: entry.city?.id ?? null,
-			notes: null,
-			travel_mode: null,
-			...draft
-		}
-		// The same total order the planner and the layout read days in, so a block
-		// being added sits where it will sit rather than on the end.
-	].sort((a, b) => a.start_min - b.start_min || (a.id < b.id ? -1 : 1));
+export function applyDraft(
+	entry: BoardDay,
+	draft: EventDraft | null
+): { events: EventRow[]; stays: EventRow[] } {
+	const events = entry.events.filter((e) => e.id !== draft?.id);
+	const stays = entry.stays.filter((s) => s.id !== draft?.id);
+	if (!draft) return { events: entry.events, stays: entry.stays };
+
+	const row: EventRow = {
+		poi_id: null,
+		lodging_id: null,
+		city_id: entry.city?.id ?? null,
+		notes: null,
+		travel_mode: null,
+		...(entry.events.find((e) => e.id === draft.id) ?? entry.stays.find((s) => s.id === draft.id)),
+		...draft
+	};
+
+	if (row.type === 'stay') {
+		const covers = row.day <= entry.day && entry.day < (row.end_day ?? shiftDay(row.day, 1));
+		return { events, stays: covers ? sorted([...stays, row]) : stays };
+	}
+	if (row.day !== entry.day) return { events, stays };
+	// The same total order the planner and the layout read days in, so a block
+	// being added sits where it will sit rather than on the end.
+	return { events: sorted([...events, row]), stays };
+}
+
+function sorted(rows: EventRow[]): EventRow[] {
+	return [...rows].sort((a, b) => a.start_min - b.start_min || (a.id < b.id ? -1 : 1));
 }
 
 /**
@@ -71,12 +91,22 @@ export function applyDraft(entry: BoardDay, draft: EventDraft | null): EventRow[
  * `draft` is the edit in progress, or null. Stored rows are matched by key,
  * which is what a pin survives on; anything else is planned fresh at its
  * straight-line estimate, the same one the server falls back to.
+ *
+ * Tonight's lodgings enter the plan anchored at check-in, and last night's are
+ * the morning's origins, one per group that slept somewhere of its own. This
+ * mirrors `planFor` on the server exactly; if it did not, the preview would
+ * disagree with the board that arrives a moment later.
  */
 export function replanLegs(entry: BoardDay, draft: EventDraft | null): LegRow[] {
-	const events = applyDraft(entry, draft);
+	const { events, stays } = applyDraft(entry, draft);
+	const tonight = stays.map((s) => ({
+		...plannerEvent(s),
+		startMin: STAY_CHECK_IN,
+		endMin: 24 * 60
+	}));
 	const planned = planLegs(
-		events.map(plannerEvent),
-		entry.incoming ? plannerEvent(entry.incoming) : null
+		[...events.map(plannerEvent), ...tonight],
+		entry.incoming.map(plannerEvent)
 	);
 
 	const stored = new Map(entry.legs.map((l) => [l.key, l]));

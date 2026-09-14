@@ -13,6 +13,7 @@ import TripMap from '../components/TripMap';
 
 import { personBands, type Layout } from '@trippy/core/layout';
 import { layoutBoard, legLaneId } from '@trippy/core/travel';
+import type { EventType } from '@trippy/core/types';
 import { copy } from '../copy';
 import AddEventDialog from './schedule/AddEventDialog';
 import EventDialog from './schedule/EventDialog';
@@ -115,7 +116,11 @@ export default function Schedule() {
 	 */
 	const [viewAs, setViewAs] = useState('');
 	/** Which day an add is for, and where on its clock it started, when it started at a time. */
-	const [adding, setAdding] = useState<{ day: string; start: number | null } | null>(null);
+	const [adding, setAdding] = useState<{
+		day: string;
+		start: number | null;
+		type?: EventType;
+	} | null>(null);
 	const [openEventId, setOpenEventId] = useState('');
 	const [openLegId, setOpenLegId] = useState('');
 	const [notice, setNotice] = useState('');
@@ -258,11 +263,15 @@ export default function Schedule() {
 			e.people.length === 0 || e.people.some((p) => selected.has(p));
 		const showLeg = (l: LegRow) => l.people.some((p) => selected.has(p));
 
-		return (data?.board ?? []).map((entry) => ({
-			...entry,
-			events: applyDraft(entry, preview).filter(showEvent),
-			legs: (preview ? replanLegs(entry, preview) : entry.legs).filter(showLeg)
-		}));
+		return (data?.board ?? []).map((entry) => {
+			const { events, stays } = applyDraft(entry, preview);
+			return {
+				...entry,
+				events: events.filter(showEvent),
+				stays: stays.filter(showEvent),
+				legs: (preview ? replanLegs(entry, preview) : entry.legs).filter(showLeg)
+			};
+		});
 	}, [data, selected, preview]);
 
 	const anchor = useMemo(
@@ -308,8 +317,10 @@ export default function Schedule() {
 	   stands on the server rather than as it is being renamed. */
 	const openEvent = useMemo(() => {
 		if (!openEventId) return null;
-		for (const entry of data?.board ?? [])
+		for (const entry of data?.board ?? []) {
 			for (const e of entry.events) if (e.id === openEventId) return e;
+			for (const s of entry.stays) if (s.id === openEventId) return s;
+		}
 		return null;
 	}, [openEventId, data]);
 
@@ -491,18 +502,41 @@ export default function Schedule() {
 
 	// --- Board pieces -------------------------------------------------------
 
-	function lodgingBand(entry: BoardDay) {
-		if (!entry.lodging) return null;
-		const l = entry.lodging;
+	/**
+	 * Tonight's lodgings, drawn above the day rather than inside it.
+	 *
+	 * A stay is a range of nights, not an hour, so it is a band on every day it
+	 * covers and clicking it opens the same dialog a block does: that is the one
+	 * place its dates, its place and who is in it are edited, and editing it on
+	 * any day it covers edits the whole stay. There can be several, because half
+	 * a group can be in one building and half in another, which is exactly what
+	 * the old vote-derived band could not say.
+	 */
+	function stayBands(entry: BoardDay) {
 		return (
-			<div className={l.locked ? 'lodgeband locked' : 'lodgeband'}>
-				<span className="lodgename">{l.name}</span>
-				{l.tag && <span className="lodgetag">{l.tag}</span>}
-				{l.url && (
-					<a className="lodgelink" href={l.url} target="_blank" rel="noopener">
-						Details
-					</a>
-				)}
+			<div className="stayband">
+				{entry.stays.map((s) => (
+					<button
+						key={s.id}
+						type="button"
+						className={preview?.id === s.id ? 'staychip editingnow' : 'staychip'}
+						onClick={() => openBlock(s.id)}
+					>
+						<span className="stayname">{s.title}</span>
+						<span className="staywho">
+							{s.people.length === 0 || s.people.length === members.length
+								? 'Everyone'
+								: s.people.map((id) => shortName(id)).join(', ')}
+						</span>
+					</button>
+				))}
+				<button
+					type="button"
+					className="stayadd"
+					onClick={() => setAdding({ day: entry.day, start: null, type: 'stay' })}
+				>
+					+ Add stay
+				</button>
 			</div>
 		);
 	}
@@ -1049,12 +1083,12 @@ export default function Schedule() {
 				<div className="boardcol">
 					{view === 'people' ? (
 						<div className="board card">
-							{anchor && lodgingBand(anchor)}
+							{anchor && stayBands(anchor)}
 							{anchor ? peopleBoard(anchor) : null}
 						</div>
 					) : view === 'day' ? (
 						<div className="board card">
-							{anchor && lodgingBand(anchor)}
+							{anchor && stayBands(anchor)}
 							{anchor ? dayBoard(anchor, { lanePx: laneW || 560, measure: true }) : null}
 						</div>
 					) : (
@@ -1067,7 +1101,7 @@ export default function Schedule() {
 										</Link>
 										{entry.city && <span className="muted">{entry.city.name}</span>}
 									</div>
-									{lodgingBand(entry)}
+									{stayBands(entry)}
 									{dayBoard(entry, { lanePx: 220 })}
 								</div>
 							))}
@@ -1114,8 +1148,8 @@ export default function Schedule() {
 				<AddEventDialog
 					base={base}
 					day={adding.day}
-					defaults={data.defaults}
 					startMin={adding.start}
+					initialType={adding.type}
 					memberOptions={memberOptions}
 					crews={data.crews}
 					saved={data.saved}

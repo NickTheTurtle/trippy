@@ -467,8 +467,10 @@ db.exec(`CREATE INDEX IF NOT EXISTS idx_trip_tasks_owner ON trip_tasks(trip_id, 
 // in TypeScript rather than SQL because each copy needs an id of its own.
 {
 	const shared = db
-		.prepare(`SELECT id, trip_id, label, flag, done, sort, created_at FROM trip_tasks
-		           WHERE kind = 'packing' AND owner_id IS NULL`)
+		.prepare(
+			`SELECT id, trip_id, label, flag, done, sort, created_at FROM trip_tasks
+		           WHERE kind = 'packing' AND owner_id IS NULL`
+		)
 		.all() as unknown as {
 		id: string;
 		trip_id: string;
@@ -741,3 +743,27 @@ addColumn('travel_legs', 'title', 'TEXT');
  * invented on a day it did not belong to.
  */
 db.exec(`UPDATE events SET end_min = 1440 WHERE type = 'stay' AND end_min <= start_min`);
+
+/**
+ * A stay runs over nights, not over one day.
+ *
+ * Nobody books a hotel one night at a time, and asking for the same lodging
+ * five days running produced five blocks that had to be edited five times. A
+ * stay now carries the day it is checked out of, so it is one thing the whole
+ * time it is true: `day` is the arrival and `end_day` is the departure morning,
+ * exclusive, which is the same reading `lodging_options.check_in/check_out`
+ * already had.
+ *
+ * The column is on `events` rather than only on stays because it costs nothing
+ * there and NULL is a complete answer for everything else: an ordinary block
+ * begins and ends on its own day, and always did.
+ *
+ * Rows written before this existed cover exactly the night they are on, which
+ * is what the board already drew, so they are backfilled to the morning after
+ * rather than left NULL. That keeps one rule for reading a stay instead of two.
+ */
+addColumn('events', 'end_day', 'TEXT');
+db.exec(
+	`UPDATE events SET end_day = date(day, '+1 day')
+	 WHERE type = 'stay' AND end_day IS NULL`
+);

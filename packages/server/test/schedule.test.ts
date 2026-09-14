@@ -76,6 +76,7 @@ afterAll(() => {
 function add(
 	over: {
 		day?: string;
+		endDay?: string;
 		title?: string;
 		type?: 'activity' | 'food' | 'stay' | 'travel' | 'freetime';
 		startMin: number;
@@ -85,6 +86,7 @@ function add(
 ): string {
 	return schedule.createEvent(tripId, alice, {
 		day: over.day ?? DAY,
+		endDay: over.endDay ?? null,
 		title: over.title ?? 'Stop',
 		type: over.type ?? 'activity',
 		startMin: over.startMin,
@@ -209,67 +211,79 @@ describe('legs follow the events', () => {
 	});
 });
 
-describe('a stay is a block like any other', () => {
-	it('clamps a checkout earlier than its check-in, like any other event', () => {
-		const stay = add({
-			type: 'stay',
-			startMin: 21 * 60,
-			endMin: 9 * 60,
-			people: [alice],
-			...HOTEL
+describe('a stay is a range of nights', () => {
+	const THIRD = '2026-10-03';
+
+	it('defaults to one night when no checkout is given', () => {
+		const stay = add({ type: 'stay', startMin: 21 * 60, endMin: 24 * 60, people: [alice] });
+		expect(db.prepare(`SELECT day, end_day FROM events WHERE id = ?`).get(stay)).toMatchObject({
+			day: DAY,
+			end_day: NEXT
 		});
-		const row = db.prepare(`SELECT start_min, end_min FROM events WHERE id = ?`).get(stay) as {
-			start_min: number;
-			end_min: number;
-		};
-		// A stay no longer reaches into the next morning, so an end before its
-		// start is not a model any more, just a backwards event.
-		expect(row.start_min).toBe(21 * 60);
-		expect(row.end_min).toBeGreaterThan(row.start_min);
 	});
 
-	it('drags its end along when it is moved', () => {
-		const stay = add({
-			type: 'stay',
-			startMin: 20 * 60,
-			endMin: 23 * 60,
-			people: [alice],
-			...HOTEL
-		});
-		expect(schedule.moveEvent(stay, alice, 21 * 60, tripId)).toBe(true);
-		expect(
-			db.prepare(`SELECT start_min, end_min FROM events WHERE id = ?`).get(stay)
-		).toMatchObject({ start_min: 21 * 60, end_min: 24 * 60 });
+	it('covers every night from arrival up to but not including checkout', () => {
+		add({ type: 'stay', endDay: THIRD, startMin: 21 * 60, endMin: 24 * 60, people: [alice] });
+		expect(schedule.staysCovering(tripId, DAY)).toHaveLength(1);
+		expect(schedule.staysCovering(tripId, NEXT)).toHaveLength(1);
+		// The checkout morning is not a night spent there.
+		expect(schedule.staysCovering(tripId, THIRD)).toHaveLength(0);
 	});
 
-	it('can be resized from the board, because its end is a time on its own day', () => {
-		const stay = add({
-			type: 'stay',
-			startMin: 20 * 60,
-			endMin: 22 * 60,
-			people: [alice],
-			...HOTEL
-		});
-		expect(schedule.resizeEvent(stay, alice, 23 * 60, tripId)).toBe(true);
-		expect(
-			db.prepare(`SELECT start_min, end_min FROM events WHERE id = ?`).get(stay)
-		).toMatchObject({ start_min: 20 * 60, end_min: 23 * 60 });
+	it('holds several at once, because a group can sleep in two places', () => {
+		add({ type: 'stay', title: 'Hotel', startMin: 21 * 60, endMin: 24 * 60, people: [alice] });
+		add({ type: 'stay', title: 'Hostel', startMin: 21 * 60, endMin: 24 * 60, people: [bob] });
+		const stays = schedule.staysCovering(tripId, DAY);
+		expect(stays).toHaveLength(2);
+		expect(stays.flatMap((s) => s.people).sort()).toEqual([alice, bob].sort());
 	});
 
-	it("starts the next morning's first journey from last night's stay", () => {
+	it('stays out of the day it is on, because it is a band rather than a block', () => {
+		add({ type: 'stay', startMin: 21 * 60, endMin: 24 * 60, people: [alice] });
+		expect(schedule.eventsForDay(tripId, DAY)).toHaveLength(0);
+	});
+
+	it("starts each morning's first journey from where that person slept", () => {
 		add({ type: 'stay', startMin: 21 * 60, endMin: 24 * 60, people: [alice, bob], ...HOTEL });
 		add({ day: NEXT, startMin: 600, endMin: 660, people: [alice, bob], ...MUSEUM });
 
 		const legs = schedule.legsForDay(tripId, NEXT);
 		expect(legs).toHaveLength(1);
 		expect(legs[0].people).toEqual([alice, bob].sort());
-		expect(schedule.incomingStay(tripId, NEXT)?.day).toBe(DAY);
+		expect(schedule.incomingStays(tripId, NEXT).map((s) => s.day)).toEqual([DAY]);
+	});
+
+	it('gives each half of a split group its own morning origin', () => {
+		add({
+			type: 'stay',
+			title: 'Hotel',
+			startMin: 21 * 60,
+			endMin: 24 * 60,
+			people: [alice],
+			...HOTEL
+		});
+		add({
+			type: 'stay',
+			title: 'Hostel',
+			startMin: 21 * 60,
+			endMin: 24 * 60,
+			people: [bob],
+			...PARK
+		});
+		add({ day: NEXT, startMin: 600, endMin: 660, people: [alice], ...MUSEUM });
+		add({ day: NEXT, startMin: 600, endMin: 660, people: [bob], ...MUSEUM });
+
+		const legs = schedule.legsForDay(tripId, NEXT);
+		expect(legs).toHaveLength(2);
+		// Two journeys to the same morning, of different lengths, because they
+		// start in different buildings.
+		expect(new Set(legs.map((l) => l.km)).size).toBe(2);
 	});
 
 	it('leaves a morning alone when nobody slept anywhere', () => {
 		add({ day: NEXT, startMin: 600, endMin: 660, people: [alice], ...MUSEUM });
 		expect(schedule.legsForDay(tripId, NEXT)).toHaveLength(0);
-		expect(schedule.incomingStay(tripId, NEXT)).toBeNull();
+		expect(schedule.incomingStays(tripId, NEXT)).toEqual([]);
 	});
 
 	it('plans the following morning as soon as a stay is added to the night before', () => {
@@ -277,9 +291,82 @@ describe('a stay is a block like any other', () => {
 		expect(schedule.legsForDay(tripId, NEXT)).toHaveLength(0);
 
 		// The write lands on DAY, but the day it changes is the one after it. This
-		// is why every write recomputes both.
+		// is why every write recomputes the whole span plus the morning past it.
 		add({ type: 'stay', startMin: 21 * 60, endMin: 24 * 60, people: [alice], ...HOTEL });
 		expect(schedule.legsForDay(tripId, NEXT)).toHaveLength(1);
+	});
+
+	it('replans the days it leaves as well as the ones it arrives on', () => {
+		const stay = add({
+			type: 'stay',
+			startMin: 21 * 60,
+			endMin: 24 * 60,
+			people: [alice],
+			...HOTEL
+		});
+		const museum = add({ day: NEXT, startMin: 600, endMin: 660, people: [alice], ...MUSEUM });
+		// The morning walk out of last night's hotel.
+		expect(schedule.legsForDay(tripId, NEXT).map((l) => l.toEventId)).toEqual([museum]);
+
+		// Moved a day later: the same morning now ends at the hotel instead of
+		// starting from it, which only shows up because the write recomputed the
+		// days the stay left as well as the ones it moved onto.
+		expect(schedule.editEvent(stay, alice, { day: NEXT, endDay: THIRD }, tripId)).toBe(true);
+		expect(schedule.legsForDay(tripId, NEXT).map((l) => l.fromEventId)).toEqual([museum]);
+	});
+
+	it('will not check out on or before the day it checks in', () => {
+		const stay = add({
+			type: 'stay',
+			endDay: THIRD,
+			startMin: 21 * 60,
+			endMin: 24 * 60,
+			people: [alice]
+		});
+		expect(schedule.editEvent(stay, alice, { endDay: DAY }, tripId)).toBe(true);
+		expect(db.prepare(`SELECT end_day FROM events WHERE id = ?`).get(stay)).toMatchObject({
+			end_day: NEXT
+		});
+	});
+
+	it('drops the range when it stops being a stay', () => {
+		const stay = add({
+			type: 'stay',
+			endDay: THIRD,
+			startMin: 21 * 60,
+			endMin: 24 * 60,
+			people: [alice]
+		});
+		expect(schedule.editEvent(stay, alice, { type: 'activity' }, tripId)).toBe(true);
+		expect(db.prepare(`SELECT end_day FROM events WHERE id = ?`).get(stay)).toMatchObject({
+			end_day: null
+		});
+		// Back among the day's blocks, where an ordinary event belongs.
+		expect(schedule.eventsForDay(tripId, DAY)).toHaveLength(1);
+	});
+
+	it('keeps its length in nights when it is moved to another day', () => {
+		const stay = add({
+			type: 'stay',
+			endDay: THIRD,
+			startMin: 21 * 60,
+			endMin: 24 * 60,
+			people: [alice]
+		});
+		expect(schedule.moveEvent(stay, alice, 21 * 60, tripId, NEXT)).toBe(true);
+		// Two nights before, two nights after: a move is not a resize.
+		expect(db.prepare(`SELECT day, end_day FROM events WHERE id = ?`).get(stay)).toMatchObject({
+			day: NEXT,
+			end_day: '2026-10-04'
+		});
+	});
+
+	it('gains a range when an ordinary block becomes a stay', () => {
+		const block = add({ startMin: 9 * 60, endMin: 10 * 60, people: [alice] });
+		expect(schedule.editEvent(block, alice, { type: 'stay' }, tripId)).toBe(true);
+		expect(db.prepare(`SELECT end_day FROM events WHERE id = ?`).get(block)).toMatchObject({
+			end_day: NEXT
+		});
 	});
 });
 

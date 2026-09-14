@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { isLocatedType, type EventType } from '@trippy/core/types';
+import { isLocatedType, STAY_CHECK_IN, type EventType } from '@trippy/core/types';
 import { api } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
 import Modal, { ModalFooter, ModalForm } from '../../components/ui/Modal';
@@ -8,13 +8,16 @@ import TimeField from '../../components/ui/TimeField';
 import { Field, FieldShell, TextArea } from '../../components/ui/Field';
 import { copy } from '../../copy';
 import PeoplePicker from './PeoplePicker';
+import StayDates from './StayDates';
 import {
 	DAY_END,
 	MIN_EVENT_MINS,
 	TYPE_OPTIONS,
 	dayLabel,
 	placeLabel,
-	placeOptions
+	placeOptions,
+	rangeLabel,
+	shiftDay
 } from './shared';
 import type { Cell, Crew, EventDraft, SavedPoi } from './types';
 
@@ -36,8 +39,8 @@ const DRAFT_ID = 'draft';
 export default function AddEventDialog({
 	base,
 	day,
-	defaults,
 	startMin,
+	initialType,
 	memberOptions,
 	crews,
 	saved,
@@ -51,9 +54,10 @@ export default function AddEventDialog({
 }: {
 	base: string;
 	day: string;
-	defaults: { stayStart: number; stayMins: number };
 	/** Where on the clock the dialog was opened, when it was opened by pointing at a time. */
 	startMin: number | null;
+	/** What the dialog opens as, when it was opened from something type-specific. */
+	initialType?: EventType;
 	memberOptions: Option[];
 	crews: Crew[];
 	saved: SavedPoi[];
@@ -68,16 +72,22 @@ export default function AddEventDialog({
 	onClose: () => void;
 	onDone: () => void;
 }) {
-	const [type, setType] = useState<EventType>('activity');
+	const [type, setType] = useState<EventType>(initialType ?? 'activity');
 	const [title, setTitle] = useState('');
 	const [start, setStart] = useState(String(startMin ?? 9 * 60));
 	const [end, setEnd] = useState(String((startMin ?? 9 * 60) + 60));
+	/* A stay is asked for by its dates instead of by a clock. Kept beside the
+	   times rather than instead of them, so switching type back and forth does
+	   not lose what was already typed. */
+	const [checkIn, setCheckIn] = useState(day);
+	const [checkOut, setCheckOut] = useState(shiftDay(day, 1));
 	const [people, setPeople] = useState<string[]>([]);
 	const [poi, setPoi] = useState('');
 	const [notes, setNotes] = useState('');
 
-	const startAt = Number(start);
-	const endAt = Number(end);
+	const staying = type === 'stay';
+	const startAt = staying ? STAY_CHECK_IN : Number(start);
+	const endAt = staying ? DAY_END : Number(end);
 
 	/** Moving the start carries the end with it: see `EventDialog`. */
 	const moveStart = (next: string) => {
@@ -106,7 +116,8 @@ export default function AddEventDialog({
 	useEffect(() => {
 		preview.current?.({
 			id: DRAFT_ID,
-			day,
+			day: staying ? checkIn : day,
+			end_day: staying ? checkOut : null,
 			// An unnamed block still has to read as a block rather than as a gap.
 			title: title.trim() || 'New event',
 			type,
@@ -116,7 +127,7 @@ export default function AddEventDialog({
 			lat: spot?.lat ?? null,
 			lng: spot?.lng ?? null
 		});
-	}, [day, title, type, startAt, endAt, people, spot?.lat, spot?.lng]);
+	}, [day, staying, checkIn, checkOut, title, type, startAt, endAt, people, spot?.lat, spot?.lng]);
 	// Mount-scoped, so the board drops the block whether it was added or not.
 	useEffect(() => () => preview.current?.(null), []);
 
@@ -125,10 +136,11 @@ export default function AddEventDialog({
 			await api(`${base}/events`, {
 				method: 'POST',
 				body: {
-					day,
+					day: staying ? checkIn : day,
+					endDay: staying ? checkOut : undefined,
 					title: title.trim(),
 					type,
-					start: Number(start),
+					start: startAt,
 					duration: endAt - startAt,
 					poiId: placeable && poi ? poi : undefined,
 					notes: notes.trim() || undefined,
@@ -147,7 +159,7 @@ export default function AddEventDialog({
 			dock={dock}
 			peek={peek}
 			title="Add event"
-			subtitle={dayLabel(day)}
+			subtitle={staying ? rangeLabel(checkIn, checkOut) : dayLabel(day)}
 			onClose={onClose}
 		>
 			<ModalForm className="schedule" onSubmit={add.submit}>
@@ -166,45 +178,43 @@ export default function AddEventDialog({
 						<FieldShell label="Type" className="col-span-4">
 							<Select
 								value={type}
-								onChange={(v) => {
-									const next = v as EventType;
-									setType(next);
-									// A night is the one type with a useful starting guess, and
-									// typing 21:00 by hand every time is the sort of work the
-									// dialog exists to save. A time the reader pointed at is a
-									// better guess than ours, so it is left alone.
-									if (next === 'stay' && startMin == null) {
-										setStart(String(defaults.stayStart));
-										setEnd(String(Math.min(DAY_END, defaults.stayStart + defaults.stayMins)));
-									}
-								}}
+								onChange={(v) => setType(v as EventType)}
 								options={TYPE_OPTIONS}
 								ariaLabel="Type"
 							/>
 						</FieldShell>
 
-						<FieldShell label="When" className="col-span-6">
-							<div className="tfpair">
-								<TimeField
-									value={startAt}
-									onChange={(v) => moveStart(String(v))}
-									ariaLabel="Start"
-								/>
-								<span className="tfto">to</span>
-								<TimeField
-									value={endAt}
-									onChange={(v) => setEnd(String(v))}
-									onCommit={fixEnd}
-									ariaLabel="End"
-								/>
-							</div>
-						</FieldShell>
+						{staying ? (
+							<StayDates
+								checkIn={checkIn}
+								checkOut={checkOut}
+								onCheckIn={setCheckIn}
+								onCheckOut={setCheckOut}
+							/>
+						) : (
+							<FieldShell label="When" className="col-span-6">
+								<div className="tfpair">
+									<TimeField
+										value={startAt}
+										onChange={(v) => moveStart(String(v))}
+										ariaLabel="Start"
+									/>
+									<span className="tfto">to</span>
+									<TimeField
+										value={endAt}
+										onChange={(v) => setEnd(String(v))}
+										onCommit={fixEnd}
+										ariaLabel="End"
+									/>
+								</div>
+							</FieldShell>
+						)}
 						<PeoplePicker
 							people={people}
 							onChange={setPeople}
 							memberOptions={memberOptions}
 							crews={crews}
-							className="col-span-6"
+							className={staying ? 'col-span-4' : 'col-span-6'}
 						/>
 
 						{placeable && (

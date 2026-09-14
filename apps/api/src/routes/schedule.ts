@@ -13,7 +13,7 @@ import {
 	editLeg,
 	eventTrip,
 	eventsForDay,
-	incomingStay,
+	incomingStays,
 	legsForDay,
 	moveEvent,
 	plannedLegsForDay,
@@ -22,12 +22,11 @@ import {
 	scheduleDays,
 	setEventPeople,
 	shiftDay,
-	STAY_CHECK_IN,
-	STAY_MINS
+	staysCovering,
+	STAY_CHECK_IN
 } from '@trippy/server/schedule';
 import { routeLegs } from '@trippy/server/routing';
 import { savedPoisForTrip } from '@trippy/server/pois';
-import { lodgingForDay } from '@trippy/server/lodging';
 
 export const schedule = new Hono<Env>();
 
@@ -145,12 +144,15 @@ schedule.get('/', async (c) => {
 		board.push({
 			day: d,
 			city: cell(defaultCity),
-			lodging: defaultCity ? lodgingForDay(trip.id, defaultCity.id, d) : null,
 			events: eventsForDay(trip.id, d),
+			// The night's lodgings, drawn as a band rather than a block: a stay is a
+			// range of days, so it is on every day it covers, and there may be more
+			// than one when the group sleeps in more than one place.
+			stays: staysCovering(trip.id, d),
 			// Where the morning starts. Not drawn: the client needs it only to plan
 			// the day's travel the same way the server does, which is what lets an
 			// unsaved change to who is going redraw the journeys as it is typed.
-			incoming: incomingStay(trip.id, d),
+			incoming: incomingStays(trip.id, d),
 			legs: await dayLegs(trip.id, d)
 		});
 	}
@@ -165,7 +167,6 @@ schedule.get('/', async (c) => {
 		crews: crewsForTrip(trip.id),
 		saved: savedPoisForTrip(trip.id),
 		cities: trip.cities.map((x) => cell(x)),
-		defaults: { stayStart: STAY_CHECK_IN, stayMins: STAY_MINS },
 		mapsKey: env.GOOGLE_MAPS_KEY ?? ''
 	});
 });
@@ -189,13 +190,21 @@ schedule.post('/events', async (c) => {
 	const b = await body(c);
 
 	const day = isoDay(b.day);
-	const start = num(b.start);
-	if (!day || start === null) return fail(c, 400, 'Pick a day and a start time.');
+	if (!day) return fail(c, 400, 'Pick a day.');
 
 	const typeRaw = str(b.type) || 'activity';
 	// The vocabulary is core's, so the API, the server and the client all agree
 	// on the same five literals without three copies of the list.
 	const type = isEventType(typeRaw) ? typeRaw : 'activity';
+
+	// A stay is picked by its dates, not by a clock: it is checked into on one
+	// day and out of on another, and it is drawn as a band across every day in
+	// between. Everything else is asked for a start time.
+	const stay = type === 'stay';
+	const start = stay ? STAY_CHECK_IN : num(b.start);
+	if (start === null) return fail(c, 400, 'Pick a start time.');
+	const endDay = stay ? isoDay(b.endDay) || shiftDay(day, 1) : null;
+	if (endDay && endDay <= day) return fail(c, 400, 'Check out after you check in.');
 
 	let title = str(b.title);
 	// Free time is deliberately nowhere, so it is the one type with no link. A
@@ -208,10 +217,11 @@ schedule.post('/events', async (c) => {
 
 	// Every event, a stay included, occupies real time on its own day, so the
 	// end is always a length from the start.
-	const end = start + (num(b.duration) || 60);
+	const end = stay ? 24 * 60 : start + (num(b.duration) || 60);
 
 	const id = createEvent(trip.id, c.get('user').id, {
 		day,
+		endDay,
 		title,
 		type,
 		startMin: start,
@@ -294,6 +304,9 @@ schedule.post('/events/:eventId/op', async (c) => {
 								: String(b.travelMode),
 					startMin: b.startMin === undefined ? undefined : (num(b.startMin) ?? undefined),
 					endMin: b.endMin === undefined ? undefined : (num(b.endMin) ?? undefined),
+					// A stay moves and stretches by its dates instead.
+					day: isoDay(b.day) ?? undefined,
+					endDay: isoDay(b.endDay) ?? undefined,
 					// Same three cases again: absent leaves the link, empty unlinks.
 					place: b.poiId === undefined ? undefined : placeFor(trip.id, str(b.poiId))
 				},

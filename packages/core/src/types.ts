@@ -52,6 +52,17 @@ export function isLocatedType(t: EventType): boolean {
 }
 
 /**
+ * The minute a stay is drawn at on a day it covers.
+ *
+ * A stay is not really on the clock: it is a range of nights, and it is drawn
+ * as a band rather than a block. But the journey home is a real journey, so the
+ * stay has to enter the planner somewhere, and this is the minute it has always
+ * been drawn at. It lives in core because the client replans a day as it is
+ * edited and must anchor it at exactly the same minute the server does.
+ */
+export const STAY_CHECK_IN = 21 * 60;
+
+/**
  * How a journey is made.
  *
  * Ordered slowest to fastest over the ground, which is also roughly the order

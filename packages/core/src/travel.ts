@@ -154,12 +154,16 @@ function landsAt(e: PlannerEvent): boolean {
 /**
  * The legs a day requires.
  *
- * `events` is everything scheduled on the day. `incomingStay` is the previous
- * night's stay, which is where everyone assigned to it starts the morning; pass
- * null for the first day of a trip, or when nobody has booked anywhere. It is
- * an event on yesterday, so its own times say nothing about this morning: the
- * journey out of it is treated as leaving at midnight, which is the honest
- * statement that you can set off whenever you like.
+ * `events` is everything scheduled on the day. `incoming` is last night's
+ * lodging: where everyone assigned to it starts the morning. Pass null for the
+ * first day of a trip, or when nobody has booked anywhere.
+ *
+ * It is a list because a group does not have to sleep in one building. Each
+ * person starts from the stay they are on, and somebody on none of them simply
+ * starts the day at their first anchored event. A stay is an event on
+ * yesterday, so its own times say nothing about this morning: the journey out
+ * of it is treated as leaving at midnight, which is the honest statement that
+ * you can set off whenever you like.
  *
  * The result is ordered by arrival time, then by key, so two runs over the same
  * day produce the same list in the same order and a diff against what is stored
@@ -167,7 +171,7 @@ function landsAt(e: PlannerEvent): boolean {
  */
 export function planLegs(
 	events: readonly PlannerEvent[],
-	incomingStay: PlannerEvent | null = null
+	incoming: PlannerEvent | readonly PlannerEvent[] | null = null
 ): PlannedLeg[] {
 	// Sorting once here rather than per person keeps the per-person walk a filter
 	// over an already-ordered list. Ties are broken on id so the order is total:
@@ -178,11 +182,13 @@ export function planLegs(
 	// Yesterday's stay is an origin, not a block on this day, and its own end is
 	// a time on the day before. Anchoring the journey out of it to midnight is
 	// what says the only true thing about it: you can set off when you like.
-	const origin = incomingStay ? { ...incomingStay, startMin: 0, endMin: 0 } : null;
+	const origins = (
+		incoming == null ? [] : Array.isArray(incoming) ? incoming : [incoming as PlannerEvent]
+	).map((o: PlannerEvent) => ({ ...o, startMin: 0, endMin: 0 }));
 
 	const everyone = new Set<string>();
 	for (const e of ordered) for (const p of e.people) everyone.add(p);
-	if (origin) for (const p of origin.people) everyone.add(p);
+	for (const o of origins) for (const p of o.people) everyone.add(p);
 
 	// Keyed on the pair of events, which is what makes a shared journey one leg:
 	// everyone moving from A to B lands in the same bucket regardless of how many
@@ -191,9 +197,11 @@ export function planLegs(
 
 	for (const person of everyone) {
 		const mine: PlannerEvent[] = [];
-		// Last night's stay is the origin, so it goes in front of the day. It is
-		// only an origin for the people who actually slept there.
-		if (origin && origin.people.includes(person)) mine.push(origin);
+		// Last night's stay is the origin, so it goes in front of the day. Only
+		// the one this person actually slept in: two halves of a group waking in
+		// different hotels are two different mornings.
+		const origin = origins.find((o) => o.people.includes(person));
+		if (origin) mine.push(origin);
 		for (const e of ordered) if (e.people.includes(person)) mine.push(e);
 
 		let prev: PlannerEvent | null = null;

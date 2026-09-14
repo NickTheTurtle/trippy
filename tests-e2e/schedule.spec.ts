@@ -84,3 +84,61 @@ test.describe('schedule toolbar', () => {
 		}
 	});
 });
+
+/**
+ * Stays, which are the one thing on the board that is not on the clock.
+ *
+ * A stay is a range of nights, so it is a band above every day it covers and it
+ * is edited from any of them. The point of the test is the range: that adding
+ * one on the first night puts it on the second as well, and that shortening it
+ * from the second night takes it off that day and leaves the first alone.
+ */
+test.describe('stays', () => {
+	test('a stay bands every night it covers, and is edited from any of them', async ({
+		page,
+		request
+	}) => {
+		const fixture = await createApiFixture(request);
+		const { startDate } = fixture.tripBody;
+		const second = new Date(`${startDate}T00:00:00Z`);
+		second.setUTCDate(second.getUTCDate() + 1);
+		const day2 = second.toISOString().slice(0, 10);
+		const third = new Date(`${startDate}T00:00:00Z`);
+		third.setUTCDate(third.getUTCDate() + 2);
+		const day3 = third.toISOString().slice(0, 10);
+
+		try {
+			await signIn(page, fixture.sessionCookie);
+			await page.goto(`/trips/${fixture.tripId}/schedule?day=${startDate}&view=day`);
+
+			await page.getByRole('button', { name: '+ Add stay' }).click();
+			await page.getByLabel('Name').fill('Harbour rooms');
+			await page.getByLabel('Check out').fill(day3);
+			await page.getByRole('button', { name: copy.common.add, exact: true }).click();
+
+			const chip = page.getByRole('button', { name: /Harbour rooms/ });
+			await expect(chip).toBeVisible();
+
+			// The second night it covers, where it is a band just the same.
+			await page.goto(`/trips/${fixture.tripId}/schedule?day=${day2}&view=day`);
+			await expect(chip).toBeVisible();
+
+			// The checkout morning is not a night spent there.
+			await page.goto(`/trips/${fixture.tripId}/schedule?day=${day3}&view=day`);
+			await expect(chip).toHaveCount(0);
+
+			// Shortened from the second night, which is the day it then leaves.
+			await page.goto(`/trips/${fixture.tripId}/schedule?day=${day2}&view=day`);
+			await chip.click();
+			await expect(page.getByLabel('Check in')).toHaveValue(startDate);
+			await page.getByLabel('Check out').fill(day2);
+			await page.getByRole('button', { name: copy.common.save, exact: true }).click();
+			await expect(chip).toHaveCount(0);
+
+			await page.goto(`/trips/${fixture.tripId}/schedule?day=${startDate}&view=day`);
+			await expect(chip).toBeVisible();
+		} finally {
+			fixture.teardown();
+		}
+	});
+});

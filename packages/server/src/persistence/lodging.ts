@@ -151,13 +151,13 @@ export function setLodgingPhoto(optionId: string, photo: string): void {
 }
 
 /**
- * Lodging that applies to a given day: the locked pick first, otherwise the
- * top-voted option, restricted to stays whose night range covers `day` (or
- * that have no range set, meaning they apply to the whole city stay).
+ * Summary for a specific option id.
  *
- * `tripId` narrows the query as well as the city: the city id alone is enough
- * to identify the stays, but scoping to the trip means a mismatched pair can
- * never return another trip's hotel.
+ * There is deliberately no "what is the lodging on day X" query any more. The
+ * calendar used to derive a band from the votes, which could only ever name one
+ * hotel for the whole group; a stay is now an event with people on it, so the
+ * schedule answers that question from its own rows and a night can hold as many
+ * lodgings as the group splits into.
  */
 export interface DayLodging {
 	name: string;
@@ -165,35 +165,6 @@ export interface DayLodging {
 	locked: number;
 	url: string | null;
 }
-export function lodgingForDay(tripId: string, cityId: string, day: string): DayLodging | null {
-	const rows = db
-		.prepare(
-			`SELECT name, tag, locked, url, check_in, check_out,
-			        (SELECT COUNT(*) FROM lodging_votes v WHERE v.option_id = o.id) AS votes
-			 FROM lodging_options o WHERE o.city_id = ? AND o.trip_id = ?
-			 ORDER BY o.locked DESC, votes DESC, o.created_at`
-		)
-		.all(cityId, tripId) as unknown as {
-		name: string;
-		tag: string;
-		locked: number;
-		url: string | null;
-		check_in: string | null;
-		check_out: string | null;
-		votes: number;
-	}[];
-	const covers = (o: { check_in: string | null; check_out: string | null }) => {
-		if (!o.check_in && !o.check_out) return true; // whole-stay option
-		const afterStart = !o.check_in || day >= o.check_in;
-		// check_out is the departure morning; the last night is check_out - 1.
-		const beforeEnd = !o.check_out || day < o.check_out;
-		return afterStart && beforeEnd;
-	};
-	const match = rows.find(covers);
-	return match ? { name: match.name, tag: match.tag, locked: match.locked, url: match.url } : null;
-}
-
-/** Summary for a specific option id (for per-crew lodging overrides). */
 export function lodgingOptionById(tripId: string, optionId: string): DayLodging | null {
 	const row = db
 		.prepare(`SELECT name, tag, locked, url FROM lodging_options WHERE id = ? AND trip_id = ?`)

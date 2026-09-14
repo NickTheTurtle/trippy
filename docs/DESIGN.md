@@ -3147,6 +3147,39 @@ Coordinates on the draft also mean picking a place moves the block, the map pin
 and the day's journeys while the picker is still open, which they did not
 before: the preview used to keep the saved location whatever the reader chose.
 
+**A stay is a range of nights, not a block on a clock.** It was an ordinary
+event sitting from 21:00 to midnight on one day, which meant a three-night
+booking was three separate events to enter and three to correct. It now carries
+`end_day` on `events` and covers `[day, end_day)`: arrival inclusive, checkout
+morning exclusive, the same reading `lodging_options.check_in/check_out` has
+always had. One object, one write. `end_day` is on every event rather than on a
+stay table of its own, and NULL means "begins and ends on its own day", which is
+true of everything else.
+
+**Stays are bands again, and this time several can share a night.** The board
+used to derive a lodging band from the votes in Discover, which could only ever
+name one hotel for the whole group; that is why stays were turned into blocks in
+the first place. A stay is now an event with people on it, so a night holds as
+many lodgings as the group splits into, each naming who is in it, and the
+vote-derived band and `lodgingForDay` are gone. Clicking any band opens the
+ordinary event dialog, on any day the stay covers: the thing being edited is the
+stay, not the night, so editing it from its third morning is the same edit.
+
+**The planner takes several origins.** `planLegs` used to be given one incoming
+event; it now takes a list and each person leaves from whichever origin they are
+on. That is what lets two halves of a group wake up in different buildings and
+get two different journeys to the same breakfast. Tonight's stays enter the plan
+re-anchored to `STAY_CHECK_IN`, which is the minute a stay has always been drawn
+at, so the walk home is still a real journey with a place on the board. The
+constant moved to `packages/core` because the client replans a day as it is
+edited and has to anchor it at exactly the same minute the server does.
+
+**A write touches a span, not a day.** `touched` now takes any number of days
+and recomputes every day from the earliest to one past the latest. A ranged stay
+changes many days' travel at once, and moving one has to cover where it was as
+well as where it is now, or the morning it used to feed keeps a journey out of a
+hotel nobody is in.
+
 ## Implementation status
 
 Built and verified:
