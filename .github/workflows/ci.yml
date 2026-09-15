@@ -1,7 +1,7 @@
 name: CI
 
-# Continuous integration only. Deployment stays a deliberate manual SSH process
-# (see deploy/README.md); nothing here touches the production instance or AWS.
+# Continuous integration only. Production deploys live in deploy.yml and wait
+# for this workflow to complete successfully on main.
 on:
   push:
     branches: [main]
