@@ -2,14 +2,17 @@ import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { session, requireUser } from './middleware';
+import { billingGate, quota429 } from './provider-quota';
 import { fail } from './respond';
 import { auth } from './routes/auth';
 import { account } from './routes/account';
 import { trips } from './routes/trips';
 import { placePhoto } from './routes/place-photo';
+import { ses } from './routes/ses';
 import { ensureDemoAccount, purgeExpiredSessions } from '@trippy/server/auth';
 import { closeAll } from '@trippy/server/events';
 import { searchCities } from '@trippy/server/geocode';
+import type { SessionUser } from '@trippy/server/auth';
 
 /**
  * Standalone JSON API. It owns the database and the Google keys, so the web and
@@ -20,7 +23,7 @@ import { searchCities } from '@trippy/server/geocode';
  * the session cookie stays first-party. Production is expected to sit behind
  * one host for the same reason.
  */
-const app = new Hono();
+const app = new Hono<{ Variables: { user: SessionUser | null } }>();
 
 /**
  * CORS, for development only.
@@ -56,13 +59,27 @@ app.route('/api/trips', trips);
 app.route('/api/place-photo', placePhoto);
 
 /**
+ * SES bounce and complaint receiver, delivered over SNS. Deliberately mounted
+ * here, not under `requireUser`: SNS is unauthenticated, so the endpoint
+ * authenticates the caller by the message signature instead. See routes/ses.ts.
+ */
+app.route('/api/ses', ses);
+
+/**
  * City lookup for the trip editor. It is not scoped to a trip because it is used
  * while creating one, but it is still behind a session: it costs a geocoder call
- * per request and must not be an open proxy.
+ * per request and must not be an open proxy. Per-caller quota is applied for the
+ * same reason it is on place search: a signed-in caller could otherwise loop it.
  */
-app.get('/api/citysearch', requireUser, async (c) =>
-	c.json({ results: await searchCities(c.req.query('q') ?? '') })
-);
+app.get('/api/citysearch', requireUser, async (c) => {
+	try {
+		return c.json({
+			results: await searchCities(c.req.query('q') ?? '', billingGate(c, c.get('user')!.id))
+		});
+	} catch (err) {
+		return quota429(c, err);
+	}
+});
 
 app.notFound((c) => fail(c, 404, 'Not found.'));
 

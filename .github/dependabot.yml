@@ -1,0 +1,49 @@
+version: 2
+
+updates:
+  # Keep the workflow's pinned action majors (checkout, setup-node,
+  # upload-artifact) from rotting. Actions are low-churn, so a single grouped
+  # weekly PR is plenty.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Etc/UTC
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: ci
+    groups:
+      github-actions:
+        patterns:
+          - '*'
+
+  # Single npm entry for the whole workspace. This is an npm-workspaces monorepo
+  # with one root package-lock.json, so Dependabot resolves every workspace from
+  # the root and one entry covers them all; a per-workspace entry would just
+  # duplicate PRs. Everything is grouped into one weekly PR to stay low-noise for
+  # a solo maintainer, and major bumps are held back because in this tree they
+  # are the risky ones: React, Vite, Expo/React Native, TypeScript, Vitest, and
+  # Playwright all gate on a major and are better bumped deliberately by hand.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: deps
+    groups:
+      npm:
+        patterns:
+          - '*'
+        update-types:
+          - minor
+          - patch
+    ignore:
+      - dependency-name: '*'
+        update-types:
+          - version-update:semver-major

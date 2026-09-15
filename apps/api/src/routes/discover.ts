@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { requireMember } from '../middleware';
+import { billingGate, quota429, QuotaError } from '../provider-quota';
 import { body, int, isoDay, num, optStr, str } from '../parse';
 import { fail, goneMessage, okOr } from '../respond';
 import type { Env, Trip } from '../types';
@@ -107,20 +108,27 @@ discover.get('/search', async (c) => {
 	const city = citySearchContext(trip.id, c.req.query('cityId') ?? '');
 	if (!city) return fail(c, 400, 'Could not find that city.');
 
-	return c.json({
-		results: await searchPlaces(
-			q,
-			{
-				city: city.name,
-				country: city.country,
-				region: city.region,
-				lat: city.lat,
-				lng: city.lng
-			},
-			kind,
-			sessionToken(c.req.query('token'))
-		)
-	});
+	try {
+		return c.json({
+			results: await searchPlaces(
+				q,
+				{
+					city: city.name,
+					country: city.country,
+					region: city.region,
+					lat: city.lat,
+					lng: city.lng
+				},
+				kind,
+				sessionToken(c.req.query('token')),
+				// Charged only when this search misses the cache and actually reaches
+				// a provider; a repeat search served from cache spends no quota.
+				billingGate(c, c.get('user').id)
+			)
+		});
+	} catch (err) {
+		return quota429(c, err);
+	}
 });
 
 /**
@@ -137,10 +145,19 @@ discover.get('/details', async (c) => {
 	const id = c.req.query('id')?.trim() ?? '';
 	if (!id) return fail(c, 400, 'Missing id.');
 	try {
-		return c.json({ details: await placeDetailsCached(id, sessionToken(c.req.query('token'))) });
-	} catch {
-		// A failed enrichment is not a failed search; the caller still has the
-		// name, address and pin, so let it show the result without the extras.
+		return c.json({
+			details: await placeDetailsCached(
+				id,
+				sessionToken(c.req.query('token')),
+				billingGate(c, c.get('user').id)
+			)
+		});
+	} catch (err) {
+		// Over quota is a real refusal and must reach the caller as a 429; a
+		// cached hit never gets here because the gate only runs on a miss.
+		if (err instanceof QuotaError) return quota429(c, err);
+		// Any other failed enrichment is not a failed search; the caller still has
+		// the name, address and pin, so let it show the result without the extras.
 		return c.json({ details: null });
 	}
 });
@@ -166,7 +183,12 @@ const CITY_RADIUS_KM = 150;
  * perfectly good entries, and the only thing worth refusing here is the clearly
  * wrong one.
  */
-function wrongCity(trip: Trip, cityId: string, lat: number | null, lng: number | null): string | null {
+function wrongCity(
+	trip: Trip,
+	cityId: string,
+	lat: number | null,
+	lng: number | null
+): string | null {
 	if (lat === null || lng === null) return null;
 	const city = trip.cities.find((x) => x.id === cityId);
 	if (!city || city.lat === null || city.lng === null) return null;

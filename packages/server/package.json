@@ -25,6 +25,8 @@
 		"./schedule": "./src/persistence/schedule.ts",
 		"./seed-athens": "./src/seeds/seed-athens.ts",
 		"./seed-example": "./src/seeds/seed-example.ts",
+		"./sns": "./src/infra/sns.ts",
+		"./suppressions": "./src/persistence/suppressions.ts",
 		"./tasks": "./src/persistence/tasks.ts",
 		"./throttle": "./src/infra/throttle.ts",
 		"./trips": "./src/persistence/trips.ts",

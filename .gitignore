@@ -29,6 +29,10 @@ Thumbs.db
 *.db-wal
 *.db-shm
 
+# Dev server logs (dev-api.log, dev-web.log). The repo is public, so never
+# publish local server output.
+*.log
+
 # Vite
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*

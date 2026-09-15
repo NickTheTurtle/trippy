@@ -1,9 +1,11 @@
 import { Hono } from 'hono';
 import { requireUser } from '../middleware';
+import { billingGate, quota429 } from '../provider-quota';
 import { int } from '../parse';
 import { fail } from '../respond';
 import { readPhoto, writePhoto } from '@trippy/server/photo-cache';
 import { env } from '@trippy/server/env';
+import type { SessionUser } from '@trippy/server/auth';
 
 /**
  * Proxies a Google Places photo so the API key never reaches the browser.
@@ -22,7 +24,7 @@ const MIN_WIDTH = 64;
 const MAX_WIDTH = 1200;
 const DEFAULT_WIDTH = 640;
 
-export const placePhoto = new Hono();
+export const placePhoto = new Hono<{ Variables: { user: SessionUser | null } }>();
 
 /**
  * Fetches in flight, keyed by the same `name|width` the cache is.
@@ -104,6 +106,14 @@ placePhoto.get('/', requireUser, async (c) => {
 
 	let pending = inflight.get(cacheKey);
 	if (!pending) {
+		// Charged only when a genuinely new fetch is about to start: a cache hit
+		// returned above, and a request that joins an in-flight fetch shares that
+		// one call, so neither spends quota. Over the ceiling becomes a 429.
+		try {
+			billingGate(c, c.get('user')!.id)();
+		} catch (err) {
+			return quota429(c, err);
+		}
 		pending = fetchPhoto(name, width, cacheKey, key).finally(() => inflight.delete(cacheKey));
 		inflight.set(cacheKey, pending);
 	}

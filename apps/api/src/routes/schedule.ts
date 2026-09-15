@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { requireMember } from '../middleware';
+import { routingGate } from '../provider-quota';
 import { body, int, isoDay, num, str, strList } from '../parse';
 import { fail, goneMessage, okOr } from '../respond';
 import type { Env, Trip } from '../types';
@@ -63,11 +64,15 @@ function foreignEvent(tripId: string, eventId: string): boolean {
  * the next load of the same day is instant and so an override can be compared
  * against what the automatic answer would have been.
  */
-async function dayLegs(tripId: string, day: string) {
+async function dayLegs(tripId: string, day: string, canBill?: () => boolean) {
 	const planned = plannedLegsForDay(tripId, day);
 	if (planned.length) {
 		const stored = new Map(legsForDay(tripId, day).map((l) => [l.key, l]));
-		const routed = await routeLegs(planned, (leg) => stored.get(leg.key)?.mode ?? undefined);
+		const routed = await routeLegs(
+			planned,
+			(leg) => stored.get(leg.key)?.mode ?? undefined,
+			canBill
+		);
 		for (const [key, r] of routed) saveAutoLeg(tripId, day, key, r.mode, r.mins);
 	}
 	return legsForDay(tripId, day);
@@ -158,7 +163,7 @@ schedule.get('/', async (c) => {
 			// who is going redraw the journeys as it is typed. It overlaps `stays`
 			// on every day but the first: the same row answers both questions.
 			incoming: incomingStays(trip.id, day),
-			legs: await dayLegs(trip.id, day)
+			legs: await dayLegs(trip.id, day, routingGate(c.get('user').id))
 		}
 	];
 

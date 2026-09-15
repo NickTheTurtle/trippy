@@ -65,10 +65,19 @@ async function withTimeout<T>(run: (signal: AbortSignal) => Promise<T | null>): 
 }
 
 /** Google Routes duration in minutes, or null for any failure or unsupported mode. */
-async function googleMinutes(leg: PlannedLeg, mode: string): Promise<number | null> {
+async function googleMinutes(
+	leg: PlannedLeg,
+	mode: string,
+	canBill?: () => boolean
+): Promise<number | null> {
 	const travelMode = GOOGLE_MODE[mode];
 	const apiKey = env.GOOGLE_MAPS_KEY;
 	if (!travelMode || !apiKey) return null;
+	// The billed call. When the caller is over its routing quota, skip Google
+	// rather than refuse: the leg falls through to the free OSRM/estimate below,
+	// so a board still loads, only with a rougher time. Charged here so a leg
+	// served from `legCache` never touches the quota.
+	if (canBill && !canBill()) return null;
 
 	return withTimeout(async (signal) => {
 		const res = await fetch(GOOGLE_ROUTES, {
@@ -129,10 +138,14 @@ export function guessMode(km: number): string {
  * someone who says a leg is a ferry gets a ferry-shaped estimate rather than
  * being quietly told about the drive around the bay.
  */
-export function routeLeg(leg: PlannedLeg, mode?: string): Promise<RoutedLeg> {
+export function routeLeg(
+	leg: PlannedLeg,
+	mode?: string,
+	canBill?: () => boolean
+): Promise<RoutedLeg> {
 	const wanted = mode ?? guessMode(leg.km);
 	return legCache.take(key(leg, wanted), async () => {
-		const google = await googleMinutes(leg, wanted);
+		const google = await googleMinutes(leg, wanted, canBill);
 		if (google != null) return { mode: wanted, mins: google, routed: true };
 
 		// OSRM only knows about driving, so it answers for a car and for the label
@@ -149,12 +162,13 @@ export function routeLeg(leg: PlannedLeg, mode?: string): Promise<RoutedLeg> {
 /** Resolve a day's legs at once. Failures fall back per leg, never as a batch. */
 export async function routeLegs(
 	legs: readonly PlannedLeg[],
-	modeFor: (leg: PlannedLeg) => string | undefined
+	modeFor: (leg: PlannedLeg) => string | undefined,
+	canBill?: () => boolean
 ): Promise<Map<string, RoutedLeg>> {
 	const out = new Map<string, RoutedLeg>();
 	await Promise.all(
 		legs.map(async (leg) => {
-			out.set(leg.key, await routeLeg(leg, modeFor(leg)));
+			out.set(leg.key, await routeLeg(leg, modeFor(leg), canBill));
 		})
 	);
 	return out;

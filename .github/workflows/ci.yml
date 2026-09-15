@@ -1,0 +1,107 @@
+name: CI
+
+# Continuous integration only. Deployment stays a deliberate manual SSH process
+# (see deploy/README.md); nothing here touches the production instance or AWS.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel an in-progress run when a newer commit lands on the same ref, so a
+# force-push or rapid follow-up does not pile up redundant runs. Runs on
+# different branches and PRs stay independent.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least privilege: read-only by default. No job here writes to the repo, so no
+# extra scopes are granted.
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: Typecheck, unit tests, build, format
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      # Node 24 matches the production major (deploy/ec2-setup.sh installs
+      # NodeSource 24.x). node:sqlite, used by @trippy/server, needs Node >= 22.5
+      # and is available unflagged from Node 23.4 onward, so 24 is safe.
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Typecheck every workspace, including apps/mobile: it is not deployed, but
+      # it consumes @trippy/core and @trippy/copy, so typechecking it here catches
+      # shared-package changes that would otherwise break it silently.
+      - name: Typecheck
+        run: npm run check
+
+      # 441 unit tests across packages/core and packages/server (plus apps/api
+      # parsing). Every test points TRIPPY_DB at a throwaway temp file and stubs
+      # global fetch, so this never touches data/app.db and never calls a real
+      # provider. db.ts creates its parent directory, so a clean checkout with no
+      # data/ directory is fine.
+      - name: Unit tests
+        run: npm run test
+
+      - name: Build
+        run: npm run build
+
+      - name: Format check
+        run: npm run format:check
+
+  e2e:
+    name: End-to-end (Playwright)
+    # Gated behind build-test so a broken typecheck or unit suite fails fast
+    # without spending runner time on e2e.
+    needs: build-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Only Chromium is needed; the config defines a single chromium project.
+      # --with-deps pulls the OS libraries Chromium needs on the Linux runner.
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      # The harness (tests-e2e/run.mjs) starts the API and web servers on ports
+      # 5184/5185 and points E2E_TRIPPY_DB at its own temp database, so it does
+      # not depend on any pre-running dev server and never touches data/app.db.
+      - name: Run e2e tests
+        run: npm run test:e2e
+
+      # A failed e2e run with no artifact is nearly impossible to debug. Upload
+      # the HTML report plus traces (trace: on-first-retry) and failure
+      # screenshots from test-results.
+      - name: Upload Playwright artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-artifacts
+          path: |
+            tests-e2e/playwright-report/
+            tests-e2e/test-results/
+            tests-e2e/blob-report/
+          if-no-files-found: ignore
+          retention-days: 14

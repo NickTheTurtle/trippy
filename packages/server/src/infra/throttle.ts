@@ -35,6 +35,39 @@ const FREE_ATTEMPTS = 5;
  */
 export const REGISTER_ATTEMPTS = Number(process.env.TRIPPY_REGISTER_LIMIT ?? 20);
 
+/**
+ * Per-caller ceilings on billed provider calls (place search and details, the
+ * geocoder, the photo proxy), before the same backoff applies.
+ *
+ * `cache.ts` already stops a repeated question from being re-bought, but a novel
+ * query costs money every time and any signed-in caller can spin them in a loop.
+ * These are a per-caller quota on the calls a cache miss would actually make, so
+ * ordinary searching never notices while a loop is stopped fast.
+ *
+ * The numbers are chosen for a real group-trip user. Someone researching a city
+ * types a few dozen distinct searches across an afternoon; 60 novel billed calls
+ * an hour sits well above that, and the per-IP figure is four times looser so a
+ * household or office sharing one NAT address (Trippy's own core use case) is not
+ * throttled as if it were one person. A tight loop, by contrast, burns 60 in
+ * seconds and then meets exponential backoff. Both are configurable so the owner
+ * can tune them against the real bill without a deploy of code.
+ *
+ * Open sign-up is why the per-IP backstop matters at all: the per-user limit is
+ * trivially reset by registering another account, so a single machine minting
+ * accounts to dodge it still meets a ceiling on its address.
+ */
+export const PROVIDER_LIMIT = Number(process.env.TRIPPY_PROVIDER_LIMIT ?? 60);
+export const PROVIDER_IP_LIMIT = Number(process.env.TRIPPY_PROVIDER_IP_LIMIT ?? 240);
+
+/**
+ * The routing provider gets its own, looser, per-user ceiling and a gentler
+ * failure mode (the caller falls back to the free estimate rather than being
+ * refused; see provider-quota.ts). A full itinerary legitimately has many legs
+ * and a board load routes each once, so this has to clear a real trip's worth of
+ * journeys, not a handful of searches.
+ */
+export const ROUTING_LIMIT = Number(process.env.TRIPPY_ROUTING_LIMIT ?? 300);
+
 /** First penalty, doubling per failure after that. */
 const BASE_DELAY_MS = 2_000;
 

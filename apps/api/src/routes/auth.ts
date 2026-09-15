@@ -1,7 +1,8 @@
 import { Hono } from 'hono';
-import { getConnInfo } from '@hono/node-server/conninfo';
+import type { Context } from 'hono';
 import { isValidEmail } from '@trippy/core';
 import { issueSession, clearSession, requireUser, sessionId, wantsToken } from '../middleware';
+import { clientIp } from '../client-ip';
 import { body, rawStr, str } from '../parse';
 import { fail, ok } from '../respond';
 import {
@@ -18,18 +19,16 @@ import {
 	type SessionUser
 } from '@trippy/server/auth';
 import { mailConfigured, passwordResetMail, sendMail, verifyEmailMail } from '@trippy/server/mail';
-import { clearFailures, recordFailure, REGISTER_ATTEMPTS, retryAfterMs } from '@trippy/server/throttle';
+import {
+	clearFailures,
+	recordFailure,
+	REGISTER_ATTEMPTS,
+	retryAfterMs
+} from '@trippy/server/throttle';
 
 type Env = { Variables: { user: SessionUser | null } };
 
 export const auth = new Hono<Env>();
-
-/** Best guess at who is calling, for throttling. Never trusted for authority. */
-function clientIp(c: Parameters<typeof getConnInfo>[0]): string {
-	const forwarded = c.req.header('x-forwarded-for');
-	if (forwarded) return forwarded.split(',')[0]!.trim();
-	return getConnInfo(c).remote.address ?? 'unknown';
-}
 
 /**
  * Failed logins are counted against the account *and* against the caller.
@@ -38,8 +37,12 @@ function clientIp(c: Parameters<typeof getConnInfo>[0]): string {
  * email lets a spray try one common password against every account in turn
  * without ever tripping, and counting only the address lets a botnet grind a
  * single account from a thousand of them. Both are cheap, so both are kept.
+ *
+ * `clientIp` now trusts only the address our own proxy appended to
+ * `X-Forwarded-For` (see client-ip.ts); before that a caller could forge a new
+ * per-IP identity per request and slip every per-address limit here.
  */
-function throttleKeys(c: Parameters<typeof getConnInfo>[0], email: string): string[] {
+function throttleKeys(c: Context<Env>, email: string): string[] {
 	return [`login:email:${email}`, `login:ip:${clientIp(c)}`];
 }
 
@@ -112,6 +115,18 @@ auth.post('/register', async (c) => {
 	// Registering also derives a key, so this endpoint is the same CPU lever as
 	// login with none of the guessing. Counted by address only: the email is by
 	// definition not an account yet.
+	//
+	// Per-IP is kept as the key, but the *ceiling* is the thing that matters for
+	// Trippy's own users. They are groups planning a trip together, and a group
+	// is exactly the set of people most likely to be behind one NAT: an office,
+	// a house, a campus. The production `TRIPPY_REGISTER_LIMIT=5` is too tight
+	// for that; five sign-ups shared across everyone at one address is plausibly
+	// the app's own launch party locking itself out. The recommendation to the
+	// owner is to raise it (the default here is 20, and 20-30 is sensible),
+	// leaning on email verification plus the new suppression list, not a tight
+	// signup cap, to blunt bulk account creation. The corrected `clientIp` also
+	// closes the older hole where the first `X-Forwarded-For` value, and so the
+	// key, could be spoofed per request.
 	const key = `register:ip:${clientIp(c)}`;
 	const wait = retryAfterMs(key);
 	if (wait > 0) {
@@ -147,6 +162,16 @@ auth.post('/register', async (c) => {
 
 	pruneExpiredTokens();
 	const { token } = startRegistration(email, name, password);
+	// `sendMail` returns 'suppressed' when the address is on the bounce/complaint
+	// list and sends nothing, but this route deliberately does NOT branch on the
+	// result. The response is the same 202 "check your email" whether the mail
+	// went out, was suppressed, or the address was already registered above would
+	// have 409'd. Branching would turn registration into the very enumeration
+	// oracle that `/forgot` goes to such lengths to avoid: a different answer for
+	// a suppressed address tells a stranger that address once bounced or
+	// complained here, which is information about a real person's mailbox. The
+	// pending row is written either way and simply expires unused; the person who
+	// owns a suppressed address gets no mail, exactly as with a mistyped one.
 	await sendMail(verifyEmailMail({ to: email, name, token }));
 	return c.json({ pending: true, email }, 202);
 });
@@ -192,9 +217,7 @@ auth.post('/forgot', async (c) => {
 	pruneExpiredTokens();
 	const started = email && isValidEmail(email) ? startPasswordReset(email) : null;
 	if (started) {
-		await sendMail(
-			passwordResetMail({ to: email, name: started.user.name, token: started.token })
-		);
+		await sendMail(passwordResetMail({ to: email, name: started.user.name, token: started.token }));
 	}
 	return c.json({ message: 'If that address has an account, a reset link is on its way.' });
 });

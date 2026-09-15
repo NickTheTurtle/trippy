@@ -1,5 +1,6 @@
 import { env } from '../infra/env';
 import { signPost } from '../infra/sigv4';
+import { isSuppressed } from '../persistence/suppressions';
 
 /**
  * Outbound email.
@@ -22,7 +23,20 @@ import { signPost } from '../infra/sigv4';
  * clone can register and sign in with no keys at all. In development the
  * message is logged instead, so the copy can still be read.
  */
-export type MailResult = 'sent' | 'skipped' | 'failed';
+/**
+ * How a send turned out.
+ *
+ *  - `sent`    the provider accepted it.
+ *  - `skipped` no provider is configured, so nothing was attempted.
+ *  - `suppressed` the address is on the bounce/complaint list and was not mailed.
+ *  - `failed`  a provider was tried and refused it.
+ *
+ * `suppressed` is distinct from `skipped` on purpose: `skipped` means "this
+ * deployment cannot send mail at all", whereas `suppressed` means "this one
+ * address must not be mailed". A caller that logs or counts outcomes needs to
+ * tell a deliberate non-send from a missing configuration.
+ */
+export type MailResult = 'sent' | 'skipped' | 'suppressed' | 'failed';
 
 export interface Mail {
 	to: string;
@@ -112,6 +126,16 @@ async function sendViaSes(mail: Mail): Promise<MailResult> {
 }
 
 export async function sendMail(mail: Mail): Promise<MailResult> {
+	// Checked before anything is attempted, and before a provider is even chosen:
+	// a hard bounce or a complaint from SES means mailing this address again is
+	// exactly what threatens the sending identity, so a known-bad address costs a
+	// single indexed lookup and nothing more. This is the read side of the
+	// suppression list the SES notification receiver writes.
+	if (isSuppressed(mail.to)) {
+		console.info(`[mail] suppressed, not sending: "${mail.subject}" to ${mail.to}`);
+		return 'suppressed';
+	}
+
 	const provider = mailProvider();
 	if (!provider) {
 		console.info(`[mail] not configured, skipping: "${mail.subject}" to ${mail.to}`);

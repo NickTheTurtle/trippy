@@ -48,9 +48,15 @@ const PHOTON_ENDPOINT = 'https://photon.komoot.io/api/';
  * Time zone is derived offline from the coordinates via tz-lookup, so the
  * organizer never has to pick a country or time zone by hand.
  */
-export async function searchCities(query: string): Promise<CitySuggestion[]> {
+export async function searchCities(query: string, gate?: () => void): Promise<CitySuggestion[]> {
 	const q = query.trim();
 	if (q.length < 2) return [];
+	// This provider has no cache in front of it, so every call is a real request:
+	// the gate is charged here, before the fetch, on each one. It throws through
+	// to the route (a 429) when the caller is over quota. Photon is keyless today,
+	// so the guard is defensive against hammering an external service rather than
+	// a direct bill, but it keeps the geocode endpoint from being an open proxy.
+	gate?.();
 	const url = new URL(PHOTON_ENDPOINT);
 	url.searchParams.set('q', q);
 	url.searchParams.set('limit', '8');

@@ -790,3 +790,36 @@ db.exec(
  * backfilled to.
  */
 addColumn('events', 'version', 'INTEGER NOT NULL DEFAULT 1');
+
+/**
+ * Addresses we must not mail again, fed by Amazon SES bounce and complaint
+ * notifications.
+ *
+ * Open sign-up means every registration mails whatever a stranger typed, so
+ * typos and deliberate garbage produce hard bounces, and a recipient can mark a
+ * real message as spam. AWS suspends a sending identity that drifts past roughly
+ * a 5% bounce or 0.1% complaint rate, and that identity is the owner's whole
+ * `dxu.info` domain, not just this app. This table is the record `sendMail`
+ * consults so a known-bad address is never mailed a second time.
+ *
+ * A brand-new table rather than a column, so the migration is additive by
+ * construction: `CREATE TABLE IF NOT EXISTS` adds it on an existing database and
+ * touches no existing row. Keyed by the lowercased address, which is the form
+ * everything else stores and looks up by.
+ *
+ *  - `reason` is `bounce` or `complaint`.
+ *  - `subtype` records the SES distinction that the suppression decision turns
+ *    on: `Permanent` or `Transient` for a bounce (only `Permanent` ever reaches
+ *    this table; see `applySesNotification`), or the complaint feedback type
+ *    when SES supplies one. NULL when the notification carried none.
+ *  - `created_at` is when we recorded it, in epoch milliseconds like every other
+ *    timestamp in this schema.
+ */
+db.exec(`
+	CREATE TABLE IF NOT EXISTS mail_suppressions (
+		email      TEXT PRIMARY KEY,
+		reason     TEXT NOT NULL,
+		subtype    TEXT,
+		created_at INTEGER NOT NULL
+	);
+`);

@@ -180,8 +180,7 @@ function categoryOf(names: Set<string>): string | null {
 	// ones we have never heard of, which is most of them.
 	const suffixed = (suffix: string) => [...names].some((n) => n.endsWith(suffix));
 
-	if (has('amusement_center', 'amusement_park', 'video_arcade', 'bowling_alley'))
-		return 'Activity';
+	if (has('amusement_center', 'amusement_park', 'video_arcade', 'bowling_alley')) return 'Activity';
 	if (
 		has(
 			'hotel',
@@ -675,7 +674,8 @@ export async function searchPlaces(
 	query: string,
 	near: SearchNear,
 	kind: SearchKind = 'place',
-	sessionToken?: string
+	sessionToken?: string,
+	gate?: () => void
 ): Promise<PlaceResult[]> {
 	const q = query.trim();
 	if (q.length < MIN_QUERY) return [];
@@ -687,6 +687,10 @@ export async function searchPlaces(
 	// search, and keying on it would mean never reading the cache again.
 	const key = `${kind}|${q.toLowerCase().replace(/\s+/g, ' ')}|${nearText(near)}|${near.lat ?? ''},${near.lng ?? ''}`;
 	return searchCache.take(key, async () => {
+		// Charged only here, on a cache miss, so a repeat search served from cache
+		// costs the caller no quota. Throws through `take` when over the ceiling,
+		// which the route turns into a 429.
+		gate?.();
 		if (env.GOOGLE_PLACES_KEY) {
 			// Suggestions first, because inside a session they are free. They are
 			// prefix matching though, so they come up empty on the wordier queries
@@ -723,7 +727,13 @@ export async function searchPlaces(
  */
 export function placeDetailsCached(
 	id: string,
-	sessionToken?: string
+	sessionToken?: string,
+	gate?: () => void
 ): Promise<PlaceDetails | null> {
-	return detailsCache.take(id, () => placeDetails(id, sessionToken));
+	return detailsCache.take(id, () => {
+		// As with search: charged only on a miss, so re-opening a place already
+		// looked at is free and never blocked.
+		gate?.();
+		return placeDetails(id, sessionToken);
+	});
 }
