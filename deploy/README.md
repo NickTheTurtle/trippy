@@ -391,13 +391,30 @@ Do these steps in the AWS account that owns the instance.
    - Audience: `sts.amazonaws.com`
 
 2. Create a deploy role for GitHub Actions. The trust policy must allow only
-   this repository on the `main` branch to assume it. For normal `push` runs and
-   manual `workflow_dispatch` runs started from the `main` branch, GitHub's OIDC
-   `sub` claim is:
+   this repository on the `main` branch to assume it.
+
+   Verify the OIDC subject format before you create the policy. GitHub accounts
+   and organizations can enable immutable unique IDs for OIDC subject claims
+   from GitHub Settings -> Actions -> OIDC, either for the repository or at the
+   owner/organization level. Do not assume which mode is active.
+
+   With immutable IDs off, normal `push` runs and manual `workflow_dispatch`
+   runs started from the `main` branch use this `sub` claim:
 
    ```text
    repo:NickTheTurtle/trippy:ref:refs/heads/main
    ```
+
+   This repository currently has immutable IDs on, so GitHub sends the owner ID
+   and repository ID in the subject:
+
+   ```text
+   repo:NickTheTurtle@12247846/trippy@1361960349:ref:refs/heads/main
+   ```
+
+   That exact prefix matters. A wildcard such as `repo:NickTheTurtle/trippy:*`
+   does not match the immutable-ID form because the literal owner and repository
+   segment is different.
 
    Trust policy:
 
@@ -414,7 +431,7 @@ Do these steps in the AWS account that owns the instance.
          "Condition": {
            "StringEquals": {
              "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-             "token.actions.githubusercontent.com:sub": "repo:NickTheTurtle/trippy:ref:refs/heads/main"
+             "token.actions.githubusercontent.com:sub": "repo:NickTheTurtle@12247846/trippy@1361960349:ref:refs/heads/main"
            }
          }
        }
@@ -424,8 +441,24 @@ Do these steps in the AWS account that owns the instance.
 
    If you later attach a GitHub Environment to the deploy job, GitHub changes
    the `sub` claim to the environment form, for example
-   `repo:NickTheTurtle/trippy:environment:production`. In that case update the
-   trust policy and restrict that environment to the `main` branch in GitHub.
+   `repo:NickTheTurtle/trippy:environment:production` or its immutable-ID
+   equivalent. In that case update the trust policy and restrict that
+   environment to the `main` branch in GitHub.
+
+   If role assumption fails, the Actions log only says
+   `Not authorized to perform sts:AssumeRoleWithWebIdentity`. That same error
+   can mean a missing OIDC provider, a wrong audience, a misspelled role ARN, or
+   a trust policy subject mismatch. AWS deliberately returns the same
+   `AccessDenied` when the role ARN does not exist to prevent role enumeration.
+   The definitive diagnostic is CloudTrail:
+
+   1. Open CloudTrail -> Event history in the AWS account that owns the role.
+   2. Select the region used by the STS endpoint for the failed workflow. STS
+      events may appear in that endpoint's region rather than the instance
+      region.
+   3. Filter `Event name` to `AssumeRoleWithWebIdentity`.
+   4. Open the failed event and read `userIdentity.userName`. That value is the
+      actual GitHub OIDC `sub` claim that AWS evaluated.
 
 3. Attach this least-privilege permission policy to the deploy role. Replace
    `<instance-id>` with the production EC2 instance ID, for example
@@ -460,22 +493,32 @@ Do these steps in the AWS account that owns the instance.
 
 4. Add the AWS managed policy `AmazonSSMManagedInstanceCore` to the existing
    EC2 instance role, `trippy-ec2`. The instance needs this policy so the SSM
-   Agent can register as a managed node and receive the command.
+   Agent can register as a managed node and receive the command. Without it, the
+   agent logs `not authorized to perform: ssm:UpdateInstanceInformation`, and
+   the instance never appears in Systems Manager Fleet Manager.
 
 5. Verify the SSM Agent on Ubuntu:
 
    ```bash
    sudo systemctl status snap.amazon-ssm-agent.amazon-ssm-agent.service
    sudo snap services amazon-ssm-agent
+   sudo tail -n 100 /var/log/amazon/ssm/amazon-ssm-agent.log
    ```
 
    If the service is missing on the AMI, install and start it using the current
    AWS Systems Manager Agent instructions for Ubuntu, then confirm the instance
-   appears in Systems Manager Fleet Manager.
+   appears in Systems Manager Fleet Manager. On Ubuntu, the agent is a snap, so
+   the unit is `snap.amazon-ssm-agent.amazon-ssm-agent.service`, not
+   `amazon-ssm-agent`. After attaching `AmazonSSMManagedInstanceCore`, restart
+   the snap instead of waiting for the agent's backoff sleep to expire:
+
+   ```bash
+   sudo snap restart amazon-ssm-agent
+   ```
 
 #### GitHub repository settings
 
-Create these repository settings before expecting deploys to succeed:
+Create these repository-level settings before expecting deploys to succeed:
 
 | Type | Name | Value |
 | --- | --- | --- |
@@ -483,8 +526,10 @@ Create these repository settings before expecting deploys to succeed:
 | Variable | `EC2_INSTANCE_ID` | The production instance ID |
 | Secret | `AWS_DEPLOY_ROLE_ARN` | The ARN of the deploy IAM role |
 
-The role ARN and instance ID are not in the workflow file. The deploy workflow
-will fail loudly and safely if any of these settings is absent.
+The workflow job does not declare an `environment:`, so environment-level
+variables and secrets are not visible to it. Put these values in the repository
+settings. If they are absent or created only on an environment, the deploy
+workflow fails safely during configuration validation before contacting AWS.
 
 #### Verifying continuous deployment
 
@@ -969,6 +1014,16 @@ deletes `/var/lib/trippy` with it. Two options, in increasing order of safety:
 - The Google keys bill separately, per call. See "Cost control" above.
 
 ## Troubleshooting
+
+- **`Not authorized to perform sts:AssumeRoleWithWebIdentity`:** AWS rejected
+  the GitHub OIDC token before any SSM command ran. Check the OIDC provider URL,
+  audience, role ARN spelling, and especially the trust policy `sub` claim. If
+  immutable IDs are enabled in GitHub OIDC settings, the subject is
+  `repo:OWNER@<owner-id>/REPO@<repo-id>:ref:refs/heads/main`, not
+  `repo:OWNER/REPO:ref:refs/heads/main`, and `repo:OWNER/REPO:*` will not match.
+  To see the real subject, open CloudTrail Event history in the relevant STS
+  endpoint region, filter `Event name` to `AssumeRoleWithWebIdentity`, and read
+  `userIdentity.userName` on the failed event.
 
 - **Build gets killed / hangs at "rendering chunks":** the box ran out of
   memory. The setup script adds a 2 GB swap file automatically on machines with
