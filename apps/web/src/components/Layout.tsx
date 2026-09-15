@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, Outlet, useNavigate } from 'react-router';
 import { useAuth } from '../auth';
 import { CaretIcon } from './ui/icons';
+import Logo from './ui/Logo';
 import Avatar from './ui/Avatar';
 import { copy } from '../copy';
 
@@ -47,7 +48,7 @@ function TopBar() {
 					to={status === 'authenticated' ? '/trips' : '/'}
 					className="flex items-center gap-2 font-serif text-heading font-[560]"
 				>
-					<span className="text-heading text-accent">◍</span>
+					<Logo />
 					<span>{copy.shell.brand}</span>
 				</Link>
 

@@ -92,20 +92,20 @@
 }
 
 /*
- * Always reserve the scrollbar gutter. Without it, navigating between a page
- * taller than the viewport and one shorter than it adds or removes the
- * scrollbar and the centred layout jumps sideways by its width.
- * `overflow-y: scroll` is the fallback for browsers without scrollbar-gutter.
+ * The scrollbar gutter is left at the browser default: a scrollbar appears only
+ * when the page overflows, and no space is reserved when it does not. An earlier
+ * rule reserved the gutter permanently, first `overflow-y: scroll` and then
+ * `scrollbar-gutter: stable`, so the centred layout would not shift sideways by
+ * the scrollbar width when navigating between a page taller than the viewport
+ * and one shorter than it. But reserving the gutter narrows the root scroll area
+ * on the inline-end side even when no scrollbar is shown, and the full-bleed
+ * sticky header is a child of that area, so on a page with no scrollbar the bar
+ * stopped a scrollbar-width short of the right edge and left a visible strip.
+ * That was the reported bug. The header reaching the edge wins over preventing
+ * the sub-scrollbar-width recentre, so the reservation is gone; the recentre it
+ * used to prevent only shows on platforms with classic (non-overlay) scrollbars,
+ * and only between a scrolling and a non-scrolling page.
  */
-html {
-	overflow-y: scroll;
-}
-@supports (scrollbar-gutter: stable) {
-	html {
-		overflow-y: auto;
-		scrollbar-gutter: stable;
-	}
-}
 
 body {
 	margin: 0;

@@ -982,7 +982,7 @@ trillion major units. A hundred billion keeps arithmetic and rendering both
 exact and still clears any real trip by orders of magnitude.
 
 **A settlement may not exceed the debt it settles.** The idempotency token is
-looked up *first*, before the debt is checked. Settlements count toward the
+looked up _first_, before the debt is checked. Settlements count toward the
 balance, so once one is recorded the debt is gone; checking the debt first would
 make a repeated press fail the bound rather than return `duplicate: true`.
 
@@ -1007,7 +1007,7 @@ begins: the store still clamps as a last resort, but a clamp shows the organizer
 a time they did not choose and explains nothing.
 
 **A place must be near the city it is filed under.** The radius is 150km, which
-is deliberately generous: a city list is a list of places to go *from* a city,
+is deliberately generous: a city list is a list of places to go _from_ a city,
 and that includes the day trip and the out-of-town airport. What it catches is
 the search still showing one city's results after the dropdown moved to another,
 which lands hundreds of kilometres out. It refuses only when it can know: a city
@@ -1817,7 +1817,7 @@ Three consequences, all of them load-bearing:
   to release the museum as it takes the hotel. Otherwise both Discover cards
   would count it.
 - **An edit's type may be changing in the same request**, so which list the
-  picked id is resolved against has to follow the type the block is *ending up*
+  picked id is resolved against has to follow the type the block is _ending up_
   as, not the one stored. Hence `editedType`, and `currentType` exported for it.
   The dialog clears the picked id when the type crosses that line (`keepsPick`),
   so a place id never survives into a stay block to be silently dropped.
@@ -2779,8 +2779,8 @@ tooltip. The same mark appears on the agenda row, on the journey card in the
 event dialog, and on the map card.
 
 **The phrase itself was about the wrong thing.** "Does not fit the gap" describes
-the gap, but the mark sits beside a *person* in the "view as" menu and beside a
-*journey* on the board, so it read as a remark about them that had lost its
+the gap, but the mark sits beside a _person_ in the "view as" menu and beside a
+_journey_ on the board, so it read as a remark about them that had lost its
 subject. It now says "Not enough time to get there", which is true of whoever or
 whatever it is pinned to, in all four places it shows.
 
@@ -3243,10 +3243,13 @@ button alone, right-aligned, still reserving `--phead-h`.
 **Nothing may move when you switch view.** Two shifts were fixed and both are
 easy to reintroduce:
 
-- _Horizontal._ `app.css` sets `scrollbar-gutter: stable` on `html` (with an
-  `overflow-y: scroll` fallback). Without it, navigating from a page taller than
-  the viewport to a shorter one removes the scrollbar and slides the whole
-  centred layout sideways by ~15px.
+- _Horizontal._ The Svelte `app.css` reserved the scrollbar gutter on `html`
+  with `scrollbar-gutter: stable` and an `overflow-y: scroll` fallback, to stop a
+  page-height change from removing the scrollbar and sliding the centred layout
+  sideways by ~15px. The React port reverses that decision: reserving the gutter
+  left the full-bleed sticky header a scrollbar-width short of the right edge,
+  which matters more than the recentre, so the reservation is gone. See "The
+  header reaches the right edge".
 - _Vertical._ A section header (`.phead`) is a one-line hint plus an optional
   action button. Sections without a button would be ~12px shorter and the panel
   below would jump, so `.phead` sets `min-height: var(--phead-h)`, a token in
@@ -3383,7 +3386,7 @@ track nobody schedules and making two days harder to compare, not easier.
 holds: six in the morning unless something is earlier, in which case the window
 opens back to the hour that holds it.
 
-The window that moves while you are moving something has to move *exactly*
+The window that moves while you are moving something has to move _exactly_
 right. The first attempt grew it towards the pointer in whole-hour steps and
 compensated with a `window.scrollBy`: an hour is 60px at a pixel a minute, so
 the board lurched 60px sideways of the hand, and the compensation lurched with
@@ -3394,9 +3397,9 @@ already showing.
 What was wrong was the granularity, not the idea. `boardStart` is now driven
 straight off the dragged block, to the minute, so the window opens at exactly
 the speed of the hand and never steps. The grid grows downwards from a top edge
-that stays put, so opening it by *n* pixels pushes everything already on the
-board, including the block under the pointer, down by *n*. `Schedule` scrolls by
-the same *n* in the `useLayoutEffect` of the same render, before the browser
+that stays put, so opening it by _n_ pixels pushes everything already on the
+board, including the block under the pointer, down by _n_. `Schedule` scrolls by
+the same _n_ in the `useLayoutEffect` of the same render, before the browser
 paints, and the two cancel: the block is welded to the cursor, the hours simply
 appear above it. There is always somewhere to scroll to, because the document
 grew by precisely the distance being scrolled. Dragging back down closes the
@@ -3536,6 +3539,108 @@ _is_, not a setting applied to it. The `Day | Agenda` switch had also been
 clipping rather than wrapping: `.pills` sets `overflow: hidden` to clip its own
 rounded corners, and per spec that makes its automatic minimum size resolve to
 zero, so it was free to shrink to nothing. A breakpoint was never the fix.
+
+**The brand mark is a tree of choices, not a glyph.** The header used to sit a
+Unicode `◍` next to the wordmark and the tab still shipped the SvelteKit logo
+in Svelte orange, both leftovers from the port. A text glyph is drawn by
+whichever font the platform has and is not really a mark at all, so it is
+replaced by a drawn one: a dendrogram laid out horizontally, growing left to
+right. One root on the left forks into an upper and a lower branch, and the
+upper branch forks again, so a single origin fans out to three terminals at
+three heights. That picture is chosen over a pin or a map because it names the
+one thing the app does that a generic map app does not: a trip plan is a tree of
+choices, and a group that splits can split again.
+
+An earlier pass tried the split as two mirrored arcs bowing above and below a
+line, and that is the note worth keeping so nobody re-derives it: two mirrored
+arcs always close into a lens, and a lens flanked by dots is unmistakably an
+eye, at any size. The tree escapes that because it is inherently asymmetric and
+cannot collapse into a symmetric glyph.
+
+Orthogonal elbows, not curves, and that is a 16px decision rather than a
+stylistic one. Straight horizontal and vertical runs land on the pixel grid at
+tab size, where diagonals and arcs antialias into grey mush, which is exactly
+what sank the earlier curved attempts. Orthogonal branching is also the
+universal language for a tree, seen in file explorers, org charts and git
+graphs, so it reads as branching at once. A filled node marks every meaningful
+point: the two forks, the three terminals and the root. A node is where a path
+arrives or divides, the decision points of the plan, so marking them all says
+that every stop is a choice, and centred on a fork it has the riser and both
+horizontals meet inside it, so the corner reads as deliberate rather than as an
+antialiasing artefact. A node has to be clearly bigger than the stroke or it
+reads as a pinch in the line rather than a node, but too big and the discs
+dominate and the branching reads second. Two and three quarter times the stroke
+was tried and read too heavy, the discs coming before the lines; dropping the
+disc to just over twice the stroke while the stroke stayed at four read too heavy
+again. Shrinking the discs further only threatened to lose the nodes into the
+round joins, so the fix was the other lever: lighten the whole mark by thinning
+the stroke rather than starving the discs. The header and the PNGs now draw the
+tree on a stroke of three with discs a shade over twice that, so the branching
+leads and the nodes are punctuation on it. The 16px favicon does not follow the
+stroke down. It keeps the heavier stroke of four with its two junction discs
+larger still, because at tab size a stroke of three drops below a pixel and
+washes out to grey and a small disc merges back into it, which is the failure the
+divergence exists to avoid. The favicon is a size-adapted variant already, two
+junction nodes rather than six, so carrying a heavier stroke as well is the same
+decision taken one step further: at 16px legibility wins over matching the
+header's exact weight, and the two are never seen side by side at one size. Rings, a knockout disc with an
+accent centre, were tried and dropped: the accent centre fills in below about
+32px and the ring
+reverts to a plain disc, so it bought nothing at the sizes that are hard and only
+added noise at the sizes that are easy. The tree's footprint is pulled in from
+the tile edges too, and the branch heights spread to sixteen grid units apart, so
+the three now sizable terminal discs neither collide with each other nor crowd
+the rounded corners a platform will clip.
+
+Six nodes only survive when the mark is drawn large, and that forces one split.
+Below a pixel the terminal and root discs turn to mud, so the 16px `favicon.svg`
+drops to the two junction nodes alone; rendered at true 16px, the extra four discs
+were invisible and only thickened the lines. That is a deliberate size-specific
+simplification of one tree, not a second mark: same geometry, same colours, same
+badge, same stroke, just fewer discs at the size where legibility is scarcest.
+The full six-node set lives where there is room for it: the header badge and the
+app-icon PNGs, which always render large. An earlier pass put the nodes only at
+the junctions and dropped the terminals for the same small-size reason, before
+the owner asked for every point marked; the favicon is where that earlier
+instinct still holds. `favicon.svg` is the mark knocked out of a solid accent
+tile in the off-white background colour, because a bare stroke on transparent
+vanishes against a dark browser tab and the platforms clip and round a favicon
+anyway, so it wants a solid field under it. The apple-touch and maskable PNGs
+carry the full six-node tree; the maskable one scales the tree in a little so its
+outermost discs stay inside the centre safe circle that some launchers crop to.
+
+The header renders that same badge, not a bare glyph, and that is deliberate: the
+mark in the tab and the mark in the header should be one object, so someone
+glancing between them sees a single thing. `Logo.tsx` draws the accent rounded
+square with the tree knocked out in the background colour by default, and takes a
+`bare` prop that drops the tile and paints the tree in `currentColor`, the way
+the row glyphs in `icons.tsx` work, for anywhere the two-colour badge does not
+belong; both share the one set of path data rather than drawing the tree twice.
+The badge sits a little taller than the wordmark cap height, since a filled tile
+needs more room to breathe than the bare glyph it replaced. Making the whole
+header bar green was considered and rejected: the bar is a translucent off-white
+with a blur and a hairline that every page is designed against, and going solid
+green would force a rethink of the nav links, the avatar pill, the accent "Start
+planning" button and the focus rings, which is a redesign, not a logo change.
+
+## The header reaches the right edge
+
+The sticky header is full-bleed and its centred `.container` holds the content,
+so the bar itself should touch both edges of the viewport. It did not: on a page
+with no scrollbar it stopped a scrollbar-width short on the right and left a
+visible strip. The cause was in `styles/index.css`, an intentional pair of rules
+that reserved the scrollbar gutter permanently, `overflow-y: scroll` with a
+`scrollbar-gutter: stable` upgrade, so the centred layout would not jump sideways
+by the scrollbar width when navigating between a page taller than the viewport
+and one shorter than it. Reserving the gutter narrows the root scroll area on the
+inline-end side even when no scrollbar shows, and the header is a child of that
+area, so it stopped short. Measured, the right gap was exactly the scrollbar
+width and the left gap was zero. The reservation is removed: the header reaching
+the edge wins over preventing a sub-scrollbar-width recentre, and that recentre
+only ever showed on classic non-overlay scrollbars and only between a scrolling
+and a non-scrolling page. The fix is confined to the gutter; the `overflow-x:
+clip` that lets a transformed page clip its own transform during a navigation is
+untouched, and there is still no horizontal scrollbar at 390px.
 
 ## Navigation motion
 
