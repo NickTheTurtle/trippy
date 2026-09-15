@@ -247,7 +247,7 @@ umask 077
   echo "TRIPPY_DB=${DATA_DIR}/app.db"
   echo "APP_URL=${APP_URL:-$PUBLIC_URL}"
   echo "TRIPPY_REGISTER_LIMIT=${TRIPPY_REGISTER_LIMIT:-5}"
-  [[ -n "$SQLITE_OPT" ]] && echo "NODE_OPTIONS=${SQLITE_OPT}"
+  if [[ -n "$SQLITE_OPT" ]]; then echo "NODE_OPTIONS=${SQLITE_OPT}"; fi
 } > "$ENV_FILE"
 
 # Pass through any provider / mail secrets that are set, one per line, without
@@ -255,7 +255,7 @@ umask 077
 append_if_set() {
   local name="$1"
   local val="${!name:-}"
-  [[ -n "$val" ]] && printf '%s=%s\n' "$name" "$val" >> "$ENV_FILE"
+  if [[ -n "$val" ]]; then printf '%s=%s\n' "$name" "$val" >> "$ENV_FILE"; fi
 }
 for v in GOOGLE_PLACES_KEY GOOGLE_MAPS_KEY MAIL_FROM \
          AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN \

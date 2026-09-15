@@ -45,7 +45,7 @@ note() {  # $1 = severity (WARN|CRIT), rest = message
   echo "${sev}: ${msg}"
   case "$sev" in
     CRIT) worst=2 ;;
-    WARN) [[ "$worst" -lt 1 ]] && worst=1 ;;
+    WARN) if [[ "$worst" -lt 1 ]]; then worst=1; fi ;;
   esac
 }
 
