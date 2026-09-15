@@ -103,7 +103,7 @@ have; anything you leave out degrades gracefully (see "What each key does").
 export DOMAIN='trippy.dxu.info'             # omit to use the sslip.io fallback
 export ACME_EMAIL='you@example.com'         # optional, Let's Encrypt notices
 
-# Optional provider and mail secrets:
+# Optional provider and mail secrets, plus production throttle settings:
 export GOOGLE_PLACES_KEY='...'              # richer place search; else keyless OSM
 export GOOGLE_MAPS_KEY='...'                # map tiles + server-side routing
 export MAIL_FROM='trips@trippy.dxu.info'    # turns on email verification
@@ -112,6 +112,10 @@ export AWS_SECRET_ACCESS_KEY='...'
 export SES_REGION='us-east-1'
 # export RESEND_API_KEY='...'               # used only if the SES keys are absent
 export TRIPPY_REGISTER_LIMIT='5'            # signups per IP before backoff
+export TRIPPY_TRUSTED_PROXIES='1'           # Caddy sits one proxy hop in front of the API
+# export TRIPPY_PROVIDER_LIMIT='60'         # paid provider calls per user before backoff
+# export TRIPPY_PROVIDER_IP_LIMIT='240'     # paid provider calls per IP before backoff
+# export TRIPPY_ROUTING_LIMIT='300'         # paid routing calls per user before fallback
 
 sudo -E bash deploy/ec2-setup.sh
 ```
@@ -119,6 +123,22 @@ sudo -E bash deploy/ec2-setup.sh
 `sudo -E` preserves your exported variables. When it finishes it prints the app
 URL. The first HTTPS request can take a few seconds while Caddy fetches the
 certificate.
+
+Re-runs rewrite `/etc/trippy.env` from scratch. Pass the complete set of
+runtime variables every time, not only the value you are changing, or omitted
+keys such as Google provider credentials and throttle settings are removed from
+the service environment. A practical pattern is to keep the full deployment
+environment in a root-owned file, for example `/root/trippy-deploy.env`, then
+source it for every setup re-run:
+
+```bash
+set -a
+source /root/trippy-deploy.env
+set +a
+sudo -E bash deploy/ec2-setup.sh
+```
+
+Keep secrets out of shell history and restrict that file to root.
 
 If you set `MAIL_FROM` together with a `DOMAIN`, `APP_URL` in `/etc/trippy.env`
 is set to your public HTTPS origin automatically, so emailed verification and
@@ -281,6 +301,10 @@ The server never crashes on a missing key; each feature simply degrades.
 | `TRIPPY_DB` | Database file path | Defaults to `/opt/trippy/data/app.db`; the setup script pins it to `/var/lib/trippy/app.db` |
 | `PORT` | API loopback port | Defaults to `5175` |
 | `TRIPPY_REGISTER_LIMIT` | Signups per client IP before exponential backoff | Defaults to `20` (loose, meant for the test suite); the setup script sets `5` |
+| `TRIPPY_TRUSTED_PROXIES` | Number of trusted reverse proxy hops for `X-Forwarded-For` client IP parsing | Defaults to `0` in the app; the setup script sets `1` because Caddy sits directly in front of the API |
+| `TRIPPY_PROVIDER_LIMIT` | Paid provider calls per user before exponential backoff | Defaults to `60` |
+| `TRIPPY_PROVIDER_IP_LIMIT` | Paid provider calls per client IP before exponential backoff | Defaults to `240` |
+| `TRIPPY_ROUTING_LIMIT` | Paid routing calls per user before fallback to the free path | Defaults to `300` |
 | `NODE_ENV=production` | Secure cookie flag, disables dev CORS, skips the demo seed | Set by the setup script |
 
 Foreign-exchange rates use a keyless public endpoint, so there is no FX key to

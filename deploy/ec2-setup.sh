@@ -29,6 +29,10 @@
 #   #   export AWS_ACCESS_KEY_ID='...' AWS_SECRET_ACCESS_KEY='...' SES_REGION='us-east-1'
 #   #   export RESEND_API_KEY='...'               # used only if SES keys are absent
 #   #   export TRIPPY_REGISTER_LIMIT='5'          # signups per IP before backoff
+#   #   export TRIPPY_TRUSTED_PROXIES='1'         # Caddy proxy hop count; defaults to 1 here
+#   #   export TRIPPY_PROVIDER_LIMIT='60'         # paid provider calls per user before backoff
+#   #   export TRIPPY_PROVIDER_IP_LIMIT='240'     # paid provider calls per IP before backoff
+#   #   export TRIPPY_ROUTING_LIMIT='300'         # paid routing calls per user before fallback
 #   #   export GIT_REF='main'
 #   # optional off-box durability (Litestream continuous S3 replication):
 #   #   export LITESTREAM_S3_BUCKET='my-trippy-backups'   # enables Litestream
@@ -245,6 +249,34 @@ chown -R "$APP_USER:$APP_USER" "$APP_DIR" "$DATA_DIR"
 # Root-only. Written from the environment passed in; absent optional keys are
 # simply left out, and the app degrades gracefully without them. No value is
 # ever echoed to the console.
+warn_if_existing_env_name_unset() {
+  local name="$1"
+  if [[ -f "$ENV_FILE" ]]; then
+    if grep -qE "^${name}=" "$ENV_FILE"; then
+      if [[ -z "${!name:-}" ]]; then
+        echo "Warning: ${ENV_FILE} already contains ${name}, but ${name} is not set to a non-empty value for this run." >&2
+        echo "         ${ENV_FILE} is rewritten from scratch, so the existing ${name} value will not be preserved." >&2
+      fi
+    fi
+  fi
+  return 0
+}
+
+for v in APP_URL TRIPPY_REGISTER_LIMIT TRIPPY_TRUSTED_PROXIES TRIPPY_PROVIDER_LIMIT \
+         TRIPPY_PROVIDER_IP_LIMIT TRIPPY_ROUTING_LIMIT \
+         GOOGLE_PLACES_KEY GOOGLE_MAPS_KEY MAIL_FROM \
+         AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN \
+         SES_REGION AWS_REGION RESEND_API_KEY; do
+  warn_if_existing_env_name_unset "$v"
+done
+
+TRIPPY_TRUSTED_PROXIES_VALUE="${TRIPPY_TRUSTED_PROXIES:-1}"
+if [[ -n "${TRIPPY_TRUSTED_PROXIES:-}" ]]; then
+  log "Using operator supplied TRIPPY_TRUSTED_PROXIES=${TRIPPY_TRUSTED_PROXIES_VALUE}"
+else
+  log "Defaulting TRIPPY_TRUSTED_PROXIES=1 because this setup puts Caddy in front of the API"
+fi
+
 log "Writing ${ENV_FILE}"
 umask 077
 {
@@ -253,6 +285,7 @@ umask 077
   echo "TRIPPY_DB=${DATA_DIR}/app.db"
   echo "APP_URL=${APP_URL:-$PUBLIC_URL}"
   echo "TRIPPY_REGISTER_LIMIT=${TRIPPY_REGISTER_LIMIT:-5}"
+  echo "TRIPPY_TRUSTED_PROXIES=${TRIPPY_TRUSTED_PROXIES_VALUE}"
   if [[ -n "$SQLITE_OPT" ]]; then echo "NODE_OPTIONS=${SQLITE_OPT}"; fi
 } > "$ENV_FILE"
 
@@ -265,7 +298,8 @@ append_if_set() {
 }
 for v in GOOGLE_PLACES_KEY GOOGLE_MAPS_KEY MAIL_FROM \
          AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN \
-         SES_REGION AWS_REGION RESEND_API_KEY; do
+         SES_REGION AWS_REGION RESEND_API_KEY \
+         TRIPPY_PROVIDER_LIMIT TRIPPY_PROVIDER_IP_LIMIT TRIPPY_ROUTING_LIMIT; do
   append_if_set "$v"
 done
 
