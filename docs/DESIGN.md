@@ -635,7 +635,55 @@ reads as a bug.
 
 - Log expense: payer, amount, currency, split rule (equal / shares / exact / % ).
 - Compute net balances; produce a **minimal-transaction settlement**.
-- Multi-currency: store original amount + currency, normalize at settlement time.
+- Multi-currency: store the original amount and currency **plus the rate they were entered
+  at** (`expenses.fx_rate`, `expenses.fx_home`), and convert with that stored rate.
+
+This last point corrects the doc, which previously said "normalize at settlement time",
+meaning convert from today's rates on every read. That is not what is implemented, and the
+implementation is right. Converting on read made a €920 dinner worth a different number of
+dollars each time the page loaded, and let a trip that everybody had settled up drift back
+out of balance months later with nobody having touched it. The rate is locked to the
+transaction instead, which is what every other expense tool does. A stored rate is used
+only while `fx_home` still matches the trip's home currency; when it does not, or when the
+row predates the columns, the reader falls back to a live conversion and the next edit
+re-locks it.
+
+#### The date an expense happened (`expenses.spent_on`)
+
+An expense carries the day it happened, `YYYY-MM-DD`, separate from `created_at`, which is
+the instant it was typed. Members reconcile a week of receipts in one sitting, and without
+this the whole week landed on the day of the sitting.
+
+It is a zone-free calendar day, like `trips.start_date` and `events.day`, not an instant.
+A trip crosses time zones by definition, so an instant would render as a different date
+depending on who was reading it: a 9pm dinner in Tokyo is the previous day in London. The
+day the group had that dinner is one fact, and everyone who was there agrees on it.
+
+**`spent_on` is descriptive and drives ordering only. It must never affect FX conversion.**
+Backdating an expense does not revalue it: the rate stays the one recorded when it was
+entered. Two reasons, and both matter:
+
+1. The rate provider serves current rates only and has no historical lookup, so there is no
+   rate for the named day to honour even if we wanted one.
+2. A rate that changed retroactively would silently move every member's settled balance
+   without anybody having edited a number. Correcting a date is a bookkeeping tidy-up, and
+   it must not be able to move real money between real people.
+
+Only a change to the expense's own currency re-locks the rate.
+
+Ordering is `spent_on DESC, created_at DESC`: newest day first, and within a day the most
+recently entered first. The entry time is the tiebreaker because it is the only total order
+left, and it means a trip whose expenses all share a date reads exactly as it did before
+the column existed.
+
+The server backstops the date rather than validating it into a refusal: a missing, blank or
+malformed value falls back to today (UTC) on create, and on edit an omitted value keeps the
+day already on the row, so a caller that forgets the field cannot drag a backdated expense
+forward. Absurd-but-real days such as `1200-01-01` are stored as typed; bounding them
+belongs to the API layer, which has an error channel to explain a refusal. The UTC fallback
+is deliberate: there is no trip timezone to use, since each city carries its own `tz` and an
+expense is not linked to a city, so the client, which knows what day it is where the member
+is standing, should always send the date.
 
 #### Split model (implemented)
 

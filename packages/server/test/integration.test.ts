@@ -1009,6 +1009,7 @@ describe('schema and migrations', () => {
 			['pois', 'kind', 'TEXT'],
 			['expenses', 'settlement', 'INTEGER'],
 			['expenses', 'split_mode', 'TEXT'],
+			['expenses', 'spent_on', 'TEXT'],
 			['expense_participants', 'weight', 'REAL'],
 			['cities', 'photo', 'TEXT'],
 			['cities', 'region', 'TEXT'],
@@ -1479,6 +1480,158 @@ describe('money paths', () => {
 		const balances = expenses.balances(tripId);
 		expect(balances.reduce((sum, b) => sum + b.netCents, 0)).toBe(0);
 		expect(balances.map((b) => b.netCents).sort((a, b) => a - b)).toEqual([-460, 460]);
+	});
+});
+
+/**
+ * An expense is dated by the day it happened, not the keystroke that recorded
+ * it. The two are the same thing right up until somebody reconciles a week of
+ * receipts on the flight home, which is the case this column exists for.
+ */
+describe('the day an expense happened', () => {
+	const today = (): string => new Date().toISOString().slice(0, 10);
+
+	function addOn(f: Fixture, description: string, spentOn?: string | null): string {
+		return expenses.addExpense(
+			f.tripId,
+			f.organizer,
+			f.organizer,
+			description,
+			1000,
+			'USD',
+			[
+				{ userId: f.organizer, weight: 1 },
+				{ userId: f.member, weight: 1 }
+			],
+			'even',
+			spentOn
+		)!;
+	}
+
+	function rowFor(f: Fixture, id: string) {
+		return expenses.listExpenses(f.tripId).find((e) => e.id === id)!;
+	}
+
+	it('stores the day it is given and falls back to today when it is not', () => {
+		const f = createTripFixture('spent-on');
+
+		expect(rowFor(f, addOn(f, 'Backdated lunch', '2026-10-02')).spent_on).toBe('2026-10-02');
+		// No date at all, so the day it was entered is the only honest answer.
+		expect(rowFor(f, addOn(f, 'Typed just now')).spent_on).toBe(today());
+		// A date is descriptive, so unusable input is backstopped rather than
+		// allowed to throw the whole expense away.
+		for (const bad of ['', '   ', 'yesterday', '2026-13-01', '2026-02-31', '10/02/2026']) {
+			expect(rowFor(f, addOn(f, `Bad: ${bad}`, bad)).spent_on, bad).toBe(today());
+		}
+		// Absurd but real days are stored as typed. Bounding them is the API
+		// layer's job, where there is an error channel to explain the refusal.
+		expect(rowFor(f, addOn(f, 'Ancient', '1200-01-01')).spent_on).toBe('1200-01-01');
+		expect(rowFor(f, addOn(f, 'Distant', '3000-01-01')).spent_on).toBe('3000-01-01');
+	});
+
+	it('keeps the stored day when an edit leaves it out, and moves it when given', () => {
+		const f = createTripFixture('spent-on-edit');
+		const id = addOn(f, 'Dinner', '2026-10-02');
+		const parts = [
+			{ userId: f.organizer, weight: 1 },
+			{ userId: f.member, weight: 1 }
+		];
+
+		// An edit that says nothing about the date is not a claim that the expense
+		// happened today.
+		expect(
+			expenses.updateExpense(
+				f.tripId,
+				f.organizer,
+				id,
+				f.organizer,
+				'Dinner, actually',
+				1000,
+				'USD',
+				parts,
+				'even',
+				null
+			).ok
+		).toBe(true);
+		expect(rowFor(f, id).spent_on).toBe('2026-10-02');
+
+		expect(
+			expenses.updateExpense(
+				f.tripId,
+				f.organizer,
+				id,
+				f.organizer,
+				'Dinner, actually',
+				1000,
+				'USD',
+				parts,
+				'even',
+				null,
+				'2026-10-03'
+			).ok
+		).toBe(true);
+		expect(rowFor(f, id).spent_on).toBe('2026-10-03');
+
+		// A row from before the column existed, edited without a date: there is
+		// nothing to keep, so it lands on today rather than staying null.
+		db.prepare(`UPDATE expenses SET spent_on = NULL WHERE id = ?`).run(id);
+		expect(
+			expenses.updateExpense(
+				f.tripId,
+				f.organizer,
+				id,
+				f.organizer,
+				'Dinner, actually',
+				1000,
+				'USD',
+				parts,
+				'even',
+				null
+			).ok
+		).toBe(true);
+		expect(rowFor(f, id).spent_on).toBe(today());
+	});
+
+	it('lists newest day first and breaks a tie on entry time', () => {
+		const f = createTripFixture('spent-on-order');
+		const older = addOn(f, 'Older day', '2026-10-01');
+		const sameDayFirst = addOn(f, 'Same day, entered first', '2026-10-02');
+		const sameDayLast = addOn(f, 'Same day, entered last', '2026-10-02');
+		const newer = addOn(f, 'Newer day', '2026-10-03');
+
+		// Entry times are pinned rather than raced: four inserts can land inside
+		// one millisecond, and the tiebreaker is exactly what is under test here.
+		const stamp = db.prepare(`UPDATE expenses SET created_at = ? WHERE id = ?`);
+		stamp.run(4000, older);
+		stamp.run(1000, sameDayFirst);
+		stamp.run(2000, sameDayLast);
+		stamp.run(3000, newer);
+
+		expect(expenses.listExpenses(f.tripId).map((e) => e.id)).toEqual([
+			newer,
+			sameDayLast,
+			sameDayFirst,
+			older
+		]);
+	});
+
+	it('backfills a row written before the column existed from its entry time', async () => {
+		const f = createTripFixture('spent-on-backfill');
+		const legacy = crypto.randomUUID();
+		db.prepare(
+			`INSERT INTO expenses (id, trip_id, payer_id, description, amount_cents, currency, created_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?)`
+		).run(legacy, f.tripId, f.organizer, 'Legacy', 1000, 'USD', Date.UTC(2026, 9, 2, 13, 30));
+		db.prepare(
+			`INSERT INTO expense_participants (expense_id, user_id, weight) VALUES (?, ?, 1)`
+		).run(legacy, f.organizer);
+		expect(scalarOrNull(`SELECT spent_on FROM expenses WHERE id = ?`, legacy)).toBeNull();
+
+		// Re-running the migrations is how this file exercises them; the backfill
+		// is idempotent and only touches rows that have no day yet.
+		(await import('../src/db.ts?spent-on-backfill')).db.close();
+
+		expect(rowFor(f, legacy).spent_on).toBe('2026-10-02');
 	});
 });
 
