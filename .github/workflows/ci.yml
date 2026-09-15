@@ -26,13 +26,13 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Check out
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # Node 24 matches the production major (deploy/ec2-setup.sh installs
       # NodeSource 24.x). node:sqlite, used by @trippy/server, needs Node >= 22.5
       # and is available unflagged from Node 23.4 onward, so 24 is safe.
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '24'
           cache: 'npm'
@@ -69,10 +69,10 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Check out
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '24'
           cache: 'npm'
@@ -96,7 +96,7 @@ jobs:
       # screenshots from test-results.
       - name: Upload Playwright artifacts
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-artifacts
           path: |
