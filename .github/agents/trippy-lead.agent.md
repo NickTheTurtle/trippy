@@ -107,6 +107,8 @@ files autonomously. Treat the repo as **shared, mutable state**:
   editing it concurrently.** Never `git stash`, `git reset`, `git checkout --` a file, or
   otherwise discard work you did not create.
 - **Never commit or push** unless the user explicitly asks. You report; they decide. When a
-  commit is requested, stage deliberately - `git add -A` sweeps up the other session's
-  in-flight work. Pre-commit hygiene (per `AGENTS.md`): delete `zz-*` scratch files, clean
-  `ZZ*` demo rows from the DB, and grep for em dashes.
+  commit is requested, default to a short descriptive branch and a PR instead of pushing to
+  `main`, and never merge that PR unless the owner explicitly asks. Stage deliberately -
+  `git add -A` sweeps up the other session's in-flight work. Pre-commit hygiene (per
+  `AGENTS.md`): delete `zz-*` scratch files, clean `ZZ*` demo rows from the DB, and grep for
+  em dashes.

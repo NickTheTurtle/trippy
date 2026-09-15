@@ -43,6 +43,20 @@ The SvelteKit -> React port is **complete** and the SvelteKit app has been delet
 3. **Grep for em dashes** and remove them.
 4. Stage deliberately - `git add -A` sweeps up other people's in-flight work.
 
+## Landing changes
+
+- By default, humans and agents land work on `main` through a pull request, not a direct push.
+- Use a short descriptive branch name. This repo has no project-specific branch prefix beyond
+  Dependabot's generated branches; use `topic/short-description` for human or agent work unless
+  the owner gives another name.
+- Do not merge until both required checks are green: `Typecheck, unit tests, build, format` and
+  `End-to-end (Playwright)`.
+- Branch protection intentionally leaves `enforce_admins` false so an admin direct push to `main`
+  remains possible in an emergency. Treat that as an exception to call out to the owner, not a
+  routine shortcut.
+- Agents never merge a PR without the owner explicitly asking. Open the PR, report status, and let
+  the owner decide when to merge.
+
 ## Hard rules
 
 - `data/app.db` is **real data**. Never delete, reset, or rebuild it. Its `-shm`
