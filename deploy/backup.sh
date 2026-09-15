@@ -40,6 +40,22 @@
 #
 set -euo pipefail
 
+source_if_present() {
+  local file="$1"
+  if [[ -f "$file" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    . "$file"
+    set +a
+  fi
+}
+
+# Match the systemd timer environment for manual runs too. This keeps a pasted
+# backup command from silently skipping the off-box upload or dead-man ping just
+# because systemd was not there to load the optional env files.
+source_if_present /etc/litestream.env
+source_if_present /etc/trippy-monitor.env
+
 DATA_DIR="/var/lib/trippy"
 DB="${TRIPPY_DB:-${DATA_DIR}/app.db}"
 DEST_DIR="/var/backups/trippy"

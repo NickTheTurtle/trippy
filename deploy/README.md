@@ -513,6 +513,9 @@ single file. If you ever copy the database by hand instead, you must copy all
 three files together, `app.db`, `app.db-wal`, and `app.db-shm`: in WAL mode the
 committed state is split across them, and copying `app.db` alone silently loses
 whatever is still in the WAL. The script's `--raw` mode does this correctly.
+For manual runs, `backup.sh` sources `/etc/litestream.env` and
+`/etc/trippy-monitor.env` itself when they exist, matching the timer so the
+optional S3 upload and backup dead-man ping behave the same way.
 
 `ec2-setup.sh` installs a **systemd timer** (`trippy-backup.timer`) that runs it
 daily at 04:15. Check it:
@@ -544,11 +547,27 @@ Config lives in `/etc/litestream.yml`; it holds **no secret** and no hardcoded
 bucket. Bucket, region and prefix are `${ENV}` references expanded at runtime
 from `/etc/litestream.env` (root-only). Verify replication is actually flowing:
 
+> **Manual Litestream commands must source `/etc/litestream.env`.** The
+> `litestream.service` unit gets those values from systemd's
+> `EnvironmentFile=/etc/litestream.env`, but a pasted shell command does not.
+> If you run bare `litestream ... -config /etc/litestream.yml`, the config's
+> `${LITESTREAM_S3_BUCKET}`, `${LITESTREAM_S3_PREFIX}`, and
+> `${LITESTREAM_S3_REGION}` references expand empty and Litestream fails with
+> `bucket required for s3 replica`.
+
 ```bash
 sudo systemctl status litestream
 sudo journalctl -u litestream -f          # look for periodic "write wal" lines
-litestream snapshots -config /etc/litestream.yml /var/lib/trippy/app.db
+sudo bash -c 'set -a; . /etc/litestream.env; set +a; litestream snapshots -config /etc/litestream.yml /var/lib/trippy/app.db'
 aws s3 ls s3://my-trippy-backups/trippy/app.db/ --recursive | tail
+```
+
+The repo also includes a small helper that sources the env file, adds the
+standard config flag, preserves Litestream's exit code, and fails clearly if
+`/etc/litestream.env` or `/etc/litestream.yml` is missing:
+
+```bash
+sudo bash /opt/trippy/deploy/litestream-cli.sh snapshots /var/lib/trippy/app.db
 ```
 
 #### Credentials: use an IAM role, and keep it separate from SES
