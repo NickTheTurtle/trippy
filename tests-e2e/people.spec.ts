@@ -38,11 +38,16 @@ test.describe('people', () => {
 			await expect(row).toContainText(cpl.row.invitedTag);
 			await expect(row).toContainText('zoe@example.test');
 
-			// Revoking is removing that row, behind the house confirmation.
-			await page.getByRole('button', { name: cpl.row.removeLabel('Zoe') }).click();
+			// Revoking is removing that row, from inside its own dialog and behind
+			// the house confirmation.
+			await page.getByRole('button', { name: cpl.row.editLabel('Zoe') }).click();
+			await page
+				.getByRole('dialog')
+				.getByRole('button', { name: copy.common.delete, exact: true })
+				.click();
 			const confirm = page.getByRole('dialog');
-			await expect(confirm.getByRole('heading', { name: cpl.removeTitle('Zoe') })).toBeVisible();
-			await confirm.getByRole('button', { name: copy.common.remove, exact: true }).click();
+			await expect(confirm.getByRole('heading', { name: cpl.deleteTitle('Zoe') })).toBeVisible();
+			await confirm.getByRole('button', { name: copy.common.delete, exact: true }).click();
 			await expect(page.getByRole('listitem').filter({ hasText: 'Zoe' })).toHaveCount(0);
 		} finally {
 			fixture.teardown();
@@ -139,14 +144,19 @@ test.describe('people', () => {
 			const row = page.getByRole('listitem').filter({ hasText: 'Mallory' });
 			await expect(row).toBeVisible();
 			await page.getByRole('button', { name: cpl.row.removeLabel('Mallory') }).click();
+			// The row states who they are; the removal lives in that dialog's footer.
+			await page
+				.getByRole('dialog')
+				.getByRole('button', { name: copy.common.delete, exact: true })
+				.click();
 
 			// The confirmation says the house sentence and repeats the bare verb.
 			const confirm = page.getByRole('dialog');
 			await expect(confirm.getByText(copy.ui.confirmDialog.undone)).toBeVisible();
 			await expect(
-				confirm.getByRole('heading', { name: cpl.removeTitle('Mallory') })
+				confirm.getByRole('heading', { name: cpl.deleteTitle('Mallory') })
 			).toBeVisible();
-			await confirm.getByRole('button', { name: copy.common.remove, exact: true }).click();
+			await confirm.getByRole('button', { name: copy.common.delete, exact: true }).click();
 
 			await expect(page.getByRole('listitem').filter({ hasText: 'Mallory' })).toHaveCount(0);
 		} finally {

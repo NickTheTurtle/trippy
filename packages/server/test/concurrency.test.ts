@@ -884,3 +884,51 @@ describe('rows with no conflict detection yet', () => {
 	});
 });
 
+
+/**
+ * How many ways an expense was split, as the row label reports it.
+ *
+ * A person can be named on a shares or exact split and enter nothing: they are
+ * stored at weight 0 and charged nothing, which is deliberate. Counting them
+ * anyway made a bill that had plainly been halved describe itself as "3 ways".
+ */
+describe('the split count a row reports', () => {
+	it('counts only the people actually charged', () => {
+		const p = party();
+		const id = expenses.addExpense(
+			p.tripId,
+			p.alice,
+			p.alice,
+			'Dinner',
+			6000,
+			'USD',
+			[
+				{ userId: p.alice, weight: 1 },
+				{ userId: p.bob, weight: 1 },
+				{ userId: p.cara, weight: 0 }
+			],
+			'shares'
+		)!;
+		expect(expenses.listExpenses(p.tripId).find((e) => e.id === id)!.participants).toBe(2);
+
+		// And the label is not lying about the money: Cara is charged nothing, so
+		// she has no balance to appear in at all.
+		const owed = expenses.balances(p.tripId).find((b) => b.userId === p.cara);
+		expect(owed?.netCents ?? 0).toBe(0);
+	});
+
+	it('falls back to everyone named when every stake is zero, as the split does', () => {
+		const p = party();
+		const id = expenses.addExpense(
+			p.tripId,
+			p.alice,
+			p.alice,
+			'Taxi',
+			3000,
+			'USD',
+			p.all.map((userId) => ({ userId, weight: 0 })),
+			'shares'
+		)!;
+		expect(expenses.listExpenses(p.tripId).find((e) => e.id === id)!.participants).toBe(3);
+	});
+});

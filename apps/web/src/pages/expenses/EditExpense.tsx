@@ -5,6 +5,7 @@ import { useMutation } from '../../hooks/useMutation';
 import { currencySymbol, formatMoney } from '../../lib/format';
 import { currencyOptions } from '../../lib/currencies';
 import Modal, { ModalFooter, ModalForm } from '../../components/ui/Modal';
+import { useDeleteAction } from '../../components/ui/useDeleteAction';
 import Select from '../../components/ui/Select';
 import { FieldShell } from '../../components/ui/Field';
 import { IconButton, LinkButton } from '../../components/ui/buttons';
@@ -34,7 +35,8 @@ export default function EditExpense({
 	currencies,
 	home,
 	onClose,
-	onSaved
+	onSaved,
+	onDelete
 }: {
 	tripId: string;
 	expense: Expense | null;
@@ -44,8 +46,15 @@ export default function EditExpense({
 	home: string;
 	onClose: () => void;
 	onSaved: () => void;
+	/** Null when adding: there is nothing yet to delete. */
+	onDelete?: (() => void | Promise<void>) | null;
 }) {
 	const [description, setDescription] = useState(expense?.description ?? '');
+	const del = useDeleteAction({
+		title: copy.expenses.deleteExpenseTitle(expense?.description ?? ''),
+		busyLabel: copy.common.deleting,
+		onDelete
+	});
 	const [amount, setAmount] = useState(expense ? (expense.amount_cents / 100).toFixed(2) : '');
 	const [currency, setCurrency] = useState(expense?.currency ?? home);
 	// A new expense is paid by you until you say otherwise. `members[0]` is the
@@ -192,219 +201,234 @@ export default function EditExpense({
 	);
 
 	return (
-		<Modal
-			open
-			title={
-				expense
-					? income
-						? c.editIncomeTitle
-						: c.editExpenseTitle
-					: income
-						? c.incomeTitle
-						: c.expenseTitle
-			}
-			onClose={onClose}
-		>
-			<ModalForm onSubmit={save.submit}>
-				<div className="mbody flex flex-col gap-4">
-					{/* A 12-column grid, so the four top fields keep their proportions
-					    instead of wrapping at hard pixel widths as the modal narrows. */}
-					<div className="grid grid-cols-12 gap-x-2.5 gap-y-3.5">
-						<FieldShell className="col-span-12" label={c.descriptionLabel}>
-							<input
-								autoFocus
-								required
-								value={description}
-								onChange={(e) => setDescription(e.target.value)}
-								className="input"
-							/>
-						</FieldShell>
-						<FieldShell className="col-span-4" label={c.amountLabel}>
-							<input
-								type="number"
-								step="0.01"
-								inputMode="decimal"
-								required
-								value={amount}
-								onChange={(e) => setAmount(e.target.value)}
-								className="input"
-							/>
-						</FieldShell>
-						<FieldShell className="col-span-3" label={c.currencyLabel}>
-							<Select
-								options={currencyOptions(currencies)}
-								value={currency}
-								onChange={setCurrency}
-								ariaLabel={c.currencyLabel}
-							/>
-						</FieldShell>
-						<FieldShell className="col-span-5" label={income ? c.receivedByLabel : c.paidByLabel}>
-							<Select
-								options={members.map((m) => ({ value: m.id, label: m.name }))}
-								value={payerId}
-								onChange={setPayerId}
-								ariaLabel={income ? c.receivedByLabel : c.paidByLabel}
-							/>
-						</FieldShell>
-					</div>
-
-					<p className={`-mt-2 text-meta ${income ? 'text-accent-ink' : 'text-ink-faint'}`}>
-						{income ? c.incomeNote : c.expenseNote}
-					</p>
-
-					<div className="flex flex-col gap-1.5 rounded-md border border-line bg-surface-2 px-3.5 py-3.5">
-						<div className="flex flex-wrap items-center justify-between gap-3">
-							<span className="text-meta text-ink-soft">{c.splitLabel}</span>
-							<div
-								role="group"
-								aria-label={c.splitAriaLabel}
-								className="flex w-fit max-w-full flex-wrap gap-1 rounded-full border border-line bg-surface-2 p-1"
+		<>
+			<Modal
+				open={!del.asking}
+				title={
+					expense
+						? income
+							? c.editIncomeTitle
+							: c.editExpenseTitle
+						: income
+							? c.incomeTitle
+							: c.expenseTitle
+				}
+				onClose={onClose}
+			>
+				<ModalForm onSubmit={save.submit}>
+					<div className="mbody flex flex-col gap-4">
+						{/* A 12-column grid, so the four top fields keep their proportions
+					    instead of wrapping at hard pixel widths as the modal narrows.
+					    On a phone the proportions themselves change: at a third of a
+					    337px modal the currency Select had room for "U...". */}
+						<div className="grid grid-cols-12 gap-x-2.5 gap-y-3.5">
+							<FieldShell className="col-span-12" label={c.descriptionLabel}>
+								<input
+									autoFocus
+									required
+									value={description}
+									onChange={(e) => setDescription(e.target.value)}
+									className="input"
+								/>
+							</FieldShell>
+							<FieldShell className="col-span-6 sm:col-span-4" label={c.amountLabel}>
+								<input
+									type="number"
+									step="0.01"
+									inputMode="decimal"
+									required
+									value={amount}
+									onChange={(e) => setAmount(e.target.value)}
+									className="input"
+								/>
+							</FieldShell>
+							<FieldShell className="col-span-6 sm:col-span-3" label={c.currencyLabel}>
+								<Select
+									options={currencyOptions(currencies)}
+									value={currency}
+									onChange={setCurrency}
+									ariaLabel={c.currencyLabel}
+								/>
+							</FieldShell>
+							<FieldShell
+								className="col-span-12 sm:col-span-5"
+								label={income ? c.receivedByLabel : c.paidByLabel}
 							>
-								{MODES.map((o) => (
-									<button
-										key={o.value}
-										type="button"
-										aria-pressed={splitMode === o.value}
-										onClick={() => setMode(o.value)}
-										className={[
-											'cursor-pointer rounded-full border-none px-3.5 py-1.5 text-meta whitespace-nowrap',
-											splitMode === o.value
-												? 'bg-surface font-medium text-ink shadow-sm'
-												: 'bg-transparent text-ink-soft'
-										].join(' ')}
-									>
-										{o.label}
-									</button>
-								))}
-							</div>
-						</div>
-						<div className="mt-2 mb-2 flex items-baseline justify-between gap-2.5">
-							<span className="muted min-w-0 truncate text-meta">
-								{c.selectedCount(chosen.length, members.length)}
-								{splitMode === 'exact' &&
-									totalCents !== 0 &&
-									(exactOff === 0
-										? c.fullyAllocated
-										: c.remainder(formatMoney(Math.abs(exactOff), currency), exactOff > 0))}
-							</span>
-							<span className="flex flex-none gap-3">
-								{splitMode === 'exact' && (
-									<LinkButton onClick={autofillExact}>{c.splitTheRest}</LinkButton>
-								)}
-								<LinkButton onClick={() => setPicked(new Set(members.map((m) => m.id)))}>
-									{c.all}
-								</LinkButton>
-								<LinkButton onClick={() => setPicked(new Set())}>{c.none}</LinkButton>
-							</span>
+								<Select
+									options={members.map((m) => ({ value: m.id, label: m.name }))}
+									value={payerId}
+									onChange={setPayerId}
+									ariaLabel={income ? c.receivedByLabel : c.paidByLabel}
+								/>
+							</FieldShell>
 						</div>
 
-						{/* One column as soon as a row carries an input: a stepper or a
+						<p className={`-mt-2 text-meta ${income ? 'text-accent-ink' : 'text-ink-faint'}`}>
+							{income ? c.incomeNote : c.expenseNote}
+						</p>
+
+						<div className="flex flex-col gap-1.5 rounded-md border border-line bg-surface-2 px-3.5 py-3.5">
+							<div className="flex flex-wrap items-center justify-between gap-3">
+								<span className="text-meta text-ink-soft">{c.splitLabel}</span>
+								<div
+									role="group"
+									aria-label={c.splitAriaLabel}
+									/* `flex-none` and no `w-fit` so a narrow modal moves the whole
+								   control onto its own line under the label. Either of those
+								   let it shrink on the label's line instead and wrap its own
+								   buttons, splitting three segments into a two-and-one block.
+								   `max-w-full` still caps it if the labels are genuinely too
+								   wide for the modal. */
+									className="flex max-w-full flex-none flex-wrap gap-1 rounded-full border border-line bg-surface-2 p-1"
+								>
+									{MODES.map((o) => (
+										<button
+											key={o.value}
+											type="button"
+											aria-pressed={splitMode === o.value}
+											onClick={() => setMode(o.value)}
+											className={[
+												'cursor-pointer rounded-full border-none px-3 py-1.5 text-meta whitespace-nowrap sm:px-3.5',
+												splitMode === o.value
+													? 'bg-surface font-medium text-ink shadow-sm'
+													: 'bg-transparent text-ink-soft'
+											].join(' ')}
+										>
+											{o.label}
+										</button>
+									))}
+								</div>
+							</div>
+							<div className="mt-2 mb-2 flex items-baseline justify-between gap-2.5">
+								<span className="muted min-w-0 truncate text-meta">
+									{c.selectedCount(chosen.length, members.length)}
+									{splitMode === 'exact' &&
+										totalCents !== 0 &&
+										(exactOff === 0
+											? c.fullyAllocated
+											: c.remainder(formatMoney(Math.abs(exactOff), currency), exactOff > 0))}
+								</span>
+								<span className="flex flex-none gap-3">
+									{splitMode === 'exact' && (
+										<LinkButton onClick={autofillExact}>{c.splitTheRest}</LinkButton>
+									)}
+									<LinkButton onClick={() => setPicked(new Set(members.map((m) => m.id)))}>
+										{c.all}
+									</LinkButton>
+									<LinkButton onClick={() => setPicked(new Set())}>{c.none}</LinkButton>
+								</span>
+							</div>
+
+							{/* One column as soon as a row carries an input: a stepper or a
 						    money field beside a name cannot be squeezed into a 230px
 						    track without the name truncating to nothing. */}
-						<ul
-							className={`m-0 grid list-none gap-x-4 gap-y-1.5 p-0 ${
-								splitMode === 'even'
-									? 'grid-cols-[repeat(auto-fill,minmax(230px,1fr))]'
-									: 'grid-cols-1'
-							}`}
-						>
-							{members.map((m) => {
-								const on = picked.has(m.id);
-								const money = on && totalCents !== 0 && preview.has(m.id) && (
-									<span
-										className={`w-[5.5rem] flex-none text-right text-meta tabular-nums ${income ? 'text-accent-ink' : 'text-ink-faint'}`}
-									>
-										{formatMoney(preview.get(m.id) ?? 0, currency)}
-									</span>
-								);
-								return (
-									<li
-										key={m.id}
-										/* A fixed height, because only two of the three modes draw an
+							<ul
+								className={`m-0 grid list-none gap-x-4 gap-y-1.5 p-0 ${
+									splitMode === 'even'
+										? 'grid-cols-[repeat(auto-fill,minmax(230px,1fr))]'
+										: 'grid-cols-1'
+								}`}
+							>
+								{members.map((m) => {
+									const on = picked.has(m.id);
+									const money = on && totalCents !== 0 && preview.has(m.id) && (
+										<span
+											className={`w-[5.5rem] flex-none text-right text-meta tabular-nums ${income ? 'text-accent-ink' : 'text-ink-faint'}`}
+										>
+											{formatMoney(preview.get(m.id) ?? 0, currency)}
+										</span>
+									);
+									return (
+										<li
+											key={m.id}
+											/* A fixed height, because only two of the three modes draw an
 										   input: without it the whole list jumps shorter the moment
 										   somebody switches to Evenly. */
-										className={[
-											'flex h-11 items-center gap-2.5 rounded-md px-3 text-body',
-											on ? 'bg-surface shadow-[inset_0_0_0_1px_var(--color-line)]' : ''
-										].join(' ')}
-									>
-										<label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 select-none">
-											<CheckBox checked={on} onChange={() => toggle(m.id)} />
-											<span className="truncate" title={m.name}>
-												{m.name}
-											</span>
-										</label>
-										{/* In shares mode the money reads as the answer to the share
+											className={[
+												'flex h-11 items-center gap-2.5 rounded-md px-3 text-body',
+												on ? 'bg-surface shadow-[inset_0_0_0_1px_var(--color-line)]' : ''
+											].join(' ')}
+										>
+											<label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 select-none">
+												<CheckBox checked={on} onChange={() => toggle(m.id)} />
+												<span className="truncate" title={m.name}>
+													{m.name}
+												</span>
+											</label>
+											{/* In shares mode the money reads as the answer to the share
 										    count, so it sits before the stepper: left to right the row
 										    says who, how much, and then the control that changes it.
 										    The other modes have nothing to read it against and keep it
 										    at the end of the row. */}
-										{splitMode === 'shares' && money}
-										{/* Shares are stepped, not typed: the common edits are "one
+											{splitMode === 'shares' && money}
+											{/* Shares are stepped, not typed: the common edits are "one
 										    more" and "double", and a bare number box asked for a
 										    keyboard to say either. */}
-										{on && splitMode === 'shares' && (
-											<span className="flex flex-none items-center gap-1">
-												<IconButton
-													label={c.fewerShares(m.name)}
-													onClick={() => bumpShares(m.id, -1)}
-												>
-													<MinusIcon />
-												</IconButton>
-												<input
-													type="number"
-													min="1"
-													step="1"
-													aria-label={c.weightLabel(false, m.name)}
-													value={weights[m.id] ?? ''}
-													onChange={(e) =>
-														setWeights((prev) => ({ ...prev, [m.id]: e.target.value }))
-													}
-													className="input compact stepped w-[3.2rem] text-center"
-												/>
-												<IconButton
-													label={c.moreShares(m.name)}
-													onClick={() => bumpShares(m.id, 1)}
-												>
-													<PlusIcon />
-												</IconButton>
-											</span>
-										)}
-										{on && splitMode === 'exact' && (
-											<span className="relative flex-none">
-												<span className="muted pointer-events-none absolute inset-y-0 left-2.5 flex items-center text-meta">
-													{currencySymbol(currency)}
+											{on && splitMode === 'shares' && (
+												<span className="flex flex-none items-center gap-1">
+													<IconButton
+														label={c.fewerShares(m.name)}
+														onClick={() => bumpShares(m.id, -1)}
+													>
+														<MinusIcon />
+													</IconButton>
+													<input
+														type="number"
+														min="1"
+														step="1"
+														aria-label={c.weightLabel(false, m.name)}
+														value={weights[m.id] ?? ''}
+														onChange={(e) =>
+															setWeights((prev) => ({ ...prev, [m.id]: e.target.value }))
+														}
+														className="input compact stepped w-[3.2rem] text-center"
+													/>
+													<IconButton
+														label={c.moreShares(m.name)}
+														onClick={() => bumpShares(m.id, 1)}
+													>
+														<PlusIcon />
+													</IconButton>
 												</span>
-												<input
-													type="number"
-													min="0"
-													step="0.01"
-													inputMode="decimal"
-													aria-label={c.weightLabel(true, m.name)}
-													value={weights[m.id] ?? ''}
-													onChange={(e) =>
-														setWeights((prev) => ({ ...prev, [m.id]: e.target.value }))
-													}
-													className="input compact w-[6.5rem] pl-7 text-right"
-												/>
-											</span>
-										)}
-										{splitMode !== 'shares' && money}
-									</li>
-								);
-							})}
-						</ul>
+											)}
+											{on && splitMode === 'exact' && (
+												<span className="relative flex-none">
+													<span className="muted pointer-events-none absolute inset-y-0 left-2.5 flex items-center text-meta">
+														{currencySymbol(currency)}
+													</span>
+													<input
+														type="number"
+														min="0"
+														step="0.01"
+														inputMode="decimal"
+														aria-label={c.weightLabel(true, m.name)}
+														value={weights[m.id] ?? ''}
+														onChange={(e) =>
+															setWeights((prev) => ({ ...prev, [m.id]: e.target.value }))
+														}
+														className="input compact w-[6.5rem] pl-7 text-right"
+													/>
+												</span>
+											)}
+											{splitMode !== 'shares' && money}
+										</li>
+									);
+								})}
+							</ul>
+						</div>
 					</div>
-				</div>
 
-				<ModalFooter
-					error={save.error}
-					onClose={onClose}
-					busy={save.busy}
-					busyLabel={expense ? copy.common.saving : copy.common.adding}
-					submitLabel={expense ? copy.common.save : copy.common.add}
-				/>
-			</ModalForm>
-		</Modal>
+					<ModalFooter
+						error={save.error}
+						onClose={onClose}
+						busy={save.busy}
+						busyLabel={expense ? copy.common.saving : copy.common.adding}
+						submitLabel={expense ? copy.common.save : copy.common.add}
+						start={del.button}
+					/>
+				</ModalForm>
+			</Modal>
+			{del.confirm}
+		</>
 	);
 }

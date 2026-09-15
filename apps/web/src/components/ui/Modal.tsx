@@ -70,18 +70,19 @@ export default function Modal({
 	swatch?: string;
 	size?: 'sm' | 'md' | 'lg';
 	/**
-	 * Which edge the panel stands at. Dialogs stand at one rather than sitting in
-	 * the middle, because the thing being edited is nearly always on the page
-	 * behind them and a centred panel covers exactly what the reader is working
-	 * from. The right is the default; a caller picks the left when that is the
-	 * side it must not cover.
+	 * Which edge a peeking panel stands at. Only read when `peek` is set: a
+	 * dialog that dims the page has no reason to stand aside, and one that
+	 * wandered to an edge only made the app look like it could not decide where
+	 * its dialogs live.
 	 */
 	dock?: 'left' | 'right';
 	/**
 	 * Leave the page undimmed, scrollable and legible behind the panel, and take
-	 * a narrower one to keep it that way. For a dialog whose edits are drawn live
-	 * on the page: dimming them would defeat the point. Off by default, because
-	 * an ordinary dialog wants the page held still while it is open.
+	 * a narrower one docked to one side to keep it that way. For a dialog whose
+	 * edits are drawn live on the page: dimming or covering them would defeat the
+	 * point. Off by default, because an ordinary dialog wants the page held still
+	 * while it is open, and then the middle of the screen is where a reader
+	 * already expects to find it.
 	 */
 	peek?: boolean;
 	onClose: () => void;
@@ -102,7 +103,7 @@ export default function Modal({
 	return (
 		<dialog
 			ref={ref}
-			className={`modal docked ${dock}${peek ? ' peek' : ''}`}
+			className={`modal${peek ? ` peek docked ${dock}` : ''}`}
 			aria-labelledby={titleId}
 			style={{ ['--mw' as string]: width }}
 			{...dialogProps}

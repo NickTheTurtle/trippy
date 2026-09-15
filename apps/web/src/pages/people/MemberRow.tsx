@@ -1,5 +1,3 @@
-import { IconButton } from '../../components/ui/buttons';
-import { PencilIcon, TrashIcon } from '../../components/ui/icons';
 import Avatar from '../../components/ui/Avatar';
 import UiTag from '../../components/ui/Tag';
 import type { Person } from './types';
@@ -7,31 +5,43 @@ import { copy } from '../../copy';
 
 const c = copy.people.row;
 
-/** One member of the roster, with the controls an organizer sees. */
+/**
+ * One member of the roster.
+ *
+ * The row opens the person: their name and invite address if the trip owns
+ * them, and the button that takes them off the trip. A row nobody can act on,
+ * which is any row at all when you are not the organizer, is not a button and
+ * does not pretend to be one.
+ */
 export default function MemberRow({
 	person,
 	me,
-	organizer,
-	onEdit,
-	onRemove
+	onOpen
 }: {
 	person: Person;
 	me: string;
-	organizer: boolean;
-	/** Null when this person's name is their own account's, not the trip's. */
-	onEdit: (() => void) | null;
-	onRemove: () => void;
+	/** Null when there is nothing this reader may do to this person. */
+	onOpen: (() => void) | null;
 }) {
 	// An invited member's address is the one they were invited at, not the
 	// synthetic placeholder address; the server already resolves that, and
 	// returns nothing at all for somebody added by name alone.
 	const sub = person.seeded ? c.sampleCompanion : person.email;
+	// Your own name is your account's, but it is still yours to change from
+	// here, so your row reads as an edit like any other editable one.
+	const editable = person.placeholder || person.seeded || person.id === me;
 
-	return (
-		<li className="group flex items-center gap-3 rounded-sm p-2 hover:bg-surface-2">
+	const body = (
+		<>
+			{/* Aligned to the top, not centred. The eye pairs a face with the name
+			    beside it, and centring hung it between the name and the address, a
+			    row's tags wrapping on a phone dropped it further still. */}
 			<Avatar name={person.name} size="lg" />
 			<span className="flex min-w-0 flex-1 flex-col">
-				<span className="flex min-w-0 items-center gap-1.5 font-medium">
+				{/* The tags wrap below the name rather than squeezing it: on a phone
+				    two of them left "Demo T..." on a row with room to spare on the
+				    line beneath. */}
+				<span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 font-medium">
 					<span className="truncate" title={person.name}>
 						{person.name}
 					</span>
@@ -50,21 +60,25 @@ export default function MemberRow({
 				</span>
 				{sub && <span className="muted truncate text-meta">{sub}</span>}
 			</span>
-			{/* The same drawn pencil and bin every other list in the app uses, on the
-			    row's hover, so removing a member is not the loudest thing on a page
-			    that is mostly about who is coming. */}
-			<span className="flex flex-none gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
-				{organizer && onEdit && (
-					<IconButton label={c.editLabel(person.name)} onClick={onEdit}>
-						<PencilIcon />
-					</IconButton>
-				)}
-				{organizer && person.role !== 'organizer' && (
-					<IconButton label={c.removeLabel(person.name)} danger onClick={onRemove}>
-						<TrashIcon />
-					</IconButton>
-				)}
-			</span>
+		</>
+	);
+
+	const shell = 'flex w-full items-start gap-3 rounded-sm p-2 text-left text-body';
+
+	return (
+		<li>
+			{onOpen ? (
+				<button
+					type="button"
+					onClick={onOpen}
+					aria-label={editable ? c.editLabel(person.name) : c.removeLabel(person.name)}
+					className={`${shell} cursor-pointer border-0 bg-transparent hover:bg-surface-2`}
+				>
+					{body}
+				</button>
+			) : (
+				<div className={shell}>{body}</div>
+			)}
 		</li>
 	);
 }

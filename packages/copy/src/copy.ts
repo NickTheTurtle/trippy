@@ -91,17 +91,17 @@ export const copy = {
 	landing: {
 		heading: 'Plan the trip together, not in twelve group chats.',
 		blurb:
-			"Trippy keeps a group's places, days, beds and money in one place, in every time zone the trip passes through.",
+			"Trippy keeps a group's locations, days, beds and money in one place, in every time zone the trip passes through.",
 		primaryCta: 'Start planning',
 		secondaryCta: 'Log in',
 		features: [
 			{
-				title: 'Collect the places',
+				title: 'Collect the locations',
 				body: 'Search a city and everyone adds what they want to see. Vote, so the shortlist picks itself.'
 			},
 			{
 				title: 'Build the days',
-				body: 'Put places on a calendar with the travel time between them already worked out.'
+				body: 'Put locations on a calendar with the travel time between them already worked out.'
 			},
 			{
 				title: 'Split the group',
@@ -160,7 +160,6 @@ export const copy = {
 			title: 'Edit trip',
 			fallback: 'Could not save that trip.'
 		},
-		deleteTrip: 'Delete trip',
 		deleteDialog: {
 			title: (trip: string) => `Delete ${trip}?`,
 			fallback: 'Could not delete this trip.'
@@ -185,7 +184,7 @@ export const copy = {
 		alreadyAdded: 'Added'
 	},
 
-	// Discover > city sidebar, place and stay cards, add and edit dialogs
+	// Discover > city sidebar, location and stay cards, add and edit dialogs
 	discover: {
 		types: {
 			all: 'All',
@@ -213,23 +212,34 @@ export const copy = {
 		},
 		deletePlace: {
 			title: (place: string) => `Delete ${place}?`,
-			confirmLabel: (linked: number) => `Delete and ${linked} event${linked === 1 ? '' : 's'}`
+			/** Asked instead when the location is on the calendar and takes events with it. */
+			linkedTitle: (place: string, linked: number) =>
+				`Delete ${place} and ${linked} event${linked === 1 ? '' : 's'}?`
 		},
 		deleteStay: {
-			title: (stay: string) => `Delete ${stay}?`
+			title: (stay: string) => `Delete ${stay}?`,
+			/** Asked instead when the stay is booked on the calendar and takes its nights with it. */
+			linkedTitle: (stay: string, linked: number) =>
+				`Delete ${stay} and ${linked} booked night${linked === 1 ? '' : 's'}?`
 		},
 		errors: {
-			votePlace: 'Could not vote on that place.',
+			votePlace: 'Could not vote on that location.',
 			voteStay: 'Could not vote on that stay.',
 			removeStay: 'Could not remove that stay.'
 		},
 		card: {
 			voteLabel: (youVoted: boolean, subject: string) =>
 				`${youVoted ? 'Remove your vote from' : 'Vote for'} ${subject}`,
-			openLabel: (name: string) => `Open ${name} (opens in a new tab)`
+			openLabel: (name: string) => `Open ${name} (opens in a new tab)`,
+			/**
+			 * The calendar mark in a card's bottom corner. The mark is drawn, not
+			 * written, so this is its accessible name and its tooltip in one place,
+			 * and it carries the count the drawing cannot.
+			 */
+			onCalendar: (linked: number) =>
+				linked === 1 ? 'On the calendar' : `On the calendar ×${linked}`
 		},
 		placeCard: {
-			onCalendar: (linked: number) => `🗓 On the calendar ×${linked}`,
 			removeLabel: (name: string) => `Delete ${name}`
 		},
 		stayCard: {
@@ -245,7 +255,7 @@ export const copy = {
 			linkPlaceholder: 'https://'
 		},
 		addDialog: {
-			title: 'Add place',
+			title: 'Add location',
 			nameLabel: 'Name',
 			keepTyping: 'Keep typing to search.',
 			searching: 'Searching...',
@@ -258,15 +268,15 @@ export const copy = {
 			currencyLabel: 'Currency',
 			activityLabel: 'Activity',
 			badPrice: 'Enter a valid price, or leave it blank.',
-			fallback: 'Could not add that place.'
+			fallback: 'Could not add that location.'
 		},
 		editPlace: {
-			title: 'Edit place',
+			title: 'Edit location',
 			nameLabel: 'Name',
 			votes: (votes: number) => (votes === 1 ? '1 vote' : `${votes} votes`),
 			voters: (voters: readonly string[]) =>
 				voters.length ? `: ${voters.join(', ')}` : ', nobody yet',
-			fallback: 'Could not save that place.'
+			fallback: 'Could not save that location.'
 		},
 		editStay: {
 			title: 'Edit stay',
@@ -369,6 +379,7 @@ export const copy = {
 				return `split ${people}`;
 			},
 			deleteLabel: (description: string) => `Delete ${description}`,
+			openLabel: (description: string) => `Open ${description}`,
 			editLabel: (description: string) => `Edit ${description}`,
 			reviewTitle: 'Someone on this expense has left the trip. Edit it to reassign their share.'
 		},
@@ -412,18 +423,18 @@ export const copy = {
 		}
 	},
 
-	// People > roster, add and edit dialogs, removal confirmation
+	// People > roster, crews, their dialogs and removal confirmation
 	people: {
 		membersHeading: 'Members',
-		removeTitle: (name: string) => `Remove ${name}?`,
-		removeBusy: 'Removing...',
+		navAriaLabel: 'People sections',
+		deleteTitle: (name: string) => `Delete ${name}?`,
 		row: {
 			sampleCompanion: 'Sample companion',
 			youTag: 'you',
 			organizerTag: 'organizer',
 			invitedTag: 'invited',
 			sampleTag: 'sample',
-			removeLabel: (name: string) => `Remove ${name}`,
+			removeLabel: (name: string) => `Delete ${name}`,
 			editLabel: (name: string) => `Edit ${name}`
 		},
 		edit: {
@@ -437,6 +448,18 @@ export const copy = {
 			nameLabel: 'Display name',
 			emailLabel: 'Email',
 			fallback: 'Could not add that person.'
+		},
+		crews: {
+			heading: 'Crews',
+			editLabel: (name: string) => `Edit ${name}`,
+			nobody: 'Nobody yet',
+			addTitle: 'Add crew',
+			editTitle: 'Edit crew',
+			nameLabel: 'Name',
+			peopleLabel: 'People',
+			peopleAriaLabel: 'Crew members',
+			deleteTitle: (name: string) => `Delete ${name}?`,
+			fallback: 'Could not save that crew.'
 		}
 	},
 
@@ -477,11 +500,13 @@ export const copy = {
 			placeholder: 'Anyone',
 			ariaLabel: 'Assign people',
 			summaryLabel: (count: number) => `${count} people`,
-			empty: 'No members yet'
+			empty: 'No members yet',
+			groupsHeading: 'Crews',
+			optionsHeading: 'People'
 		},
 		sectionNav: { ariaLabel: 'Sections' },
 		field: { optionalSuffix: ' (optional)' },
-		tripMap: { noPoints: 'Schedule places with locations to see them on the map.' }
+		tripMap: { noPoints: 'Schedule something with a location to see it on the map.' }
 	},
 
 	// Shared API client and hooks > fallbacks used when the server sends none
@@ -500,9 +525,13 @@ export const copy = {
 		 * The verbs a confirmation offers. A confirm button repeats the verb its
 		 * title asked with and nothing else: "Delete Athens?" is answered by
 		 * "Delete", never by "Delete city". The title already named the thing.
+		 *
+		 * Every destructive button in the app says `delete`, including the one
+		 * that takes a person off a trip. `leave` is the one exception, because
+		 * leaving a trip is a different act from deleting it and the two sit side
+		 * by side.
 		 */
 		delete: 'Delete',
-		remove: 'Remove',
 		leave: 'Leave',
 		/** Every save button says this. The dialog title already names the thing. */
 		save: 'Save',
@@ -510,6 +539,8 @@ export const copy = {
 		deleting: 'Deleting...',
 		adding: 'Adding...',
 		working: 'Working...',
+		/** A delete confirmation names the thing in its title and asks nothing else. */
+		deleteTitle: (name: string) => `Delete ${name}?`,
 		/** Every list that you fill by adding to it says this when it is empty. */
 		nothingAdded: 'Nothing added yet'
 	},
@@ -519,6 +550,15 @@ export const copy = {
 		label: 'View as',
 		everyone: 'Everyone',
 		yourShare: 'Your share',
-		share: (name: string) => `${name}'s share`
+		share: (name: string) => `${name}'s share`,
+		/**
+		 * What the warning mark beside a name means. The mark is drawn, not
+		 * written, so this is its accessible name and its tooltip, in one place:
+		 * a triangle that says one thing in the menu and another on the board
+		 * would be two marks wearing the same face. It reads as something said
+		 * about the person or the journey it sits beside, which "Does not fit the
+		 * gap" did not: that described the gap, not them.
+		 */
+		travelWarning: 'Not enough time to get there'
 	}
 } as const;

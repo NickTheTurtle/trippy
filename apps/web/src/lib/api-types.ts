@@ -69,6 +69,8 @@ export type Stay = {
 	votes: number;
 	/** 1 when the viewer's single per-city vote is on this stay. */
 	you_voted: number;
+	/** Stay bands on the calendar booked into this stay. */
+	linked: number;
 };
 
 export type DiscoverData = {

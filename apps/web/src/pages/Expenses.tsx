@@ -4,17 +4,18 @@ import { useApi } from '../hooks/useApi';
 import { useLiveSection } from '../hooks/useTripEvents';
 import { formatMoney } from '../lib/format';
 import { useTrip } from './TripShell';
+import { useNarrowLayout } from '../hooks/useMediaQuery';
 import SectionNav, { type SectionItem } from '../components/ui/SectionNav';
 import FormError from '../components/ui/FormError';
 import EmptyState from '../components/ui/EmptyState';
-import ConfirmDialog from '../components/ui/ConfirmDialog';
 import Stat from '../components/ui/Stat';
 import ViewAsBar, { shareLabel } from '../components/ui/ViewAsBar';
-import { PlusIcon } from '../components/ui/icons';
+import { PlusIcon, WarningIcon } from '../components/ui/icons';
 import type { Expense, ExpensesData } from './expenses/types';
 import ExpenseRow from './expenses/ExpenseRow';
 import SettleRow from './expenses/SettleRow';
 import EditExpense from './expenses/EditExpense';
+import PaymentDialog from './expenses/PaymentDialog';
 import { copy } from '../copy';
 
 const ce = copy.expenses;
@@ -34,9 +35,11 @@ export default function Expenses() {
 	const [section, setSection] = useState('expenses');
 	/** Open dialog: `{ expense: null }` adds, `{ expense }` edits. Null is closed. */
 	const [editing, setEditing] = useState<{ expense: Expense | null } | null>(null);
-	const [pendingDelete, setPendingDelete] = useState<Expense | null>(null);
+	/** The settlement whose dialog is open. */
+	const [payment, setPayment] = useState<Expense | null>(null);
 	/** Whose money the ledger is read as. '' is the whole trip. */
 	const [viewAs, setViewAs] = useState('');
+	const narrow = useNarrowLayout();
 
 	if (!data) return error ? <FormError message={error} variant="banner" /> : null;
 
@@ -102,6 +105,13 @@ export default function Expenses() {
 		reload();
 	}
 
+	const addExpense = (
+		<button type="button" className="btn primary" onClick={() => setEditing({ expense: null })}>
+			<PlusIcon />
+			{ce.addExpense}
+		</button>
+	);
+
 	return (
 		<div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[190px_minmax(0,1fr)]">
 			<SectionNav
@@ -109,6 +119,10 @@ export default function Expenses() {
 				value={section}
 				onChange={setSection}
 				ariaLabel={ce.navAriaLabel}
+				// Balances and Settle up have nothing to add, so the dropdown stands
+				// alone there rather than carrying a button that belongs to one of the
+				// three sections.
+				action={section === 'expenses' ? addExpense : null}
 			/>
 
 			<div className="min-w-0">
@@ -125,14 +139,7 @@ export default function Expenses() {
 								</div>
 							}
 						>
-							<button
-								type="button"
-								className="btn primary"
-								onClick={() => setEditing({ expense: null })}
-							>
-								<PlusIcon />
-								{ce.addExpense}
-							</button>
+							{!narrow && addExpense}
 						</Head>
 						<div className="card overflow-hidden p-0">
 							{data.expenses.length > 0 && (
@@ -153,8 +160,11 @@ export default function Expenses() {
 											expense={e}
 											home={data.currency}
 											share={viewAs && e.settlement !== 1 ? (e.shares[viewAs] ?? 0) : undefined}
-											onEdit={e.settlement === 1 ? null : () => setEditing({ expense: e })}
-											onRemove={() => setPendingDelete(e)}
+											// A settlement has nothing to edit, so its dialog states the
+											// payment and offers only the delete.
+											onOpen={() =>
+												e.settlement === 1 ? setPayment(e) : setEditing({ expense: e })
+											}
 										/>
 									))}
 								</ul>
@@ -175,18 +185,29 @@ export default function Expenses() {
 									    that harder to scan than two blocks does. */}
 									{[...owed, ...owes].map((b) => (
 										<li key={b.id} className="flex justify-between gap-2.5 text-body">
-											<span className="truncate" title={b.name}>
-												{b.name}
+											<span className="flex min-w-0 items-center gap-1.5">
+												<span className="truncate" title={b.name}>
+													{b.name}
+												</span>
 												{/* The reader's own number is the one they came for, and
 												    twenty names in three columns is too many to find it in. */}
-												{b.id === data.me && (
-													<span className="muted ml-1.5 text-micro">{ce.youTag}</span>
-												)}
+												{b.id === data.me && <span className="muted text-micro">{ce.youTag}</span>}
 												{/* Someone who has left but still has money in the trip.
-												    Shown, because a ledger that quietly stops summing to
-												    zero is the worse of the two failures. */}
+												    Marked rather than spelled out: the words took more
+												    room in a three-column list than the name they were
+												    about, and this is the same sign the ledger already
+												    uses for a row that needs attention. Siblings of the
+												    name rather than inside it, so a long name truncates
+												    and the marks do not go with it. */}
 												{b.former && (
-													<span className="ml-1.5 text-micro text-warn">{ce.formerTag}</span>
+													<span
+														role="img"
+														aria-label={ce.formerTag}
+														title={ce.formerTag}
+														className="flex flex-none text-warn"
+													>
+														<WarningIcon />
+													</span>
 												)}
 											</span>
 											<span
@@ -235,30 +256,32 @@ export default function Expenses() {
 					home={data.currency}
 					onClose={() => setEditing(null)}
 					onSaved={reload}
+					onDelete={
+						editing.expense
+							? async () => {
+									await api(`/trips/${trip.id}/expenses/${editing.expense!.id}`, {
+										method: 'DELETE'
+									});
+									setEditing(null);
+									reload();
+								}
+							: null
+					}
 				/>
 			)}
 
-			{/* Deleting used to happen on the first click and, worse, threw into
-			    nothing when the server refused: the row stayed put with no message.
-			    The dialog both asks and is where the refusal lands. */}
-			<ConfirmDialog
-				open={!!pendingDelete}
-				title={
-					pendingDelete
-						? pendingDelete.settlement === 1
-							? ce.deletePaymentTitle(pendingDelete.description)
-							: ce.deleteExpenseTitle(pendingDelete.description)
-						: ''
-				}
-				busyLabel={copy.common.deleting}
-				onCancel={() => setPendingDelete(null)}
-				onConfirm={async () => {
-					if (!pendingDelete) return;
-					await api(`/trips/${trip.id}/expenses/${pendingDelete.id}`, { method: 'DELETE' });
-					setPendingDelete(null);
-					reload();
-				}}
-			/>
+			{payment && (
+				<PaymentDialog
+					payment={payment}
+					home={data.currency}
+					onClose={() => setPayment(null)}
+					onDelete={async () => {
+						await api(`/trips/${trip.id}/expenses/${payment.id}`, { method: 'DELETE' });
+						setPayment(null);
+						reload();
+					}}
+				/>
+			)}
 		</div>
 	);
 }
@@ -268,7 +291,8 @@ export default function Expenses() {
  * Preparation does. Balances and Settle up have no figure and no action, so
  * they open straight onto their card rather than reserving an empty band to
  * keep the three sections aligned: dead space at the top of two of the three
- * sections cost more than the alignment was worth.
+ * sections cost more than the alignment was worth. Narrow, the button has gone
+ * up beside the section dropdown and this row carries the figures alone.
  */
 function Head({ left, children }: { left: React.ReactNode; children: React.ReactNode }) {
 	return (

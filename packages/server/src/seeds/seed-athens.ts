@@ -9,7 +9,7 @@ import { recomputeLegs } from '../persistence/schedule';
  * Escape rooms seat four, so twenty people means five rooms running at once,
  * which is exactly the case the calendar's layout engine exists for. Teams are
  * reshuffled between slots (a cyclic rotation on day 2, a full redraft on day 3)
- * so the flow arrows and the People swimlane have real switching to draw, and
+ * so the flow arrows and one person's agenda have real switching to draw, and
  * the group repeatedly collapses back into one full-width block for meals.
  *
  * Assignees on each item are the single source of truth for who is where.
@@ -893,8 +893,8 @@ function seedBudget(db: DatabaseSync, tripId: string, cityId: string): void {
 
 function seedTasks(db: DatabaseSync, tripId: string, roster: string[]): void {
 	const insert = db.prepare(
-		`INSERT INTO trip_tasks (id, trip_id, kind, label, assignee, done, sort, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+		`INSERT INTO trip_tasks (id, trip_id, kind, label, assignee, done, sort, created_at, owner_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	);
 	const insertAssignee = db.prepare(
 		`INSERT OR IGNORE INTO task_assignees (task_id, user_id) VALUES (?, ?)`
@@ -968,7 +968,19 @@ function seedTasks(db: DatabaseSync, tripId: string, roster: string[]): void {
 			.map((w) => names[w])
 			.filter(Boolean)
 			.join(', ');
-		insert.run(id, tripId, t.kind, t.label, label, t.shared ?? 0, i, base - i * 100);
+		// A packing list is private, so the seeded one belongs to the account
+		// looking at the trip. The companions pack their own bags off-screen.
+		insert.run(
+			id,
+			tripId,
+			t.kind,
+			t.label,
+			label,
+			t.shared ?? 0,
+			i,
+			base - i * 100,
+			t.kind === 'packing' ? roster[0] : null
+		);
 		for (const w of t.who) insertAssignee.run(id, roster[w]);
 		for (const w of t.doneWho ?? []) insertDone.run(id, roster[w], base);
 	});

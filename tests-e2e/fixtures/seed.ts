@@ -203,9 +203,15 @@ export async function toggleTask(
 	taskId: string,
 	done: boolean
 ): Promise<void> {
-	const res = await send(request, client, 'POST', `/trips/${tripId}/pretrip/tasks/${taskId}/toggle`, {
-		done
-	});
+	const res = await send(
+		request,
+		client,
+		'POST',
+		`/trips/${tripId}/pretrip/tasks/${taskId}/toggle`,
+		{
+			done
+		}
+	);
 	expect(res.status(), await res.text()).toBe(200);
 }
 
@@ -238,6 +244,9 @@ export async function addPlace(
 		kind?: 'attraction' | 'food';
 		notes?: string;
 		url?: string;
+		/** Somewhere real, for a spec about travel: journeys are planned from coordinates. */
+		lat?: number;
+		lng?: number;
 	}
 ): Promise<string> {
 	const res = await send(request, fixture, 'POST', `/trips/${fixture.tripId}/discover/pois`, {
@@ -245,7 +254,9 @@ export async function addPlace(
 		name: body.name,
 		kind: body.kind ?? 'attraction',
 		notes: body.notes ?? '',
-		url: body.url ?? ''
+		url: body.url ?? '',
+		lat: body.lat,
+		lng: body.lng
 	});
 	expect(res.status(), await res.text()).toBe(201);
 	return (await res.json()).id as string;

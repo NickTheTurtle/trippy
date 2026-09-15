@@ -56,7 +56,16 @@ account.get('/', (c) => {
 
 account.patch('/profile', async (c) => {
 	const b = await body(c);
-	const res = updateProfile(c.get('user').id, str(b.name), str(b.email), str(b.homeTz) || 'UTC');
+	const u = c.get('user');
+	// Partial on purpose: the People page renames you and sends the name alone,
+	// so a field left out keeps what the account already holds rather than being
+	// reset to a default nobody asked for.
+	const res = updateProfile(
+		u.id,
+		str(b.name) || u.name,
+		str(b.email) || u.email,
+		str(b.homeTz) || u.homeTz
+	);
 	if (!res.ok) return fail(c, 400, res.error);
 	return ok(c);
 });

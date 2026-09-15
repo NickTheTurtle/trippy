@@ -318,7 +318,10 @@ export default function AddDialog({
 						url: url.trim(),
 						// Carried straight from the result when there was one. A stay
 						// typed by hand gets its photo from the backfill on the next load.
-						photo: hit?.photo ?? null
+						photo: hit?.photo ?? null,
+						// And where it is, so it can be booked onto the calendar.
+						lat: hit?.lat ?? null,
+						lng: hit?.lng ?? null
 					}
 				});
 				return;

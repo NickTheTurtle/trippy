@@ -98,6 +98,16 @@ async function sendViaSes(mail: Mail): Promise<MailResult> {
 		body: signed.body
 	});
 	if (!res.ok) return logRefusal('ses', res.status, await res.text());
+	// SES v2 answers a success with a JSON body carrying the MessageId. It is
+	// not returned (MailResult stays a plain string union so callers are
+	// unaffected), but logging it lets a delivery, bounce or complaint be traced
+	// back to this send in the SES logs.
+	try {
+		const { MessageId } = (await res.json()) as { MessageId?: string };
+		if (MessageId) console.info(`[mail] ses sent, MessageId ${MessageId}`);
+	} catch {
+		// A 2xx with no readable body is still a send; the id is a bonus, not a gate.
+	}
 	return 'sent';
 }
 
@@ -172,39 +182,41 @@ export function verifyEmailMail(args: { to: string; name: string; token: string 
 		'Confirm this address to finish setting up your Trippy account:',
 		url,
 		'',
-		'The link works for 24 hours. If you did not ask for an account, ignore this and nothing is created.'
+		'Works for 24 hours. If you did not ask for an account, ignore this.'
 	].join('\n');
 
 	const html = layout({
 		lead: `Hi ${esc(args.name)}, confirm this address to finish setting up your Trippy account.`,
 		url,
 		action: 'Confirm my email',
-		tail: 'The link works for 24 hours. If you did not ask for an account, ignore this and nothing is created.'
+		tail: 'Works for 24 hours. If you did not ask for an account, ignore this.'
 	});
 
 	return { to: args.to, subject: 'Confirm your email for Trippy', text, html };
 }
 
 /**
- * The reset link. Shorter-lived than the verification one, and says so, because
- * this one opens an account that already exists.
+ * The reset link. Shorter-lived than the verification one, because it opens an
+ * account that already exists, and it warns that using it signs out every
+ * device, since `POST /reset` drops all sessions and does not sign the user
+ * back in.
  */
 export function passwordResetMail(args: { to: string; name: string; token: string }): Mail {
 	const url = `${env.APP_URL}/reset?token=${encodeURIComponent(args.token)}`;
 	const text = [
 		`Hi ${args.name},`,
 		'',
-		'Use this link to set a new Trippy password:',
+		'Set a new Trippy password:',
 		url,
 		'',
-		'The link works for one hour. If you did not ask for it, ignore this and your password stays as it is.'
+		'Works for one hour, and signs out every device. If you did not ask for this, ignore this.'
 	].join('\n');
 
 	const html = layout({
-		lead: `Hi ${esc(args.name)}, use the button below to set a new Trippy password.`,
+		lead: `Hi ${esc(args.name)}, set a new Trippy password.`,
 		url,
 		action: 'Set a new password',
-		tail: 'The link works for one hour. If you did not ask for it, ignore this and your password stays as it is.'
+		tail: 'Works for one hour, and signs out every device. If you did not ask for this, ignore this.'
 	});
 
 	return { to: args.to, subject: 'Reset your Trippy password', text, html };

@@ -9,20 +9,20 @@ import { Field, FieldShell, TextArea } from '../../components/ui/Field';
 import { copy } from '../../copy';
 import PeoplePicker from './PeoplePicker';
 import StayDates from './StayDates';
+import { useJourneys } from './Journeys';
 import {
 	DAY_END,
+	DRAFT_ID,
 	MIN_EVENT_MINS,
 	TYPE_OPTIONS,
 	dayLabel,
+	keepsPick,
 	placeLabel,
 	placeOptions,
 	rangeLabel,
 	shiftDay
 } from './shared';
-import type { Cell, Crew, EventDraft, SavedPoi } from './types';
-
-/** The id a block being added stands under until it has one of its own. */
-const DRAFT_ID = 'draft';
+import type { Cell, Crew, EventDraft, EventRow, LegRow, SavedPoi } from './types';
 
 /**
  * Adds one event to a day.
@@ -35,15 +35,24 @@ const DRAFT_ID = 'draft';
  * question about the same board, and one of them standing at the edge with the
  * block drawn behind it while the other covered the page was the difference
  * reading as a bug.
+ *
+ * That extends to the journeys arriving at it. Adding is when they appear:
+ * naming who is going is what makes the day plan travel to the new block, so
+ * they are shown and editable while the block is being described rather than
+ * only once it has been saved and reopened.
  */
 export default function AddEventDialog({
 	base,
 	day,
 	startMin,
 	initialType,
+	legs,
+	eventOf,
+	peopleLabel,
 	memberOptions,
 	crews,
 	saved,
+	stays,
 	cities,
 	cityId,
 	dock,
@@ -58,9 +67,16 @@ export default function AddEventDialog({
 	startMin: number | null;
 	/** What the dialog opens as, when it was opened from something type-specific. */
 	initialType?: EventType;
+	/** The journeys the day plans to the block being added, replanned as it is typed. */
+	legs: LegRow[];
+	/** Another event on the board, or null when it is not loaded. */
+	eventOf: (eventId: string) => EventRow | null;
+	peopleLabel: (ids: string[]) => string;
 	memberOptions: Option[];
 	crews: Crew[];
 	saved: SavedPoi[];
+	/** The proposed stays a stay block can be booked into. */
+	stays: SavedPoi[];
 	cities: (Cell | null)[];
 	cityId: string | null;
 	/** Which edge to stand at. */
@@ -86,6 +102,8 @@ export default function AddEventDialog({
 	const [notes, setNotes] = useState('');
 
 	const staying = type === 'stay';
+	/** The day the block lands on, which is its check-in once it is a stay. */
+	const onDay = staying ? checkIn : day;
 	const startAt = staying ? STAY_CHECK_IN : Number(start);
 	const endAt = staying ? DAY_END : Number(end);
 
@@ -105,18 +123,28 @@ export default function AddEventDialog({
 	const placeable = isLocatedType(type);
 	const placeText = placeLabel(type);
 
-	const poiOptions = placeOptions(saved, cities, cityId);
+	/* A stay is booked into one of the stays the group is voting on; everything
+	   else happens at a saved place. One picker, two lists, because the field is
+	   asking the same question either way: which of the things we have already
+	   shortlisted is this? */
+	const pickable = staying ? stays : saved;
+	const poiOptions = placeOptions(pickable, cities, cityId);
+
+	const journeys = useJourneys({ legs, eventOf, peopleLabel });
+
+	/** The block once it exists, so a retry after a failed save does not add it twice. */
+	const created = useRef<string | null>(null);
 
 	/* The same preview the edit dialog reports, under an id no event has: the
 	   board inserts it into the day rather than overwriting a block, so the
 	   reader watches the thing they are describing take its place. */
 	const preview = useRef(onPreview);
 	preview.current = onPreview;
-	const spot = placeable ? (saved.find((p) => p.id === poi) ?? null) : null;
+	const spot = placeable ? (pickable.find((p) => p.id === poi) ?? null) : null;
 	useEffect(() => {
 		preview.current?.({
 			id: DRAFT_ID,
-			day: staying ? checkIn : day,
+			day: onDay,
 			end_day: staying ? checkOut : null,
 			// An unnamed block still has to read as a block rather than as a gap.
 			title: title.trim() || 'New event',
@@ -127,26 +155,34 @@ export default function AddEventDialog({
 			lat: spot?.lat ?? null,
 			lng: spot?.lng ?? null
 		});
-	}, [day, staying, checkIn, checkOut, title, type, startAt, endAt, people, spot?.lat, spot?.lng]);
+	}, [onDay, staying, checkOut, title, type, startAt, endAt, people, spot?.lat, spot?.lng]);
 	// Mount-scoped, so the board drops the block whether it was added or not.
 	useEffect(() => () => preview.current?.(null), []);
 
 	const add = useMutation(
 		async () => {
-			await api(`${base}/events`, {
-				method: 'POST',
-				body: {
-					day: staying ? checkIn : day,
-					endDay: staying ? checkOut : undefined,
-					title: title.trim(),
-					type,
-					start: startAt,
-					duration: endAt - startAt,
-					poiId: placeable && poi ? poi : undefined,
-					notes: notes.trim() || undefined,
-					people
-				}
-			});
+			/* The event first, then the journeys, and the id is kept: if a journey
+			   write fails the block has already been added, and a second press of
+			   Add must finish what it started rather than add it twice. */
+			created.current ??= (
+				await api<{ id: string }>(`${base}/events`, {
+					method: 'POST',
+					body: {
+						day: onDay,
+						endDay: staying ? checkOut : undefined,
+						title: title.trim(),
+						type,
+						start: startAt,
+						duration: endAt - startAt,
+						poiId: placeable && poi ? poi : undefined,
+						notes: notes.trim() || undefined,
+						people
+					}
+				})
+			).id;
+			// The journeys were planned against the draft id, so they are written
+			// back against the id the block ended up with.
+			await journeys.save(base, onDay, created.current);
 			onDone();
 		},
 		{ fallback: 'Could not add that event.' }
@@ -178,7 +214,11 @@ export default function AddEventDialog({
 						<FieldShell label="Type" className="col-span-4">
 							<Select
 								value={type}
-								onChange={(v) => setType(v as EventType)}
+								onChange={(v) => {
+									const next = v as EventType;
+									if (!keepsPick(type, next)) setPoi('');
+									setType(next);
+								}}
 								options={TYPE_OPTIONS}
 								ariaLabel="Type"
 							/>
@@ -230,6 +270,8 @@ export default function AddEventDialog({
 							onChange={(e) => setNotes(e.target.value)}
 						/>
 					</div>
+
+					{journeys.section}
 				</div>
 
 				<ModalFooter

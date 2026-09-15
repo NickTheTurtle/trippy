@@ -1,17 +1,19 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { api, ApiError } from '../lib/api';
 import { useApi } from '../hooks/useApi';
 import { useLiveSection } from '../hooks/useTripEvents';
 import useMediaQuery from '../hooks/useMediaQuery';
+import useSlideIn, { dayRank } from '../hooks/useSlideIn';
 import { useTrip } from './TripShell';
 import FormError from '../components/ui/FormError';
 import EmptyState from '../components/ui/EmptyState';
 import Select from '../components/ui/Select';
+import WarnMark from '../components/ui/WarnMark';
 import GoogleMap, { type MapTrack } from '../components/GoogleMap';
 import TripMap from '../components/TripMap';
 
-import { personBands, type Layout } from '@trippy/core/layout';
+import { type Layout } from '@trippy/core/layout';
 import { layoutBoard, legLaneId } from '@trippy/core/travel';
 import type { EventType } from '@trippy/core/types';
 import { copy } from '../copy';
@@ -20,18 +22,18 @@ import EventDialog from './schedule/EventDialog';
 import { applyDraft, replanLegs } from './schedule/replan';
 import {
 	DAY_END,
-	DAY_START,
-	HOURS,
+	DRAFT_ID,
+	MIN_EVENT_MINS,
 	PX_PER_MIN,
 	dayLabel,
 	heightPx,
 	hhmm,
+	hoursFrom,
 	modeLabel,
-	pctLeft,
-	pctWidth,
 	topPx,
 	typeLabel,
-	whoBudget
+	whoBudget,
+	windowStart
 } from './schedule/shared';
 import type {
 	BoardDay,
@@ -46,8 +48,7 @@ import '../styles/schedule.css';
 
 const VIEW_OPTIONS: { v: ViewMode; label: string }[] = [
 	{ v: 'day', label: 'Day' },
-	{ v: '3day', label: '3-day' },
-	{ v: 'people', label: 'People' }
+	{ v: 'agenda', label: 'Agenda' }
 ];
 
 /** The lane holds both kinds of block, and they are laid out together. */
@@ -84,6 +85,47 @@ const TINY_W = 64;
  */
 function shiftLeg(leg: LegRow, by: number): LegRow {
 	return by ? { ...leg, startMin: leg.startMin + by, endMin: leg.endMin + by } : leg;
+}
+
+/** A block under the pointer. */
+type Drag = {
+	id: string;
+	day: string;
+	pointerStartY: number;
+	/** Where the pointer is now, so the edge loop can run without one moving. */
+	pointerY: number;
+	origStart: number;
+	/** How long the block is, so a drag cannot push it off the end of the day. */
+	mins: number;
+	/** Minutes the window has been pushed open past where the pointer reaches. */
+	creep: number;
+	liveStart: number;
+};
+
+/** A block's bottom edge under the pointer. */
+type Resize = {
+	id: string;
+	pointerStartY: number;
+	startMin: number;
+	origEnd: number;
+	liveEnd: number;
+};
+
+/** How close to the top of the screen counts as pushing against it. */
+const EDGE_PX = 72;
+/** Minutes a second the window opens at when the pointer is at the very top. */
+const EDGE_RATE = 150;
+
+/**
+ * Where a dragged block sits: the pointer's own travel, plus whatever the edge
+ * loop has added to it.
+ *
+ * Snapped to five minutes, because the block carries its time as a label and a
+ * board that reads 9:37 while a hand is moving is noise rather than precision.
+ */
+function liveStartFor(d: Drag, creep: number, y: number): number {
+	const raw = d.origStart + (y - d.pointerStartY) / PX_PER_MIN - creep;
+	return Math.max(0, Math.min(DAY_END - d.mins, Math.round(raw / 5) * 5));
 }
 
 export default function Schedule() {
@@ -135,31 +177,30 @@ export default function Schedule() {
 	 * moment the dialog is dismissed. */
 	const roomToDock = useMediaQuery('(min-width: 1100px)');
 
-	/* How many hours apart the People view labels its time axis.
+	/**
+	 * Live drag of a single block, and the live resize of one, both held the same
+	 * way.
 	 *
-	 * Every second hour is ten labels, which needs about 340px of track. On a
-	 * phone the track is nearer 230 and they ran into each other, printing
-	 * "6:008:0010:00". Thinned to every sixth hour they read as a scale again.
-	 * Measured rather than styled: which labels are drawn is the component's
-	 * call, and hiding half of them in CSS would leave the gaps uneven. */
-	const tightAxis = useMediaQuery('(max-width: 700px)');
-	const axisStep = tightAxis ? 6 : 2;
-
-	// Live drag and resize of a single block.
-	const [drag, setDrag] = useState<{
-		id: string;
-		day: string;
-		pointerStartY: number;
-		origStart: number;
-		liveStart: number;
-	} | null>(null);
-	const [resize, setResize] = useState<{
-		id: string;
-		pointerStartY: number;
-		startMin: number;
-		origEnd: number;
-		liveEnd: number;
-	} | null>(null);
+	 * The ref is the truth and the state is the copy that renders. Pointer moves
+	 * are continuous events, so React may defer the commit that follows the
+	 * pointer-down that started the gesture, and every handler that read it
+	 * through its closure saw `null` until it landed: a quick flick moved
+	 * nothing, and a fast press-and-release could leave the gesture standing. The
+	 * ref is right in the same tick that writes it, which is the only guarantee a
+	 * gesture can be built on.
+	 */
+	const dragRef = useRef<Drag | null>(null);
+	const [drag, setDrag] = useState<Drag | null>(null);
+	const putDrag = useCallback((next: Drag | null) => {
+		dragRef.current = next;
+		setDrag(next);
+	}, []);
+	const resizeRef = useRef<Resize | null>(null);
+	const [resize, setResize] = useState<Resize | null>(null);
+	const putResize = useCallback((next: Resize | null) => {
+		resizeRef.current = next;
+		setResize(next);
+	}, []);
 	/* Where a block was let go, held until the reloaded day agrees.
 	 *
 	 * Clearing the drag on pointer-up is not enough on its own: the write is a
@@ -212,44 +253,42 @@ export default function Schedule() {
 		() => members.map((m) => ({ value: m.id, label: m.name })),
 		[members]
 	);
-	/* The "view as" choices: the whole trip, or one person. Names carry the same
-	   "(you)" suffix the money pages use, so the reader finds themselves in the
-	   list by the same mark everywhere. */
-	const viewAsOptions = useMemo(
-		() => [
-			{ value: '', label: copy.viewAs.everyone },
-			...members.map((m) => ({
-				value: m.id,
-				label: m.name + (m.id === data?.me ? copy.preparation.youSuffix : '')
-			}))
-		],
-		[members, data?.me]
-	);
 	/** First name only: chips and journey labels get cramped fast. */
 	const shortName = useCallback(
 		(id: string) => (memberName.get(id) ?? '?').split(' ')[0],
 		[memberName]
 	);
 
+	/**
+	 * Who the board is being read as.
+	 *
+	 * The agenda is one person's day by definition, so it has no "Everyone" to
+	 * fall back to: entering it with nobody chosen reads as you, which is the
+	 * agenda a reader almost always wants and the one they can check fastest.
+	 * Leaving the view does not strand that choice, because `viewAs` itself is
+	 * untouched: an agenda read as yourself returns to a day board read as
+	 * everyone.
+	 */
+	const readAs = useMemo(() => {
+		if (data?.view !== 'agenda' || viewAs) return viewAs;
+		const roster = new Set(memberIds);
+		return data?.me && roster.has(data.me) ? data.me : (memberIds[0] ?? '');
+	}, [data?.view, data?.me, viewAs, memberIds]);
+
 	const selected = useMemo(() => {
 		const roster = new Set(memberIds);
-		return new Set(viewAs && roster.has(viewAs) ? [viewAs] : memberIds);
-	}, [viewAs, memberIds]);
+		return new Set(readAs && roster.has(readAs) ? [readAs] : memberIds);
+	}, [readAs, memberIds]);
 
 	/**
-	 * The board with "view as" and the edit in progress applied.
+	 * The board with the edit in progress applied, before "view as".
 	 *
-	 * An event with nobody on it belongs to the whole group and is always shown;
-	 * otherwise the chosen person has to be on it. Travel legs are not: a leg
-	 * belongs to the people making that journey, and a leg they are not on is not
-	 * part of their day.
-	 *
-	 * A draft is patched in before the filter rather than drawn as a second
-	 * ghost block. Everything downstream (the layout, the map, the agenda, who
-	 * fits in a block) then reads one board, so the preview cannot disagree with
-	 * itself, and an edit that takes the reader off the event correctly removes
-	 * it from their day. A block being added is inserted the same way, which is
-	 * what makes the two dialogs behave alike.
+	 * A draft is patched in here rather than drawn as a second ghost block.
+	 * Everything downstream (the layout, the map, the agenda, who fits in a
+	 * block) then reads one board, so the preview cannot disagree with itself,
+	 * and an edit that takes the reader off the event correctly removes it from
+	 * their day. A block being added is inserted the same way, which is what
+	 * makes the two dialogs behave alike.
 	 *
 	 * The day's journeys are replanned against that draft rather than shifted or
 	 * dropped. Who is on an event is the whole of splitting and rejoining, so an
@@ -258,27 +297,153 @@ export default function Schedule() {
 	 * Pins survive, because a replanned journey is matched to its stored row by
 	 * key.
 	 */
+	const planned: BoardDay[] = useMemo(
+		() =>
+			(data?.board ?? []).map((entry) => {
+				const { events, stays } = applyDraft(entry, preview);
+				return {
+					...entry,
+					events,
+					stays,
+					legs: preview ? replanLegs(entry, preview) : entry.legs
+				};
+			}),
+		[data, preview]
+	);
+
+	/* The same board, through "view as". An event with nobody on it belongs to
+	   the whole group and is always shown; otherwise the chosen person has to be
+	   on it. Travel legs are not: a leg belongs to the people making that
+	   journey, and a leg they are not on is not part of their day. */
 	const board: BoardDay[] = useMemo(() => {
 		const showEvent = (e: EventRow) =>
 			e.people.length === 0 || e.people.some((p) => selected.has(p));
 		const showLeg = (l: LegRow) => l.people.some((p) => selected.has(p));
 
-		return (data?.board ?? []).map((entry) => {
-			const { events, stays } = applyDraft(entry, preview);
-			return {
-				...entry,
-				events: events.filter(showEvent),
-				stays: stays.filter(showEvent),
-				legs: (preview ? replanLegs(entry, preview) : entry.legs).filter(showLeg)
-			};
-		});
-	}, [data, selected, preview]);
+		return planned.map((entry) => ({
+			...entry,
+			events: entry.events.filter(showEvent),
+			stays: entry.stays.filter(showEvent),
+			legs: entry.legs.filter(showLeg)
+		}));
+	}, [planned, selected]);
+
+	/**
+	 * Who cannot make one of today's journeys in the time the day leaves them.
+	 *
+	 * Read off `planned` rather than off `board`, which is to say before "view
+	 * as" is applied. A warning that disappeared the moment you looked at
+	 * somebody else would only ever reach the person who already knew, and the
+	 * whole point of the mark is to be seen from a day you are not reading.
+	 */
+	const tightPeople = useMemo(() => {
+		const out = new Set<string>();
+		for (const entry of planned) {
+			for (const leg of entry.legs) {
+				if (leg.tight) for (const p of leg.people) out.add(p);
+			}
+		}
+		return out;
+	}, [planned]);
+
+	/* The "view as" choices: the whole trip, or one person. Names carry the same
+	   "(you)" suffix the money pages use, so the reader finds themselves in the
+	   list by the same mark everywhere, and a warning mark beside one says that
+	   person's day does not join up. "Everyone" carries it when anybody's does,
+	   which is what puts the mark on the closed control by default, and it is
+	   absent in the agenda, which is a list of one person's day and has nothing
+	   to show for a group. */
+	const viewAsOptions = useMemo(
+		() => [
+			...(data?.view === 'agenda'
+				? []
+				: [
+						{
+							value: '',
+							label: copy.viewAs.everyone,
+							warn: tightPeople.size ? copy.viewAs.travelWarning : undefined
+						}
+					]),
+			...members.map((m) => ({
+				value: m.id,
+				label: m.name + (m.id === data?.me ? copy.preparation.youSuffix : ''),
+				warn: tightPeople.has(m.id) ? copy.viewAs.travelWarning : undefined
+			}))
+		],
+		[members, data?.me, data?.view, tightPeople]
+	);
 
 	const anchor = useMemo(
 		() => (data ? (board.find((b) => b.day === data.day) ?? board[0] ?? null) : null),
 		[board, data]
 	);
 	const anchorCity = anchor?.city ?? null;
+
+	/**
+	 * The first minute the board draws when nothing is being dragged.
+	 *
+	 * The day's own contents decide it: its blocks and its journeys, both of
+	 * which already carry the draft in an open dialog, so setting a block to 4:40
+	 * opens the board as it is typed. A drag opens it further through `openFloor`
+	 * rather than through here, because this snaps to the hour and a gesture
+	 * needs the minute.
+	 */
+	const winStart = useMemo(
+		() =>
+			windowStart([
+				...(anchor?.events ?? []).map((e) => e.start_min),
+				...(anchor?.legs ?? []).map((l) => l.startMin)
+			]),
+		[anchor]
+	);
+
+	/**
+	 * Where a dropped block has opened the window to, held until its day comes
+	 * back from the server.
+	 *
+	 * The same gap `pending` bridges, for the same reason. A block let go at 3:30
+	 * is drawn there immediately, and a window that snapped shut on pointer-up
+	 * and reopened when the write landed would blink the board for the length of
+	 * a round trip. Released when the day arrives, whatever it says.
+	 */
+	const [openFloor, setOpenFloor] = useState<number | null>(null);
+	useEffect(() => {
+		setOpenFloor(null);
+	}, [data]);
+
+	/**
+	 * The first minute actually drawn, and the origin every position is measured
+	 * from.
+	 *
+	 * A drag drives it directly: the window follows the block down to the minute,
+	 * rather than the block being held inside the window. That is what lets a
+	 * block be dragged into hours the board was not showing, and because it is
+	 * continuous it never steps. `winStart` is the floor it returns to.
+	 */
+	const boardStart = Math.min(winStart, (drag ? drag.liveStart : openFloor) ?? winStart);
+
+	/**
+	 * Opening the window moves the whole day down the page, so the page goes with
+	 * it by exactly as much.
+	 *
+	 * The grid grows downwards from a top edge that stays put, which means every
+	 * minute already on the board, including the one under the pointer, slides
+	 * down by whatever was opened above it. Scrolling by the same amount in the
+	 * same layout pass, before the browser paints, cancels it: the block stays
+	 * stuck to the cursor and the hours appear above it. There is always room,
+	 * because the document just grew by precisely the distance being scrolled.
+	 *
+	 * Only while a gesture owns the window. A board opening for a time typed into
+	 * a dialog is not being held onto by anybody, and that one is better read as
+	 * the board opening than hidden by moving the page under it.
+	 */
+	const openedBy = winStart - boardStart;
+	const lastOpened = useRef(openedBy);
+	useLayoutEffect(() => {
+		const prev = lastOpened.current;
+		lastOpened.current = openedBy;
+		if (dragRef.current && openedBy !== prev) window.scrollBy(0, (openedBy - prev) * PX_PER_MIN);
+	}, [openedBy]);
 
 	/** Which city a day is spent in, for ordering the place picker. */
 	const cityOfDay = useCallback(
@@ -324,24 +489,28 @@ export default function Schedule() {
 		return null;
 	}, [openEventId, data]);
 
-	/* The journeys that dialog edits, replanned live: an edit to who is going
-	   makes groups split and merge as it is typed, and this is the same list the
-	   board is drawing behind the panel. */
-	const openLegs = useMemo(() => {
-		if (!openEventId) return [];
-		return board.flatMap((entry) => entry.legs.filter((l) => l.toEventId === openEventId));
-	}, [openEventId, board]);
+	/* The journeys a dialog edits, replanned live: an edit to who is going makes
+	   groups split and merge as it is typed, and this is the same list the board
+	   is drawing behind the panel.
 
-	/* Which edge the open dialog stands at. On one day the board is beside the
-	   map on the right, so the panel takes the map's side; across three days it
-	   takes the side the event is furthest from. Whichever dialog is open: an
-	   add and an edit are the same panel over the same board. */
-	const dockSide: 'left' | 'right' = useMemo(() => {
-		const day = openEvent?.day ?? adding?.day;
-		if (!day) return 'right';
-		const at = board.findIndex((b) => b.day === day);
-		return at >= 0 && at >= board.length / 2 ? 'left' : 'right';
-	}, [openEvent, adding, board]);
+	   A block being added is on the board under the draft id, so it has journeys
+	   before it exists. Those are read off `planned` rather than off `board`:
+	   adding a block while reading as one person would otherwise hide the other
+	   groups converging on it, and the same block reopened as everyone would
+	   show them. A dialog about who is coming has to list everyone who is. */
+	const legsTo = (entries: BoardDay[], eventId: string) =>
+		entries.flatMap((entry) => entry.legs.filter((l) => l.toEventId === eventId));
+	const openLegs = useMemo(
+		() => (openEventId ? legsTo(board, openEventId) : []),
+		[openEventId, board]
+	);
+	const draftLegs = useMemo(() => (adding ? legsTo(planned, DRAFT_ID) : []), [adding, planned]);
+
+	/* Which edge the open dialog stands at. The board is beside the map, so the
+	   panel takes the map's side and never covers the day it is describing.
+	   Whichever dialog is open: an add and an edit are the same panel over the
+	   same board. */
+	const dockSide = 'right' as const;
 
 	/* Keep the block being edited in sight.
 	 *
@@ -359,8 +528,8 @@ export default function Schedule() {
 		const lane = document.querySelector('.sched .block.editingnow')?.closest('.lane');
 		if (!lane) return;
 		const laneTop = lane.getBoundingClientRect().top;
-		const top = laneTop + topPx(preview.start_min);
-		const bottom = laneTop + topPx(preview.end_min);
+		const top = laneTop + topPx(preview.start_min, boardStart);
+		const bottom = laneTop + topPx(preview.end_min, boardStart);
 		const margin = 56;
 		const over = bottom - (window.innerHeight - margin);
 		const under = top - margin;
@@ -368,7 +537,7 @@ export default function Schedule() {
 		// the end of one is worth less than knowing where it begins.
 		const by = under < 0 ? under : over > 0 ? Math.min(over, under) : 0;
 		if (by) window.scrollBy({ top: by, behavior: 'smooth' });
-	}, [preview, roomToDock]);
+	}, [preview, roomToDock, boardStart]);
 
 	const peopleLabel = useCallback(
 		(ids: string[]) => {
@@ -397,49 +566,78 @@ export default function Schedule() {
 		if ((e.target as HTMLElement).closest('.bresize')) return;
 		(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
 		didDrag.current = false;
-		setDrag({
+		putDrag({
 			id: ev.id,
 			day,
 			pointerStartY: e.clientY,
+			pointerY: e.clientY,
 			origStart: ev.start_min,
+			mins: ev.end_min - ev.start_min,
+			creep: 0,
 			liveStart: ev.start_min
 		});
 	}
 
 	function onPointerMove(e: React.PointerEvent) {
-		if (!drag) return;
+		const d = dragRef.current;
+		if (!d) return;
 		const y = e.clientY;
-		if (Math.abs(y - drag.pointerStartY) > 3) didDrag.current = true;
-		setDrag((d) =>
-			d
-				? // Snap the live position to 5-minute steps so the label never shows
-					// decimals while dragging.
-					{
-						...d,
-						liveStart: Math.round((d.origStart + (y - d.pointerStartY) / PX_PER_MIN) / 5) * 5
-					}
-				: d
-		);
+		if (Math.abs(y - d.pointerStartY) > 3) didDrag.current = true;
+		putDrag({ ...d, pointerY: y, liveStart: liveStartFor(d, d.creep, y) });
 	}
 
-	async function onPointerUp() {
+	/**
+	 * Keep opening while the pointer is held against the top of the screen.
+	 *
+	 * Dragging on its own reaches any hour the pointer has room to travel to,
+	 * which on a page at rest is most of the day, because the board grows
+	 * downwards and its top edge stays where it is. It runs out at the top of the
+	 * screen though, and on a page already scrolled down it runs out early.
+	 * Pressing past that edge carries on at a rate set by how far past it the
+	 * hand is: barely moving at the threshold, a couple of hours a second at the
+	 * very top, which is slow enough to stop on a minute and quick enough to
+	 * cross a night.
+	 */
+	useEffect(() => {
 		if (!drag) return;
-		const snapped = Math.round(drag.liveStart / 5) * 5;
-		const { id, origStart, day } = drag;
-		setDrag(null);
-		if (snapped !== origStart) {
-			setPending({ id, start: snapped });
-			// The day rides along because a move carries one, and sending the block's
-			// own day keeps a drag in the 3-day view on the column it was drawn in.
-			await act(() => eventOp(id, { op: 'move', startMin: snapped, day }));
-		}
+		let raf = 0;
+		let last = performance.now();
+		const tick = (now: number) => {
+			// Capped, so a tab returning from the background does not open the day.
+			const dt = Math.min(now - last, 100) / 1000;
+			last = now;
+			const d = dragRef.current;
+			const past = d ? EDGE_PX - d.pointerY : 0;
+			if (d && past > 0 && d.liveStart > 0) {
+				const creep = d.creep + (past / EDGE_PX) * EDGE_RATE * dt;
+				putDrag({ ...d, creep, liveStart: liveStartFor(d, creep, d.pointerY) });
+			}
+			raf = requestAnimationFrame(tick);
+		};
+		raf = requestAnimationFrame(tick);
+		return () => cancelAnimationFrame(raf);
+	}, [drag !== null, putDrag]);
+
+	async function onPointerUp() {
+		const d = dragRef.current;
+		if (!d) return;
+		const snapped = Math.round(d.liveStart / 5) * 5;
+		const { id, origStart, day } = d;
+		putDrag(null);
+		if (snapped === origStart) return;
+		setPending({ id, start: snapped });
+		// Hold the window where the gesture left it until the day comes back.
+		setOpenFloor(snapped);
+		// The day rides along because a move carries one, and sending the block's
+		// own day keeps a drag in the 3-day view on the column it was drawn in.
+		await act(() => eventOp(id, { op: 'move', startMin: snapped, day }));
 	}
 
 	function onResizeDown(e: React.PointerEvent, ev: EventRow) {
 		e.stopPropagation();
 		(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
 		didDrag.current = false;
-		setResize({
+		putResize({
 			id: ev.id,
 			pointerStartY: e.clientY,
 			startMin: ev.start_min,
@@ -449,37 +647,52 @@ export default function Schedule() {
 	}
 
 	function onResizeMove(e: React.PointerEvent) {
-		if (!resize) return;
+		const r = resizeRef.current;
+		if (!r) return;
 		const y = e.clientY;
-		if (Math.abs(y - resize.pointerStartY) > 3) didDrag.current = true;
-		setResize((r) =>
-			r
-				? {
-						...r,
-						liveEnd: Math.max(
-							r.startMin + 15,
-							Math.round((r.origEnd + (y - r.pointerStartY) / PX_PER_MIN) / 5) * 5
-						)
-					}
-				: r
-		);
+		if (Math.abs(y - r.pointerStartY) > 3) didDrag.current = true;
+		putResize({
+			...r,
+			liveEnd: Math.max(
+				r.startMin + MIN_EVENT_MINS,
+				Math.round((r.origEnd + (y - r.pointerStartY) / PX_PER_MIN) / 5) * 5
+			)
+		});
 	}
 
 	async function onResizeUp() {
-		if (!resize) return;
-		const snapped = Math.round(resize.liveEnd / 5) * 5;
-		const { id, origEnd } = resize;
-		setResize(null);
-		if (snapped !== origEnd) {
-			setPending({ id, end: snapped });
-			await act(() => eventOp(id, { op: 'resize', endMin: snapped }));
-		}
+		const r = resizeRef.current;
+		if (!r) return;
+		const snapped = Math.round(r.liveEnd / 5) * 5;
+		const { id, origEnd } = r;
+		putResize(null);
+		if (snapped === origEnd) return;
+		setPending({ id, end: snapped });
+		await act(() => eventOp(id, { op: 'resize', endMin: snapped }));
 	}
+
+	/**
+	 * The board's entrance when the day or the view changes under it.
+	 *
+	 * One rank covers both, because only one of them moves at a time. A day is
+	 * worth two of a view, so that stepping to tomorrow and switching Day to
+	 * Agenda both read as a step forward and neither is mistaken for the other.
+	 *
+	 * Only the board moves. A day step changes what the calendar is drawing and
+	 * nothing else on the page, so the toolbar and the map it shares the row
+	 * with stay put. Moving the whole section is reserved for a tab change,
+	 * where the whole section really is what was replaced.
+	 */
+	const boardRef = useRef<HTMLDivElement>(null);
+	useSlideIn(
+		boardRef,
+		data && `${data.day}:${data.view}`,
+		data ? dayRank(data.day) * 2 + VIEW_OPTIONS.findIndex((o) => o.v === data.view) : 0
+	);
 
 	if (!data) return error ? <FormError message={error} variant="banner" /> : null;
 
 	const view = data.view;
-	const wide = view !== 'day';
 	const navUrl = (day: string, v: string) => `?day=${day}&view=${v}`;
 
 	/* The day one step either way, or null at the ends.
@@ -487,23 +700,20 @@ export default function Schedule() {
 	 * Steps through `data.days`, the days the trip actually offers, rather than
 	 * by the calendar: that is what bounds the walk, and it also skips the gap to
 	 * an event stranded outside the range instead of landing on a day the trip
-	 * has not got. The 3-day view is a window, so its anchor stops where the far
-	 * edge reaches the last day. The server clamps the same way, since the day is
-	 * a url and a url can arrive without passing through these buttons. */
+	 * has not got. The server clamps the same way, since the day is a url and a
+	 * url can arrive without passing through these buttons. */
 	const dayStep = (delta: number): string | null => {
 		const days = data.days;
-		const span = view === '3day' ? 3 : 1;
-		const lastAnchor = Math.max(0, days.length - span);
 		const at = days.indexOf(data.day);
 		if (at < 0) return null;
 		const to = at + delta;
-		return to >= 0 && to <= lastAnchor ? (days[to] ?? null) : null;
+		return to >= 0 && to < days.length ? (days[to] ?? null) : null;
 	};
 
 	// --- Board pieces -------------------------------------------------------
 
 	/**
-	 * Tonight's lodgings, drawn above the day rather than inside it.
+	 * The day's lodgings, drawn above the day rather than inside it.
 	 *
 	 * A stay is a range of nights, not an hour, so it is a band on every day it
 	 * covers and clicking it opens the same dialog a block does: that is the one
@@ -511,6 +721,11 @@ export default function Schedule() {
 	 * any day it covers edits the whole stay. There can be several, because half
 	 * a group can be in one building and half in another, which is exactly what
 	 * the old vote-derived band could not say.
+	 *
+	 * The band runs through the morning of checkout, because that morning is
+	 * still spent in the room: it is where the first journey of the day starts
+	 * from, and a day that drew nothing there read as a day with nowhere to
+	 * sleep.
 	 */
 	function stayBands(entry: BoardDay) {
 		return (
@@ -569,8 +784,8 @@ export default function Schedule() {
 				aria-label={`${ev.title}, ${hhmm(ev.start_min)} to ${hhmm(ev.end_min)}. Open, or drag to reschedule.`}
 				style={{
 					...box,
-					top: `${topPx(from)}px`,
-					height: `${heightPx(from, to)}px`,
+					top: `${topPx(from, boardStart)}px`,
+					height: `${heightPx(from, to, boardStart)}px`,
 					['--trows' as string]: bud.trows,
 					['--wrows' as string]: bud.wrows
 				}}
@@ -661,7 +876,7 @@ export default function Schedule() {
 		// across the gap with its duration on it, floored to a height a pointer
 		// can hit. The floor grows upwards, into the waiting time before the
 		// journey, because downwards is the block it arrives at.
-		const trueH = heightPx(leg.startMin, leg.endMin);
+		const trueH = heightPx(leg.startMin, leg.endMin, boardStart);
 		const h = Math.max(trueH, 15);
 		const thin = trueH < TWO_LINE_H;
 		const bud = whoBudget(box.width, mins, name, lanePx);
@@ -689,7 +904,7 @@ export default function Schedule() {
 				style={{
 					left: `${box.left * 100}%`,
 					width: `calc(${box.width * 100}% - 6px)`,
-					top: `${topPx(leg.endMin) - h}px`,
+					top: `${topPx(leg.endMin, boardStart) - h}px`,
 					height: `${h}px`,
 					['--trows' as string]: bud.trows,
 					['--wrows' as string]: bud.wrows
@@ -725,7 +940,9 @@ export default function Schedule() {
 	function legTitle(leg: LegRow): string {
 		const from = eventById.get(leg.fromEventId)?.title ?? '?';
 		const to = eventById.get(leg.toEventId)?.title ?? '?';
-		const tail = leg.tight ? ', does not fit the gap' : leg.manual ? ', pinned' : '';
+		// The warning is a sentence, so it is punctuated as one rather than hung
+		// off a comma, and it is the same sentence the mark beside it carries.
+		const tail = leg.tight ? `. ${copy.viewAs.travelWarning}` : leg.manual ? ', pinned' : '';
 		return `${from} to ${to}: ${modeLabel(leg.resolvedMode)}, ${leg.resolvedMins}m${tail}\n${peopleLabel(leg.people)}`;
 	}
 
@@ -775,15 +992,21 @@ export default function Schedule() {
 		];
 
 		return (
-			<div className="daygrid" style={{ height: `${(DAY_END - DAY_START) * PX_PER_MIN + 16}px` }}>
+			<div
+				className={`daygrid${drag ? ' still' : ''}${drag && openedBy > 0 ? ' opening' : ''}`}
+				style={{ height: `${(DAY_END - boardStart) * PX_PER_MIN + 16}px` }}
+			>
 				<div className="axis">
-					{HOURS.map((h) => (
+					{hoursFrom(boardStart).map((h) => (
 						<div
 							key={h}
 							className="hourline"
-							style={{ top: `${(h * 60 - DAY_START) * PX_PER_MIN}px` }}
+							style={{ top: `${(h * 60 - boardStart) * PX_PER_MIN}px` }}
 						>
-							<span>{h}:00</span>
+							{/* The last line is where the day stops, not an hour of it:
+							    labelling it would put "24:00" on the board, and on a board
+							    dragged fully open the same midnight twice. */}
+							{h * 60 < DAY_END && <span>{h}:00</span>}
 						</div>
 					))}
 				</div>
@@ -797,11 +1020,11 @@ export default function Schedule() {
 						// second one over the top would be a trap.
 						if ((e.target as HTMLElement).closest('.block')) return;
 						const rect = e.currentTarget.getBoundingClientRect();
-						const mins = DAY_START + (e.clientY - rect.top) / PX_PER_MIN;
+						const mins = boardStart + (e.clientY - rect.top) / PX_PER_MIN;
 						const snapped = Math.round(mins / 15) * 15;
 						setAdding({
 							day: entry.day,
-							start: Math.min(Math.max(snapped, DAY_START), DAY_END - 15)
+							start: Math.min(Math.max(snapped, boardStart), DAY_END - 15)
 						});
 					}}
 				>
@@ -815,116 +1038,74 @@ export default function Schedule() {
 		);
 	}
 
-	function peopleBoard(entry: BoardDay) {
-		if (entry.events.length === 0) return <EmptyState graphic message={copy.common.nothingAdded} />;
+	// --- Agenda -------------------------------------------------------------
+	//
+	// One person's day, end to end: what they are doing and how they get there.
+	// It replaced a swimlane board of everybody at once, which answered a
+	// question nobody asks: a trip of twenty drew twenty near-identical rows of
+	// unreadable slivers, and "what does my day look like" was the hardest thing
+	// to pick out of it. The day board already shows the group; this shows a
+	// person, which is why "view as" drops "Everyone" here. The board arrives
+	// filtered to them, so this is simply what is left, in order.
 
-		const rows = members.filter((m) => selected.has(m.id));
-		const bands = personBands(
-			entry.events.map((ev) => ({
-				id: ev.id,
-				start: ev.start_min,
-				end: ev.end_min,
-				people: ev.people.length ? ev.people : memberIds
-			})),
-			rows.map((m) => m.id),
-			DAY_START,
-			DAY_END
-		);
-		const byId = new Map(entry.events.map((ev) => [ev.id, ev]));
+	/**
+	 * The same journey, named for a list rather than for a bar.
+	 *
+	 * A row has no event drawn under it to say where the journey lands, so when
+	 * the origin is off the board, which is the walk out of the night's stay,
+	 * it names the destination rather than standing there as a bare "Walk".
+	 */
+	function agendaLegName(leg: LegRow): string {
+		const named = legName(leg, Number.POSITIVE_INFINITY);
+		if (named !== modeLabel(leg.resolvedMode)) return named;
+		const to = eventById.get(leg.toEventId)?.title;
+		return to ? `${named} to ${to}` : named;
+	}
 
+	const agenda = [
+		...(anchor?.events ?? []).map((ev) => ({
+			key: ev.id,
+			start: ev.start_min,
+			title: ev.title,
+			meta: `${typeLabel(ev.type)} · ${hhmm(ev.start_min)}-${hhmm(ev.end_min)}`,
+			tight: false,
+			open: () => openBlock(ev.id)
+		})),
+		...(anchor?.legs ?? []).map((leg) => ({
+			key: legKey(leg),
+			start: leg.startMin,
+			title: agendaLegName(leg),
+			meta: `${modeLabel(leg.resolvedMode)} · ${leg.resolvedMins}m`,
+			tight: leg.tight,
+			open: () => openLeg(leg)
+		}))
+	].sort((a, b) => a.start - b.start);
+
+	function agendaBoard() {
+		if (!agenda.length) return <EmptyState graphic message={copy.common.nothingAdded} />;
 		return (
-			<div className="swim">
-				<div className="swimhead">
-					<span className="swimname" />
-					<div className="swimaxis">
-						{HOURS.filter((h) => h % axisStep === 0).map((h) => (
-							<span key={h} className="swimhour" style={{ left: `${pctLeft(h * 60)}%` }}>
-								{h}:00
-							</span>
-						))}
-					</div>
-				</div>
-
-				<div className="swimbody">
-					{rows.map((person) => (
-						<div key={person.id} className="swimrow">
-							<span className="swimname" title={memberName.get(person.id)}>
-								{shortName(person.id)}
-							</span>
-							<div className="swimtrack">
-								{HOURS.map((h) => (
-									<span key={h} className="swimgrid" style={{ left: `${pctLeft(h * 60)}%` }} />
-								))}
-								{(bands.get(person.id) ?? []).map((band) => {
-									const ev = band.eventId ? byId.get(band.eventId) : null;
-									const pos = {
-										left: `${pctLeft(band.start)}%`,
-										width: `${pctWidth(band.start, band.end)}%`
-									};
-									if (!ev) {
-										return (
-											<span
-												key={`free-${band.start}`}
-												className="swimfree"
-												style={pos}
-												title={`Free ${hhmm(band.start)} to ${hhmm(band.end)}`}
-											/>
-										);
-									}
-									return (
-										<button
-											key={ev.id}
-											type="button"
-											className={`swimband ${ev.type}`}
-											style={pos}
-											title={`${ev.title}, ${hhmm(band.start)} to ${hhmm(band.end)}\n${peopleLabel(ev.people)}`}
-											onClick={() => openBlock(ev.id)}
-										>
-											<span className="swimlabel">{ev.title}</span>
-										</button>
-									);
-								})}
-							</div>
-						</div>
+			<div className="agenda">
+				<ul>
+					{agenda.map((row) => (
+						<li key={row.key}>
+							<button
+								type="button"
+								className={row.tight ? 'agendarow tight' : 'agendarow'}
+								onClick={row.open}
+							>
+								<span className="agendawhen">{hhmm(row.start)}</span>
+								<span className="agendawhat">{row.title}</span>
+								<span className="agendameta">
+									{row.meta}
+									{row.tight && <WarnMark label={copy.viewAs.travelWarning} />}
+								</span>
+							</button>
+						</li>
 					))}
-				</div>
+				</ul>
 			</div>
 		);
 	}
-
-	// --- Agenda -------------------------------------------------------------
-
-	/**
-	 * One person's day, end to end, under the map.
-	 *
-	 * Only when a single person is being read. For the whole group the same list
-	 * would be every track at once, which the board already draws better; it is
-	 * one person's thread through a day that the columns make hard to follow.
-	 * The board is already filtered to them, so this is just what is left, in
-	 * order, journeys included.
-	 */
-	const agenda =
-		viewAs && memberName.has(viewAs)
-			? [
-					...(anchor?.events ?? []).map((ev) => ({
-						key: ev.id,
-						start: ev.start_min,
-						title: ev.title,
-						meta: `${typeLabel(ev.type)} · ${hhmm(ev.start_min)}-${hhmm(ev.end_min)}`,
-						tight: false,
-						open: () => openBlock(ev.id)
-					})),
-					...(anchor?.legs ?? []).map((leg) => ({
-						key: legKey(leg),
-						start: leg.startMin,
-						// A list row has a full line to itself, so it always names the origin.
-						title: legName(leg, Number.POSITIVE_INFINITY),
-						meta: `${modeLabel(leg.resolvedMode)} · ${leg.resolvedMins}m`,
-						tight: leg.tight,
-						open: () => openLeg(leg)
-					}))
-				].sort((a, b) => a.start - b.start)
-			: null;
 
 	// --- Map ----------------------------------------------------------------
 
@@ -959,7 +1140,7 @@ export default function Schedule() {
 		for (let i = 1; i < evs.length; i++) {
 			if (evs[i].start_min < evs[i - 1].end_min) return false;
 		}
-		if (viewAs) return true;
+		if (readAs) return true;
 		const who = (e: EventRow) => (e.people.length ? [...e.people].sort().join(',') : '*');
 		return evs.every((e) => who(e) === who(evs[0]));
 	})();
@@ -968,34 +1149,61 @@ export default function Schedule() {
 	if (restPins.length) {
 		const cityName = new Map(data.cities.filter((c) => c !== null).map((c) => [c.id, c.name]));
 		mapTracks.push({
-			name: 'Saved places',
+			name: 'Saved locations',
 			color: '#9aa39c',
 			items: restPins.map((p) => ({
 				title: p.name,
 				lat: p.lat,
 				lng: p.lng,
-				// Which city it is in, which the colour and the track name do not say.
-				detail: [cityName.get(p.city_id)].filter((n): n is string => Boolean(n))
+				/* Which city it is in, which neither the colour nor the track name
+				   says, and how much appetite there is for it: a saved place is
+				   read to decide whether to schedule it, and the vote is what that
+				   decision turns on. */
+				subtitle: cityName.get(p.city_id),
+				detail: p.votes ? [p.votes === 1 ? '1 vote' : `${p.votes} votes`] : undefined
 			})),
 			line: false,
 			numbered: false
 		});
 	}
 	if (dayPins.length) {
+		/* How you get here, which is the question a map is being asked. The legs
+		   are the ones already on the board, so they answer it for whoever is
+		   being read rather than for the group in the abstract. */
+		const arrivals = new Map<string, LegRow[]>();
+		for (const l of anchor?.legs ?? []) {
+			const at = arrivals.get(l.toEventId);
+			if (at) at.push(l);
+			else arrivals.set(l.toEventId, [l]);
+		}
 		mapTracks.push({
 			name: dayLabel(data.day),
 			color: '#2f6d5e',
 			items: [...dayPins]
 				.sort((a, b) => a.start_min - b.start_min)
-				.map((e) => ({
-					title: e.title,
-					lat: e.lat,
-					lng: e.lng,
-					detail: [
-						`${typeLabel(e.type)} · ${hhmm(e.start_min)}-${hhmm(e.end_min)}`,
-						peopleLabel(e.people)
-					]
-				})),
+				.map((e) => {
+					const legs = arrivals.get(e.id) ?? [];
+					/* Two routes at most. A day that splits can have a journey per
+					   group, and six of them turn the card into a timetable: the
+					   board already holds the full list, and this is a glance. */
+					const shown = legs.slice(0, 2).map((l) => {
+						const from = eventById.get(l.fromEventId)?.title;
+						const mode = modeLabel(l.resolvedMode);
+						const lead = from ? `${mode} from ${from}` : mode;
+						return `${lead} · ${l.resolvedMins}m`;
+					});
+					if (legs.length > shown.length) {
+						shown.push(`+${legs.length - shown.length} more routes here`);
+					}
+					return {
+						title: e.title,
+						lat: e.lat,
+						lng: e.lng,
+						subtitle: `${typeLabel(e.type)} · ${hhmm(e.start_min)}-${hhmm(e.end_min)}`,
+						detail: [peopleLabel(e.people), ...shown],
+						warn: legs.some((l) => l.tight) ? copy.viewAs.travelWarning : undefined
+					};
+				}),
 			numbered: ordered,
 			line: ordered
 		});
@@ -1004,48 +1212,17 @@ export default function Schedule() {
 	return (
 		<div className="sched">
 			<div className="toolbar">
-				<div className="navgroup">
-					<div className="daynav">
-						{dayStep(-1) ? (
-							<Link
-								className="navbtn"
-								to={navUrl(dayStep(-1) as string, view)}
-								aria-label="Previous day"
-							>
-								‹
-							</Link>
-						) : (
-							<button className="navbtn" type="button" disabled aria-label="Previous day">
-								‹
-							</button>
-						)}
-						<span className="curday">{dayLabel(data.day)}</span>
-						{dayStep(1) ? (
-							<Link
-								className="navbtn"
-								to={navUrl(dayStep(1) as string, view)}
-								aria-label="Next day"
-							>
-								›
-							</Link>
-						) : (
-							<button className="navbtn" type="button" disabled aria-label="Next day">
-								›
-							</button>
-						)}
-					</div>
-					<div className="pills" role="group" aria-label="Schedule view">
-						{VIEW_OPTIONS.map((o) => (
-							<Link
-								key={o.v}
-								className={o.v === view ? 'pill on' : 'pill'}
-								aria-current={o.v === view ? 'true' : undefined}
-								to={navUrl(data.day, o.v)}
-							>
-								{o.label}
-							</Link>
-						))}
-					</div>
+				<div className="pills" role="group" aria-label="Schedule view">
+					{VIEW_OPTIONS.map((o) => (
+						<Link
+							key={o.v}
+							className={o.v === view ? 'pill on' : 'pill'}
+							aria-current={o.v === view ? 'true' : undefined}
+							to={navUrl(data.day, o.v)}
+						>
+							{o.label}
+						</Link>
+					))}
 				</div>
 
 				<div className="tools">
@@ -1056,7 +1233,7 @@ export default function Schedule() {
 							<span className="muted">{copy.viewAs.label}</span>
 							<Select
 								compact
-								value={viewAs}
+								value={readAs}
 								onChange={setViewAs}
 								options={viewAsOptions}
 								ariaLabel="View the schedule as"
@@ -1079,69 +1256,58 @@ export default function Schedule() {
 				</p>
 			)}
 
-			<div className={wide ? 'split wide' : 'split'}>
+			<div className="split">
 				<div className="boardcol">
-					{view === 'people' ? (
-						<div className="board card">
-							{anchor && stayBands(anchor)}
-							{anchor ? peopleBoard(anchor) : null}
+					<div className="board card" ref={boardRef}>
+						{/* The day stepper is the board's own title bar: it names the day
+						    being drawn and steps to the next one, so it belongs to the
+						    board rather than to the page toolbar, which is left holding
+						    only the controls that apply to the whole schedule. */}
+						<div className="boardhead">
+							{dayStep(-1) ? (
+								<Link
+									className="navbtn"
+									to={navUrl(dayStep(-1) as string, view)}
+									aria-label="Previous day"
+								>
+									‹
+								</Link>
+							) : (
+								<button className="navbtn" type="button" disabled aria-label="Previous day">
+									‹
+								</button>
+							)}
+							<span className="curday">{dayLabel(data.day)}</span>
+							{dayStep(1) ? (
+								<Link
+									className="navbtn"
+									to={navUrl(dayStep(1) as string, view)}
+									aria-label="Next day"
+								>
+									›
+								</Link>
+							) : (
+								<button className="navbtn" type="button" disabled aria-label="Next day">
+									›
+								</button>
+							)}
 						</div>
-					) : view === 'day' ? (
-						<div className="board card">
-							{anchor && stayBands(anchor)}
-							{anchor ? dayBoard(anchor, { lanePx: laneW || 560, measure: true }) : null}
-						</div>
-					) : (
-						<div className="multiboard">
-							{board.map((entry) => (
-								<div key={entry.day} className="board card dayblock">
-									<div className="dayblockhead">
-										<Link className="dayblocklink" to={navUrl(entry.day, 'day')}>
-											{dayLabel(entry.day)}
-										</Link>
-										{entry.city && <span className="muted">{entry.city.name}</span>}
-									</div>
-									{stayBands(entry)}
-									{dayBoard(entry, { lanePx: 220 })}
-								</div>
-							))}
-						</div>
-					)}
+						{anchor && stayBands(anchor)}
+						{anchor
+							? view === 'agenda'
+								? agendaBoard()
+								: dayBoard(anchor, { lanePx: laneW || 560, measure: true })
+							: null}
+					</div>
 				</div>
 
-				{!wide && (
-					<aside className="mapwrap card">
-						{data.mapsKey ? (
-							<GoogleMap tracks={mapTracks} apiKey={data.mapsKey} center={anchorCity} />
-						) : (
-							<TripMap tracks={mapTracks} />
-						)}
-						{agenda && (
-							<div className="agenda">
-								<h4>{memberName.get(viewAs)}</h4>
-								{agenda.length ? (
-									<ul>
-										{agenda.map((row) => (
-											<li key={row.key}>
-												<button
-													type="button"
-													className={row.tight ? 'agendarow tight' : 'agendarow'}
-													onClick={row.open}
-												>
-													<span className="agendawhen">{hhmm(row.start)}</span>
-													<span className="agendawhat">{row.title}</span>
-													<span className="agendameta">{row.meta}</span>
-												</button>
-											</li>
-										))}
-									</ul>
-								) : (
-									<EmptyState graphic message={copy.common.nothingAdded} />
-								)}
-							</div>
-						)}
-					</aside>
-				)}
+				<aside className="mapwrap card">
+					{data.mapsKey ? (
+						<GoogleMap tracks={mapTracks} apiKey={data.mapsKey} center={anchorCity} />
+					) : (
+						<TripMap tracks={mapTracks} />
+					)}
+				</aside>
 			</div>
 
 			{adding && (
@@ -1150,9 +1316,13 @@ export default function Schedule() {
 					day={adding.day}
 					startMin={adding.start}
 					initialType={adding.type}
+					legs={draftLegs}
+					eventOf={(id) => eventById.get(id) ?? null}
+					peopleLabel={peopleLabel}
 					memberOptions={memberOptions}
 					crews={data.crews}
 					saved={data.saved}
+					stays={data.stays}
 					cities={data.cities}
 					cityId={cityOfDay(adding.day)}
 					dock={dockSide}
@@ -1178,6 +1348,7 @@ export default function Schedule() {
 					memberOptions={memberOptions}
 					crews={data.crews}
 					saved={data.saved}
+					stays={data.stays}
 					cities={data.cities}
 					cityId={openEvent.city_id ?? cityOfDay(openEvent.day)}
 					dock={dockSide}

@@ -20,8 +20,10 @@ The SvelteKit -> React port is **complete** and the SvelteKit app has been delet
 
 ## Standing instructions
 
-- **Do not invest further in the calendar page** - a redesign is planned.
-- **Mobile is not in scope yet.**
+- **The calendar page is under active redesign** - the owner is reworking it, so
+  changes there are expected. (This reverses an earlier freeze.)
+- **Mobile web is in scope**: `apps/web` must work down to 390px. The native
+  client (`apps/mobile`, Expo / React Native) is **not** in scope yet.
 
 ## Working method
 

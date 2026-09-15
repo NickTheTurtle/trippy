@@ -15,6 +15,7 @@ import { copy } from '../../copy';
  */
 export default function MultiSelect({
 	options,
+	groups = [],
 	selected,
 	onChange,
 	placeholder = copy.ui.multiSelect.placeholder,
@@ -25,6 +26,12 @@ export default function MultiSelect({
 	summaryLabel = copy.ui.multiSelect.summaryLabel
 }: {
 	options: Option[];
+	/**
+	 * Saved sets of the options, offered above them as one-click shortcuts. A
+	 * group is only a shortcut: picking one writes its members into the field and
+	 * then has no further say, so what is selected is always people.
+	 */
+	groups?: { value: string; label: string; members: string[] }[];
 	selected: string[];
 	onChange: (next: string[]) => void;
 	placeholder?: string;
@@ -52,13 +59,39 @@ export default function MultiSelect({
 		onChange(selected.includes(v) ? selected.filter((x) => x !== v) : [...selected, v]);
 	}
 
+	// A group only counts the members it can actually offer: a crew keeps people
+	// who have since left the trip, and a crew that is "on" while naming somebody
+	// the menu does not list could never be turned off.
+	const groupRows = groups.map((g) => {
+		const members = g.members.filter((id) => options.some((o) => o.value === id));
+		return {
+			...g,
+			members,
+			on: members.length > 0 && members.every((id) => selected.includes(id))
+		};
+	});
+
+	function toggleGroup(i: number) {
+		const g = groupRows[i];
+		if (!g || g.members.length === 0) return;
+		onChange(
+			g.on
+				? selected.filter((id) => !g.members.includes(id))
+				: [...selected, ...g.members.filter((id) => !selected.includes(id))]
+		);
+	}
+
+	/** Groups first, then people, in one index space: the keyboard sees one list. */
+	const rowCount = groupRows.length + options.length;
+
 	const list = useListbox({
-		count: options.length,
+		count: rowCount,
 		// Each opening starts at the top; there is no single "current" pick here to
 		// start from the way there is in Select.
 		initialIndex: () => 0,
 		onPick: (i) => {
-			const o = options[i];
+			if (i < groupRows.length) return toggleGroup(i);
+			const o = options[i - groupRows.length];
 			if (o) toggle(o.value);
 		}
 	});
@@ -102,31 +135,62 @@ export default function MultiSelect({
 					// open across several ticks.
 					onMouseDown={(e) => e.preventDefault()}
 				>
-					{options.map((o, i) => (
+					{groupRows.length > 0 && (
+						<li className="mopthead" role="presentation">
+							{copy.ui.multiSelect.groupsHeading}
+						</li>
+					)}
+					{groupRows.map((g, i) => (
 						<li
-							key={o.value}
+							key={g.value}
 							id={list.optionId(i)}
 							data-index={i}
 							role="option"
-							aria-selected={selected.includes(o.value)}
+							aria-selected={g.on}
 							className={i === list.active ? 'mopt active' : 'mopt'}
 							onMouseEnter={() => list.setActiveIndex(i)}
 							onClick={(e) => {
-								// These rows are not form controls, so a MultiSelect sitting
-								// inside a <label> would have the label forward this click on to
-								// its labelled control, which is the trigger, closing the menu on
-								// every tick. Cancelling the default action stops that.
 								e.preventDefault();
-								toggle(o.value);
+								toggleGroup(i);
 							}}
 						>
-							<span className={selected.includes(o.value) ? 'mbox on' : 'mbox'}>
-								{selected.includes(o.value) && <CheckIcon />}
-							</span>
-							<span className="mopttext">{o.label}</span>
+							<span className={g.on ? 'mbox on' : 'mbox'}>{g.on && <CheckIcon />}</span>
+							<span className="mopttext">{g.label}</span>
 						</li>
 					))}
-					{options.length === 0 && <li className="mempty">{copy.ui.multiSelect.empty}</li>}
+					{groupRows.length > 0 && options.length > 0 && (
+						<li className="mopthead" role="presentation">
+							{copy.ui.multiSelect.optionsHeading}
+						</li>
+					)}
+					{options.map((o, n) => {
+						const i = groupRows.length + n;
+						return (
+							<li
+								key={o.value}
+								id={list.optionId(i)}
+								data-index={i}
+								role="option"
+								aria-selected={selected.includes(o.value)}
+								className={i === list.active ? 'mopt active' : 'mopt'}
+								onMouseEnter={() => list.setActiveIndex(i)}
+								onClick={(e) => {
+									// These rows are not form controls, so a MultiSelect sitting
+									// inside a <label> would have the label forward this click on to
+									// its labelled control, which is the trigger, closing the menu on
+									// every tick. Cancelling the default action stops that.
+									e.preventDefault();
+									toggle(o.value);
+								}}
+							>
+								<span className={selected.includes(o.value) ? 'mbox on' : 'mbox'}>
+									{selected.includes(o.value) && <CheckIcon />}
+								</span>
+								<span className="mopttext">{o.label}</span>
+							</li>
+						);
+					})}
+					{rowCount === 0 && <li className="mempty">{copy.ui.multiSelect.empty}</li>}
 				</ul>
 			)}
 		</div>

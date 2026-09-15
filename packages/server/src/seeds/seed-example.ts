@@ -371,8 +371,8 @@ function seedBudget(tripId: string, cityIds: string[]): void {
 /** Seed a starter checklist so the pre-trip view is not empty. */
 function seedTasks(tripId: string, roster: string[]): void {
 	const insert = db.prepare(
-		`INSERT INTO trip_tasks (id, trip_id, kind, label, assignee, done, sort, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+		`INSERT INTO trip_tasks (id, trip_id, kind, label, assignee, done, sort, created_at, owner_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	);
 	const insertAssignee = db.prepare(
 		`INSERT OR IGNORE INTO task_assignees (task_id, user_id) VALUES (?, ?)`
@@ -410,7 +410,10 @@ function seedTasks(tripId: string, roster: string[]): void {
 			t.who.map((w) => names[w]).join(', '),
 			t.shared ?? 0,
 			i,
-			base - i * 100
+			base - i * 100,
+			// A packing list is private, so the seeded one belongs to the account
+			// looking at the trip. The companions pack their own bags off-screen.
+			t.kind === 'packing' ? roster[0] : null
 		);
 		for (const w of t.who) insertAssignee.run(id, roster[w]);
 		for (const w of t.doneWho ?? []) insertDone.run(id, roster[w], base);

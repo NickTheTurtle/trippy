@@ -60,6 +60,15 @@ export interface PlannedLeg {
 	afterMin: number;
 	/** The event this leg arrives at starts here. */
 	beforeMin: number;
+	/**
+	 * True when the arrival is a date rather than an hour, which is a stay.
+	 *
+	 * Nobody can be late to their own bed, so there is no time to work back
+	 * from: the walk home leaves when the last thing on the day finishes. It is
+	 * the mirror of the morning, where the journey out of last night's stay is
+	 * anchored at midnight for the same reason.
+	 */
+	openEnded: boolean;
 }
 
 /**
@@ -73,6 +82,20 @@ const SAME_PLACE_KM = 0.03;
 /** The people key half of a leg key: sorted ids, so it does not depend on write order. */
 export function peopleKey(people: readonly string[]): string {
 	return [...new Set(people)].sort().join(',');
+}
+
+/**
+ * The same journey against the id its destination ended up with.
+ *
+ * A block being added is planned under a draft id and saved under a real one,
+ * so what the reader said about its journeys has to survive the swap. Keys are
+ * built here, so they are rewritten here too, and anything that is not a key is
+ * handed back untouched rather than turned into one that matches nothing.
+ */
+export function rekeyLeg(key: string, toEventId: string): string {
+	const parts = key.split('>');
+	if (parts.length !== 3) return key;
+	return `${parts[0]}>${toEventId}>${parts[2]}`;
 }
 
 /**
@@ -262,7 +285,8 @@ export function planLegs(
 			// An event is left when it finishes; yesterday's stay was rewritten to
 			// end at midnight above, so this is the same field for both.
 			afterMin: from.endMin,
-			beforeMin: to.startMin
+			beforeMin: to.startMin,
+			openEnded: to.type === 'stay'
 		});
 	}
 
@@ -288,10 +312,15 @@ export interface PlacedLeg {
  * point is the thing you are trying not to be late for: a table booked at seven
  * means leaving at half six, not arriving whenever an hour after the last stop
  * happens to fall.
+ *
+ * A journey home to a stay has no such point, so it is the one that is anchored
+ * to its departure: you leave when the day finishes and you arrive when you
+ * arrive. It can never be tight, because there is no gap to overrun.
  */
 export function placeLeg(leg: PlannedLeg, mins: number): PlacedLeg {
 	const gap = leg.beforeMin - leg.afterMin;
 	const dur = Math.max(1, Math.round(mins));
+	if (leg.openEnded) return { startMin: leg.afterMin, endMin: leg.afterMin + dur, tight: false };
 	if (dur > gap) return { startMin: leg.afterMin, endMin: leg.beforeMin, tight: true };
 	return { startMin: leg.beforeMin - dur, endMin: leg.beforeMin, tight: false };
 }

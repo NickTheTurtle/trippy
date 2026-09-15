@@ -3,6 +3,7 @@ import { POI_KINDS, type PoiKind } from '@trippy/core/types';
 import { api } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
 import Modal, { ModalFooter, ModalForm } from '../../components/ui/Modal';
+import { useDeleteAction } from '../../components/ui/useDeleteAction';
 import { Field } from '../../components/ui/Field';
 import type { Poi } from '../../lib/api-types';
 import { LinkField, NotesField, TypeField } from './place-fields';
@@ -26,17 +27,31 @@ export default function EditPlaceDialog({
 	base,
 	poi: p,
 	onClose,
-	onSaved
+	onSaved,
+	onDelete
 }: {
 	base: string;
 	poi: Poi;
 	onClose: () => void;
 	onSaved: () => void;
+	onDelete: () => void | Promise<void>;
 }) {
 	const [name, setName] = useState(p.name);
 	const [notes, setNotes] = useState(p.notes ?? '');
 	const [url, setUrl] = useState(p.url ?? '');
 	const [kind, setKind] = useState<PoiKind>(p.kind);
+
+	// A place that is already on the calendar takes those entries with it, so the
+	// question says so. It used to be said on the button, which made that one
+	// delete read differently from every other.
+	const del = useDeleteAction({
+		title:
+			p.linked > 0
+				? copy.discover.deletePlace.linkedTitle(p.name, p.linked)
+				: copy.discover.deletePlace.title(p.name),
+		busyLabel: copy.common.deleting,
+		onDelete
+	});
 
 	const save = useMutation(
 		() =>
@@ -48,42 +63,46 @@ export default function EditPlaceDialog({
 	);
 
 	return (
-		<Modal open title={c.title} size="md" onClose={onClose}>
-			<ModalForm onSubmit={save.submit}>
-				<div className="mbody">
-					<div className="flex flex-col gap-3">
-						<Field
-							label={c.nameLabel}
-							autoFocus
-							required
-							value={name}
-							onChange={(e) => setName(e.target.value)}
-							inputClassName="w-full"
-						/>
-						<TypeField
-							options={POI_KINDS.map((k) => ({ value: k, label: VIEW_LABEL[k] }))}
-							value={kind}
-							onChange={(v) => setKind(v as PoiKind)}
-						/>
-						<LinkField value={url} onChange={setUrl} />
-						<NotesField value={notes} onChange={setNotes} />
-					</div>
-					{/* Read-only, so it sits after the fields: the count answers "is this
+		<>
+			<Modal open={!del.asking} title={c.title} size="md" onClose={onClose}>
+				<ModalForm onSubmit={save.submit}>
+					<div className="mbody">
+						<div className="flex flex-col gap-3">
+							<Field
+								label={c.nameLabel}
+								autoFocus
+								required
+								value={name}
+								onChange={(e) => setName(e.target.value)}
+								inputClassName="w-full"
+							/>
+							<TypeField
+								options={POI_KINDS.map((k) => ({ value: k, label: VIEW_LABEL[k] }))}
+								value={kind}
+								onChange={(v) => setKind(v as PoiKind)}
+							/>
+							<LinkField value={url} onChange={setUrl} />
+							<NotesField value={notes} onChange={setNotes} />
+						</div>
+						{/* Read-only, so it sits after the fields: the count answers "is this
 					    popular?", which the card already told you. The names answer
 					    "whose evening am I cancelling?", which is why you opened this. */}
-					<p className="mt-3.5 border-t border-line pt-3.5 text-meta leading-normal">
-						<span className="font-semibold">{c.votes(p.votes)}</span>
-						<span className="muted">{c.voters(p.voters)}</span>
-					</p>
-				</div>
-				<ModalFooter
-					error={save.error}
-					onClose={onClose}
-					busy={save.busy}
-					busyLabel={copy.common.saving}
-					submitLabel={copy.common.save}
-				/>
-			</ModalForm>
-		</Modal>
+						<p className="mt-3.5 border-t border-line pt-3.5 text-meta leading-normal">
+							<span className="font-semibold">{c.votes(p.votes)}</span>
+							<span className="muted">{c.voters(p.voters)}</span>
+						</p>
+					</div>
+					<ModalFooter
+						error={save.error}
+						onClose={onClose}
+						busy={save.busy}
+						busyLabel={copy.common.saving}
+						submitLabel={copy.common.save}
+						start={del.button}
+					/>
+				</ModalForm>
+			</Modal>
+			{del.confirm}
+		</>
 	);
 }

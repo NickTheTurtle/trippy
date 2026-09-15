@@ -177,7 +177,7 @@ not a legal value of this column, and the CHECK constraint rejects it.
 The board was rebuilt on **events** in place of tracks. What follows is the model
 as built; the reasoning for the change is in M3.1.
 
-- Day / 3-day / people views. Slots are 30 minutes, drag snaps to 5.
+- Day / people views. Slots are 30 minutes, drag snaps to 5.
 - **Derived column layout**: see M3.2. Columns are computed, not authored.
 - Drag places from the candidate pool onto slots. Supports:
   - **Fixed windows** (reservations) that lock start/end.
@@ -197,13 +197,12 @@ as built; the reasoning for the change is in M3.1.
   therefore breaks the travel chain on both sides.
 - **A stay is an ordinary block** on the evening it starts, like every other
   event. It is also the origin of the following day's first journey.
-- **Map panel**: every place saved in Discover, grey, with the day's scheduled
-  places in green over them, numbered when the day has an order. Day view only;
-  the 3-day and people views give the board the full width.
-- **Agenda panel**: one person's day in order, under the map, shown only while
-  "view as" names a member.
+- **Map panel**: every location saved in Discover, grey, with the day's scheduled
+  ones in green over them, numbered when the day has an order. Beside the board in
+  both views.
+- **Agenda view**: one person's day in order, journeys included, beside the map.
 
-### M3.2: Layout engine & the People swimlane
+### M3.2: Layout engine and the agenda
 
 Earlier versions drew one column per authored _track_, which meant "who is doing
 this" had three possible answers (the track's crew, the item's assignees, and the
@@ -226,11 +225,21 @@ people rather than on lanes:
   column that stays free for its whole span. **Width therefore tracks
   contention**: a solo morning spans the full board, an event overlapping one
   other takes two thirds, a three-way afternoon split takes a third each.
-- **`personBands`**: each person's day as a contiguous strip (gaps become `null`
-  "free" bands), which is what the swimlane renders.
 
-**People view** transposes the board: **rows are people, x is time**. A split is
-literally visible as rows diverging into different colours and converging again.
+**The second view is an agenda, not a swimlane.** It used to transpose the board:
+rows are people, x is time, so a split showed as rows diverging into different
+colours and converging again. That is a good picture of a group and a poor
+answer to the only question anybody brought to it. A trip of twenty drew twenty
+near-identical rows of slivers too narrow to label, and "what does my day look
+like" was the hardest thing to pick out of it. The day board already shows the
+group; the second view now shows one person, as a list, journeys included, with
+the map beside it.
+
+It is therefore always about somebody, which is why "view as" drops "Everyone"
+there: an agenda for the whole group is the day board with extra steps. Arriving
+with nobody chosen reads as you, and `viewAs` itself is left alone, so leaving
+the agenda returns to a day board read as everyone. `personBands`, which existed
+only to feed the swimlane, went with it.
 
 **Motion is part of the layout, not decoration.** Everything on the board is
 absolutely positioned from derived values, so a re-layout teleports blocks. That
@@ -302,6 +311,29 @@ like every other row, so two crews can be combined without the second wiping the
 first. Two exceptions, both deliberate: the crew editor itself (a crew that can
 tick itself is a puzzle, not a shortcut) and the task list's "who is done" menu,
 which records what happened rather than choosing people.
+
+**Everyone is a crew the trip does not own.** Every trip has one group asked for
+far more than any other, and no member should have to assemble it by hand or
+keep it current as people join and leave. `crewsForTrip` therefore returns it
+first, always, under the fixed id `everyone`, with the live roster as its
+members and `locked: true`. It is derived on every read rather than stored as a
+row, because a stored one would have to be rewritten by every path that touches
+the roster: joining, being added, being removed, leaving, and merging a
+placeholder into a real account. Each of those is a chance for it to fall behind
+and start naming a group that is no longer everyone, which is the one thing it
+exists to be. Derived, it cannot drift, needs no migration for trips that
+already exist, and cannot be deleted by somebody tidying up. `editCrew` and
+`deleteCrew` refuse the id, and the People page renders the row as plain text:
+a row that looks like the others but does nothing when clicked is worse than one
+that plainly is not a control.
+
+**Picking Everyone empties the field rather than filling it.** An event with
+nobody on it already means the whole group, which is why the picker's trigger
+reads "Everyone" when the selection is empty. Ticking all twenty names would
+look identical today and part company the moment somebody joins, so
+`PeoplePicker` collapses a full selection back to none. The two Everyones then
+say the same thing, and the one that survives a new arrival is the one that gets
+stored.
 
 **Deriving the legs** (`packages/core/src/travel.ts`, `planLegs`). For each
 person, walk their own events in order and pair each consecutive two. Bucket the
@@ -435,10 +467,15 @@ only the buttons would answer all three with an empty board. The existing
 malformed-day fallback is unchanged and still comes first; the clamp only applies
 to days that parse.
 
-**The 3-day view is a window, so its anchor stops early.** Anchoring it on the
-last day would draw two columns the trip has not got. The anchor stops where the
-window's far edge lands on the last day, which is why on a three-day trip the
-3-day view has exactly one anchor and both arrows are disabled.
+**The 3-day view was removed.** It was a window three columns wide, which bought
+one thing: seeing tomorrow without leaving today. It cost a second clamp rule
+(the anchor had to stop early enough that the far edge landed on the last day), a
+second board layout, a second docking rule for the edit panel, and journeys drawn
+at a third of their usual width, which is what the travel-visualisation study was
+answering in the first place. The day view answers the same question one arrow
+press away. The payload still carries `board` as an array, so a view that spans
+days can come back without reshaping it. An old `view=3day` URL falls back to the
+day board rather than to nothing.
 
 **"View as" is one person or everyone.** It was a multi-select, which allowed
 arbitrary subsets. Nobody asks what the day looks like for an arbitrary subset:
@@ -464,9 +501,7 @@ column that matters, which is what finally makes `flex-wrap` do anything.
 
 **What gets dropped is computed, not styled.** The header shows 8, 5 or 3 faces
 by measuring the viewport, rather than hiding avatars in CSS, because "+17" has
-to stay true. Same reason the People view thins its time axis to every sixth
-hour in JS: at 390 the two-hourly labels printed "6:008:0010:00", and hiding
-half of them in CSS would have left the remaining gaps uneven.
+to stay true.
 
 **Every 190px column becomes a dropdown, not a scroller.** Below `lg` the pages
 that carry one (Preparation, Expenses, Discover's cities) drop it. The old
@@ -536,7 +571,7 @@ a `Select`: the header has other work to do there and the menu is not in the
 way.
 
 `Pills` is shared, and moved out of `schedule.css` when Discover needed it, so
-the schedule's Day / 3-day / People switch and Discover's filter are one
+the schedule's Day / People switch and Discover's filter are one
 treatment rather than two lookalikes. The schedule's segments stay `<Link>`s,
 because its view _is_ addressable, and share only the styling. The expense
 dialog's split control is still its own thing; it is a form field, not a view
@@ -927,6 +962,86 @@ Attaching an address that already has an account is refused rather than merged.
 The two would be one person with two member ids, and the ledger has no way to
 say which of them owes what; the organizer removes the placeholder and adds the
 real person instead, which merges nothing and loses nothing.
+
+### Bounds on what a member may type
+
+Twelve people were put through the app at once with instructions to break it.
+Almost everything they broke came back to the same omission: a field that was
+checked for being blank and for nothing else. The rules below are the answer,
+and they live in `packages/core/src/validate.ts` so the API, the client and any
+future client state them identically.
+
+**Amounts are bounded to a hundred billion major units.** An expense above
+`Number.MAX_SAFE_INTEGER` cents stored perfectly well, and then `node:sqlite`
+threw `RangeError` on every subsequent read of that column. One row took the
+whole Expenses page to a 500 for all twelve members, permanently, with no screen
+left from which to delete it. The bound is far below the safe-integer limit on
+purpose: whole cents stay exact up to that limit, but the display path divides
+cents into a double, which stops being cent-exact somewhere above seventy
+trillion major units. A hundred billion keeps arithmetic and rendering both
+exact and still clears any real trip by orders of magnitude.
+
+**A settlement may not exceed the debt it settles.** The idempotency token is
+looked up *first*, before the debt is checked. Settlements count toward the
+balance, so once one is recorded the debt is gone; checking the debt first would
+make a repeated press fail the bound rather than return `duplicate: true`.
+
+**Links are checked before they are stored and again before they are drawn.**
+`javascript:` and `data:` URLs were accepted and rendered into a real `href`,
+which is a script that runs when somebody else clicks the card. Only `http` and
+`https` survive, a scheme-less string is treated as a host, and anything without
+a dot in the host is not a link at all. It is re-checked on render because rows
+written before the check exist in the database.
+
+**Names are capped at 200 characters.** A single unbroken run of five thousand
+characters is not a long name, it is a layout attack: with no break opportunity
+it sets the minimum width of whatever draws it and pulls the page out to several
+thousand pixels. The stylesheets now break anywhere, which contains the damage;
+the cap stops the input, because a name nobody can read is not worth storing.
+
+**Days and times must land inside the trip.** An event could be created on a day
+the board does not offer, which put a block somewhere nobody could navigate back
+to; a missing trip start meant the fallback day came out as 1900-01-01. Times are
+refused rather than clamped when they describe an event that ends before it
+begins: the store still clamps as a last resort, but a clamp shows the organizer
+a time they did not choose and explains nothing.
+
+**A place must be near the city it is filed under.** The radius is 150km, which
+is deliberately generous: a city list is a list of places to go *from* a city,
+and that includes the day trip and the out-of-town airport. What it catches is
+the search still showing one city's results after the dropdown moved to another,
+which lands hundreds of kilometres out. It refuses only when it can know: a city
+the geocoder never placed, or a place typed by hand with no coordinates, passes.
+
+### Deleting something other people can see
+
+Two rules, both learned the same way.
+
+**A delete takes its dependents with it.** `poi_id` and `lodging_id` are both
+`ON DELETE SET NULL`, which left the calendar holding blocks that pointed at
+nothing and said nothing about why. Places were given an explicit cascade first;
+stays now match them, in one transaction, and the confirmation is told the count
+beforehand so the question names what is about to go.
+
+**A 404 on a write says who did it.** In a trip several people are editing, by
+far the commonest way to reach one is that somebody deleted the row while this
+dialog was open. "Could not save that task." describes the outcome and hides the
+cause, and members retried a save that could never work. The message now names
+the cause, and `useMutation` resyncs the section on any 404 so the list stops
+drawing a row that no longer exists.
+
+### Events are versioned like everything else
+
+Expenses and tasks were given a `version` column after lost updates were watched
+happening. Events were the last collaborative row without one, so an event save,
+which writes the whole record back, silently erased whatever the other person had
+just saved. Dialog saves now carry the version they opened on and are refused
+with a 409.
+
+Drags and resizes are deliberately left unversioned. They carry exactly one
+field each, so there is nothing stale riding along to overwrite, and holding a
+gesture to a version the board refetches constantly would refuse perfectly good
+drags whenever somebody else touched an unrelated event.
 
 ---
 
@@ -1675,6 +1790,43 @@ flush to the card's bottom edge, where it reads as an indicator on the card
 rather than a fourth thing competing in the row. Both card types share the
 treatment; a stay keeps its price, nights and the organizer's lock.
 
+**The corner of the footer says whether the thing is on the calendar.** A place
+already knew how many scheduled events pointed at it, and said so in a line of
+its own: "🗓 On the calendar ×2", above the controls. That is a whole line of a
+small tile spent on a fact most cards do not have, and it pushed the footer of
+every card that did have it out of line with the rest of the grid. It is now the
+calendar glyph alone, in the corner the footer row leaves empty, with the count
+kept as its accessible name and its tooltip: the same trade `WarnMark` makes.
+A stay now answers the same question, which it could not before: the query in
+`cityLodging` counts the stay bands booked into it, mirroring the `linked` count
+`cityPois` has always returned for a place.
+
+**Booking one is one picker with two lists.** `events.lodging_id` was a real
+column with a real index that only the seeds ever set, so a stay card carried
+the mark on a seeded trip and never on a trip somebody built by hand. The place
+field now follows the block's type: a stay picks from the stays the city is
+voting on, everything else from Discover's saved places. It stays one field
+because it is asking one question either way, which of the things we already
+shortlisted is this, and `placeLabel` had said "Stay" for a stay block since
+long before there was anything to pick.
+
+Three consequences, all of them load-bearing:
+
+- **The two links are exclusive.** `editEvent` writes `poi_id` and `lodging_id`
+  together, never one alone, because retyping a block from activity to stay has
+  to release the museum as it takes the hotel. Otherwise both Discover cards
+  would count it.
+- **An edit's type may be changing in the same request**, so which list the
+  picked id is resolved against has to follow the type the block is *ending up*
+  as, not the one stored. Hence `editedType`, and `currentType` exported for it.
+  The dialog clears the picked id when the type crosses that line (`keepsPick`),
+  so a place id never survives into a stay block to be silently dropped.
+- **`lodging_options` gained `lat`/`lng`.** The stay band is where the morning's
+  first journey starts, so booking into a lodging option with no coordinates
+  would have quietly broken the planning that picking a place used to supply.
+  The provider already returned them; `POST /discover/stays` was throwing them
+  away.
+
 **Icons are inline SVG with `currentColor`.** That is what the app already did
 for the one icon it had (`Modal`'s close button), so no icon dependency was
 added for four small glyphs.
@@ -1711,11 +1863,23 @@ block is exactly 216px tall.
 the `click` that follows in the same event sequence. As state it would lag a
 render behind, and every drag would also open the detail popup on release.
 
+**So is the gesture itself, for both a drag and a resize.** `dragRef` and
+`resizeRef` hold the truth and the state beside each is only the copy that
+renders. Pointer moves are continuous, so React may not have committed the
+pointer-down that started the gesture by the time the first move arrives: a
+handler reading through its closure sees `null`, a quick flick does nothing, and
+a fast press-and-release can leave the gesture standing. The resize kept the
+closure version for a while after the drag was fixed, which is the sort of
+asymmetry that survives precisely because it is only wrong when the hand is
+fast. Both paths now write through one `put…` that sets the ref and the state
+together, and every handler reads the ref.
+
 **A drag or resize only writes when the snapped value actually changed.** Live
 position snaps to five-minute steps so the label never shows decimals, and a
-resize will not go below fifteen minutes. Pressing and releasing without moving
-therefore costs no request, which is what makes click-to-open and drag-to-move
-able to share one pointer sequence.
+resize will not go below `MIN_EVENT_MINS`, which is the same floor the dialog
+and the server use rather than a fifteen repeated by hand. Pressing and
+releasing without moving therefore costs no request, which is what makes
+click-to-open and drag-to-move able to share one pointer sequence.
 
 **The detail popup deliberately sends up to four requests.** `edit` handles the
 title, type and travel buffer; `move` and `resize` have different validity rules
@@ -2280,8 +2444,8 @@ A bar names its **origin**, not its destination, and only while it has the width
 for it. Its position already says where it lands, so naming the arrival would
 repeat the drawing; the origin is the one fact the drawing gave up when the lines
 went. Below `TINY_W` the bar gives up its padding and drops a type step instead
-of its duration, because at seven columns across a 3-day view a bar is about
-thirty pixels wide and "10m" is worth more than "1...".
+of its duration, because in the people view a bar is about thirty pixels wide
+and "10m" is worth more than "1...".
 
 **An edit is drawn on the board while it is typed.** A dialog that covers the day
 makes the reader guess: a 20-minute nudge or a type change could only be judged
@@ -2376,8 +2540,27 @@ Only the rows actually touched are written. A leg is unpinned by default, so
 sending every row back on Save would pin a whole day's travel as the price of
 renaming one event. The comparison is against the values the dialog opened with,
 and it includes the reset: handing a journey back to the router is a change like
-any other. The journeys are saved before the event, while their ids still mean
-what the reader saw, since an edit to the people replans them.
+any other. They are written after the event, and matched by key rather than by
+id: an edit to who is going is what makes journeys exist, so the row a journey
+lands in may only arrive once the server has replanned off the people just
+saved.
+
+**The add dialog asks the same question, because adding is when journeys
+appear.** The section used to belong to the edit dialog alone, which meant
+describing a new block, naming who was going, and saving a day whose travel had
+been planned and never shown, then reopening the block to see it. The board
+already draws the new block under a draft id and replans the day around it, so
+the journeys arriving at it exist while it is still being typed; both dialogs
+now render the same `useJourneys` section off the same replanned list. What the
+reader said is keyed against the draft id and re-pointed at the real one after
+the create returns, which is `rekeyLeg` in core, next to where the key is built.
+
+The id survives a failed save. The event is written first and the journeys
+after, so a journey that will not write leaves a block that already exists; the
+new id is kept, and pressing Add again finishes the save rather than adding the
+block a second time. The add dialog reads its draft journeys before "view as" is
+applied, unlike the board behind it, because a dialog about who is coming has to
+list everyone who is.
 
 **Changing the mode rewrites the minutes.** The number beside the mode is an
 answer to a question the mode asks, so leaving the old one in place when the
@@ -2427,6 +2610,15 @@ holding a number has no input to refuse. It carries minutes past midnight, the
 unit the board and the server already speak, so nothing parses a clock. The hour
 runs to 24 rather than wrapping to 0, because midnight is the end of the board
 and not the start of it.
+
+Each segment is a fixed width, wide enough for two of the widest digits, and
+that is the whole of what holds the colon still. It used to be a floor rather
+than a fixed width, propped up with `tabular-nums`, and neither worked: "23"
+outgrew the floor and shunted the colon along, and the tabular figures made the
+one number the reader types read as a different typeface from every other number
+on the same page. Tabular figures earn their place in a column of data, which is
+what the agenda times and the money totals are. A clock in a box is not a
+column.
 
 The pair is one field labelled "When", since a start without an end is not an
 answer. A typed end can be behind the start for as long as it takes to press the
@@ -2527,20 +2719,78 @@ which was a new identity on every render.
 
 **A pin says more when you point at it.** The browser's own tooltip arrived after
 a delay, held one line of unstyleable plain text and closed with the pointer, so
-a pin could give its name and nothing else. Hovering now opens a card: the place,
-then what kind of thing it is and when, then who is going, then which day. A grey
-pin gives its city, which is the one thing neither its colour nor its track name
-says. Both maps do it, `GoogleMap` through a single reused `InfoWindow` and
+a pin could give its name and nothing else. Hovering now opens a card: which
+track the pin is on, the place, then what kind of thing it is and when, then who
+is going and how they get there. A grey pin gives its city, which is the one thing
+neither its colour nor its track name says. Both maps do it, `GoogleMap` through
+a single reused `InfoWindow` and
 `TripMap` through Leaflet's popup, and the card is built as DOM rather than
 interpolated into markup, because every line of it is typed by trip members.
 
+**The card is drawn by the app, not by the map.** Both libraries offer a bubble,
+and both draw it inside the map element, anchored above the pin, with no idea
+that anything is in the way: a pin near the top of a 420px panel opened a card
+with its first lines cut off, and a pin near a side lost its edge. Google's cure
+is to pan the map, which slides the pin out from under the pointer and closes
+what it just opened, and padding the camera to leave room only worked until the
+reader panned. So `createCardLayer` puts one fixed-position layer on the body,
+outside every scroll box and every map frame, placed from the pointer and
+clamped to the window, flipping below the pointer when there is no room above.
+It never takes pointer events, so it cannot steal the hover that opened it.
+
+It opens on click as well as on hover, since a phone has no hover and a tap is
+the only way to read a pin there. A tap on the map behind puts it away. It is
+also closed whenever pins are dropped: a marker removed from under the pointer
+never fires its `mouseout`, and the card would otherwise stand on the page with
+nothing under it.
+
 The card's content is read out of a ref by marker index rather than captured in
-the hover listener, so a pin that keeps its slot through a re-layout shows its new
-times without its listeners being rebuilt. The card opens above its pin and the
-map box clips its overflow, so `fitBounds` pads the top by 76px: a pin 40px from
-the edge would open a card half outside the frame. Padding the fit is quieter
-than letting the window pan the map, which would slide the pin out from under the
-pointer and close what it had just opened.
+the hover listener, so a pin that keeps its slot through a re-layout shows its
+new times without its listeners being rebuilt.
+
+**The card ranks its lines rather than stacking them.** Four lines of identical
+weight are a list, and a reader hovering a pin is not reading a list: they want
+the name, and then, only if the name was not enough, the rest. The card now has
+four levels down it. An eyebrow carries the track name in the track's own colour,
+because that colour is the only thing tying a card to the pin underneath it and
+nobody should have to learn a legend to use a map. The name follows in ink. Under
+it, one muted line of what and when. Under that, the facts: who is going, and how
+they get here.
+
+**How you get here is the question a map is being asked**, so a day pin names its
+arriving journeys: mode, where from, how long. They are taken from the legs
+already on the board, so they answer for whoever is being viewed rather than for
+the group in the abstract, and they stop at two. A day that splits can have a
+journey per group, and six of them turn a hover card into a timetable; the board
+itself is where the full list belongs. A grey saved pin has no journey and no
+time, so it gives its city and its vote count instead, which are what a saved
+place is read for.
+
+Both maps build the card through one shared `mapCard` in
+`apps/web/src/components/map-card.ts`. A reader with a Maps key and a reader
+without one are reading the same trip, and the keyless fallback drifting into a
+card of its own shape is a difference nobody asked for.
+
+**A travel problem is a mark, not a sentence.** A leg that does not fit its gap
+used to be labelled "does not fit the gap" wherever it showed, which spends a
+line of a crowded card on a phrase the colour had already said. It is now the
+warning triangle, `WarnMark`, with the phrase kept as its accessible name and its
+tooltip. The same mark appears on the agenda row, on the journey card in the
+event dialog, and on the map card.
+
+**The phrase itself was about the wrong thing.** "Does not fit the gap" describes
+the gap, but the mark sits beside a *person* in the "view as" menu and beside a
+*journey* on the board, so it read as a remark about them that had lost its
+subject. It now says "Not enough time to get there", which is true of whoever or
+whatever it is pinned to, in all four places it shows.
+
+**The mark also reaches people who are not looking.** The "view as" menu carries
+it beside anybody whose day does not join up, and beside "Everyone" when anybody
+at all is caught, which is what puts it on the closed control. Reading it off the
+filtered board would have defeated the point: the warning would vanish the moment
+you looked at somebody else, so it would only ever reach the person who already
+knew. The board memo is therefore split in two, `planned` before the "view as"
+filter and `board` after it, and the warning is read from `planned`.
 
 ## Shared UI conventions
 
@@ -2729,19 +2979,21 @@ to z-index and `transform` clipping) for free. The one thing
 `<dialog>` does _not_ do is lock body scroll, so the component does that
 explicitly; that was the actual cause of the double-scrollbar bug.
 
-**Every dialog stands at an edge, not in the middle.** What a dialog edits is
-almost always on the page behind it, a row in a list, a block on the board, a
-pin on a map, and a centred panel covers precisely that. Docking is therefore
-the default rather than a schedule-only trick: `dock` picks the side (right
-unless the caller knows that side is the one it must not cover) and the panel
-runs nearly the full height, which is also what stops a tall form from being a
-letterbox. The backdrop still dims, because the page behind an ordinary dialog
-is there to be read rather than used.
+**A dialog sits in the middle, unless it is previewing what it covers.** Docking
+every dialog to an edge was tried and reverted. The argument for it, that a
+dialog edits something on the page behind it and a centred panel covers exactly
+that, is only worth anything when the page behind is actually being looked at,
+and behind a dimmed backdrop it is not. What it cost was real: a panel pinned to
+one edge of a wide screen reads as an accident rather than a decision, and it
+made the app look unsure where its own dialogs live.
 
-`peek` gives the dim up as well, and narrows the panel to 40vw to leave more
-showing. It is for a dialog whose edits are drawn live on the page (5.0.15),
-where dimming what is being previewed would defeat the point, and it is the one
-case where the page stays scrollable while a dialog is open.
+So `peek` is now the only thing that moves a dialog. It gives up the dim,
+narrows the panel to 40vw and stands it at the edge `dock` names, for a dialog
+whose edits are drawn live on the page (5.0.15), where dimming or covering the
+preview would defeat the point. It is also the one case where the page stays
+scrollable while a dialog is open. Docking being a consequence of peeking rather
+than a setting of its own is what stops any other dialog from drifting back to
+an edge.
 
 **Focus restore is the app's job, not the browser's.** The native restore only
 fires when the dialog is closed while still in the document, which covers the
@@ -3122,6 +3374,53 @@ that indent and stood 56px off its own labels. Renamed to `.daygrid`. Worth
 remembering as a shape: a plain utility name under a page-scoped ancestor will
 eventually be claimed by the framework.
 
+**The board's window is a floor, not a wall.** It ran a fixed 6:00 to midnight,
+and anything outside was clamped onto the edge: an escape room booked at 4:55
+was drawn at 6:00, reading as a block that starts two hours after it does. Full
+24 hours on every day was the other extreme, spending a third of the column on
+track nobody schedules and making two days harder to compare, not easier.
+`windowStart` decides it per day instead, from the minutes the day actually
+holds: six in the morning unless something is earlier, in which case the window
+opens back to the hour that holds it.
+
+The window that moves while you are moving something has to move *exactly*
+right. The first attempt grew it towards the pointer in whole-hour steps and
+compensated with a `window.scrollBy`: an hour is 60px at a pixel a minute, so
+the board lurched 60px sideways of the hand, and the compensation lurched with
+it. Clamping the drag to the window instead killed the lurch and took the
+feature with it, since a block could then only be dragged to hours the board was
+already showing.
+
+What was wrong was the granularity, not the idea. `boardStart` is now driven
+straight off the dragged block, to the minute, so the window opens at exactly
+the speed of the hand and never steps. The grid grows downwards from a top edge
+that stays put, so opening it by *n* pixels pushes everything already on the
+board, including the block under the pointer, down by *n*. `Schedule` scrolls by
+the same *n* in the `useLayoutEffect` of the same render, before the browser
+paints, and the two cancel: the block is welded to the cursor, the hours simply
+appear above it. There is always somewhere to scroll to, because the document
+grew by precisely the distance being scrolled. Dragging back down closes the
+window again on the way, symmetrically, so a gesture cannot leave the board
+further open than the time it settled on. Measured drift over a 360px drag that
+opened the window three hours: zero pixels.
+
+Dragging alone runs out at the top of the screen, and on a page already scrolled
+down it runs out early, so a pointer held within `EDGE_PX` of the top carries on
+opening under its own power at a rate set by how far past that line it is: a
+crawl at the threshold, about two hours a second at the very top. It stops dead
+when the pointer leaves the zone, which is what makes it possible to stop on a
+minute.
+
+The compensation is only for gestures. A board opening for a time typed into a
+dialog is not being held onto by anyone, and that one is better read as the
+board opening than hidden by sliding the page under it, so it gets no scroll and
+keeps its transition: `.daygrid`'s height and `.hourline`'s top share
+`--sched-settle` with the blocks, so a settle reads as the board opening rather
+than as an axis jumping out from under its own events. The two mechanisms must
+not overlap, and `.still` is what keeps them apart: while a pointer owns the
+window the transitions come off, because an animation chasing a per-frame target
+is a board trailing its own cursor.
+
 **The place field takes the event's noun, and the menu counts votes.** "Location"
 said nothing the reader did not know; "Activity", "Food" and "Stay" say which
 list is about to open, and a journey gets "Ends at" because its place is where
@@ -3151,8 +3450,9 @@ before: the preview used to keep the saved location whatever the reader chose.
 event sitting from 21:00 to midnight on one day, which meant a three-night
 booking was three separate events to enter and three to correct. It now carries
 `end_day` on `events` and covers `[day, end_day)`: arrival inclusive, checkout
-morning exclusive, the same reading `lodging_options.check_in/check_out` has
-always had. One object, one write. `end_day` is on every event rather than on a
+morning exclusive as a _night_, the same reading
+`lodging_options.check_in/check_out` has always had. One object, one write.
+`end_day` is on every event rather than on a
 stay table of its own, and NULL means "begins and ends on its own day", which is
 true of everything else.
 
@@ -3168,17 +3468,222 @@ stay, not the night, so editing it from its third morning is the same edit.
 **The planner takes several origins.** `planLegs` used to be given one incoming
 event; it now takes a list and each person leaves from whichever origin they are
 on. That is what lets two halves of a group wake up in different buildings and
-get two different journeys to the same breakfast. Tonight's stays enter the plan
-re-anchored to `STAY_CHECK_IN`, which is the minute a stay has always been drawn
-at, so the walk home is still a real journey with a place on the board. The
-constant moved to `packages/core` because the client replans a day as it is
-edited and has to anchor it at exactly the same minute the server does.
+get two different journeys to the same breakfast.
+
+**A stay is a destination with no hour, so the walk home is anchored to its
+departure.** Every other journey is anchored to its arrival, because the fixed
+point is the thing you are trying not to be late for. Tonight's lodging has no
+such point: it is a date, and nobody can be late to their own bed. It first
+entered the plan re-anchored to `STAY_CHECK_IN`, which put the walk home at
+20:47 on a day that finished at 18:05, as though the group stood outside waiting
+for the hotel to open. The stay now enters at midnight, mirroring the morning
+where last night's stay is an origin at midnight for the same reason, and
+`PlannedLeg.openEnded` carries the fact through to `placeLeg`: you leave when
+the day finishes, you arrive when you arrive, and the leg is never tight because
+there is no gap to overrun. Both ends anchor it identically, since `planFor` and
+`replanLegs` pass the same minutes into the same core function.
 
 **A write touches a span, not a day.** `touched` now takes any number of days
 and recomputes every day from the earliest to one past the latest. A ranged stay
 changes many days' travel at once, and moving one has to cover where it was as
 well as where it is now, or the morning it used to feed keeps a journey out of a
 hotel nobody is in.
+
+**Nights and days are different questions, so there are two answers.** A stay is
+slept in over `[day, end_day)`, but it is _had_ over `[day, end_day]`: you are
+still in the room on the morning you leave, and that morning is where the day's
+first journey starts. Ending the band the evening before left the departure day
+looking like nobody had anywhere to sleep, on one of the days most likely to be
+read. `staysCovering` therefore answers for the nights, which is what the
+planner books journeys against, and `staysOnBoard` answers for the days, which
+is what is drawn. Keeping them apart is what stops a journey being planned back
+to a room that has already been vacated.
+
+**A checkout and a check-in on the same morning are one chip when the room does
+not change.** Once the band runs to checkout, a stay booked night by night draws
+twice on every day in between: the night ending and the night beginning, the
+same room named twice. `staysOnBoard` drops the checkout when the same people
+are booked back into the same place that night, and keeps both when they are
+not, because changing hotel that morning is exactly the thing the band should
+say out loud.
+
+**Both stay paths refuse a non-positive night count.** A stay covers at least
+one night: a checkout on or before the check-in day is a stay of zero or
+negative nights, which is not a thing a traveller can mean. Two paths set a
+stay's dates, and they used to disagree. The schedule stay path (`stayEnd` in
+`schedule.ts`) has always coerced a missing or backwards range up to one night,
+so it never stored a non-positive stay. The lodging path (`setDates` in
+`lodging.ts`, behind `PATCH /stays/:optionId/dates`, and the add / edit stay
+routes) validated the range only at the route, and only with a strict "checkout
+before check-in", so it let an equal pair (zero nights) through and did nothing
+at all when `setDates` was called directly. That meant the same trip could hold
+a stay one path would have rejected. Both paths now enforce the same rule:
+`setDates` refuses `check_in >= check_out` at the persistence layer, and the
+three discover stay routes refuse it at the edge with the existing
+`Check-out must be after check-in.` ("after" is strict, so an equal pair is
+refused too). The guard bites only when both ends are set; a half-filled range
+is undated, not invalid.
+
+**The schedule's header is two zones, not one.** It had grown into a single row
+carrying trip-level controls and the day stepper together, which meant the thing
+that changes the whole page and the thing that steps one board sat side by side
+looking equally important, and on a narrow screen they wrapped into each other.
+The page toolbar now holds only what applies to the trip: `Day | Agenda` on the
+left, `View as` and `+ Add` on the right, which is the same filter-left,
+action-right shape Discover uses. The day stepper moved inside the board as its
+own centered title bar with a rule under it, because the day is what the board
+_is_, not a setting applied to it. The `Day | Agenda` switch had also been
+clipping rather than wrapping: `.pills` sets `overflow: hidden` to clip its own
+rounded corners, and per spec that makes its automatic minimum size resolve to
+zero, so it was free to shrink to nothing. A breakpoint was never the fix.
+
+## Navigation motion
+
+There are two gestures and, after a redesign, two mechanisms. A tab change pages
+the whole section like a carousel: the outgoing page travels out one side while
+the incoming page travels in behind it, the two moving together as adjacent
+frames of one strip. A day step on the schedule moves only the calendar board in
+place. They looked alike enough to share one hook once, but they answer different
+questions (which way did the reader move along the tabs, versus which day is the
+board drawing) and they now have different implementations. `usePageTransition`
+owns the tab carousel; `useSlideIn` owns the board day step.
+
+**The tab change is a carousel, because that is what "continuous, like a page"
+means.** The earlier tab motion slid only the incoming panel in from the side and
+let the old one vanish, so there was a beat with nothing behind the arriving
+page. A reader described that as not seeing the page slide at all. A carousel has
+no such beat: something is always on screen travelling, so the reader feels they
+moved sideways along a filmstrip of tabs rather than that a panel was swapped.
+
+**A View Transition, not two live React trees and not a cloned snapshot.** React
+Router renders one route at a time, so showing both pages at once needs something
+to hold the outgoing one while the incoming one mounts. Three ways were weighed.
+Mounting the old route alongside the new inside a two-pane track gives the most
+control but runs a second copy of a section's effects, its data fetch and its
+slice of the trip's live event stream for the length of every move, and doubles
+the focus and scroll bookkeeping. Cloning the outgoing pane into a travelling
+image is cheaper but a clone taken mid-fetch captures whatever half-rendered
+state was on screen. `document.startViewTransition` snapshots the old and new
+panels into the browser's top layer and animates between them, which is exactly
+this effect and costs neither a second live tree nor a hand-built clone. Because
+the snapshots live in the top layer, their displacement never reaches the
+document, so paging two page-widths of content sideways still grows no horizontal
+scrollbar at a phone width, and the snapshots are gone the instant the move ends,
+so nothing is left holding a transform at rest.
+
+**The move is driven by hand rather than through React Router's own
+`viewTransition` flag, because the arriving page needs holding.** A View
+Transition captures the "new" snapshot the instant the DOM updates, and a section
+renders nothing until its own fetch resolves (often a hundred milliseconds or
+two, since `useApi` starts empty on every mount and there is no shared cache).
+Captured at that instant the incoming pane would be snapshotted blank and slide
+in empty, the same dead frame the old design had, only now on the incoming side.
+So the update callback is `async`: it navigates with `flushSync`, scrolls the
+incoming pane to its own top, and then waits for the panel to actually hold
+something before returning. The browser keeps the outgoing snapshot frozen and on
+screen for the whole of that wait, so when the two panels finally travel they are
+both populated and the viewport is never empty. Router's built-in flag commits
+the snapshot synchronously and gives no place to await readiness, which is why
+the transition is started directly instead. This is the same readiness idea the
+old incoming-only slide used, now spent on holding the outgoing page rather than
+on delaying an empty one.
+
+**Only the section below the chrome pages.** The pane is given a
+`view-transition-name` of `trippage` for the length of the move only, and
+everything else (the trip header, the tab strip, the background) is the
+transition `root`, whose old and new snapshots are given `animation: none` so
+they swap in place with no travel and no fade. The name is set inline when the
+move starts and cleared when it finishes, so at rest the pane carries no
+`view-transition-name` and establishes no stacking context, which matters because
+a lingering one would make the pane the containing block for the fixed dropdowns
+and dialogs anchored against the viewport and break their positioning.
+
+**Direction comes from a rank the caller supplies, because only the caller knows
+what forward means.** `usePageTransition` takes a `forward` flag, set from tab
+order (`i > currentIndex`), and writes it to a `data-page-nav` attribute the
+stylesheet reads to pick the keyframes: forward sends the old page out to the
+left and brings the new one in from the right, back reverses both. The board day
+step keeps its own rank on `dayRank(day) * 2 + viewIndex`, which puts a day step
+and a Day/Agenda switch on one line and stops the two being confused.
+
+**A full pane width, always one, on a symmetric curve.** The snapshots translate
+by `100%` of their own width, so the outgoing and incoming panes are edge to edge
+and the seam between them crosses the viewport as the strip slides; a fixed pixel
+nudge (the 64px the board step still uses) reads as a panel twitching and
+vanishing, not as one long strip moving past. The magnitude is one pane width
+whatever the rank gap, so jumping from the first tab to the last slides one page
+rather than flying through the tabs between; only the direction comes from the
+rank. The curve matters as much as the distance here, and it is deliberately not
+the board step's `cubic-bezier(0.22, 1, 0.36, 1)`. That easing front-loads so
+hard that over a full pane width the incoming page is all but arrived by the
+halfway point, leaving the second half of the move a near-still drift that the
+eye reads as a snap, which is what "not carousel enough" meant. A symmetric
+ease-in-out (`cubic-bezier(0.5, 0, 0.5, 1)`) spends the distance evenly, so at the
+temporal midpoint the two panes are each genuinely half in view with their edges
+meeting at the screen's centre, and the strip is seen to travel the whole time.
+The duration rises to 420ms from the board step's 380ms because a full pane width
+is a far longer trip than 64px and the extra time keeps the faster mid-move speed
+from turning into a flick. The two snapshots share one duration and one curve and
+the browser starts them on the same frame, so their eased progress is identical
+at every instant and the seam stays exactly adjacent (old right edge at the new
+left edge) throughout, with no gap and no overlap: they are locked without a
+hand-built shared track.
+
+**Nothing fades.** The panels are being moved, not replaced, so their snapshots
+carry transform-only keyframes and the default cross-fade the browser would apply
+is overridden. A panel that dimmed on the way in would say something had happened
+to its contents rather than to the reader's place in a sequence.
+
+**A stalled fetch is waited out, but only so far.** The readiness hold keeps the
+old page frozen while the new one fills, which is right until a fetch never
+resolves to anything at all: a section that renders no content and no error would
+otherwise freeze navigation on the page just left. `READY_CEILING_MS = 2000`
+caps the wait, after which the move plays regardless, which at worst is the rare
+empty arrival the hold exists to avoid and never a wedged UI. A section that
+errors renders its banner, which is content and ends the wait at once; the empty
+state ("Nothing added yet") is content too, with real children, so a genuinely
+empty section travels rather than being mistaken for one still loading.
+
+**Rapid input during a move is absorbed, and the end state is always clean.**
+While the snapshot overlay is on screen it sits in the top layer and a click
+lands on it rather than on the live tab beneath, so tabs mashed faster than a
+move completes are ignored until it ends rather than queued: a burst of clicks
+lands on the first tab reached, not the last, but never on a half-played or
+stale one. Every move clears its own name and direction only if it is still the
+current one (`active.current`), so a change that does slip in during a move (a
+keyboard activation, or a click at the seam) ends the running transition and
+navigates straight there instead of stacking a second one, and the older move
+finishing never strips the newer of its name. Browser Back and Forward change the
+route without going through the hook, so they swap instantly with no carousel,
+which is correct: the history buttons are not a step along the tab strip.
+
+**The board day step still scripts a 64px slide of the board alone.**
+`useSlideIn` is unchanged and still the schedule's, driven by `element.animate()`
+rather than a React `key` (which would remount the board and flash a wrongly
+sized grid until the ResizeObserver caught up) or a CSS class (which cannot
+replay itself, so a second step the same way would be still). Left unfilled the
+animation holds no transform afterwards, so the board never becomes a containing
+block for fixed overlays. Stepping to the next day changes what the calendar
+draws and nothing else, so the toolbar and the sticky map beside it stay put; the
+`.slidein` panel that wraps the board is `overflow-x: clip` (not `hidden`, which
+would make it a scroll container and steal the map's stickiness) so the board's
+64px travel grows no scrollbar. The panel no longer travels in the document on a
+tab change, so the gutter class that used to reserve room beside it was removed.
+
+**The tab strip's underline travels with the page.** It is one bar positioned
+against the scrolled tab row, sized in JS to whatever width the browser laid the
+label out to, and it is given its own `view-transition-name` so the browser
+carries it from the old tab to the new one over the same move as the page rather
+than leaving it to jump. It lands without animating the first time and after a
+resize, since neither is a tab change.
+
+**Reduced motion is honoured on both paths.** `usePageTransition` checks the query
+and skips the View Transition entirely, so the tab change becomes an instant swap
+with no snapshot and no travel; `useSlideIn` checks it too and does nothing; and
+an explicit reduced-motion block zeroes every `::view-transition-*` animation as a
+backstop for anything that reaches one anyway, alongside the underline and pill
+backgrounds, listing its selectors one by one so any newly animated selector has
+to be added to it by hand.
 
 ## Implementation status
 
@@ -3212,8 +3717,8 @@ Two seeded trips, chosen to exercise opposite ends of the layout engine:
   simultaneously_, which is precisely the case the layout engine exists for. Teams are
   reshuffled between slots (a one-person cyclic rotation on day 2, a full redraft on day 3)
   and the group repeatedly collapses back into one full-width block for meals. On day 2 the
-  board goes 5 columns → 5 columns → 1 → 4 → 1 in a single day, and the People view shows
-  twenty rows changing colour together at each switch. Every one of the 46 events carries an
+  board goes 5 columns → 5 columns → 1 → 4 → 1 in a single day. Every one of the 46
+  events carries an
   explicit attendee list, and three of them are nights at the locked lodging, which is what
   gives each morning's first journey somewhere to start from.
 
@@ -3582,11 +4087,12 @@ pre-line` so typed breaks survive to the card, still clamped to two lines so car
   calendar uses a larger Google map that defaults to previewing the day's city (from its
   coordinates) and draws track-coloured numbered pins with route lines; it falls back to
   the Leaflet/OpenStreetMap map when no key is present.
-- Schedule views: a Day / 3-day / People switcher with previous/next day navigation.
-  Day keeps the full interactive board plus the map; 3-day stacks per-day boards
-  (drag, resize, inline edit intact); People transposes it into one row per person.
-  Week and Agenda were dropped in the events rework: Week was 3-day with more
-  squeezing, and Agenda was a read-only restatement of Day that nobody opened.
+- Schedule views: a Day / People switcher with previous/next day navigation.
+  Day keeps the full interactive board plus the map; People transposes it into
+  one row per person. Week, Agenda and 3-day were all dropped in turn: Week was
+  3-day with more squeezing, Agenda was a read-only restatement of Day that
+  nobody opened, and 3-day cost a second clamp, a second layout and a third of
+  the width for one arrow press.
 - Crews (`crews`, `crew_members`): a saved selection of people, offered in the people
   picker. The tracks/parties model they replaced (`parties`, `party_membership`,
   `party_day`, `tracks.party_id`, time-segmented membership, crew-per-day cities, the

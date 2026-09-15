@@ -184,15 +184,6 @@ export function addPoi(
 	return id;
 }
 
-export function toggleSave(tripId: string, actorId: string, poiId: string): boolean {
-	if (!isMember(tripId, actorId)) return false;
-	const res = db
-		.prepare(`UPDATE pois SET saved = 1 - saved WHERE id = ? AND trip_id = ?`)
-		.run(poiId, tripId);
-	if (res.changes > 0) publish(tripId, 'pois');
-	return res.changes > 0;
-}
-
 export function toggleVote(tripId: string, actorId: string, poiId: string): boolean {
 	if (!isMember(tripId, actorId)) return false;
 	const poi = db.prepare(`SELECT 1 FROM pois WHERE id = ? AND trip_id = ?`).get(poiId, tripId);

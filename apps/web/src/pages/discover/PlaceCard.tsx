@@ -1,17 +1,15 @@
 import Cover from '../../components/Cover';
 import type { Poi } from '../../lib/api-types';
-import { CARD, OpenLink, RemoveCardButton, VotePill, VoteRule } from './card-controls';
+import { CARD, OnCalendarMark, OpenLink, VotePill, VoteRule } from './card-controls';
 import { MetaBits, parseHours, todayHours } from './place-meta';
-import { copy } from '../../copy';
-
-const c = copy.discover.placeCard;
 
 /**
  * One discovered place.
  *
  * The cover, title and meta are a single button, because clicking the place is
- * how you edit it; the vote, open and remove controls stay outside it so the
- * card never nests one interactive element inside another.
+ * how you edit it, and deleting it is a button inside that dialog; the vote and
+ * open controls stay outside the button so the card never nests one
+ * interactive element inside another.
  */
 export default function PlaceCard({
 	poi: p,
@@ -19,8 +17,7 @@ export default function PlaceCard({
 	tz,
 	pct,
 	onEdit,
-	onVote,
-	onRemove
+	onVote
 }: {
 	poi: Poi;
 	/** Identity for the grid's reorder animation. See `useFlip`. */
@@ -30,11 +27,10 @@ export default function PlaceCard({
 	pct: number;
 	onEdit: () => void;
 	onVote: () => void;
-	onRemove: () => void;
 }) {
 	const hrs = todayHours(parseHours(p.hours), tz);
 	return (
-		<article data-flip={flipKey} className={`${CARD} group/card`}>
+		<article data-flip={flipKey} className={CARD}>
 			<button
 				type="button"
 				onClick={onEdit}
@@ -65,17 +61,12 @@ export default function PlaceCard({
 			</button>
 
 			<div className="flex flex-none flex-col px-4 pt-2.5 pb-3.5">
-				{p.linked > 0 && (
-					<p className="mb-2.5 text-meta [overflow-wrap:anywhere] text-accent-ink">
-						{c.onCalendar(p.linked)}
-					</p>
-				)}
 				{/* Two controls, left aligned. The gap that used to sit here was
 				    `justify-between` pushing Open and Vote to the right edge. */}
 				<div className="flex flex-wrap items-center gap-1.5">
 					<VotePill votes={p.votes} youVoted={!!p.you_voted} subject={p.name} onVote={onVote} />
 					{p.url && <OpenLink url={p.url} name={p.name} />}
-					<RemoveCardButton label={c.removeLabel(p.name)} onClick={onRemove} className="ml-auto" />
+					{p.linked > 0 && <OnCalendarMark linked={p.linked} />}
 				</div>
 			</div>
 

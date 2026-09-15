@@ -4,8 +4,16 @@ import type { PlaceHit } from '../../lib/api-types';
 /** Shortest query worth a billed request. Mirrors MIN_QUERY on the server. */
 export const MIN_QUERY = 3;
 
-/** Identity for a result across a re-fetch: providers do not give stable ids. */
-export const hitKey = (h: PlaceHit) => `${h.name}|${h.lat}|${h.lng}`;
+/**
+ * Identity for a result across a re-fetch: providers do not give stable ids.
+ *
+ * The address is part of it because the coordinates are not always there. A
+ * suggestion arrives with null lat and lng, so two of them collapsed to the
+ * same key and React drew them as one row with a duplicate-key warning. Name
+ * and address together are what tells two suggestions apart on screen, so they
+ * are what tells them apart here.
+ */
+export const hitKey = (h: PlaceHit) => `${h.name}|${h.address ?? ''}|${h.lat}|${h.lng}`;
 
 /** Google's price level as the band people recognise. */
 export const priceStr = (level: number | null | undefined) =>

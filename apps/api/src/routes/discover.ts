@@ -1,8 +1,8 @@
 import { Hono } from 'hono';
 import { requireMember } from '../middleware';
 import { body, int, isoDay, num, optStr, str } from '../parse';
-import { fail, okOr } from '../respond';
-import type { Env } from '../types';
+import { fail, goneMessage, okOr } from '../respond';
+import type { Env, Trip } from '../types';
 import {
 	addPoi,
 	cityPois,
@@ -30,10 +30,28 @@ import {
 	MIN_QUERY,
 	type SearchKind
 } from '@trippy/server/places';
+import { isNameLength, nameTooLong, safeExternalUrl } from '@trippy/core/validate';
+import { haversineKm } from '@trippy/core/geo';
 
 export const discover = new Hono<Env>();
 
 discover.use('*', requireMember);
+
+/**
+ * The link a place or stay carries, normalised, or an error when it is not a
+ * link at all.
+ *
+ * Every write site shares this because the field is rendered straight into an
+ * `href`: `javascript:alert(1)` used to be stored and drawn as a real link, and
+ * a bare `banana` resolved against the app's own origin into a dead internal
+ * one. Blank stays blank; the field is optional.
+ */
+function readLink(raw: unknown): { url: string | null } | { error: string } {
+	const text = optStr(raw);
+	if (!text) return { url: null };
+	const safe = safeExternalUrl(text);
+	return safe ? { url: safe } : { error: 'Enter a web address starting with http:// or https://.' };
+}
 
 discover.get('/', async (c) => {
 	const trip = c.get('trip');
@@ -129,6 +147,33 @@ discover.get('/details', async (c) => {
 
 // --- Places -----------------------------------------------------------------
 
+/**
+ * How far from a city's centre a place may still be filed under that city.
+ *
+ * Generous on purpose. A city list is a list of places to go *from* a city, and
+ * that legitimately includes the day trip an hour out of town and the airport
+ * that is nowhere near the middle. What it is meant to catch is the search that
+ * was still showing Lisbon results when the city dropdown had already moved to
+ * Porto: those land hundreds of kilometres out, not eighty.
+ */
+const CITY_RADIUS_KM = 150;
+
+/**
+ * Why this place does not belong to this city, or null when it might.
+ *
+ * Returns null whenever it cannot know: a city the geocoder never placed, or a
+ * place typed by hand with no coordinates. Refusing on a guess would block
+ * perfectly good entries, and the only thing worth refusing here is the clearly
+ * wrong one.
+ */
+function wrongCity(trip: Trip, cityId: string, lat: number | null, lng: number | null): string | null {
+	if (lat === null || lng === null) return null;
+	const city = trip.cities.find((x) => x.id === cityId);
+	if (!city || city.lat === null || city.lng === null) return null;
+	if (haversineKm(lat, lng, city.lat, city.lng) <= CITY_RADIUS_KM) return null;
+	return `That place is not near ${city.name}. Switch the city first, or pick a closer result.`;
+}
+
 discover.post('/pois', async (c) => {
 	const trip = c.get('trip');
 	const b = await body(c);
@@ -141,6 +186,7 @@ discover.post('/pois', async (c) => {
 	if (!placeName && !activity) return fail(c, 400, 'Enter a name.');
 
 	const name = activity || placeName;
+	if (!isNameLength(name)) return fail(c, 400, nameTooLong());
 	let notes = optStr(b.notes);
 	if (activity && placeName) notes = notes ? `${placeName} · ${notes}` : placeName;
 
@@ -156,6 +202,14 @@ discover.post('/pois', async (c) => {
 
 	const hours = Array.isArray(b.hours) ? b.hours.map(String) : null;
 
+	const link = readLink(b.url);
+	if ('error' in link) return fail(c, 400, link.error);
+
+	const lat = num(b.lat);
+	const lng = num(b.lng);
+	const misfiled = wrongCity(trip, cityId, lat, lng);
+	if (misfiled) return fail(c, 400, misfiled);
+
 	const id = addPoi(
 		trip.id,
 		c.get('user').id,
@@ -163,9 +217,9 @@ discover.post('/pois', async (c) => {
 		name,
 		str(b.category),
 		notes,
-		optStr(b.url),
-		num(b.lat),
-		num(b.lng),
+		link.url,
+		lat,
+		lng,
 		{
 			rating: num(b.rating),
 			ratingCount: num(b.ratingCount),
@@ -179,7 +233,7 @@ discover.post('/pois', async (c) => {
 		// `attraction` and dropping every restaurant into the wrong tab.
 		optStr(b.kind) ?? undefined
 	);
-	if (!id) return fail(c, 400, 'Could not add that place.');
+	if (!id) return fail(c, 400, 'Could not add that location.');
 	return c.json({ id }, 201);
 });
 
@@ -187,20 +241,24 @@ discover.patch('/pois/:poiId', async (c) => {
 	const b = await body(c);
 	const name = str(b.name);
 	if (!name) return fail(c, 400, 'Enter a name.');
+	if (!isNameLength(name)) return fail(c, 400, nameTooLong());
+
+	const link = readLink(b.url);
+	if ('error' in link) return fail(c, 400, link.error);
 
 	return okOr(
 		c,
 		updatePoi(c.get('trip').id, c.get('user').id, c.req.param('poiId'), {
 			name,
 			notes: optStr(b.notes),
-			url: optStr(b.url),
+			url: link.url,
 			// Patch semantics: only forwarded when the client actually sent it.
-			// Defaulting it here would reclassify a food place as an attraction
+			// Defaulting it here would reclassify a food location as an attraction
 			// every time someone renamed one.
 			kind: b.kind === undefined ? undefined : optStr(b.kind)
 		}),
 		404,
-		'Could not save that place.'
+		goneMessage('location')
 	);
 });
 
@@ -209,7 +267,7 @@ discover.delete('/pois/:poiId', (c) =>
 		c,
 		removePoi(c.get('trip').id, c.get('user').id, c.req.param('poiId')),
 		404,
-		'Could not remove that place.'
+		goneMessage('location')
 	)
 );
 
@@ -220,7 +278,7 @@ discover.post('/pois/:poiId/vote', (c) =>
 		c,
 		toggleVote(c.get('trip').id, c.get('user').id, c.req.param('poiId')),
 		404,
-		'Could not vote on that place.'
+		goneMessage('location')
 	)
 );
 
@@ -235,6 +293,18 @@ discover.post('/pois/:poiId/vote', (c) =>
 function optDay(v: unknown): string | null | 'bad' {
 	if (optStr(v) === null) return null;
 	return isoDay(v) ?? 'bad';
+}
+
+/**
+ * A stay covers at least one night, so a checkout on or before the check-in day
+ * is refused. "After" is strict: an equal pair is a zero-night stay and a
+ * reversed pair is negative, and neither is something a traveller can mean. This
+ * mirrors the schedule stay path and the guard in `setDates`, so the same trip
+ * cannot hold a stay one path would have rejected. Only meaningful once both
+ * ends are set; a half-filled range is undated rather than invalid.
+ */
+function checkoutNotAfterCheckIn(checkIn: string | null, checkOut: string | null): boolean {
+	return !!checkIn && !!checkOut && checkIn >= checkOut;
 }
 
 /**
@@ -273,6 +343,7 @@ discover.post('/stays', async (c) => {
 
 	const name = str(b.name);
 	if (!name) return fail(c, 400, 'Enter a name.');
+	if (!isNameLength(name)) return fail(c, 400, nameTooLong());
 
 	const price = stayPriceCents(b);
 	if (price === 'bad') return fail(c, 400, 'Enter a valid price, or leave it blank.');
@@ -280,26 +351,34 @@ discover.post('/stays', async (c) => {
 	const checkIn = optDay(b.checkIn);
 	const checkOut = optDay(b.checkOut);
 	if (checkIn === 'bad' || checkOut === 'bad') return fail(c, 400, 'Pick valid dates.');
-	if (checkIn && checkOut && checkIn > checkOut) {
+	if (checkoutNotAfterCheckIn(checkIn, checkOut)) {
 		return fail(c, 400, 'Check-out must be after check-in.');
 	}
 
-	const id = addOption(
-		trip.id,
-		c.get('user').id,
-		str(b.cityId),
-		name,
+	const stayLink = readLink(b.url);
+	if ('error' in stayLink) return fail(c, 400, stayLink.error);
+
+	const stayLat = num(b.lat);
+	const stayLng = num(b.lng);
+	const elsewhere = wrongCity(trip, str(b.cityId), stayLat, stayLng);
+	if (elsewhere) return fail(c, 400, elsewhere);
+
+	const id = addOption(trip.id, c.get('user').id, str(b.cityId), name, {
 		// `notes` is the field name the add popup uses for the one free-text line
 		// a stay carries; the column has always been called `tag`.
-		str(b.tag) || str(b.notes),
-		price,
+		tag: str(b.tag) || str(b.notes),
+		priceCents: price,
 		// Blank: the server falls back to the trip's home currency.
-		str(b.currency),
-		optStr(b.url),
+		currency: str(b.currency),
+		url: stayLink.url,
 		checkIn,
 		checkOut,
-		optStr(b.photo)
-	);
+		photo: optStr(b.photo),
+		// Kept so the stay can be booked onto the calendar and the morning's first
+		// journey has somewhere to start from. Null for a stay typed by hand.
+		lat: stayLat,
+		lng: stayLng
+	});
 	if (!id) return fail(c, 400, 'Could not add that stay.');
 	return c.json({ id }, 201);
 });
@@ -309,7 +388,7 @@ discover.post('/stays/:optionId/vote', (c) =>
 		c,
 		lodgingVote(c.get('trip').id, c.get('user').id, c.req.param('optionId')),
 		404,
-		'Could not vote on that stay.'
+		goneMessage('stay')
 	)
 );
 
@@ -329,7 +408,7 @@ discover.delete('/stays/:optionId', (c) =>
 		c,
 		removeOption(c.get('trip').id, c.get('user').id, c.req.param('optionId')),
 		404,
-		'Could not remove that stay.'
+		goneMessage('stay')
 	)
 );
 
@@ -346,6 +425,7 @@ discover.patch('/stays/:optionId', async (c) => {
 
 	const name = str(b.name);
 	if (!name) return fail(c, 400, 'Enter a name.');
+	if (!isNameLength(name)) return fail(c, 400, nameTooLong());
 
 	const price = stayPriceCents(b);
 	if (price === 'bad') return fail(c, 400, 'Enter a valid price, or leave it blank.');
@@ -353,9 +433,12 @@ discover.patch('/stays/:optionId', async (c) => {
 	const checkIn = optDay(b.checkIn);
 	const checkOut = optDay(b.checkOut);
 	if (checkIn === 'bad' || checkOut === 'bad') return fail(c, 400, 'Pick valid dates.');
-	if (checkIn && checkOut && checkIn > checkOut) {
+	if (checkoutNotAfterCheckIn(checkIn, checkOut)) {
 		return fail(c, 400, 'Check-out must be after check-in.');
 	}
+
+	const editLink = readLink(b.url);
+	if ('error' in editLink) return fail(c, 400, editLink.error);
 
 	return okOr(
 		c,
@@ -364,12 +447,12 @@ discover.patch('/stays/:optionId', async (c) => {
 			tag: str(b.tag) || str(b.notes),
 			priceCents: price,
 			currency: str(b.currency),
-			url: optStr(b.url),
+			url: editLink.url,
 			checkIn,
 			checkOut
 		}),
 		404,
-		'Could not save that stay.'
+		goneMessage('stay')
 	);
 });
 
@@ -378,13 +461,13 @@ discover.patch('/stays/:optionId/dates', async (c) => {
 	const checkIn = optDay(b.checkIn);
 	const checkOut = optDay(b.checkOut);
 	if (checkIn === 'bad' || checkOut === 'bad') return fail(c, 400, 'Pick valid dates.');
-	if (checkIn && checkOut && checkIn > checkOut) {
+	if (checkoutNotAfterCheckIn(checkIn, checkOut)) {
 		return fail(c, 400, 'Check-out must be after check-in.');
 	}
 	return okOr(
 		c,
 		setDates(c.get('trip').id, c.get('user').id, c.req.param('optionId'), checkIn, checkOut),
 		404,
-		'Could not save those dates.'
+		goneMessage('stay')
 	);
 });

@@ -11,7 +11,7 @@ import type { Crew } from '../people/types';
  * than tidying it on the way in.
  */
 
-export type ViewMode = 'day' | '3day' | 'people';
+export type ViewMode = 'day' | 'agenda';
 
 export type Member = { id: string; name: string; role: string };
 
@@ -50,6 +50,8 @@ export type EventRow = {
 	travel_mode: string | null;
 	/** Trip member ids. Empty means the whole group. */
 	people: string[];
+	/** Bumped by every edit. Sent back on save to detect a lost update. */
+	version: number;
 };
 
 /**
@@ -113,9 +115,12 @@ export type BoardDay = {
 	day: string;
 	city: Cell | null;
 	events: EventRow[];
-	/** Tonight's lodgings, drawn as bands. More than one when the group splits. */
+	/**
+	 * The day's lodgings, drawn as bands, the morning of checkout included.
+	 * More than one when the group splits.
+	 */
 	stays: EventRow[];
-	/** Last night's stays, where the morning starts. Never drawn: they are on yesterday. */
+	/** Last night's stays, where the morning starts. */
 	incoming: EventRow[];
 	legs: LegRow[];
 };
@@ -129,6 +134,12 @@ export type ScheduleData = {
 	me: string;
 	crews: Crew[];
 	saved: SavedPoi[];
+	/**
+	 * The stays a night can be booked into. Same shape as `saved` and kept
+	 * separate from it: a stay block picks from this list, everything else picks
+	 * from that one, and the two ids are written to different columns.
+	 */
+	stays: SavedPoi[];
 	cities: (Cell | null)[];
 	mapsKey: string;
 };

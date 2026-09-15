@@ -63,6 +63,20 @@ export function isLocatedType(t: EventType): boolean {
 export const STAY_CHECK_IN = 21 * 60;
 
 /**
+ * The shortest event that may be stored, in minutes.
+ *
+ * It is a display floor as much as a data rule: the grid draws a minute as a
+ * pixel, so anything shorter has no room for its own title and becomes an
+ * unreadable sliver. It lives in core because the server enforces it, the API
+ * quotes it in its refusal, and the client has to offer the same floor in its
+ * pickers, and three separate copies of the number would eventually disagree.
+ */
+export const MIN_EVENT_MINS = 15;
+
+/** The last minute of a day, as the grid counts them: midnight ends the day. */
+export const DAY_END_MIN = 24 * 60;
+
+/**
  * How a journey is made.
  *
  * Ordered slowest to fastest over the ground, which is also roughly the order

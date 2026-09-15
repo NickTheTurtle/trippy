@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { requireMember } from '../middleware';
-import { body, str } from '../parse';
-import { fail, ok } from '../respond';
+import { body, str, strList } from '../parse';
+import { fail, goneMessage, ok, okOr } from '../respond';
 import type { Env } from '../types';
 import {
 	addPerson,
@@ -11,6 +11,7 @@ import {
 	renameMember,
 	setMemberEmail
 } from '@trippy/server/members';
+import { createCrew, crewsForTrip, deleteCrew, editCrew } from '@trippy/server/schedule';
 
 export const people = new Hono<Env>();
 
@@ -26,9 +27,54 @@ people.get('/', (c) => {
 		// `invited` tag, and removing that row deletes the invite with it. A
 		// second representation of the same fact is a second thing to keep in
 		// sync, and this one was never rendered by either client.
-		people: listPeople(trip.id)
+		people: listPeople(trip.id),
+		// A crew is a saved group of members, so it is served beside the roster it
+		// is drawn from. The schedule reads crews too, but only to fill its people
+		// picker; nothing about a crew belongs to a day.
+		crews: crewsForTrip(trip.id)
 	});
 });
+
+// --- Crews ------------------------------------------------------------------
+//
+// Registered before the `/:userId` routes below so that "crews" is never read
+// as a member id.
+
+people.post('/crews', async (c) => {
+	const b = await body(c);
+	const name = str(b.name);
+	if (!name) return fail(c, 400, 'Enter a name.');
+	const id = createCrew(c.get('trip').id, c.get('user').id, name, strList(b.people));
+	if (!id) return fail(c, 403, 'Not allowed');
+	return c.json({ id }, 201);
+});
+
+people.patch('/crews/:crewId', async (c) => {
+	const b = await body(c);
+	const name = str(b.name);
+	if (b.name !== undefined && !name) return fail(c, 400, 'Enter a name.');
+	return okOr(
+		c,
+		editCrew(
+			c.req.param('crewId'),
+			c.get('trip').id,
+			c.get('user').id,
+			name || undefined,
+			b.people === undefined ? undefined : strList(b.people)
+		),
+		404,
+		goneMessage('crew')
+	);
+});
+
+people.delete('/crews/:crewId', (c) =>
+	okOr(
+		c,
+		deleteCrew(c.req.param('crewId'), c.get('trip').id, c.get('user').id),
+		404,
+		goneMessage('crew')
+	)
+);
 
 people.post('/invites', async (c) => {
 	const payload = await body(c);

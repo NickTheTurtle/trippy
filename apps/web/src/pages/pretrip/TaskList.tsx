@@ -1,7 +1,7 @@
 import EmptyState from '../../components/ui/EmptyState';
+import FlipGrid from '../../components/ui/FlipGrid';
 import MultiSelect from '../../components/ui/MultiSelect';
-import { IconButton } from '../../components/ui/buttons';
-import { CheckIcon, MinusIcon, PencilIcon, TrashIcon } from '../../components/ui/icons';
+import { CheckIcon, MinusIcon } from '../../components/ui/icons';
 import type { Task } from './types';
 import { copy } from '../../copy';
 
@@ -28,8 +28,7 @@ export default function TaskList({
 	me,
 	onToggle,
 	onSetDone,
-	onEdit,
-	onRemove
+	onEdit
 }: {
 	items: Task[];
 	kind: 'task' | 'packing';
@@ -38,8 +37,8 @@ export default function TaskList({
 	onToggle: (taskId: string, done: boolean) => void;
 	/** Say exactly who has finished a task, in one press. */
 	onSetDone: (task: Task, doneIds: string[]) => void;
+	/** Pressing the row's label opens it; the delete lives in that dialog. */
 	onEdit: (task: Task) => void;
-	onRemove: (task: Task) => void;
 }) {
 	if (items.length === 0) {
 		// No button here: every section that renders this list already carries its
@@ -49,14 +48,23 @@ export default function TaskList({
 	}
 
 	return (
-		<ul className="m-0 flex list-none flex-col gap-0.5 p-0">
+		<FlipGrid
+			as="ul"
+			// Ticking a row sends it to the bottom of the list, so what moved is
+			// what is done. The label is in the signature too: a rename can change a
+			// row's height, which moves everything under it.
+			signature={items.map((it) => `${it.id}:${it.done}:${it.label}`).join(',')}
+			className="m-0 flex list-none flex-col gap-0.5 p-0"
+		>
 			{items.map((it) => {
 				const assigned = it.people.length > 0;
 				return (
-					<li key={it.id}>
-						{/* `group` so the row's buttons can stay hidden until it is hovered
-						    without a hover-only stylesheet rule. */}
-						<div className="group flex min-w-0 items-center gap-3 rounded-md px-1.5 py-2 text-body hover:bg-surface-2">
+					<li key={it.id} data-flip={it.id}>
+						{/* `group` so the leading box can take its cue from the whole row
+						    being hovered, not just from the 18px box itself. Wraps rather
+						    than shrinks: on a narrow screen the label was squeezed to two
+						    letters and an ellipsis while the controls kept their width. */}
+						<div className="group flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 rounded-md px-1.5 py-2 text-body hover:bg-surface-2">
 							<Box
 								state={it.done ? 'on' : it.doneCount > 0 ? 'part' : 'off'}
 								label={
@@ -69,12 +77,15 @@ export default function TaskList({
 								}
 							/>
 
-							<span
-								className={`min-w-0 flex-1 truncate ${it.done ? 'text-ink-faint line-through' : ''}`}
+							<button
+								type="button"
+								onClick={() => onEdit(it)}
+								aria-label={c.editLabel(kind, it.label)}
 								title={it.label}
+								className={`min-w-0 flex-1 basis-48 cursor-pointer truncate border-0 bg-transparent p-0 text-left text-body ${it.done ? 'text-ink-faint line-through' : ''}`}
 							>
 								{it.label}
-							</span>
+							</button>
 
 							{it.flag && <span className="chip flex-none border-warn text-warn">{it.flag}</span>}
 
@@ -94,24 +105,11 @@ export default function TaskList({
 									/>
 								</div>
 							)}
-
-							<span className="flex flex-none gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
-								<IconButton label={c.editLabel(kind, it.label)} onClick={() => onEdit(it)}>
-									<PencilIcon />
-								</IconButton>
-								<IconButton
-									label={c.removeLabel(kind, it.label)}
-									danger
-									onClick={() => onRemove(it)}
-								>
-									<TrashIcon />
-								</IconButton>
-							</span>
 						</div>
 					</li>
 				);
 			})}
-		</ul>
+		</FlipGrid>
 	);
 }
 

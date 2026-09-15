@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildFlows, countCrossings, layoutDay, personBands, rankEvents, type LayoutEvent } from '@trippy/core/layout';
+import { buildFlows, countCrossings, layoutDay, rankEvents, type LayoutEvent } from '@trippy/core/layout';
 
 function placed(events: LayoutEvent[]) {
 	return layoutDay(events).placed;
@@ -128,31 +128,5 @@ describe('rankEvents and countCrossings', () => {
 			{ from: 'a', to: 'c', at: 10 * 60, people: ['alice'] },
 			{ from: 'b', to: 'd', at: 10 * 60, people: ['bob'] }
 		], rank)).toBe(1);
-	});
-});
-
-describe('personBands', () => {
-	it('creates gap and event bands clipped to the day bounds', () => {
-		const bands = personBands([
-			{ id: 'breakfast', start: 8 * 60, end: 10 * 60, people: ['alice'] },
-			{ id: 'museum', start: 11 * 60, end: 13 * 60, people: ['alice'] }
-		], ['alice', 'bob'], 9 * 60, 12 * 60);
-
-		expect(bands.get('alice')).toEqual([
-			{ eventId: 'breakfast', start: 9 * 60, end: 10 * 60 },
-			{ eventId: null, start: 10 * 60, end: 11 * 60 },
-			{ eventId: 'museum', start: 11 * 60, end: 12 * 60 }
-		]);
-		expect(bands.get('bob')).toEqual([{ eventId: null, start: 9 * 60, end: 12 * 60 }]);
-	});
-
-	it('skips events outside or already covered by the current cursor', () => {
-		const bands = personBands([
-			{ id: 'before', start: 7 * 60, end: 8 * 60, people: ['alice'] },
-			{ id: 'long', start: 9 * 60, end: 12 * 60, people: ['alice'] },
-			{ id: 'inside', start: 10 * 60, end: 11 * 60, people: ['alice'] }
-		], ['alice'], 9 * 60, 12 * 60);
-
-		expect(bands.get('alice')).toEqual([{ eventId: 'long', start: 9 * 60, end: 12 * 60 }]);
 	});
 });

@@ -2,10 +2,13 @@ import { useState } from 'react';
 import { api } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
 import Modal, { ModalFooter, ModalForm } from '../../components/ui/Modal';
+import { useDeleteAction } from '../../components/ui/useDeleteAction';
 import { Field, FieldShell } from '../../components/ui/Field';
 import { LinkButton } from '../../components/ui/buttons';
 import MultiSelect from '../../components/ui/MultiSelect';
+import { crewGroups, memberOptions } from '../../lib/people';
 import type { TaskDraft } from './types';
+import type { Crew } from '../people/types';
 import { copy } from '../../copy';
 
 const c = copy.preparation.taskDialog;
@@ -28,21 +31,35 @@ const c = copy.preparation.taskDialog;
 export default function EditTask({
 	draft,
 	members,
+	crews,
 	me,
 	tripId,
 	onClose,
-	onSaved
+	onSaved,
+	onDelete
 }: {
 	draft: TaskDraft;
 	members: { id: string; name: string }[];
+	crews: Crew[];
 	me: string;
 	tripId: string;
 	onClose: () => void;
 	onSaved: () => void;
+	/** Null when adding: there is nothing yet to delete. */
+	onDelete?: (() => void | Promise<void>) | null;
 }) {
 	const [label, setLabel] = useState(draft.label);
 	const [assignees, setAssignees] = useState<Set<string>>(new Set(draft.assignees));
 	const editing = draft.id !== null;
+
+	const del = useDeleteAction({
+		title:
+			draft.kind === 'packing'
+				? copy.preparation.deleteTask.packingTitle(draft.label)
+				: copy.preparation.deleteTask.taskTitle(draft.label),
+		busyLabel: copy.common.deleting,
+		onDelete
+	});
 
 	const save = useMutation(
 		async () => {
@@ -67,51 +84,53 @@ export default function EditTask({
 	);
 
 	return (
-		<Modal open size="sm" title={c.title(draft.kind, editing)} onClose={onClose}>
-			<ModalForm onSubmit={save.submit}>
-				<div className="mbody flex flex-col gap-4">
-					<Field
-						label={c.labelField}
-						autoFocus
-						required
-						value={label}
-						onChange={(e) => setLabel(e.target.value)}
+		<>
+			<Modal open={!del.asking} size="sm" title={c.title(draft.kind, editing)} onClose={onClose}>
+				<ModalForm onSubmit={save.submit}>
+					<div className="mbody flex flex-col gap-4">
+						<Field
+							label={c.labelField}
+							autoFocus
+							required
+							value={label}
+							onChange={(e) => setLabel(e.target.value)}
+						/>
+
+						{draft.kind === 'task' && (
+							<div className="flex flex-col gap-2">
+								<FieldShell label={c.assignLabel} optional>
+									<MultiSelect
+										options={memberOptions(members, me, copy.preparation.youSuffix)}
+										groups={crewGroups(crews)}
+										selected={[...assignees]}
+										onChange={(next) => setAssignees(new Set(next))}
+										ariaLabel={c.assignLabel}
+										placeholder={members.length === 0 ? c.noMembers : c.assignPlaceholder}
+									/>
+								</FieldShell>
+								{members.length > 2 && (
+									<div className="flex gap-3 px-1">
+										<LinkButton onClick={() => setAssignees(new Set(members.map((m) => m.id)))}>
+											{c.selectEveryone}
+										</LinkButton>
+										<LinkButton onClick={() => setAssignees(new Set())}>{c.clear}</LinkButton>
+									</div>
+								)}
+							</div>
+						)}
+					</div>
+
+					<ModalFooter
+						error={save.error}
+						onClose={onClose}
+						busy={save.busy}
+						busyLabel={editing ? copy.common.saving : copy.common.adding}
+						submitLabel={editing ? copy.common.save : copy.common.add}
+						start={del.button}
 					/>
-
-					{draft.kind === 'task' && (
-						<div className="flex flex-col gap-2">
-							<FieldShell label={c.assignLabel} optional>
-								<MultiSelect
-									options={members.map((m) => ({
-										value: m.id,
-										label: m.name + (m.id === me ? copy.preparation.youSuffix : '')
-									}))}
-									selected={[...assignees]}
-									onChange={(next) => setAssignees(new Set(next))}
-									ariaLabel={c.assignLabel}
-									placeholder={members.length === 0 ? c.noMembers : c.assignPlaceholder}
-								/>
-							</FieldShell>
-							{members.length > 2 && (
-								<div className="flex gap-3 px-1">
-									<LinkButton onClick={() => setAssignees(new Set(members.map((m) => m.id)))}>
-										{c.selectEveryone}
-									</LinkButton>
-									<LinkButton onClick={() => setAssignees(new Set())}>{c.clear}</LinkButton>
-								</div>
-							)}
-						</div>
-					)}
-				</div>
-
-				<ModalFooter
-					error={save.error}
-					onClose={onClose}
-					busy={save.busy}
-					busyLabel={editing ? copy.common.saving : copy.common.adding}
-					submitLabel={editing ? copy.common.save : copy.common.add}
-				/>
-			</ModalForm>
-		</Modal>
+				</ModalForm>
+			</Modal>
+			{del.confirm}
+		</>
 	);
 }

@@ -14,8 +14,9 @@
  * takes them from.
  */
 
-import { CompassIcon, TrashIcon, UpvoteIcon } from '../../components/ui/icons';
+import { CalendarIcon, CompassIcon, TrashIcon, UpvoteIcon } from '../../components/ui/icons';
 import { copy } from '../../copy';
+import { safeExternalUrl } from '@trippy/core/validate';
 
 /** `.card` is the shared surface; the rest is this page's card geometry. The
     old string also carried an `.opt` class that no stylesheet defines. */
@@ -55,13 +56,37 @@ export function VotePill({
 	);
 }
 
-/** "Open" as an icon, with the accessible name the text button used to carry. */
+/**
+ * "Open" as an icon, with the accessible name the text button used to carry.
+ *
+ * The href is re-checked here rather than trusted from the row. The write path
+ * validates too, but rows predating that check are still in the database, and a
+ * link is the one field whose stored value becomes executable context.
+ */
 export function OpenLink({ url, name }: { url: string; name: string }) {
+	const safe = safeExternalUrl(url);
+	if (!safe) return null;
 	return (
-		<a className="btn small" href={url} target="_blank" rel="noopener">
+		<a className="btn small" href={safe} target="_blank" rel="noopener">
 			<CompassIcon />
 			<span className="sr-only">{copy.discover.card.openLabel(name)}</span>
 		</a>
+	);
+}
+
+/**
+ * The mark in a card's bottom right corner saying this place or stay already
+ * has a place on the calendar. Drawn rather than written, because a card is a
+ * grid of small tiles and a sentence there competed with the name; the count it
+ * used to spell out lives in its accessible name instead.
+ */
+export function OnCalendarMark({ linked }: { linked: number }) {
+	const label = copy.discover.card.onCalendar(linked);
+	return (
+		<span className="ml-auto flex-none text-accent-ink" title={label}>
+			<CalendarIcon />
+			<span className="sr-only">{label}</span>
+		</span>
 	);
 }
 

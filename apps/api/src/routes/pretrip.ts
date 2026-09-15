@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { requireMember } from '../middleware';
 import { body, bool, int, num, optStr, str, strList } from '../parse';
-import { fail, okOr } from '../respond';
+import { fail, goneMessage, okOr } from '../respond';
 import type { Env } from '../types';
 import { addTask, listTasks, removeTask, toggleTask, updateTask } from '@trippy/server/tasks';
 import {
@@ -12,6 +12,8 @@ import {
 	updateCostItem
 } from '@trippy/server/costs';
 import { ensureRatesFresh, knownCurrencies } from '@trippy/server/fx';
+import { crewsForTrip } from '@trippy/server/schedule';
+import { amountTooLarge, isAmountInRange, isNameLength, nameTooLong } from '@trippy/core/validate';
 
 export const pretrip = new Hono<Env>();
 
@@ -25,8 +27,11 @@ pretrip.get('/', (c) => {
 	return c.json({
 		me: c.get('user').id,
 		members: trip.memberList.map((m) => ({ id: m.id, name: m.name })),
+		// Crews ride along for the people pickers in the task and cost dialogs:
+		// assigning a saved group is one pick there instead of five.
+		crews: crewsForTrip(trip.id),
 		tasks: listTasks(trip.id, 'task'),
-		packing: listTasks(trip.id, 'packing'),
+		packing: listTasks(trip.id, 'packing', c.get('user').id),
 		currency: trip.home_currency,
 		currencies: knownCurrencies().sort(),
 		memberCount: trip.members.length,
@@ -41,6 +46,7 @@ pretrip.post('/tasks', async (c) => {
 	const b = await body(c);
 	const label = str(b.label);
 	if (!label) return fail(c, 400, 'Enter a name.');
+	if (!isNameLength(label)) return fail(c, 400, nameTooLong());
 
 	const kind = str(b.kind) === 'packing' ? 'packing' : 'task';
 	const id = addTask(c.get('trip').id, c.get('user').id, kind, label, strList(b.assignees), null);
@@ -58,6 +64,7 @@ pretrip.put('/tasks/:taskId', async (c) => {
 	const b = await body(c);
 	const label = str(b.label);
 	if (!label) return fail(c, 400, 'Enter a name.');
+	if (!isNameLength(label)) return fail(c, 400, nameTooLong());
 	const result = updateTask(
 		c.get('trip').id,
 		c.get('user').id,
@@ -69,7 +76,7 @@ pretrip.put('/tasks/:taskId', async (c) => {
 	if (!result.ok) {
 		return result.reason === 'conflict'
 			? fail(c, 409, 'Someone else changed this task. Reload to see their version.')
-			: fail(c, 404, 'Could not save that task.');
+			: fail(c, 404, goneMessage('task'));
 	}
 	return c.json({ ok: true, version: result.version });
 });
@@ -91,7 +98,7 @@ pretrip.post('/tasks/:taskId/toggle', async (c) => {
 		optStr(b.userId) ?? undefined,
 		bool(b.done)
 	);
-	if (!result.ok) return fail(c, 404, 'Could not tick that box.');
+	if (!result.ok) return fail(c, 404, goneMessage('task'));
 	return c.json({ ok: true, done: result.done });
 });
 
@@ -100,7 +107,7 @@ pretrip.delete('/tasks/:taskId', (c) =>
 		c,
 		removeTask(c.get('trip').id, c.get('user').id, c.req.param('taskId')),
 		404,
-		'Could not remove that task.'
+		goneMessage('task')
 	)
 );
 
@@ -118,13 +125,31 @@ function readItem(b: Record<string, unknown>) {
 	};
 }
 
+/**
+ * What is wrong with a cost item's amount, or null when nothing is.
+ *
+ * Shared by create and update so the two cannot drift. Each case used to fall
+ * through to "Could not add that item.", which is the same sentence for a
+ * negative price, a rounding-to-nothing price and a price large enough to make
+ * the trip total meaningless. An estimate of `0.001` rounded to zero cents and
+ * saved as `$0` without a word.
+ */
+function amountProblem(cents: number | null): string | null {
+	if (cents === null) return 'Enter a valid amount.';
+	if (cents < 0) return 'An estimate cannot be negative.';
+	if (cents === 0) return 'Enter an amount above zero.';
+	if (!isAmountInRange(cents)) return amountTooLarge();
+	return null;
+}
+
 pretrip.post('/costs', async (c) => {
 	const item = readItem(await body(c));
 	// Checked here rather than left to `addCostItem`, which can only answer
 	// false and would report a missing description as "Could not add that item."
 	if (!item.label) return fail(c, 400, 'Enter a description.');
-	if (item.cents === null) return fail(c, 400, 'Enter a valid amount.');
-	if (!addCostItem(c.get('trip').id, c.get('user').id, { ...item, cents: item.cents })) {
+	const bad = amountProblem(item.cents);
+	if (bad) return fail(c, 400, bad);
+	if (!addCostItem(c.get('trip').id, c.get('user').id, { ...item, cents: item.cents as number })) {
 		return fail(c, 400, 'Could not add that item.');
 	}
 	return c.json({ ok: true }, 201);
@@ -133,12 +158,13 @@ pretrip.post('/costs', async (c) => {
 pretrip.put('/costs/:itemId', async (c) => {
 	const item = readItem(await body(c));
 	if (!item.label) return fail(c, 400, 'Enter a description.');
-	if (item.cents === null) return fail(c, 400, 'Enter a valid amount.');
+	const bad = amountProblem(item.cents);
+	if (bad) return fail(c, 400, bad);
 	return okOr(
 		c,
 		updateCostItem(c.get('trip').id, c.get('user').id, c.req.param('itemId'), {
 			...item,
-			cents: item.cents
+			cents: item.cents as number
 		}),
 		400,
 		'Could not save that item.'
@@ -150,6 +176,6 @@ pretrip.delete('/costs/:itemId', (c) =>
 		c,
 		removeCostItem(c.get('trip').id, c.get('user').id, c.req.param('itemId')),
 		404,
-		'Could not remove that item.'
+		goneMessage('item')
 	)
 );

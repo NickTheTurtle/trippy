@@ -7,7 +7,6 @@ import FlipGrid from '../components/ui/FlipGrid';
 import { useTrip } from './TripShell';
 import Select from '../components/ui/Select';
 import FormError from '../components/ui/FormError';
-import ConfirmDialog from '../components/ui/ConfirmDialog';
 import EmptyState from '../components/ui/EmptyState';
 import type { DiscoverData, Poi, Stay } from '../lib/api-types';
 import CityList, { type CityRow } from './discover/CityList';
@@ -17,6 +16,8 @@ import AddDialog from './discover/AddDialog';
 import EditPlaceDialog from './discover/EditPlaceDialog';
 import EditStayDialog from './discover/EditStayDialog';
 import NoCities from './discover/NoCities';
+import Pills from '../components/ui/Pills';
+import { useNarrowLayout } from '../hooks/useMediaQuery';
 import { PlusIcon } from '../components/ui/icons';
 import { VIEW_OPTIONS, showsStays, placeKinds, toAddType, ALL_VIEW } from './discover/views';
 import type { DiscoverView } from './discover/views';
@@ -49,8 +50,7 @@ export default function Discover() {
 	const [adding, setAdding] = useState(false);
 	const [editPoi, setEditPoi] = useState<Poi | null>(null);
 	const [editStay, setEditStay] = useState<Stay | null>(null);
-	const [deletePoi, setDeletePoi] = useState<Poi | null>(null);
-	const [deleteStay, setDeleteStay] = useState<Stay | null>(null);
+	const narrow = useNarrowLayout();
 
 	// One state machine per write, each reporting the server's own refusal. The
 	// API answers 400 / 403 / 404 for a write it declines where it used to
@@ -146,6 +146,13 @@ export default function Discover() {
 	const pct = (votes: number) =>
 		data.memberCount ? Math.round((votes / data.memberCount) * 100) : 0;
 
+	const addButton = (
+		<button type="button" className="btn primary ml-auto" onClick={() => setAdding(true)}>
+			<PlusIcon />
+			{cd.header.add}
+		</button>
+	);
+
 	return (
 		<div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[190px_minmax(0,1fr)]">
 			<CityList
@@ -161,25 +168,37 @@ export default function Discover() {
 					reloadTrip();
 					reload();
 				}}
+				action={addButton}
 			/>
 
 			<div className="min-w-0">
 				<FormError message={notice} variant="banner" />
 
-				<div className="mb-2.5 flex min-h-phead flex-wrap items-center gap-4">
-					<div className="min-w-0 flex-[0_1_auto]">
-						<Select
-							options={VIEW_OPTIONS}
+				<div className={`mb-2.5 flex flex-wrap items-center gap-4 ${narrow ? '' : 'min-h-phead'}`}>
+					{/* Four types, and on a phone a dropdown is a tap to open, a tap to
+					    choose and a menu over the grid you are filtering. Laid out as
+					    pills they are one tap and they never cover the thing they
+					    change. The desktop keeps the Select, where the header row has
+					    other work to do and the menu is not in the way. */}
+					{narrow ? (
+						<Pills
+							items={VIEW_OPTIONS}
 							value={view}
-							onChange={(v) => setView(v as DiscoverView)}
+							onChange={setView}
 							ariaLabel={cd.header.typeAriaLabel}
 						/>
-					</div>
+					) : (
+						<div className="min-w-0 flex-[0_1_auto]">
+							<Select
+								options={VIEW_OPTIONS}
+								value={view}
+								onChange={(v) => setView(v as DiscoverView)}
+								ariaLabel={cd.header.typeAriaLabel}
+							/>
+						</div>
+					)}
 
-					<button type="button" className="btn primary ml-auto" onClick={() => setAdding(true)}>
-						<PlusIcon />
-						{cd.header.add}
-					</button>
+					{!narrow && addButton}
 				</div>
 
 				{stays.length + places.length === 0 ? (
@@ -204,7 +223,6 @@ export default function Discover() {
 									pct={pct(it.stay.votes)}
 									onEdit={() => setEditStay(it.stay)}
 									onVote={() => void voteStay.run(it.stay.id)}
-									onRemove={() => setDeleteStay(it.stay)}
 								/>
 							) : (
 								<PlaceCard
@@ -215,7 +233,6 @@ export default function Discover() {
 									pct={pct(it.poi.votes)}
 									onEdit={() => setEditPoi(it.poi)}
 									onVote={() => void votePlace.run(it.poi.id)}
-									onRemove={() => setDeletePoi(it.poi)}
 								/>
 							)
 						)}
@@ -252,6 +269,11 @@ export default function Discover() {
 						setEditPoi(null);
 						reload();
 					}}
+					onDelete={async () => {
+						await api(`${base}/pois/${editPoi.id}`, { method: 'DELETE' });
+						setEditPoi(null);
+						reload();
+					}}
 				/>
 			)}
 
@@ -266,37 +288,12 @@ export default function Discover() {
 						setEditStay(null);
 						reload();
 					}}
+					onDelete={async () => {
+						await removeStay.run(editStay.id);
+						setEditStay(null);
+					}}
 				/>
 			)}
-
-			<ConfirmDialog
-				open={!!deletePoi}
-				title={deletePoi ? cd.deletePlace.title(deletePoi.name) : ''}
-				confirmLabel={
-					deletePoi && deletePoi.linked > 0
-						? cd.deletePlace.confirmLabel(deletePoi.linked)
-						: copy.common.delete
-				}
-				busyLabel={copy.common.deleting}
-				onCancel={() => setDeletePoi(null)}
-				onConfirm={async () => {
-					if (!deletePoi) return;
-					await api(`${base}/pois/${deletePoi.id}`, { method: 'DELETE' });
-					setDeletePoi(null);
-					reload();
-				}}
-			/>
-			<ConfirmDialog
-				open={!!deleteStay}
-				title={deleteStay ? cd.deleteStay.title(deleteStay.name) : ''}
-				busyLabel={copy.common.deleting}
-				onCancel={() => setDeleteStay(null)}
-				onConfirm={async () => {
-					if (!deleteStay) return;
-					await removeStay.run(deleteStay.id);
-					setDeleteStay(null);
-				}}
-			/>
 		</div>
 	);
 }

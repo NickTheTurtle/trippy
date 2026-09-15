@@ -104,7 +104,14 @@ export function listExpenses(tripId: string): ExpenseRow[] {
 			`SELECT e.id, e.description, e.amount_cents, e.currency, e.payer_id, e.split_mode,
 			        u.name AS payer_name, e.created_at, COALESCE(e.settlement, 0) AS settlement,
 			        e.version,
-			        (SELECT COUNT(*) FROM expense_participants p WHERE p.expense_id = e.id) AS participants,
+			        -- Only stakes above zero count. A person selected in a shares or
+			        -- exact split who entered nothing is stored at weight 0 and is
+			        -- charged nothing, so counting them made a two-way split read as
+			        -- "3 ways" against a figure that had plainly been halved. When
+			        -- every stake is zero the split falls back to even, so the label
+			        -- falls back with it and counts everyone named.
+			        (SELECT CASE WHEN SUM(p.weight > 0) > 0 THEN SUM(p.weight > 0) ELSE COUNT(*) END
+			           FROM expense_participants p WHERE p.expense_id = e.id) AS participants,
 			        -- Anyone this row names who is no longer on the trip. Derived rather
 			        -- than stored: a flag written at removal time would go stale the
 			        -- moment somebody edits the expense or the person is re-invited.
@@ -576,6 +583,19 @@ export function settlement(tripId: string, bals = balances(tripId)): SettlementR
  * Returns the expense id and whether it already existed, or null if either side
  * is not a member, they are the same person, or the amount is not positive.
  */
+/**
+ * The settlement already recorded under this idempotency token, if any. Kept
+ * separate from `recordSettlement` so a caller can tell a repeat press from a
+ * fresh one *before* applying rules that a completed payment would now fail:
+ * once a debt is settled it is no longer outstanding, so re-checking it against
+ * the balance would turn the second press into an error instead of a no-op.
+ */
+export function settlementByToken(tripId: string, token: string): { id: string } | undefined {
+	return db
+		.prepare(`SELECT id FROM expenses WHERE trip_id = ? AND settle_token = ?`)
+		.get(tripId, token) as { id: string } | undefined;
+}
+
 export function recordSettlement(
 	tripId: string,
 	actorId: string,

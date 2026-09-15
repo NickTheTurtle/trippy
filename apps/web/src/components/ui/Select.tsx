@@ -1,5 +1,6 @@
 import { Fragment, useRef } from 'react';
 import { CaretIcon, CheckIcon } from './icons';
+import WarnMark from './WarnMark';
 import { useListbox } from './useListbox';
 import { copy } from '../../copy';
 
@@ -18,6 +19,14 @@ export type Option = {
 	 * to decide by sorting rather than a second structure to keep in step.
 	 */
 	section?: string;
+	/**
+	 * Something about this option needs a person to look at it, drawn as a
+	 * warning mark. Unlike `hint` it is shown on the trigger as well: a hint is
+	 * the cost of a choice and stops mattering once chosen, while a warning is
+	 * about the thing itself and does not stop being true because the menu
+	 * closed. The string is the mark's accessible name.
+	 */
+	warn?: string;
 };
 
 /**
@@ -79,6 +88,7 @@ export default function Select({
 				<span className={selected ? 'sellabel' : 'sellabel placeholder'}>
 					{selected?.label ?? placeholder}
 				</span>
+				{selected?.warn && <WarnMark label={selected.warn} />}
 				<span className="selcaret">
 					<CaretIcon />
 				</span>
@@ -127,6 +137,7 @@ export default function Select({
 							>
 								<span className="selcheck">{o.value === value && <CheckIcon />}</span>
 								<span className="selopttext">{o.label}</span>
+								{o.warn && <WarnMark label={o.warn} />}
 								{o.hint && <span className="selopthint">{o.hint}</span>}
 							</li>
 						</Fragment>

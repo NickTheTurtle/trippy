@@ -2,6 +2,8 @@
  * The shape of `GET /trips/:id/pretrip`, which answers with the task list,
  * the packing list and the cost estimates in one payload.
  */
+import type { Crew } from '../people/types';
+
 export type Person = { id: string; name: string; done: boolean };
 export type Task = {
 	id: string;
@@ -29,6 +31,8 @@ export type CostItem = {
 export type PretripData = {
 	me: string;
 	members: { id: string; name: string }[];
+	/** Saved groups of members, offered as shortcuts in the people pickers. */
+	crews: Crew[];
 	tasks: Task[];
 	packing: Task[];
 	currency: string;

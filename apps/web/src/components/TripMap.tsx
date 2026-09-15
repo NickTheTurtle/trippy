@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import 'leaflet/dist/leaflet.css';
 import type { Map as LMap, Layer } from 'leaflet';
 import type { MapTrack } from './GoogleMap';
+import { mapCard, createCardLayer } from './map-card';
 import { copy } from '../copy';
 
 /**
@@ -16,6 +17,7 @@ export default function TripMap({ tracks }: { tracks: MapTrack[] }) {
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	const lRef = useRef<any>(null);
 	const overlays = useRef<Layer[]>([]);
+	const layerRef = useRef<ReturnType<typeof createCardLayer> | null>(null);
 	// Held in a ref so the map is built once and only the pins are redrawn.
 	const tracksRef = useRef(tracks);
 	tracksRef.current = tracks;
@@ -49,21 +51,15 @@ export default function TripMap({ tracks }: { tracks: MapTrack[] }) {
 			});
 		};
 
-		// Same reasoning as `pin`: the title and the lines under it are typed by
-		// trip members, so they are set as text and never parsed as HTML.
-		const popup = (title: string, lines: string[]) => {
-			const wrap = document.createElement('div');
-			wrap.className = 'mapcard';
-			const strong = document.createElement('strong');
-			strong.textContent = title;
-			wrap.appendChild(strong);
-			for (const line of lines) {
-				const span = document.createElement('span');
-				span.textContent = line;
-				wrap.appendChild(span);
-			}
-			return wrap;
-		};
+		// Same reasoning as `pin`: the lines on the card are typed by trip members,
+		// so it is built as DOM. `mapCard` is shared with the Google map, so the
+		// two say the same thing in the same shape.
+		if (!layerRef.current) layerRef.current = createCardLayer();
+		const layer = layerRef.current;
+		/* Every overlay is rebuilt here, so a pin removed under the pointer will
+		   never fire its `mouseout`. The card would then stand on the page with
+		   nothing under it until the next hover. */
+		layer.hide();
 
 		for (const t of tracksRef.current) {
 			const located = t.items.filter((i) => i.lat != null && i.lng != null);
@@ -74,11 +70,16 @@ export default function TripMap({ tracks }: { tracks: MapTrack[] }) {
 				pts.push(ll);
 				const m = L.marker(ll, {
 					icon: pin(t.color, t.numbered === false ? null : idx + 1)
-				}).bindPopup(popup(i.title, [...(i.detail ?? []), t.name]));
-				// Hovering is enough, the same as on the Google map. The popup still
-				// opens on click, so it survives a tap.
-				m.on('mouseover', () => m.openPopup());
-				m.on('mouseout', () => m.closePopup());
+				});
+				// Drawn on the app's own layer rather than in Leaflet's popup, so a
+				// pin near an edge is not clipped by the map box. On click as well as
+				// on hover, because a phone has no hover: a tap is the only way to
+				// read a pin there, and the card leaves on the next tap.
+				const open = (e: { originalEvent: MouseEvent }) =>
+					layer.show(mapCard(i, t), e.originalEvent.clientX, e.originalEvent.clientY);
+				m.on('mouseover', open);
+				m.on('click', open);
+				m.on('mouseout', () => layer.hide());
 				m.addTo(map);
 				overlays.current.push(m);
 			});
@@ -120,6 +121,8 @@ export default function TripMap({ tracks }: { tracks: MapTrack[] }) {
 				maxZoom: 19,
 				attribution: '&copy; OpenStreetMap'
 			}).addTo(map);
+			// A tap opens a card, so a tap on the map behind it is what puts it away.
+			map.on('click', () => layerRef.current?.hide());
 			mapRef.current = map;
 			draw();
 		});
@@ -127,6 +130,8 @@ export default function TripMap({ tracks }: { tracks: MapTrack[] }) {
 		return () => {
 			cancelled = true;
 			overlays.current = [];
+			layerRef.current?.destroy();
+			layerRef.current = null;
 			mapRef.current?.remove();
 			mapRef.current = null;
 		};

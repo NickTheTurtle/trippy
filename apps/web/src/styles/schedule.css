@@ -8,10 +8,17 @@
  * system across dozens of arbitrary-value brackets.
  *
  * Every rule is scoped under `.sched`, which the page root carries, so generic
- * names like `.board`, `.lane` and `.tag` cannot leak into the rest of the app.
+ * names like `.board` and `.lane` cannot leak into the rest of the app.
  */
 
-/* --- Toolbar ------------------------------------------------------------- */
+/* --- Toolbar -------------------------------------------------------------
+ *
+ * One row of controls that apply to the whole schedule: which view to read it
+ * in on the left, who to read it as and what to add on the right. The day being
+ * looked at is not one of those, so the stepper sits on the board instead; see
+ * `.boardhead`. That keeps this row to a single line at every width and matches
+ * Discover, where the filter is left and the add button is right.
+ */
 
 .sched .toolbar {
 	display: flex;
@@ -20,17 +27,6 @@
 	gap: 1rem;
 	margin-bottom: 1.2rem;
 	flex-wrap: wrap;
-}
-.sched .navgroup {
-	display: flex;
-	align-items: center;
-	gap: 1rem;
-	flex-wrap: wrap;
-}
-.sched .daynav {
-	display: flex;
-	align-items: center;
-	gap: 0.5rem;
 }
 .sched .navbtn {
 	display: inline-grid;
@@ -57,6 +53,16 @@
 .sched .navbtn:disabled {
 	opacity: 0.35;
 	cursor: default;
+}
+/* Stepping through days is the single most-used control on a phone, and a 30px
+   circle is under every touch-target guideline going. The circle is the right
+   size for the toolbar it sits in, so it keeps its size on a mouse and grows
+   only where a finger is doing the pointing. */
+@media (pointer: coarse) {
+	.sched .navbtn {
+		width: 40px;
+		height: 40px;
+	}
 }
 .sched .curday {
 	font-family: var(--font-serif);
@@ -94,9 +100,6 @@
 	gap: 1rem;
 	align-items: start;
 }
-.sched .split.wide {
-	grid-template-columns: 1fr;
-}
 .sched .boardcol {
 	min-width: 0;
 }
@@ -104,29 +107,19 @@
 	padding: 1rem 1rem 1rem 0;
 	overflow: visible;
 }
-.sched .multiboard {
-	display: grid;
-	grid-template-columns: repeat(3, minmax(0, 1fr));
-	gap: 1rem;
-	align-items: start;
-}
-.sched .dayblock {
-	padding-top: 0.4rem;
-}
-.sched .dayblockhead {
+/* The board's title bar: the day it is drawing, and the way to the next one.
+   Centred over the board rather than left-aligned in the toolbar, because it
+   labels the thing underneath it. `.board` gives its left padding away to the
+   day grid's hour gutter, so the margin here is what squares the rule up with
+   the card's right padding. */
+.sched .boardhead {
 	display: flex;
-	align-items: baseline;
-	gap: 0.6rem;
-	padding: 0.4rem 0 0.2rem 56px;
-}
-.sched .dayblocklink {
-	font-family: var(--font-serif);
-	font-size: 1rem;
-	color: var(--color-ink);
-	text-decoration: none;
-}
-.sched .dayblocklink:hover {
-	color: var(--color-accent-ink);
+	align-items: center;
+	justify-content: center;
+	gap: 0.5rem;
+	margin: 0 0 0.9rem 1rem;
+	padding-bottom: 0.9rem;
+	border-bottom: 1px solid var(--color-line);
 }
 
 /* --- Lodging band -------------------------------------------------------- */
@@ -151,6 +144,14 @@
 	background: var(--color-surface);
 	font-size: 0.85rem;
 	text-align: left;
+	/* A name is free text, and free text can arrive as one unbroken run of five
+	   thousand characters. Without a break opportunity that run sets the chip's
+	   minimum width, the band cannot wrap it, and the whole page grows a
+	   horizontal scrollbar several thousand pixels wide. The cap and the break
+	   keep a hostile name inside the column it belongs to. */
+	min-width: 0;
+	max-width: 100%;
+	overflow-wrap: anywhere;
 }
 .sched .staychip:hover,
 .sched .staychip.editingnow {
@@ -159,6 +160,8 @@
 }
 .sched .stayname {
 	font-weight: 600;
+	min-width: 0;
+	overflow-wrap: anywhere;
 }
 .sched .staywho {
 	font-size: 0.75rem;
@@ -183,6 +186,11 @@
 .sched .daygrid {
 	position: relative;
 	padding-left: 56px;
+	/* The window can open onto an earlier hour, which makes the grid taller and
+	   moves every block down it. Blocks glide; an axis that jumped would tear
+	   away from them for the length of the glide, so it travels at the same
+	   speed and the board reads as one thing opening. */
+	transition: height var(--sched-settle);
 }
 .sched .axis {
 	position: absolute;
@@ -196,6 +204,18 @@
 	left: 0;
 	right: 0;
 	border-top: 1px solid var(--color-line);
+	transition: top var(--sched-settle);
+}
+/* While a pointer owns the window, it is being opened a pixel at a time and the
+   page is scrolling to match, frame for frame. A transition on top of that would
+   animate towards a target that has already moved, so the board would trail its
+   own cursor. `.opening` goes further and takes the smoothing off the dragged
+   block too: it is worth having against a five-minute snap, but not against a
+   scroll it would visibly lag behind. */
+.sched .daygrid.still,
+.sched .daygrid.still .hourline,
+.sched .daygrid.opening .block.dragging {
+	transition: none;
 }
 .sched .hourline span {
 	position: absolute;
@@ -390,6 +410,10 @@
 	-webkit-line-clamp: var(--trows, 3);
 	line-clamp: var(--trows, 3);
 	overflow: hidden;
+	/* The clamp counts rows, which only helps once the text can form rows: an
+	   unbroken run of characters is a single unbreakable word and sets the
+	   block's minimum width instead of wrapping inside it. */
+	overflow-wrap: anywhere;
 }
 .sched .bmeta {
 	display: flex;
@@ -435,24 +459,6 @@
 	cursor: help;
 }
 
-/* --- Tags ---------------------------------------------------------------- */
-
-.sched .tag {
-	flex: 0 0 auto;
-	padding: 0.05rem 0.45rem;
-	border-radius: 999px;
-	font-size: 0.66rem;
-	font-weight: 600;
-	border: none;
-	cursor: default;
-	font-family: inherit;
-}
-/* A journey that cannot be made in the gap it is given. */
-.sched .tag.warn {
-	background: var(--color-warn-soft);
-	color: var(--color-warn);
-}
-
 /* --- Travel arrows -------------------------------------------------------
  *
  * Only the journeys a day was too dense to draw. Everything else is a block in
@@ -466,12 +472,10 @@
 	position: sticky;
 	top: 80px;
 }
+/* The agenda is a board in its own right now, so it takes the board card's
+   padding and only makes up the left gutter the day grid uses for its hours. */
 .sched .agenda {
-	padding: 1rem 1.1rem 1.2rem;
-}
-.sched .agenda h4 {
-	margin: 0 0 0.6rem;
-	font-size: 0.9rem;
+	padding-left: 1rem;
 }
 .sched .agenda ul {
 	list-style: none;
@@ -530,118 +534,6 @@
 	.sched .mapwrap {
 		position: static;
 	}
-	.sched .multiboard {
-		grid-template-columns: 1fr;
-	}
-}
-
-/* --- People view: rows are people, x is time ----------------------------- */
-
-.sched .swim {
-	padding: 1.3rem 0.2rem 0.6rem;
-}
-.sched .swimhead,
-.sched .swimrow {
-	display: flex;
-	align-items: center;
-	gap: 0.6rem;
-}
-.sched .swimrow {
-	height: 40px;
-}
-.sched .swimname {
-	width: 74px;
-	flex-shrink: 0;
-	text-align: right;
-	font-size: 0.8rem;
-	font-weight: 600;
-	color: var(--color-ink-soft);
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-.sched .swimaxis {
-	position: relative;
-	flex: 1;
-	height: 18px;
-}
-.sched .swimhour {
-	position: absolute;
-	top: 0;
-	transform: translateX(-50%);
-	font-size: 0.68rem;
-	color: var(--color-ink-faint);
-	white-space: nowrap;
-}
-.sched .swimtrack {
-	position: relative;
-	flex: 1;
-	height: 30px;
-	border-radius: var(--radius-sm);
-	background: color-mix(in srgb, var(--color-line) 22%, white);
-	overflow: hidden;
-}
-.sched .swimgrid {
-	position: absolute;
-	top: 0;
-	bottom: 0;
-	width: 1px;
-	background: color-mix(in srgb, var(--color-line) 55%, white);
-}
-.sched .swimfree {
-	position: absolute;
-	top: 0;
-	bottom: 0;
-	background: repeating-linear-gradient(
-		-45deg,
-		transparent,
-		transparent 4px,
-		color-mix(in srgb, var(--color-line) 40%, white) 4px,
-		color-mix(in srgb, var(--color-line) 40%, white) 8px
-	);
-}
-.sched .swimband {
-	position: absolute;
-	top: 2px;
-	bottom: 2px;
-	border: none;
-	border-left: 3px solid var(--c);
-	border-radius: var(--radius-sm);
-	background: color-mix(in srgb, var(--c) 26%, white);
-	padding: 0 0.35rem;
-	font: inherit;
-	font-size: 0.7rem;
-	color: var(--color-ink);
-	text-align: left;
-	overflow: hidden;
-	white-space: nowrap;
-	text-overflow: ellipsis;
-	cursor: pointer;
-	--c: var(--color-accent);
-}
-.sched .swimband.activity {
-	--c: #2f6d5e;
-}
-.sched .swimband.food {
-	--c: #b4682a;
-}
-.sched .swimband.stay {
-	--c: #8c5a86;
-}
-.sched .swimband.travel {
-	--c: #4a6d8c;
-}
-.sched .swimband.freetime {
-	--c: #8a8578;
-}
-.sched .swimband:hover {
-	background: color-mix(in srgb, var(--c) 38%, white);
-}
-.sched .swimlabel {
-	pointer-events: none;
-}
-.sched .swimbody {
-	position: relative;
 }
 
 /* --- Dialogs ------------------------------------------------------------- */
@@ -761,6 +653,21 @@
 	font-size: var(--text-meta);
 	color: var(--color-ink-faint);
 }
+/* At phone width the three controls cannot share a line. The mode and the
+   minutes are fixed, so the name is what collapses, and it collapsed to 22px:
+   a text box too narrow to hold a character is not a field. It takes the line,
+   and the two fixed controls share the next one. */
+@media (max-width: 560px) {
+	.sched .schedule .jfields {
+		flex-wrap: wrap;
+	}
+	.sched .schedule .jname {
+		flex: 1 0 100%;
+	}
+	.sched .schedule .jmode {
+		flex: 1 1 auto;
+	}
+}
 
 /* --- Reduced motion ------------------------------------------------------
  *
@@ -773,7 +680,9 @@
 @media (prefers-reduced-motion: reduce) {
 	.sched .block,
 	.sched .block.dragging,
-	.sched .block.resizing {
+	.sched .block.resizing,
+	.sched .daygrid,
+	.sched .hourline {
 		transition: none;
 		animation: none;
 	}

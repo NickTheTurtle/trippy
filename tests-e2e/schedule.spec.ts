@@ -1,8 +1,27 @@
 import { expect, test } from '@playwright/test';
 import { createApiFixture } from './fixtures/api';
-import { seedMembers } from './fixtures/seed';
+import { addCity, addPlace, seedMembers } from './fixtures/seed';
 import { copy } from './fixtures/copy';
 import { signIn } from './fixtures/session';
+
+/**
+ * Wait for the page to stop scrolling.
+ *
+ * The schedule scrolls a previewed block into sight with `behavior: 'smooth'`,
+ * which keeps running after whatever started it has gone. Anything aimed at a
+ * coordinate has to wait for it, or it is aimed at where the board was.
+ */
+async function settled(page: import('@playwright/test').Page): Promise<void> {
+	await page.waitForFunction(
+		() =>
+			new Promise<boolean>((done) => {
+				const was = window.scrollY;
+				requestAnimationFrame(() => requestAnimationFrame(() => done(window.scrollY === was)));
+			}),
+		undefined,
+		{ timeout: 5000 }
+	);
+}
 
 /**
  * The schedule toolbar: the two controls that decide which board you are
@@ -46,10 +65,15 @@ test.describe('schedule toolbar', () => {
 			await page.goto(`/trips/${fixture.tripId}/schedule?day=1999-01-01&view=day`);
 			await expect(prev).toBeDisabled();
 
-			// The 3-day view is a window, and this trip is exactly three days long,
-			// so its one anchor is pinned at both ends.
+			// A view the app no longer has falls back to the day board rather than
+			// an empty one, since the view is a url and urls outlive a view. The
+			// board is asserted through the day/people toggle rather than through
+			// the grid, because a day with nothing on it draws an empty state.
 			await page.goto(`/trips/${fixture.tripId}/schedule?day=${endDate}&view=3day`);
-			await expect(prev).toBeDisabled();
+			await expect(page.getByRole('link', { name: 'Day', exact: true })).toHaveAttribute(
+				'aria-current',
+				'true'
+			);
 			await expect(next).toBeDisabled();
 		} finally {
 			fixture.teardown();
@@ -79,6 +103,244 @@ test.describe('schedule toolbar', () => {
 			await page.getByRole('option', { name: 'Ada', exact: true }).click();
 			await expect(options).toHaveCount(0);
 			await expect(control).toHaveText('Ada');
+
+			// The agenda is one person's day, so "Everyone" is not among its
+			// choices and arriving with nobody chosen reads as you.
+			await page.goto(`/trips/${fixture.tripId}/schedule?view=agenda`);
+			await expect(control).toHaveText(`E2E User${copy.preparation.youSuffix}`);
+			await control.click();
+			await expect(options).toHaveCount(3);
+			await expect(page.getByRole('option', { name: copy.viewAs.everyone })).toHaveCount(0);
+		} finally {
+			fixture.teardown();
+		}
+	});
+});
+
+/**
+ * Journeys in the add dialog.
+ *
+ * Naming who is going is what makes a journey exist, so the ones arriving at a
+ * block are planned while it is still being described. The point of the test is
+ * that they are shown there and that what the reader says about them survives
+ * the save: they are planned under a draft id and written under the real one.
+ */
+test.describe('adding an event', () => {
+	test('shows the journeys arriving at it, and keeps what was said about them', async ({
+		page,
+		request
+	}) => {
+		const fixture = await createApiFixture(request);
+		const { startDate } = fixture.tripBody;
+		try {
+			const cityId = await addCity(request, fixture, {
+				name: 'Athens',
+				country: 'Greece',
+				tz: 'Europe/Athens',
+				lat: 37.9838,
+				lng: 23.7275
+			});
+			// Two places far enough apart to be a journey rather than the same spot.
+			await addPlace(request, fixture, {
+				cityId,
+				name: 'Acropolis',
+				lat: 37.9715,
+				lng: 23.7257
+			});
+			await addPlace(request, fixture, {
+				cityId,
+				name: 'Plaka',
+				lat: 37.9725,
+				lng: 23.73
+			});
+			// A journey belongs to the people making it, so the blocks name one.
+			// The picker reads a full house as "Everyone", which is nobody in
+			// particular, so a second member is what makes a named group possible.
+			await seedMembers(request, fixture, ['Ada']);
+			await signIn(page, fixture.sessionCookie);
+			await page.goto(`/trips/${fixture.tripId}/schedule?day=${startDate}&view=day`);
+
+			const pickAda = async () => {
+				await page.getByLabel('Participants').click();
+				await page.getByRole('option', { name: 'Ada', exact: true }).click();
+				await page.keyboard.press('Escape');
+			};
+
+			// The morning, which the afternoon is then approached from.
+			await page.getByRole('button', { name: '+ Add', exact: true }).click();
+			await page.getByLabel('Name').fill('Morning');
+			await pickAda();
+			await page.getByLabel('Activity').click();
+			await page.getByRole('option', { name: 'Acropolis' }).click();
+			await page.getByRole('button', { name: copy.common.add, exact: true }).click();
+			await expect(page.getByRole('button', { name: /Morning/ })).toBeVisible();
+
+			// The afternoon. Its journey exists before it does, so the section is
+			// there to be edited while the block is still being described.
+			await page.getByRole('button', { name: '+ Add', exact: true }).click();
+			await page.getByLabel('Name').fill('Afternoon');
+			// The clock is a spinbutton, not a text box: its segments are typed into.
+			await page.getByLabel('Start hour').click();
+			await page.keyboard.type('14');
+			await pickAda();
+			await page.getByLabel('Activity').click();
+			await page.getByRole('option', { name: 'Plaka' }).click();
+
+			const journey = page.locator('dialog[open] .jrow');
+			await expect(journey).toHaveCount(1);
+			await journey.getByLabel(/^Journey name/).fill('Taxi up the hill');
+			await journey.getByLabel(/^Minutes/).fill('42');
+			await page.getByRole('button', { name: copy.common.add, exact: true }).click();
+
+			// Reopened, the journey is still the one the reader described, which is
+			// only true if it was written against the id the block ended up with.
+			// The dialog scrolls the block it is previewing into sight smoothly, and
+			// that outlives the dialog, so wait for the page to stand still: a click
+			// aimed at a block mid-scroll lands on the track beside it.
+			await settled(page);
+			await page.getByRole('button', { name: /Afternoon/ }).click();
+			const saved = page.locator('dialog[open] .jrow');
+			await expect(saved.getByLabel(/^Journey name/)).toHaveValue('Taxi up the hill');
+			await expect(saved.getByLabel(/^Minutes/)).toHaveValue('42');
+		} finally {
+			fixture.teardown();
+		}
+	});
+});
+
+/**
+ * The window the board draws.
+ *
+ * Six to midnight on an ordinary day, because that is where a day is read from,
+ * but a floor rather than a wall: a block earlier than six has to be drawn at
+ * the hour it is at, not clamped onto the top edge where it would read as a
+ * different time.
+ */
+test.describe('the day window', () => {
+	test('opens back to an early block instead of clamping it onto the top edge', async ({
+		page,
+		request
+	}) => {
+		const fixture = await createApiFixture(request);
+		const { startDate } = fixture.tripBody;
+		const firstHour = () => page.locator('.hourline span').first();
+		try {
+			await signIn(page, fixture.sessionCookie);
+			await page.goto(`/trips/${fixture.tripId}/schedule?day=${startDate}&view=day`);
+
+			await page.getByRole('button', { name: '+ Add', exact: true }).click();
+			await page.getByLabel('Name').fill('Ordinary morning');
+			await page.getByLabel('Start hour').click();
+			await page.keyboard.type('09');
+			await page.getByRole('button', { name: copy.common.add, exact: true }).click();
+			await expect(firstHour()).toHaveText('6:00');
+
+			// 4:40, which the old fixed window drew at 6:00.
+			await page.getByRole('button', { name: '+ Add', exact: true }).click();
+			await page.getByLabel('Name').fill('Airport run');
+			await page.getByLabel('Start hour').click();
+			await page.keyboard.type('04');
+			await page.getByLabel('Start minute').click();
+			await page.keyboard.type('40');
+			await page.getByRole('button', { name: copy.common.add, exact: true }).click();
+
+			// Back to the hour that holds it, and no further: the window is fitted
+			// to the day rather than opened to a full twenty-four on every day.
+			await expect(firstHour()).toHaveText('4:00');
+			const block = page.locator('.block', { hasText: 'Airport run' }).first();
+			// 4:40 measured from the window's own 4:00, at one pixel a minute. The
+			// clamped board drew it at 0, on top of the six o'clock line.
+			await expect(block).toHaveCSS('top', '40px');
+		} finally {
+			fixture.teardown();
+		}
+	});
+
+	test('a drag opens it past six, and the block stays under the pointer', async ({
+		page,
+		request
+	}) => {
+		const fixture = await createApiFixture(request);
+		const { startDate } = fixture.tripBody;
+		const firstHour = () => page.locator('.hourline span').first();
+		try {
+			await signIn(page, fixture.sessionCookie);
+			await page.goto(`/trips/${fixture.tripId}/schedule?day=${startDate}&view=day`);
+
+			await page.getByRole('button', { name: '+ Add', exact: true }).click();
+			await page.getByLabel('Name').fill('Sunrise swim');
+			await page.getByLabel('Start hour').click();
+			await page.keyboard.type('09');
+			await page.getByRole('button', { name: copy.common.add, exact: true }).click();
+			await expect(firstHour()).toHaveText('6:00');
+
+			const block = page.locator('.block', { hasText: 'Sunrise swim' }).first();
+			// 9:00 measured from the window's 6:00. Asserting it before taking hold
+			// means the board has finished settling after the add, so the grab is
+			// not aimed at where the block was a moment ago.
+			await expect(block).toHaveCSS('top', '180px');
+			// The add scrolls the new block into sight smoothly, and that outlives
+			// the dialog, so the grab has to wait for the page to stand still.
+			await settled(page);
+			// Measured through the element: `boundingBox` reports null for these,
+			// even once they are visible.
+			const screenY = () => block.evaluate((el) => el.getBoundingClientRect().top);
+			const grabX = 200;
+			const grabY = (await screenY()) + 10;
+
+			// Four hours up the board, which is an hour past where it ends.
+			await page.mouse.move(grabX, grabY);
+			await page.mouse.down();
+			await page.mouse.move(grabX, grabY - 240, { steps: 12 });
+
+			// The window came with it rather than holding the block against the top,
+			// and the page moved by exactly as much, so the block did not.
+			await expect(firstHour()).toHaveText('5:00');
+			expect(Math.abs((await screenY()) + 10 - (grabY - 240))).toBeLessThanOrEqual(2);
+
+			await page.mouse.up();
+			await expect(block).toContainText('5:00');
+			// Settled on the hour that holds it, which is where a saved day starts.
+			await expect(firstHour()).toHaveText('5:00');
+		} finally {
+			fixture.teardown();
+		}
+	});
+	test('a quick drag of the bottom edge lands, and the new end sticks', async ({
+		page,
+		request
+	}) => {
+		const fixture = await createApiFixture(request);
+		const { startDate } = fixture.tripBody;
+		try {
+			await signIn(page, fixture.sessionCookie);
+			await page.goto(`/trips/${fixture.tripId}/schedule?day=${startDate}&view=day`);
+
+			await page.getByRole('button', { name: '+ Add', exact: true }).click();
+			await page.getByLabel('Name').fill('Long lunch');
+			await page.getByRole('button', { name: copy.common.add, exact: true }).click();
+
+			const block = page.locator('.block', { hasText: 'Long lunch' }).first();
+			await expect(block).toHaveCSS('top', '180px');
+			await settled(page);
+
+			// One move between down and up, which is what a flick of the grip is:
+			// the handler has to see the gesture it was just handed rather than the
+			// render that has not committed yet.
+			const grip = block.locator('.bresize');
+			const box = await grip.evaluate((el) => {
+				const r = el.getBoundingClientRect();
+				return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+			});
+			await page.mouse.move(box.x, box.y);
+			await page.mouse.down();
+			await page.mouse.move(box.x, box.y + 60);
+			await page.mouse.up();
+
+			// An hour longer, kept once the write comes back.
+			await expect(page.getByRole('button', { name: /Long lunch, 9:00 to 11:00/ })).toBeVisible();
+			await page.reload();
+			await expect(page.getByRole('button', { name: /Long lunch, 9:00 to 11:00/ })).toBeVisible();
 		} finally {
 			fixture.teardown();
 		}
@@ -90,11 +352,12 @@ test.describe('schedule toolbar', () => {
  *
  * A stay is a range of nights, so it is a band above every day it covers and it
  * is edited from any of them. The point of the test is the range: that adding
- * one on the first night puts it on the second as well, and that shortening it
- * from the second night takes it off that day and leaves the first alone.
+ * one on the first night puts it on the following days as well, that the band
+ * runs through the morning of checkout, and that shortening it from a later day
+ * takes it off the days it no longer reaches.
  */
 test.describe('stays', () => {
-	test('a stay bands every night it covers, and is edited from any of them', async ({
+	test('a stay bands every day it covers, and is edited from any of them', async ({
 		page,
 		request
 	}) => {
@@ -123,16 +386,19 @@ test.describe('stays', () => {
 			await page.goto(`/trips/${fixture.tripId}/schedule?day=${day2}&view=day`);
 			await expect(chip).toBeVisible();
 
-			// The checkout morning is not a night spent there.
+			// The morning of checkout is still spent in the room.
 			await page.goto(`/trips/${fixture.tripId}/schedule?day=${day3}&view=day`);
-			await expect(chip).toHaveCount(0);
+			await expect(chip).toBeVisible();
 
-			// Shortened from the second night, which is the day it then leaves.
+			// Shortened from the second day, which then becomes its checkout morning.
 			await page.goto(`/trips/${fixture.tripId}/schedule?day=${day2}&view=day`);
 			await chip.click();
 			await expect(page.getByLabel('Check in')).toHaveValue(startDate);
 			await page.getByLabel('Check out').fill(day2);
 			await page.getByRole('button', { name: copy.common.save, exact: true }).click();
+			await expect(chip).toBeVisible();
+
+			await page.goto(`/trips/${fixture.tripId}/schedule?day=${day3}&view=day`);
 			await expect(chip).toHaveCount(0);
 
 			await page.goto(`/trips/${fixture.tripId}/schedule?day=${startDate}&view=day`);

@@ -1,9 +1,12 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { api } from '../../lib/api';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
+import Select from '../../components/ui/Select';
+import { IconButton } from '../../components/ui/buttons';
+import { useNarrowLayout } from '../../hooks/useMediaQuery';
 import type { Trip } from '../TripShell';
 import { RemoveCardButton } from './card-controls';
-import { PlusIcon } from '../../components/ui/icons';
+import { PlusIcon, TrashIcon } from '../../components/ui/icons';
 import { copy } from '../../copy';
 
 const cl = copy.discover.cityList;
@@ -42,6 +45,12 @@ export type CityRow = {
  *
  * Adding and deleting a city are organizer-only *on the server*, so the
  * controls are hidden from everyone else rather than shown and refused.
+ *
+ * Below `lg` the page drops the column this sits in, and the list becomes a
+ * dropdown in the header with the organizer's add and delete beside it. It is
+ * a filter rather than a destination, so it does not go behind the menu button
+ * the Preparation and Expenses sections use: those switch what you are looking
+ * at, this one switches what you are looking at it *for*.
  */
 export default function CityList({
 	trip,
@@ -50,7 +59,8 @@ export default function CityList({
 	onChange,
 	isOrganizer,
 	onAddCity,
-	onChanged
+	onChanged,
+	action
 }: {
 	trip: Trip;
 	cities: CityRow[];
@@ -65,14 +75,21 @@ export default function CityList({
 	onAddCity: () => void;
 	/** Reloads the trip and the page data after a city is added. */
 	onChanged: () => void;
+	/**
+	 * The page's own primary button, shown at the end of this row at narrow
+	 * widths, as on Preparation and Expenses. Wide, the page keeps it in its
+	 * own header.
+	 */
+	action?: ReactNode;
 }) {
 	const [pendingDelete, setPendingDelete] = useState<CityRow | null>(null);
+	const narrow = useNarrowLayout();
 
 	// The server refuses to remove the last city, because a trip without one is
 	// the dead end the add route exists to get out of.
 	const canDelete = cities.length > 1;
 
-	return (
+	const column = (
 		<div className="flex min-w-0 flex-col gap-2">
 			<nav className="secnav" aria-label={cl.navLabel}>
 				{cities.map((c) => {
@@ -127,6 +144,52 @@ export default function CityList({
 					{cl.addCity}
 				</button>
 			)}
+		</div>
+	);
+
+	const current = cities.find((c) => c.id === value);
+
+	return (
+		<>
+			{narrow ? (
+				// A dropdown, not the drawer the other sections use: a city is what the
+				// page is scoped to, not a place in it, and a filter belongs in the
+				// header beside the grid it filters rather than behind a menu button
+				// that reads like navigation (see docs/DESIGN.md M3.5).
+				<div className="flex min-w-0 items-center gap-2">
+					<Select
+						options={cities.map((c) => ({
+							value: c.id,
+							label: c.region ? `${c.name}, ${c.region}` : c.name
+						}))}
+						value={value}
+						onChange={onChange}
+						ariaLabel={cl.navLabel}
+					/>
+					{isOrganizer && (
+						<>
+							<IconButton label={cl.addCity} onClick={onAddCity}>
+								<PlusIcon />
+							</IconButton>
+							{/* A dropdown has no per-row affordance, so delete acts on the
+							    city on screen. Disabled rather than dropped on the last
+							    one, as in the column. */}
+							<IconButton
+								danger
+								label={cl.removeLabel(current?.name ?? '')}
+								disabled={!canDelete}
+								onClick={() => current && setPendingDelete(current)}
+								{...(canDelete ? {} : { title: cl.lastCityTitle })}
+							>
+								<TrashIcon />
+							</IconButton>
+						</>
+					)}
+					{action && <div className="ml-auto flex-none">{action}</div>}
+				</div>
+			) : (
+				column
+			)}
 
 			<ConfirmDialog
 				open={!!pendingDelete}
@@ -148,6 +211,6 @@ export default function CityList({
 					onChanged();
 				}}
 			/>
-		</div>
+		</>
 	);
 }

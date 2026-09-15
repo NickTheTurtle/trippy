@@ -52,8 +52,8 @@ import { isMember } from './persistence/membership';
  * sections the API serves as one payload each, so a client can map topic to
  * endpoint directly.
  *
- * `parties` is deliberately absent: crews are part of the calendar payload, so
- * `parties.ts` publishes `schedule`.
+ * `crews` is deliberately absent: a crew is a saved group of members that the
+ * board also reads, so a crew write publishes both `members` and `schedule`.
  */
 export const TRIP_TOPICS = [
 	'trip',

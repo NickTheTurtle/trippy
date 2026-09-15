@@ -21,14 +21,16 @@ let db: Awaited<typeof import('../src/db.ts')>['db'];
 let auth: typeof import('../src/infra/auth.ts');
 let trips: typeof import('../src/persistence/trips.ts');
 let schedule: typeof import('../src/persistence/schedule.ts');
+let lodging: typeof import('../src/persistence/lodging.ts');
 let bus: typeof import('../src/events.ts');
 
 beforeAll(async () => {
-	[{ db }, auth, trips, schedule, bus] = await Promise.all([
+	[{ db }, auth, trips, schedule, lodging, bus] = await Promise.all([
 		import('../src/db.ts'),
 		import('../src/infra/auth.ts'),
 		import('../src/persistence/trips.ts'),
 		import('../src/persistence/schedule.ts'),
+		import('../src/persistence/lodging.ts'),
 		import('../src/events.ts')
 	]);
 });
@@ -209,6 +211,16 @@ describe('legs follow the events', () => {
 		// Anchored to the arrival: you leave in time for the thing you booked.
 		expect(leg.endMin).toBe(660);
 	});
+
+	it('leaves for the night when the day ends, since a stay is a date not an hour', () => {
+		add({ startMin: 540, endMin: 600, people: [alice], ...MUSEUM });
+		add({ type: 'stay', startMin: 21 * 60, endMin: 24 * 60, people: [alice], ...HOTEL });
+		const leg = schedule.legsForDay(tripId, DAY)[0];
+		// Not 21:00 minus the walk: nobody waits three hours for the room to open.
+		expect(leg.startMin).toBe(600);
+		expect(leg.endMin).toBe(600 + leg.resolvedMins);
+		expect(leg.tight).toBe(false);
+	});
 });
 
 describe('a stay is a range of nights', () => {
@@ -228,6 +240,51 @@ describe('a stay is a range of nights', () => {
 		expect(schedule.staysCovering(tripId, NEXT)).toHaveLength(1);
 		// The checkout morning is not a night spent there.
 		expect(schedule.staysCovering(tripId, THIRD)).toHaveLength(0);
+	});
+
+	it('is still on the board the morning it is checked out of', () => {
+		add({ type: 'stay', endDay: THIRD, startMin: 21 * 60, endMin: 24 * 60, people: [alice] });
+		// The room is still yours until you leave it, and it is where the day's
+		// first journey starts, so the band runs a day past the last night.
+		expect(schedule.staysOnBoard(tripId, DAY)).toHaveLength(1);
+		expect(schedule.staysOnBoard(tripId, NEXT)).toHaveLength(1);
+		expect(schedule.staysOnBoard(tripId, THIRD)).toHaveLength(1);
+		expect(schedule.staysOnBoard(tripId, '2026-10-04')).toHaveLength(0);
+	});
+
+	it('bands a one-night stay on both its days', () => {
+		add({ type: 'stay', startMin: 21 * 60, endMin: 24 * 60, people: [alice] });
+		expect(schedule.staysOnBoard(tripId, DAY)).toHaveLength(1);
+		expect(schedule.staysOnBoard(tripId, NEXT)).toHaveLength(1);
+		expect(schedule.staysCovering(tripId, NEXT)).toHaveLength(0);
+	});
+
+	it('draws one chip when the same room is booked night by night', () => {
+		add({ type: 'stay', title: 'Hotel', startMin: 21 * 60, endMin: 24 * 60, people: [alice] });
+		add({
+			day: NEXT,
+			type: 'stay',
+			title: 'Hotel',
+			startMin: 21 * 60,
+			endMin: 24 * 60,
+			people: [alice]
+		});
+		// Checking out of a room and straight back into it is one stay to read.
+		expect(schedule.staysOnBoard(tripId, NEXT)).toHaveLength(1);
+		expect(schedule.staysOnBoard(tripId, NEXT)[0].day).toBe(NEXT);
+	});
+
+	it('draws both when the group changes hotel that morning', () => {
+		add({ type: 'stay', title: 'Hotel', startMin: 21 * 60, endMin: 24 * 60, people: [alice] });
+		add({
+			day: NEXT,
+			type: 'stay',
+			title: 'Hostel',
+			startMin: 21 * 60,
+			endMin: 24 * 60,
+			people: [alice]
+		});
+		expect(schedule.staysOnBoard(tripId, NEXT).map((s) => s.title)).toEqual(['Hotel', 'Hostel']);
 	});
 
 	it('holds several at once, because a group can sleep in two places', () => {
@@ -311,7 +368,7 @@ describe('a stay is a range of nights', () => {
 		// Moved a day later: the same morning now ends at the hotel instead of
 		// starting from it, which only shows up because the write recomputed the
 		// days the stay left as well as the ones it moved onto.
-		expect(schedule.editEvent(stay, alice, { day: NEXT, endDay: THIRD }, tripId)).toBe(true);
+		expect(schedule.editEvent(stay, alice, { day: NEXT, endDay: THIRD }, tripId).ok).toBe(true);
 		expect(schedule.legsForDay(tripId, NEXT).map((l) => l.fromEventId)).toEqual([museum]);
 	});
 
@@ -323,7 +380,7 @@ describe('a stay is a range of nights', () => {
 			endMin: 24 * 60,
 			people: [alice]
 		});
-		expect(schedule.editEvent(stay, alice, { endDay: DAY }, tripId)).toBe(true);
+		expect(schedule.editEvent(stay, alice, { endDay: DAY }, tripId).ok).toBe(true);
 		expect(db.prepare(`SELECT end_day FROM events WHERE id = ?`).get(stay)).toMatchObject({
 			end_day: NEXT
 		});
@@ -337,7 +394,7 @@ describe('a stay is a range of nights', () => {
 			endMin: 24 * 60,
 			people: [alice]
 		});
-		expect(schedule.editEvent(stay, alice, { type: 'activity' }, tripId)).toBe(true);
+		expect(schedule.editEvent(stay, alice, { type: 'activity' }, tripId).ok).toBe(true);
 		expect(db.prepare(`SELECT end_day FROM events WHERE id = ?`).get(stay)).toMatchObject({
 			end_day: null
 		});
@@ -363,10 +420,46 @@ describe('a stay is a range of nights', () => {
 
 	it('gains a range when an ordinary block becomes a stay', () => {
 		const block = add({ startMin: 9 * 60, endMin: 10 * 60, people: [alice] });
-		expect(schedule.editEvent(block, alice, { type: 'stay' }, tripId)).toBe(true);
+		expect(schedule.editEvent(block, alice, { type: 'stay' }, tripId).ok).toBe(true);
 		expect(db.prepare(`SELECT end_day FROM events WHERE id = ?`).get(block)).toMatchObject({
 			end_day: NEXT
 		});
+	});
+
+	it('tells Discover that a proposed stay is on the calendar', async () => {
+		const lodging = await import('../src/persistence/lodging.ts');
+		const cityId = trips.addCity(tripId, alice, {
+			name: 'Athens',
+			country: 'Greece',
+			tz: 'Europe/Athens',
+			lat: 37.98,
+			lng: 23.73
+		})!;
+		const option = lodging.addOption(tripId, alice, cityId, 'Plaka apartments')!;
+		const seen = () =>
+			lodging
+				.cityLodging(tripId, alice)
+				.find((c) => c.id === cityId)!
+				.options.find((o) => o.id === option)!.linked;
+
+		// A proposal nobody has booked into carries no mark on its card.
+		expect(seen()).toBe(0);
+
+		schedule.createEvent(tripId, alice, {
+			day: DAY,
+			endDay: THIRD,
+			title: 'Plaka apartments',
+			type: 'stay',
+			startMin: 21 * 60,
+			endMin: 24 * 60,
+			lat: null,
+			lng: null,
+			lodgingId: option,
+			people: [alice]
+		});
+		// One band, however many nights it runs: the mark counts bookings, not
+		// nights, which is what makes two crews in two rooms read as two.
+		expect(seen()).toBe(1);
 	});
 });
 
@@ -377,7 +470,7 @@ describe('what an event type means', () => {
 		add({ startMin: 720, endMin: 780, people: [alice], ...PARK });
 		expect(schedule.legsForDay(tripId, DAY)).toHaveLength(2);
 
-		expect(schedule.editEvent(middle, alice, { type: 'freetime' }, tripId)).toBe(true);
+		expect(schedule.editEvent(middle, alice, { type: 'freetime' }, tripId).ok).toBe(true);
 		expect(db.prepare(`SELECT lat, lng FROM events WHERE id = ?`).get(middle)).toMatchObject({
 			lat: null,
 			lng: null
@@ -401,5 +494,104 @@ describe('what an event type means', () => {
 		add({ type: 'travel', startMin: 600, endMin: 660, people: [alice] });
 		add({ startMin: 660, endMin: 720, people: [alice], ...PARK });
 		expect(schedule.legsForDay(tripId, DAY)).toHaveLength(0);
+	});
+});
+
+/**
+ * Two people with the same event dialog open.
+ *
+ * Events were the last collaborative row in the app with no version on it.
+ * Expenses and tasks had both been given one after a lost update was watched
+ * happening; an event save still wrote the whole record back unconditionally,
+ * so whoever pressed Save second silently erased the other's edit.
+ */
+describe('editing an event two people have open', () => {
+	it('gives the first save the next version and refuses the second one', () => {
+		const id = add({ startMin: 540, endMin: 600, people: [alice], ...MUSEUM });
+		const opened = schedule.eventsForDay(tripId, DAY, alice).find((e) => e.id === id)!.version;
+
+		const first = schedule.editEvent(id, alice, { title: 'Acropolis Museum' }, tripId, opened);
+		expect(first.ok).toBe(true);
+		expect(first.ok && first.version).toBe(opened + 1);
+
+		// Bob's dialog still holds the version he opened on.
+		const second = schedule.editEvent(id, bob, { title: 'Bob was here' }, tripId, opened);
+		expect(second.ok).toBe(false);
+		expect(second.ok === false && second.reason).toBe('conflict');
+
+		const now = schedule.eventsForDay(tripId, DAY, alice).find((e) => e.id === id)!;
+		expect(now.title).toBe('Acropolis Museum');
+	});
+
+	it('accepts the retry once the dialog has been reloaded onto the new version', () => {
+		const id = add({ startMin: 540, endMin: 600, people: [alice], ...MUSEUM });
+		const opened = schedule.eventsForDay(tripId, DAY, alice).find((e) => e.id === id)!.version;
+		expect(schedule.editEvent(id, alice, { title: 'One' }, tripId, opened).ok).toBe(true);
+
+		const reloaded = schedule.eventsForDay(tripId, DAY, bob).find((e) => e.id === id)!.version;
+		expect(schedule.editEvent(id, bob, { title: 'Two' }, tripId, reloaded).ok).toBe(true);
+		expect(schedule.eventsForDay(tripId, DAY, bob).find((e) => e.id === id)!.title).toBe('Two');
+	});
+
+	// A drag and a resize carry one field each and are deliberately unversioned:
+	// holding a gesture to a version the board refetches constantly would refuse
+	// perfectly good drags. Pinned so that stays a decision.
+	it('lets an unversioned save through, which is what a drag relies on', () => {
+		const id = add({ startMin: 540, endMin: 600, people: [alice], ...MUSEUM });
+		schedule.editEvent(id, alice, { title: 'Moved on' }, tripId);
+		expect(schedule.editEvent(id, bob, { title: 'And again' }, tripId).ok).toBe(true);
+	});
+});
+
+/**
+ * Deleting the stay everyone voted for.
+ *
+ * `events.lodging_id` is ON DELETE SET NULL, so the band that was booked into
+ * the option used to survive it: still on the board, still holding its nights,
+ * pointing at nothing, with nothing on screen saying why. Places had already
+ * been given an explicit cascade for exactly this reason, so stays match them.
+ */
+describe('deleting a stay that is booked on the calendar', () => {
+	function bookedStay() {
+		const cityId = trips.addCity(tripId, alice, {
+			name: 'Athens',
+			country: 'Greece',
+			tz: 'Europe/Athens',
+			lat: 37.98,
+			lng: 23.73
+		})!;
+		const optionId = lodging.addOption(tripId, alice, cityId, 'Hotel Grande')!;
+		const eventId = schedule.createEvent(tripId, alice, {
+			day: DAY,
+			endDay: NEXT,
+			title: 'Hotel Grande',
+			type: 'stay',
+			startMin: 21 * 60,
+			endMin: 24 * 60,
+			lodgingId: optionId,
+			lat: HOTEL.lat,
+			lng: HOTEL.lng,
+			people: [alice]
+		})!;
+		return { cityId, optionId, eventId };
+	}
+
+	it('counts the booked band before it is deleted, so the question can say so', () => {
+		const { cityId, optionId } = bookedStay();
+		const city = lodging.cityLodging(tripId, alice).find((c) => c.id === cityId)!;
+		expect(city.options.find((o) => o.id === optionId)!.linked).toBe(1);
+	});
+
+	it('takes the band with it instead of leaving it pointing at nothing', () => {
+		const { optionId, eventId } = bookedStay();
+		expect(lodging.removeOption(tripId, alice, optionId)).toBe(true);
+		expect(schedule.eventsForDay(tripId, DAY, alice).some((e) => e.id === eventId)).toBe(false);
+	});
+
+	it('leaves every other event on the day alone', () => {
+		const { optionId } = bookedStay();
+		const other = add({ startMin: 540, endMin: 600, people: [alice], ...MUSEUM });
+		expect(lodging.removeOption(tripId, alice, optionId)).toBe(true);
+		expect(schedule.eventsForDay(tripId, DAY, alice).map((e) => e.id)).toEqual([other]);
 	});
 });

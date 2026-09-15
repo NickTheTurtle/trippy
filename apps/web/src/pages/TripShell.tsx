@@ -1,14 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, NavLink, Outlet, useNavigate, useOutletContext, useParams } from 'react-router';
+import { Link, Outlet, useNavigate, useOutletContext, useParams } from 'react-router';
 import { api } from '../lib/api';
 import { useApi } from '../hooks/useApi';
 import { useTripEvents, TripEventsProvider } from '../hooks/useTripEvents';
+import useMediaQuery from '../hooks/useMediaQuery';
 import { TABS } from '../nav';
 import AddCityDialog from '../components/AddCityDialog';
 import TripFormDialog from '../components/TripFormDialog';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 import UiAvatar from '../components/ui/Avatar';
 import LiveOff from '../components/LiveOff';
+import TabStrip from '../components/ui/TabStrip';
 import { copy } from '../copy';
 
 const c = copy.tripShell;
@@ -82,6 +84,10 @@ export default function TripShell() {
 	// moving between the tabs of a trip does not churn connections and switching
 	// trips closes the old one before opening the new one.
 	const events = useTripEvents(tripId ?? null);
+	// Breakpoints the header reads to decide how many faces to show; see `faces`.
+	const wideHeader = useMediaQuery('(min-width: 1024px)');
+	const mediumHeader = useMediaQuery('(min-width: 640px)');
+
 	// The header carries the name, the dates, the member avatars and the city
 	// strip, so it follows all three of those topics.
 	useEffect(() => events.subscribe(['trip', 'members', 'schedule'], reload), [events, reload]);
@@ -108,7 +114,15 @@ export default function TripShell() {
 	}
 
 	const base = `/trips/${trip.id}`;
-	const extra = trip.members.length - 8;
+	/* How many faces the strip shows before rolling the rest into one "+N".
+	 *
+	 * The strip is the trip at a glance, not the roster: the People tab holds
+	 * that. So it gives up faces as the width tightens rather than holding a
+	 * fixed 299px and squeezing the title into nothing. The count has to be
+	 * computed rather than styled, since hiding faces in CSS would leave "+N"
+	 * lying about how many were left out. */
+	const faces = wideHeader ? 8 : mediumHeader ? 5 : 3;
+	const extra = trip.members.length - faces;
 
 	return (
 		<TripEventsProvider value={events}>
@@ -121,18 +135,21 @@ export default function TripShell() {
 						{c.backToTrips}
 					</Link>
 
-					<div className="flex items-start justify-between gap-4">
-						<div className="min-w-0">
+					<div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
+						{/* A real basis, not just `min-w-0`: a title that can shrink to
+						    nothing never pushes the roster onto its own line, and the
+						    header collapsed to one letter per line on a phone. */}
+						<div className="min-w-0 flex-1 basis-72">
 							<h1 className="text-title [overflow-wrap:anywhere]">{trip.name}</h1>
 							<p className="muted">{trip.dates}</p>
 						</div>
 
 						<div className="flex shrink-0 items-center">
-							{trip.members.slice(0, 8).map((m, i) => (
+							{trip.members.slice(0, faces).map((m, i) => (
 								<Avatar key={`${m}-${i}`} title={m} label={m[0]} />
 							))}
 							{extra > 0 && (
-								<Avatar title={trip.members.slice(8).join(', ')} label={`+${extra}`} rest />
+								<Avatar title={trip.members.slice(faces).join(', ')} label={`+${extra}`} rest />
 							)}
 							{trip.role === 'organizer' ? (
 								<button type="button" className="btn small ml-3" onClick={() => setShowEdit(true)}>
@@ -150,24 +167,7 @@ export default function TripShell() {
 						</div>
 					</div>
 
-					<nav className="mt-5 flex gap-1 overflow-x-auto">
-						{TABS.map((t) => (
-							<NavLink
-								key={t.slug}
-								to={`${base}/${t.slug}`}
-								className={({ isActive }) =>
-									[
-										'border-b-2 px-3.5 py-2.5 text-body font-medium whitespace-nowrap',
-										isActive
-											? 'border-accent text-accent-ink'
-											: 'border-transparent text-ink-soft hover:text-ink'
-									].join(' ')
-								}
-							>
-								{t.label}
-							</NavLink>
-						))}
-					</nav>
+					<TabStrip base={base} tabs={TABS} />
 				</div>
 			</div>
 
@@ -226,18 +226,20 @@ export default function TripShell() {
 
 			<main className="container py-8">
 				<LiveOff />
-				<Outlet
-					context={
-						{
-							trip,
-							reloadTrip: reload,
-							addCity: (onChanged) => {
-								onCityAdded.current = onChanged;
-								setShowAddCity(true);
-							}
-						} satisfies Ctx
-					}
-				/>
+				<div className="slidein">
+					<Outlet
+						context={
+							{
+								trip,
+								reloadTrip: reload,
+								addCity: (onChanged) => {
+									onCityAdded.current = onChanged;
+									setShowAddCity(true);
+								}
+							} satisfies Ctx
+						}
+					/>
+				</div>
 			</main>
 		</TripEventsProvider>
 	);
@@ -280,7 +282,7 @@ function EditTrip({
 			fallback={c.editDialog.fallback}
 			footerStart={
 				<button type="button" className="btn danger" onClick={onDelete}>
-					{c.deleteTrip}
+					{copy.common.delete}
 				</button>
 			}
 			initial={{

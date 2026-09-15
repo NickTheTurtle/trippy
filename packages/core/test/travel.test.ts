@@ -6,6 +6,7 @@ import {
 	peopleKey,
 	placeLeg,
 	planLegs,
+	rekeyLeg,
 	type BoardLeg,
 	type PlannedLeg,
 	type PlannerEvent
@@ -55,6 +56,24 @@ describe('peopleKey', () => {
 
 	it('collapses a duplicate, so a double assignment is still one traveller', () => {
 		expect(peopleKey(['a', 'a', 'b'])).toBe('a,b');
+	});
+});
+
+describe('rekeyLeg', () => {
+	it('re-points a journey at the id its destination ended up with', () => {
+		const planned = planLegs([
+			at(P.hotel, { id: 'from', people: ['p'], startMin: 540, endMin: 600 }),
+			at(P.museum, { id: 'draft', people: ['p'], startMin: 660, endMin: 720 })
+		])[0];
+		const saved = planLegs([
+			at(P.hotel, { id: 'from', people: ['p'], startMin: 540, endMin: 600 }),
+			at(P.museum, { id: 'real', people: ['p'], startMin: 660, endMin: 720 })
+		])[0];
+		expect(rekeyLeg(planned.key, 'real')).toBe(saved.key);
+	});
+
+	it('hands back anything that is not a key, rather than making one that matches nothing', () => {
+		expect(rekeyLeg('nonsense', 'real')).toBe('nonsense');
 	});
 });
 
@@ -172,6 +191,21 @@ describe('planLegs', () => {
 		expect(legs[0].afterMin).toBe(0);
 	});
 
+	it("marks the journey home open-ended, because tonight's stay has no hour", () => {
+		const dinner = at(P.market, { startMin: 1020, endMin: 1085, people: ['u1'] });
+		const stay = at(P.hotel, {
+			type: 'stay',
+			// As `planFor` passes it: the end of the day rather than a check-in hour.
+			startMin: 24 * 60,
+			endMin: 24 * 60,
+			people: ['u1']
+		});
+		const legs = planLegs([dinner, stay]);
+		expect(legs).toHaveLength(1);
+		expect(legs[0].openEnded).toBe(true);
+		expect(legs[0].afterMin).toBe(1085);
+	});
+
 	it('keys a leg on the events and the travellers, so an unrelated edit does not churn it', () => {
 		const a = at(P.hotel, { startMin: 540, endMin: 600, people: ['u1', 'u2'] });
 		const b = at(P.museum, { startMin: 660, endMin: 720, people: ['u1', 'u2'] });
@@ -237,6 +271,7 @@ function leg(over: Partial<PlannedLeg> = {}): PlannedLeg {
 		km: 2,
 		afterMin: 600,
 		beforeMin: 700,
+		openEnded: false,
 		...over
 	};
 }
@@ -271,6 +306,17 @@ describe('placeLeg', () => {
 
 	it('flags a gap that runs backwards, which is an overlap the user has to see', () => {
 		expect(placeLeg(leg({ afterMin: 700, beforeMin: 600 }), 10).tight).toBe(true);
+	});
+
+	it('leaves a journey home when the day ends, since a stay has no hour to be late for', () => {
+		const placed = placeLeg(leg({ afterMin: 1085, beforeMin: 1440, openEnded: true }), 13);
+		expect(placed).toEqual({ startMin: 1085, endMin: 1098, tight: false });
+	});
+
+	it('never calls a journey home tight, however long it takes', () => {
+		expect(placeLeg(leg({ afterMin: 1380, beforeMin: 1440, openEnded: true }), 120).tight).toBe(
+			false
+		);
 	});
 });
 

@@ -1,8 +1,7 @@
 import { useState } from 'react';
 import EmptyState from '../../components/ui/EmptyState';
 import ViewAsBar, { shareLabel } from '../../components/ui/ViewAsBar';
-import { IconButton } from '../../components/ui/buttons';
-import { ChevronIcon, PencilIcon, TrashIcon } from '../../components/ui/icons';
+import { ChevronIcon } from '../../components/ui/icons';
 import type { CostItem } from './types';
 import { amountFor, isFor } from './shares';
 import { formatMoney, cap } from '../../lib/format';
@@ -36,8 +35,7 @@ export default function CostList({
 	total,
 	fmt,
 	home,
-	onEdit,
-	onRemove
+	onEdit
 }: {
 	items: CostItem[];
 	categories: string[];
@@ -51,8 +49,8 @@ export default function CostList({
 	fmt: (cents: number) => string;
 	/** The trip's home currency, which `fmt` renders in. */
 	home: string;
+	/** Pressing a row opens it; the delete lives in that dialog. */
 	onEdit: (it: CostItem) => void;
-	onRemove: (it: CostItem) => void;
 }) {
 	const [shut, setShut] = useState<Set<string>>(new Set());
 	const toggle = (cat: string) =>
@@ -89,7 +87,6 @@ export default function CostList({
 									<span className="size-3.5 flex-none" />
 									<span className="font-semibold">{cap(cat)}</span>
 									<span className="ml-auto tabular-nums">{fmt(0)}</span>
-									<ActionGutter />
 								</div>
 							) : (
 								<button
@@ -106,59 +103,56 @@ export default function CostList({
 									</span>
 									<span>{cap(cat)}</span>
 									<span className="ml-auto tabular-nums">{fmt(subtotal)}</span>
-									<ActionGutter />
 								</button>
 							)}
 
 							{open && (
 								<ul className="m-0 flex list-none flex-col gap-3 border-t border-line px-5 py-4">
 									{rows.map((it) => (
-										<li key={it.id} className="group flex items-center gap-3">
-											<div className="flex min-w-0 flex-col">
-												<span className="truncate text-body font-medium" title={it.label}>
-													{it.label}
+										<li key={it.id}>
+											{/* The whole row is the control: it holds nothing else that
+											    can be pressed, so there is no smaller target to aim for
+											    and no icon column to keep clear for one. */}
+											<button
+												type="button"
+												onClick={() => onEdit(it)}
+												aria-label={c.editLabel(it.label)}
+												className="flex w-full cursor-pointer items-center gap-3 border-0 bg-transparent p-0 text-left"
+											>
+												<span className="flex min-w-0 flex-col">
+													<span className="truncate text-body font-medium" title={it.label}>
+														{it.label}
+													</span>
+													<span className="muted truncate text-meta" title={who(it)}>
+														{who(it)}
+													</span>
 												</span>
-												<span className="muted truncate text-meta" title={who(it)}>
-													{who(it)}
-												</span>
-											</div>
-											{/* The ledger's amount block, unchanged: the figure that answers
-											    the question the table is being read with takes the headline,
-											    and the one it was derived from goes underneath. The row is
-											    two lines tall either way, because the label already carries
-											    a second line, so a converted line is no taller than any
-											    other. */}
-											<span className="ml-auto flex flex-col items-end text-right font-semibold">
-												{viewAs ? (
-													<>
-														{fmt(amount(it))}
-														<span className="muted text-micro font-medium">
-															{c.ofTotal(fmt(it.homeCents))}
-														</span>
-													</>
-												) : (
-													<>
-														{formatMoney(it.amountCents, it.currency || home, { whole: true })}
-														{converted(it) && (
+												{/* The ledger's amount block, unchanged: the figure that answers
+												    the question the table is being read with takes the headline,
+												    and the one it was derived from goes underneath. The row is
+												    two lines tall either way, because the label already carries
+												    a second line, so a converted line is no taller than any
+												    other. */}
+												<span className="ml-auto flex flex-col items-end text-right font-semibold">
+													{viewAs ? (
+														<>
+															{fmt(amount(it))}
 															<span className="muted text-micro font-medium">
-																≈ {fmt(it.homeCents)}
+																{c.ofTotal(fmt(it.homeCents))}
 															</span>
-														)}
-													</>
-												)}
-											</span>
-											<span className="flex flex-none gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
-												<IconButton label={c.editLabel(it.label)} onClick={() => onEdit(it)}>
-													<PencilIcon />
-												</IconButton>
-												<IconButton
-													label={c.removeLabel(it.label)}
-													danger
-													onClick={() => onRemove(it)}
-												>
-													<TrashIcon />
-												</IconButton>
-											</span>
+														</>
+													) : (
+														<>
+															{formatMoney(it.amountCents, it.currency || home, { whole: true })}
+															{converted(it) && (
+																<span className="muted text-micro font-medium">
+																	≈ {fmt(it.homeCents)}
+																</span>
+															)}
+														</>
+													)}
+												</span>
+											</button>
 										</li>
 									))}
 								</ul>
@@ -170,27 +164,18 @@ export default function CostList({
 
 			{/* The grand total shares the sections' tint, so it is set apart by
 			    weight and height instead: it is the one figure on the card that
-			    is not a part of something else. */}
-			<div className="flex items-center gap-3 border-t border-line bg-surface-2 px-5 py-3.5 text-lead font-semibold">
-				<span>{viewAs ? shareLabel(members, viewAs, me) : c.total}</span>
-				<span className="ml-auto text-section font-bold tabular-nums">{fmt(total)}</span>
-				<ActionGutter />
-			</div>
+			    is not a part of something else. It waits for a first estimate:
+			    a bold zero under an empty table states a conclusion the table
+			    has not reached. */}
+			{items.length > 0 && (
+				<div className="flex items-center gap-3 border-t border-line bg-surface-2 px-5 py-3.5 text-lead font-semibold">
+					<span>{viewAs ? shareLabel(members, viewAs, me) : c.total}</span>
+					<span className="ml-auto text-section font-bold tabular-nums">{fmt(total)}</span>
+				</div>
+			)}
 		</div>
 	);
 }
-
-/**
- * The width a row's hover pencil and bin occupy, held open on the lines that
- * have no actions of their own.
- *
- * Without it every subtotal and the grand total sit that much further right
- * than the amounts they are the sum of, which reads as two columns rather than
- * one.
- */
-const ActionGutter = () => (
-	<span className="w-[calc(2*var(--control-h-sm)+0.25rem)] flex-none" aria-hidden />
-);
 
 const who = (it: CostItem) =>
 	it.people.length === 0 ? cv.everyone : it.people.map((p) => p.name).join(', ');

@@ -311,14 +311,19 @@ textarea.input {
 	   box beside it. */
 	font-size: var(--text-body);
 	line-height: 1.4;
-	font-variant-numeric: tabular-nums;
 	cursor: text;
 }
 .tfield:focus-within {
 	border-color: var(--color-accent);
 }
+/* Fixed, not merely floored: sized for two of the widest digits so the colon
+   holds still whatever the clock reads. A floor let "23" outgrow it and shunt
+   the colon along. Tabular figures were the old answer to the same question,
+   and are why the clock read as a different typeface from every other number
+   in the app; a fixed segment does the holding without them. */
 .tfseg {
-	min-width: 1.15rem;
+	flex: none;
+	width: 1.5rem;
 	padding: 0 0.15rem;
 	border-radius: 4px;
 	outline: none;
@@ -426,14 +431,15 @@ select.input.compact {
 	backdrop-filter: blur(2px);
 }
 
-/* Every dialog stands at an edge rather than in the middle, because the thing it
-   edits is on the page behind it and a centred panel covers exactly that. The
-   backdrop still dims by default: the page is there to be read, not used.
+/* A dialog sits in the middle of the screen, which is where a reader expects to
+   find one and the only position that looks the same from every page.
 
-   A peeking dialog gives that up too, for the one case where the page must stay
-   live: the schedule's edit, which is drawn on the board as it is typed. It
-   takes a narrower panel as well, because what it leaves uncovered is the
-   point. */
+   One exception, and it earns it: the schedule's edit draws its changes on the
+   board as they are typed, so it must neither dim the page nor cover the part
+   of it being edited. That dialog peeks, which means an undimmed backdrop and a
+   narrower panel standing at whichever edge the board is not using. Docking is
+   a consequence of peeking rather than a choice of its own, so no other dialog
+   can drift to an edge. */
 .modal.docked {
 	max-height: calc(100vh - 2rem);
 }
@@ -581,6 +587,12 @@ select.input.compact {
 	border: none;
 	border-right: 1px solid var(--color-line);
 	cursor: pointer;
+	/* The switch and the thing it switches settle together: the board's own
+	   entrance runs at 200ms, and a pill that snapped while the board was still
+	   arriving would read as two separate events rather than one. */
+	transition:
+		background-color 160ms ease-out,
+		color 160ms ease-out;
 }
 .pill:last-child {
 	border-right: none;
@@ -603,11 +615,34 @@ select.input.compact {
 	margin-top: 1.25rem;
 }
 .tabs {
+	position: relative;
 	display: flex;
 	gap: 0.25rem;
 	overflow-x: auto;
 	scrollbar-width: none;
 	scroll-behavior: smooth;
+}
+/*
+ * The active tab's underline. Positioned against the scrolled content rather
+ * than the wrapper so it rides the row, and sized in JS because the width it
+ * has to match is whatever the browser laid the tab's label out to.
+ *
+ * Width and transform are on the same curve so the bar arrives as one shape
+ * instead of stretching into place after it has moved.
+ */
+.tabink {
+	position: absolute;
+	bottom: 0;
+	left: 0;
+	height: 2px;
+	width: 0;
+	border-radius: 1px;
+	background: var(--color-accent);
+	opacity: 0;
+	pointer-events: none;
+	transition:
+		transform 260ms cubic-bezier(0.22, 1, 0.36, 1),
+		width 260ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 .tabs::-webkit-scrollbar {
 	display: none;
@@ -698,6 +733,18 @@ select.input.compact {
 	display: flex;
 	color: var(--color-ink-faint);
 	flex-shrink: 0;
+}
+/*
+ * The mark that says something here needs looking at: a drawn triangle, never a
+ * phrase. It appears in a dropdown row, on a journey card, in the agenda and on
+ * a map pin, and none of those has room for a sentence. Its size follows the
+ * type around it, so it sits on the line rather than on top of it.
+ */
+.warnmark {
+	display: inline-flex;
+	flex: 0 0 auto;
+	align-items: center;
+	color: var(--color-warn);
 }
 .selmenu {
 	/* Positioned by useAnchor; fixed so .mbody's overflow cannot clip it. */
@@ -971,12 +1018,121 @@ select.input.compact {
 		transform: translateX(320%);
 	}
 }
+/* The panel a trip's sections sit in.
+ *
+ * `overflow-x: clip` keeps the schedule's day step, which translates only its
+ * board by 64px, from growing a horizontal scrollbar, without turning the panel
+ * into a scroll container: `clip` rather than `hidden` on purpose, since
+ * `hidden` would make this a scroll container and the schedule's sticky map
+ * would start sticking to it instead of to the viewport. The cross axis stays
+ * `visible`, so nothing that hangs below is cut off.
+ *
+ * Paging between tabs no longer translates this panel in the document at all;
+ * it is a View Transition (see `usePageTransition`), so the moving panels live
+ * in the top layer and the displacement never reaches the page, which is why no
+ * gutter frame is needed around it any more. */
+.slidein {
+	overflow-x: clip;
+}
+/* Paging between tabs, as a carousel: the outgoing section travels a full pane
+ * width out one side while the incoming one travels a full pane width in behind
+ * it, the two snapshots edge to edge so the viewport shows the seam between them
+ * cross its middle. `usePageTransition` names the panel `trippage` for the
+ * length of the move only and sets the direction on the document element; the
+ * snapshots are given transform-only animations, which replace the browser's
+ * default cross-fade so the panel is moved, not faded. The whole viewport
+ * (header, tab strip, background) is `root`, held still with no animation so
+ * only the section below the chrome pages.
+ *
+ * The curve is a symmetric ease-in-out, not the sharp ease-out the board day
+ * step uses. A carousel has to be watched crossing the viewport, so the seam
+ * between the two panes should sit at the screen's middle at the move's middle;
+ * an ease-out front-loads so hard that at the halfway point the incoming page is
+ * already all but arrived, which reads as a snap rather than a strip sliding
+ * past. Symmetric easing spends the distance evenly, so the two panes are each
+ * genuinely half in view halfway through. 420ms rather than 380ms because a full
+ * pane width is a far longer trip than the board's 64px, and the added time
+ * keeps the mid-move speed from turning into a flick. */
+::view-transition-group(trippage) {
+	animation-duration: 420ms;
+	animation-timing-function: cubic-bezier(0.5, 0, 0.5, 1);
+	overflow: clip;
+}
+::view-transition-old(trippage),
+::view-transition-new(trippage) {
+	animation-duration: 420ms;
+	animation-timing-function: cubic-bezier(0.5, 0, 0.5, 1);
+	mix-blend-mode: normal;
+}
+::view-transition-old(root),
+::view-transition-new(root) {
+	animation: none;
+}
+html[data-page-nav='fwd']::view-transition-old(trippage) {
+	animation-name: trippage-exit-left;
+}
+html[data-page-nav='fwd']::view-transition-new(trippage) {
+	animation-name: trippage-enter-right;
+}
+html[data-page-nav='back']::view-transition-old(trippage) {
+	animation-name: trippage-exit-right;
+}
+html[data-page-nav='back']::view-transition-new(trippage) {
+	animation-name: trippage-enter-left;
+}
+@keyframes trippage-exit-left {
+	to {
+		transform: translateX(-100%);
+	}
+}
+@keyframes trippage-enter-right {
+	from {
+		transform: translateX(100%);
+	}
+}
+@keyframes trippage-exit-right {
+	to {
+		transform: translateX(100%);
+	}
+}
+@keyframes trippage-enter-left {
+	from {
+		transform: translateX(-100%);
+	}
+}
+/* The travelling underline pages with the section rather than jumping to the
+ * new tab: naming it lifts it out of the still `root` and lets the browser
+ * carry it from the old tab to the new one over the same move, on the same
+ * curve and duration, so it reads as one motion with the page. */
+.tabink {
+	view-transition-name: tabunderline;
+}
+::view-transition-group(tabunderline) {
+	animation-duration: 420ms;
+	animation-timing-function: cubic-bezier(0.5, 0, 0.5, 1);
+}
+/* Stillness means an instant swap: `usePageTransition` already skips the View
+ * Transition under it, and this is the guard for anything that reaches one
+ * anyway, so no snapshot ever travels. */
+@media (prefers-reduced-motion: reduce) {
+	::view-transition-group(*),
+	::view-transition-old(*),
+	::view-transition-new(*) {
+		animation: none !important;
+	}
+}
 @media (prefers-reduced-motion: reduce) {
 	.progress.on span {
 		animation: none;
 		width: 100%;
 		transform: none;
 		opacity: 0.6;
+	}
+	.pill {
+		transition: none;
+	}
+	.tabink {
+		transition: none;
 	}
 	.tabs {
 		scroll-behavior: auto;
@@ -1217,6 +1373,18 @@ select.input.compact {
 	opacity: 0;
 	cursor: inherit;
 }
+/* A 16px square is the right drawing and the wrong target: a finger covers far
+   more than that, and a missed tick in a packing list reads as the app ignoring
+   you. The invisible input grows past the square it sits on, so the box looks
+   identical and the tappable area reaches the ~40px a thumb needs. Only on
+   coarse pointers, where a mouse cannot overshoot into a neighbouring row. */
+@media (pointer: coarse) {
+	.cbox input {
+		inset: -12px;
+		width: auto;
+		height: auto;
+	}
+}
 .cbox:has(input:focus-visible) {
 	outline: 2px solid var(--color-accent);
 	outline-offset: 2px;
@@ -1266,24 +1434,69 @@ select.input.compact {
 	color: #fff;
 	font: 600 0.75rem/1 var(--font-sans);
 }
-/* The hover card both maps put over a pin. Google's InfoWindow and Leaflet's
-   popup each draw their own frame, so this styles only what goes inside. */
+/* The layer the hover card is drawn on: fixed, so no scroll box or map frame
+   can clip it, and never a pointer target, so it cannot steal the hover that
+   opened it. */
+.mapcardlayer {
+	position: fixed;
+	z-index: 40;
+	pointer-events: none;
+}
+.mapcardlayer:empty {
+	display: none;
+}
+/* The hover card both maps put over a pin. It draws its own frame now that the
+   app places it rather than the map library.
+   Four weights down the card, so the eye lands on the name first and reads the
+   rest only if it wants to: a coloured track name, the name, what and when,
+   then the plain facts. */
 .mapcard {
 	display: flex;
 	flex-direction: column;
-	gap: 0.1rem;
-	/* The window measures its content, and a bold title sized in rem is wider
-	   than the frame allows for, so the last letter sat on the border. */
-	padding: 0.1rem 0.5rem 0.1rem 0.1rem;
-	max-width: 15rem;
+	gap: 0.05rem;
+	padding: 0.5rem 0.7rem 0.55rem;
+	max-width: 17rem;
+	background: var(--color-surface);
+	border: 1px solid var(--color-line);
+	border-radius: var(--radius-sm);
+	box-shadow: var(--shadow-card);
 	font-family: var(--font-sans);
 	line-height: 1.35;
 }
+/* The only thing tying a card to the pin under the pointer is that pin's
+   colour, so the track name wears it. Small and spaced, so it reads as a label
+   on the card rather than as the first line of it. */
+.mapcard-track {
+	font-size: 0.62rem;
+	font-style: normal;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.07em;
+	margin-bottom: 0.1rem;
+}
 .mapcard strong {
-	font-size: 0.86rem;
+	font-size: 0.9rem;
+	font-weight: 600;
 	color: var(--color-ink);
 }
 .mapcard span {
+	font-size: 0.76rem;
+	color: var(--color-ink-faint);
+}
+/* What this is and when: darker than the facts below it, because it is the
+   half of the answer the title did not give. */
+.mapcard span.mapcard-sub {
 	font-size: 0.78rem;
 	color: var(--color-ink-soft);
+	margin-bottom: 0.15rem;
+}
+.mapcard span.mapcard-warn {
+	display: flex;
+	align-items: center;
+	gap: 0.25rem;
+	margin-top: 0.15rem;
+	color: var(--color-warn);
+}
+.mapcard-warn svg {
+	flex: 0 0 auto;
 }

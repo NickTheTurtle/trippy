@@ -15,6 +15,16 @@ import { signIn } from './fixtures/session';
 const ce = copy.expenses;
 const cp = copy.preparation;
 
+/**
+ * Whether focus sits inside whichever dialog is open. The dialog element itself
+ * counts: a native modal can hold focus there, which is still trapped.
+ */
+const focusIsInTheOpenDialog = (page: import('@playwright/test').Page) =>
+	page.evaluate(() => {
+		const d = document.querySelector('dialog[open]');
+		return !!d && (d === document.activeElement || d.contains(document.activeElement));
+	});
+
 test.describe('keyboard', () => {
 	test('the Select is driven entirely from the keyboard and closes on Escape', async ({
 		page,
@@ -175,10 +185,10 @@ test.describe('keyboard', () => {
 		const fixture = await createApiFixture(request);
 		try {
 			// A seeded expense gives both dialog shapes to check against the same
-			// row: the delete ConfirmDialog stays mounted and toggles `open`, and
-			// the edit dialog is rendered conditionally and unmounts on close. The
-			// second shape is the one the native restore misses, so both are
-			// asserted rather than assuming one stands for the other.
+			// row: the edit dialog is rendered conditionally and unmounts on close,
+			// and the confirmation behind its Delete stays mounted and toggles
+			// `open`. The first shape is the one the native restore misses, so both
+			// are asserted rather than assuming one stands for the other.
 			await addExpense(request, fixture, fixture.tripId, {
 				description: 'Solo lunch',
 				amount: 20,
@@ -188,7 +198,7 @@ test.describe('keyboard', () => {
 			await signIn(page, fixture.sessionCookie);
 			await page.goto(`/trips/${fixture.tripId}/expenses`);
 
-			const trigger = page.getByRole('button', { name: ce.row.deleteLabel('Solo lunch') });
+			const trigger = page.getByRole('button', { name: ce.row.editLabel('Solo lunch') });
 			await trigger.click();
 
 			const dialog = page.getByRole('dialog');
@@ -199,34 +209,32 @@ test.describe('keyboard', () => {
 			// modal can hold focus there, which is still trapped. (The trap itself
 			// is the browser's native <dialog> behaviour; what is worth asserting
 			// is that this app hands focus in on open and back out on close.)
-			const focusInDialog = await page.evaluate(() => {
-				const d = document.querySelector('dialog[open]');
-				return !!d && (d === document.activeElement || d.contains(document.activeElement));
-			});
-			expect(focusInDialog).toBe(true);
+			expect(await focusIsInTheOpenDialog(page)).toBe(true);
 
-			// Cancelling closes it and hands focus back to the control that opened it.
+			// Cancelling closes it and hands focus back to the control that opened
+			// it. React tears the DOM down after the close effect runs, so nothing
+			// native fires and focus lands on <body> unless the app puts it back.
 			await dialog.getByRole('button', { name: copy.common.cancel }).click();
 			await expect(dialog).toBeHidden();
 			await expect(trigger).toBeFocused();
 
-			// The same promise, from a dialog that unmounts instead of closing.
-			// React tears its DOM down after the close effect runs, so nothing
-			// native fires and focus lands on <body> unless the app puts it back.
-			const editTrigger = page.getByRole('button', { name: ce.row.editLabel('Solo lunch') });
-			await editTrigger.click();
-			const editDialog = page.getByRole('dialog');
-			await expect(editDialog).toBeVisible();
-			await editDialog.getByRole('button', { name: copy.common.cancel }).click();
-			await expect(editDialog).toBeHidden();
-			await expect(editTrigger).toBeFocused();
+			// The other shape, reached from inside the edit dialog: a confirmation
+			// that stays mounted and toggles `open` while the form steps aside.
+			// Neither ever leaves focus on the page behind it, and answering no
+			// puts it back in the form rather than on <body>.
+			await trigger.click();
+			await dialog.getByRole('button', { name: copy.common.delete, exact: true }).click();
+			await expect(dialog.getByText(copy.ui.confirmDialog.undone)).toBeVisible();
+			expect(await focusIsInTheOpenDialog(page)).toBe(true);
+
+			await dialog.getByRole('button', { name: copy.common.cancel, exact: true }).click();
+			await expect(dialog.getByLabel(ce.addDialog.descriptionLabel)).toBeVisible();
+			expect(await focusIsInTheOpenDialog(page)).toBe(true);
 
 			// Escape is the other way out, and has to restore focus too.
-			await editTrigger.click();
-			await expect(page.getByRole('dialog')).toBeVisible();
 			await page.keyboard.press('Escape');
-			await expect(page.getByRole('dialog')).toBeHidden();
-			await expect(editTrigger).toBeFocused();
+			await expect(dialog).toBeHidden();
+			await expect(trigger).toBeFocused();
 		} finally {
 			fixture.teardown();
 		}

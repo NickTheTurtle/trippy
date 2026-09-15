@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { createApiFixture } from './fixtures/api';
-import { addCity, addPlace, addStay } from './fixtures/seed';
+import { addCity, addPlace, addStay, apiSend } from './fixtures/seed';
 import { copy } from './fixtures/copy';
 import { signIn } from './fixtures/session';
 
@@ -88,8 +88,12 @@ test.describe('discover', () => {
 			await signIn(page, fixture.sessionCookie);
 			await page.goto(`/trips/${fixture.tripId}/discover`);
 
+			// The card opens its own dialog and the delete lives in that dialog's
+			// footer, behind the house confirmation.
+			await page.getByRole('button', { name: 'Oceanario', exact: true }).click();
 			await page
-				.getByRole('button', { name: copy.discover.placeCard.removeLabel('Oceanario') })
+				.getByRole('dialog')
+				.getByRole('button', { name: copy.common.delete, exact: true })
 				.click();
 			const confirm = page.getByRole('dialog');
 			// The house wording, and a confirm button that repeats the bare verb.
@@ -129,6 +133,81 @@ test.describe('discover', () => {
 			});
 			await expect(voted).toContainText('1');
 			await expect(voted).toHaveAttribute('aria-pressed', 'true');
+		} finally {
+			fixture.teardown();
+		}
+	});
+
+	test('a place scheduled on the calendar is marked as such on its card', async ({
+		page,
+		request
+	}) => {
+		const fixture = await createApiFixture(request);
+		try {
+			const cityId = await addCity(request, fixture, LISBON);
+			const poiId = await addPlace(request, fixture, { cityId, name: 'Oceanario' });
+			await signIn(page, fixture.sessionCookie);
+			await page.goto(`/trips/${fixture.tripId}/discover`);
+
+			// Nothing is scheduled yet, so the corner of the card is empty.
+			const mark = page.getByText(copy.discover.card.onCalendar(1), { exact: true });
+			await expect(page.getByRole('button', { name: 'Oceanario', exact: true })).toBeVisible();
+			await expect(mark).toHaveCount(0);
+
+			// Scheduled through the API: the point here is what the card says about
+			// it afterwards, not the dialog that puts it there.
+			const res = await apiSend(
+				request,
+				fixture,
+				'POST',
+				`/trips/${fixture.tripId}/schedule/events`,
+				{
+					day: fixture.tripBody.startDate,
+					title: 'Oceanario',
+					type: 'activity',
+					start: 10 * 60,
+					duration: 90,
+					cityId,
+					poiId
+				}
+			);
+			expect(res.status(), await res.text()).toBe(201);
+
+			await page.reload();
+			// The count is the mark's name, because the mark itself is a drawing.
+			await expect(mark).toHaveCount(1);
+		} finally {
+			fixture.teardown();
+		}
+	});
+
+	test('a stay booked onto the calendar is marked as such on its card', async ({
+		page,
+		request
+	}) => {
+		const fixture = await createApiFixture(request);
+		try {
+			const cityId = await addCity(request, fixture, LISBON);
+			await addStay(request, fixture, { cityId, name: 'Alfama rooms' });
+			await signIn(page, fixture.sessionCookie);
+
+			// Booked through the dialog, because the picker offering the trip's
+			// proposed stays rather than its saved places is the thing under test.
+			await page.goto(
+				`/trips/${fixture.tripId}/schedule?day=${fixture.tripBody.startDate}&view=day`
+			);
+			await page.getByRole('button', { name: '+ Add stay' }).click();
+			const dialog = page.getByRole('dialog');
+			await dialog.getByLabel('Name').fill('Alfama rooms');
+			await dialog.getByRole('button', { name: 'Stay', exact: true }).click();
+			await page.getByRole('option', { name: /Alfama rooms/ }).click();
+			await dialog.getByRole('button', { name: copy.common.add, exact: true }).click();
+			await expect(page.getByRole('button', { name: /Alfama rooms/ })).toBeVisible();
+
+			await page.goto(`/trips/${fixture.tripId}/discover`);
+			await expect(page.getByText(copy.discover.card.onCalendar(1), { exact: true })).toHaveCount(
+				1
+			);
 		} finally {
 			fixture.teardown();
 		}

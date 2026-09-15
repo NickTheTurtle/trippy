@@ -36,6 +36,20 @@ export function ok(c: Context) {
 }
 
 /**
+ * What a vanished row is told.
+ *
+ * Trips are edited by several people at once, so by far the commonest way to
+ * reach a 404 on a write is that somebody deleted the thing while this dialog
+ * was open. "Could not save that task." describes the outcome and hides the
+ * cause, which left members retrying a save that could never work. Naming the
+ * cause also tells them the right next move, which is to reload rather than try
+ * again. `subject` is the noun as the member knows it: "task", "event", "place".
+ */
+export function goneMessage(subject: string): string {
+	return `That ${subject} is no longer there. Someone else removed it. Reload to catch up.`;
+}
+
+/**
  * Answer with the outcome of a domain call.
  *
  * The functions in `@trippy/server` report a refusal (not a member, not the

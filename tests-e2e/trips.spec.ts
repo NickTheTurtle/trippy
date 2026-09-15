@@ -120,7 +120,7 @@ test.describe('trips', () => {
 			// for a single confirmation rather than stacking two modals.
 			await page
 				.getByRole('dialog')
-				.getByRole('button', { name: copy.tripShell.deleteTrip })
+				.getByRole('button', { name: copy.common.delete })
 				.click();
 
 			const confirm = page.getByRole('dialog');

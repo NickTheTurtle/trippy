@@ -1,13 +1,15 @@
 import { Hono } from 'hono';
 import { requireMember } from '../middleware';
-import { body, isoDay, num, str, strList } from '../parse';
-import { fail, okOr } from '../respond';
+import { body, int, isoDay, num, str, strList } from '../parse';
+import { fail, goneMessage, okOr } from '../respond';
 import type { Env, Trip } from '../types';
 import { env } from '@trippy/server/env';
-import { isEventType, isLocatedType } from '@trippy/core/types';
+import { isEventType, isLocatedType, MIN_EVENT_MINS, type EventType } from '@trippy/core/types';
+import { isNameLength, nameTooLong } from '@trippy/core/validate';
 import {
 	createEvent,
 	crewsForTrip,
+	currentType,
 	deleteEvent,
 	editEvent,
 	editLeg,
@@ -22,17 +24,18 @@ import {
 	scheduleDays,
 	setEventPeople,
 	shiftDay,
-	staysCovering,
+	staysOnBoard,
 	STAY_CHECK_IN
 } from '@trippy/server/schedule';
 import { routeLegs } from '@trippy/server/routing';
 import { savedPoisForTrip } from '@trippy/server/pois';
+import { stayOptionsForTrip } from '@trippy/server/lodging';
 
 export const schedule = new Hono<Env>();
 
 schedule.use('*', requireMember);
 
-const VIEWS = ['day', '3day', 'people'] as const;
+const VIEWS = ['day', 'agenda'] as const;
 type ViewMode = (typeof VIEWS)[number];
 
 /**
@@ -48,13 +51,6 @@ type ViewMode = (typeof VIEWS)[number];
  */
 function foreignEvent(tripId: string, eventId: string): boolean {
 	return eventTrip(eventId) !== tripId;
-}
-
-/** The days visible for a given view, anchored on `day`. */
-function visibleDays(view: ViewMode, day: string): string[] {
-	// The people view is one day laid out sideways, so it loads the same day the
-	// day view would. Only the 3-day view needs neighbours.
-	return view === '3day' ? [0, 1, 2].map((i) => shiftDay(day, i)) : [day];
 }
 
 /**
@@ -103,10 +99,16 @@ schedule.get('/', async (c) => {
 	const days = tripDays(trip.id, trip.start_date, trip.end_date);
 	// `day` is fed to shiftDay(), so a malformed one would build an Invalid Date
 	// and throw inside toISOString(), turning a mistyped url into a 500. Anything
-	// that is not a real calendar day falls back to the first scheduled day, then
-	// the trip start, which is what a bare /schedule shows.
+	// that is not a real calendar day falls back to a day the trip really has.
+	//
+	// The trip's own start comes first, ahead of the earliest scheduled day. It
+	// used to be the other way around, and a single event saved on a mistyped
+	// date was then enough to make a bare /schedule open on the year 1900 for
+	// every member of the trip, with no previous arrow and nothing but empty
+	// board ahead. The stray day is still reachable, because `tripDays` still
+	// lists it; it just no longer decides where everybody starts.
 	const fallback =
-		isoDay(days[0]) ?? isoDay(trip.start_date) ?? new Date().toISOString().slice(0, 10);
+		isoDay(trip.start_date) ?? isoDay(days[0]) ?? new Date().toISOString().slice(0, 10);
 	const viewRaw = c.req.query('view') ?? 'day';
 	const view: ViewMode = VIEWS.includes(viewRaw as ViewMode) ? (viewRaw as ViewMode) : 'day';
 
@@ -117,13 +119,11 @@ schedule.get('/', async (c) => {
 	 * shortened afterwards. Answering those with an empty board would show a day
 	 * the trip does not have and offer no clue which way is back.
 	 *
-	 * The 3-day view is a window, so its anchor stops early enough that the far
-	 * edge lands on the last day rather than two columns past it. `tripDays`
-	 * already includes anything scheduled outside the range, so a stranded event
-	 * stays reachable: the bound is what the trip offers, not its dates. */
+	 * `tripDays` already includes anything scheduled outside the range, so a
+	 * stranded event stays reachable: the bound is what the trip offers, not its
+	 * dates. */
 	const requested = isoDay(c.req.query('day')) ?? fallback;
-	const span = view === '3day' ? 3 : 1;
-	const last = days[Math.max(0, days.length - span)];
+	const last = days[days.length - 1];
 	const day = !days.length
 		? requested
 		: requested < days[0]
@@ -139,23 +139,28 @@ schedule.get('/', async (c) => {
 		city ? { id: city.id, name: city.name, tz: city.tz, lat: city.lat, lng: city.lng } : null;
 	const defaultCity = trip.cities[0] ?? null;
 
-	const board = [];
-	for (const d of visibleDays(view, day)) {
-		board.push({
-			day: d,
+	/* One day, held in an array. Every view reads a single day: the people view
+	   is that day laid out sideways. The array is what the client iterates, and
+	   keeping it is what lets a view that spans days be added back without
+	   reshaping the payload. */
+	const board = [
+		{
+			day,
 			city: cell(defaultCity),
-			events: eventsForDay(trip.id, d),
-			// The night's lodgings, drawn as a band rather than a block: a stay is a
-			// range of days, so it is on every day it covers, and there may be more
-			// than one when the group sleeps in more than one place.
-			stays: staysCovering(trip.id, d),
-			// Where the morning starts. Not drawn: the client needs it only to plan
-			// the day's travel the same way the server does, which is what lets an
-			// unsaved change to who is going redraw the journeys as it is typed.
-			incoming: incomingStays(trip.id, d),
-			legs: await dayLegs(trip.id, d)
-		});
-	}
+			events: eventsForDay(trip.id, day),
+			// The day's lodgings, drawn as a band rather than a block: a stay is a
+			// range of days, so it is on every day it covers, the morning of
+			// checkout included, and there may be more than one when the group
+			// sleeps in more than one place.
+			stays: staysOnBoard(trip.id, day),
+			// Where the morning starts. The client needs it to plan the day's travel
+			// the same way the server does, which is what lets an unsaved change to
+			// who is going redraw the journeys as it is typed. It overlaps `stays`
+			// on every day but the first: the same row answers both questions.
+			incoming: incomingStays(trip.id, day),
+			legs: await dayLegs(trip.id, day)
+		}
+	];
 
 	return c.json({
 		days,
@@ -166,6 +171,11 @@ schedule.get('/', async (c) => {
 		me: c.get('user').id,
 		crews: crewsForTrip(trip.id),
 		saved: savedPoisForTrip(trip.id),
+		// What a stay block can be booked into. Kept beside `saved` rather than
+		// mixed into it: the picker offers one list or the other, never both, and
+		// an id that means a place in one row and a stay in the next is how an
+		// event ends up linked to the wrong table.
+		stays: stayOptionsForTrip(trip.id),
 		cities: trip.cities.map((x) => cell(x)),
 		mapsKey: env.GOOGLE_MAPS_KEY ?? ''
 	});
@@ -174,15 +184,55 @@ schedule.get('/', async (c) => {
 // --- Events -----------------------------------------------------------------
 
 /**
- * Turn a saved-place id into the place an event sits at.
+ * Turn a picked id into the place an event sits at.
+ *
+ * A stay is booked into a proposed stay and everything else is scheduled at a
+ * saved place, so the type decides which list the id is looked up in and which
+ * column the link is written to. Mixing the two would let a stay claim a museum
+ * and a lunch claim a hotel room, and the Discover card that counts what is on
+ * the calendar would count neither.
  *
  * An unknown id unlinks rather than fails: the alternative is an event that
  * claims a place the trip no longer saves.
  */
-function placeFor(tripId: string, poiId: string) {
-	if (!poiId) return null;
-	const poi = savedPoisForTrip(tripId).find((p) => p.id === poiId);
-	return poi ? { poiId: poi.id, name: poi.name, lat: poi.lat, lng: poi.lng } : null;
+function placeFor(tripId: string, type: EventType, pickedId: string) {
+	if (!pickedId) return null;
+	if (type === 'stay') {
+		const stay = stayOptionsForTrip(tripId).find((s) => s.id === pickedId);
+		return stay && { lodgingId: stay.id, name: stay.name, lat: stay.lat, lng: stay.lng };
+	}
+	const poi = savedPoisForTrip(tripId).find((p) => p.id === pickedId);
+	return poi && { poiId: poi.id, name: poi.name, lat: poi.lat, lng: poi.lng };
+}
+
+/** The type an edited block is ending up as: the one it was sent, or the stored one. */
+function editedType(eventId: string, sent: unknown): EventType {
+	const raw = sent == null ? currentType(eventId) : String(sent);
+	return isEventType(raw) ? raw : 'activity';
+}
+
+/**
+ * Whether a day falls outside the trip, for a write that is choosing one.
+ *
+ * Reads are deliberately more forgiving than writes: `tripDays` still lists
+ * anything already scheduled outside the range, so an event stranded by a later
+ * change to the trip's dates stays reachable. This is only about refusing to
+ * create the stranded row in the first place. A single event saved on a
+ * mistyped year was enough to be unreachable in practice and to drag the whole
+ * board's default day back to it.
+ *
+ * A trip missing either endpoint cannot bound anything, so it bounds nothing.
+ */
+function outsideTrip(trip: Trip, day: string): boolean {
+	const from = isoDay(trip.start_date);
+	const to = isoDay(trip.end_date);
+	if (!from || !to || from > to) return false;
+	return day < from || day > to;
+}
+
+/** What a day outside the trip is told, with the range quoted back. */
+function outsideTripMessage(trip: Trip): string {
+	return `That date is outside the trip, which runs ${trip.start_date} to ${trip.end_date}.`;
 }
 
 schedule.post('/events', async (c) => {
@@ -191,6 +241,7 @@ schedule.post('/events', async (c) => {
 
 	const day = isoDay(b.day);
 	if (!day) return fail(c, 400, 'Pick a day.');
+	if (outsideTrip(trip, day)) return fail(c, 400, outsideTripMessage(trip));
 
 	const typeRaw = str(b.type) || 'activity';
 	// The vocabulary is core's, so the API, the server and the client all agree
@@ -203,21 +254,38 @@ schedule.post('/events', async (c) => {
 	const stay = type === 'stay';
 	const start = stay ? STAY_CHECK_IN : num(b.start);
 	if (start === null) return fail(c, 400, 'Pick a start time.');
+	if (start < 0 || start >= 24 * 60) return fail(c, 400, 'Pick a start time within the day.');
 	const endDay = stay ? isoDay(b.endDay) || shiftDay(day, 1) : null;
 	if (endDay && endDay <= day) return fail(c, 400, 'Check out after you check in.');
+	// A stay on the trip's last night checks out the morning after it ends, so
+	// the checkout is allowed one day past the range the check-in must sit in.
+	if (endDay && outsideTrip(trip, shiftDay(endDay, -1))) {
+		return fail(c, 400, outsideTripMessage(trip));
+	}
 
 	let title = str(b.title);
 	// Free time is deliberately nowhere, so it is the one type with no link. A
 	// journey's link is the far end of it: where it lands.
-	const place = isLocatedType(type) ? placeFor(trip.id, str(b.poiId)) : null;
+	const place = isLocatedType(type) ? placeFor(trip.id, type, str(b.poiId)) : null;
 	if (place && !title) title = place.name;
 
 	if (!title) title = type === 'travel' ? 'Travel' : type === 'freetime' ? 'Free time' : '';
 	if (!title) return fail(c, 400, 'Enter a title.');
+	if (!isNameLength(title)) return fail(c, 400, nameTooLong());
 
 	// Every event, a stay included, occupies real time on its own day, so the
-	// end is always a length from the start.
-	const end = stay ? 24 * 60 : start + (num(b.duration) || 60);
+	// end is always a length from the start. A length is asked for rather than
+	// an end time precisely so an end cannot land before its start, but the
+	// number still arrives from the network and a negative or absurd one would
+	// otherwise be quietly clamped into something the organiser never chose.
+	const duration = num(b.duration) ?? 60;
+	if (duration < MIN_EVENT_MINS) {
+		return fail(c, 400, `An event needs to run at least ${MIN_EVENT_MINS} minutes.`);
+	}
+	if (!stay && start + duration > 24 * 60) {
+		return fail(c, 400, 'That runs past the end of the day. Shorten it or start earlier.');
+	}
+	const end = stay ? 24 * 60 : start + duration;
 
 	const id = createEvent(trip.id, c.get('user').id, {
 		day,
@@ -226,7 +294,8 @@ schedule.post('/events', async (c) => {
 		type,
 		startMin: start,
 		endMin: end,
-		poiId: place?.poiId ?? null,
+		poiId: place && 'poiId' in place ? place.poiId : null,
+		lodgingId: place && 'lodgingId' in place ? place.lodgingId : null,
 		cityId: str(b.cityId) || trip.cities[0]?.id || null,
 		lat: place?.lat ?? null,
 		lng: place?.lng ?? null,
@@ -242,7 +311,7 @@ schedule.post('/events', async (c) => {
 schedule.put('/events/:eventId/people', async (c) => {
 	const trip = c.get('trip');
 	const eventId = c.req.param('eventId');
-	if (foreignEvent(trip.id, eventId)) return fail(c, 404, 'Could not find that event.');
+	if (foreignEvent(trip.id, eventId)) return fail(c, 404, goneMessage('event'));
 
 	return okOr(
 		c,
@@ -269,8 +338,46 @@ schedule.post('/events/:eventId/op', async (c) => {
 	// Every mutation below is passed the trip and refuses an event belonging to
 	// another one, so this is about the status, not the check: a cross-trip id is
 	// a 404, not the 403 that a real permission failure inside this trip earns.
-	if (foreignEvent(trip.id, eventId)) return fail(c, 404, 'Could not find that event.');
+	if (foreignEvent(trip.id, eventId)) return fail(c, 404, goneMessage('event'));
 
+	// Any op that names a day has to land inside the trip, for the same reason
+	// creating one does: the board only offers days the trip has, so a block
+	// pushed outside is a block nobody can get back to.
+	const targetDay = isoDay(b.day);
+	if (targetDay && outsideTrip(trip, targetDay)) {
+		return fail(c, 400, outsideTripMessage(trip));
+	}
+	const targetEnd = isoDay(b.endDay);
+	if (targetEnd && outsideTrip(trip, shiftDay(targetEnd, -1))) {
+		return fail(c, 400, outsideTripMessage(trip));
+	}
+
+	// A dialog save carries both ends of the clock at once, so it is the one op
+	// that can describe an event that ends before it begins. The store clamps
+	// such a pair into something legal, which is the right last resort but the
+	// wrong answer to give an organiser: they typed a time and would be shown a
+	// different one with no explanation. Refuse it here, where there is still
+	// somewhere to put the reason.
+	if (str(b.op) === 'edit') {
+		const from = num(b.startMin);
+		const to = num(b.endMin);
+		if (from !== null && (from < 0 || from >= 24 * 60)) {
+			return fail(c, 400, 'Pick a start time within the day.');
+		}
+		if (to !== null && to > 24 * 60) {
+			return fail(c, 400, 'That runs past the end of the day.');
+		}
+		if (from !== null && to !== null && to - from < MIN_EVENT_MINS) {
+			return fail(c, 400, `An event needs to run at least ${MIN_EVENT_MINS} minutes.`);
+		}
+	}
+
+	// A drag and a resize are deliberately left unversioned. They carry exactly
+	// one field each, so there is nothing stale riding along to overwrite, and
+	// holding a gesture to a version the board refetches constantly would refuse
+	// perfectly good drags whenever somebody else touched another event. The
+	// dialog save is the one that writes a whole record back, and that is the one
+	// that is checked.
 	let okay = false;
 	switch (str(b.op)) {
 		case 'move':
@@ -286,8 +393,8 @@ schedule.post('/events/:eventId/op', async (c) => {
 		case 'resize':
 			okay = resizeEvent(eventId, userId, num(b.endMin) ?? NaN, trip.id);
 			break;
-		case 'edit':
-			okay = editEvent(
+		case 'edit': {
+			const result = editEvent(
 				eventId,
 				userId,
 				{
@@ -308,11 +415,23 @@ schedule.post('/events/:eventId/op', async (c) => {
 					day: isoDay(b.day) ?? undefined,
 					endDay: isoDay(b.endDay) ?? undefined,
 					// Same three cases again: absent leaves the link, empty unlinks.
-					place: b.poiId === undefined ? undefined : placeFor(trip.id, str(b.poiId))
+					// Which list the id is looked up in follows the type the block is
+					// ending up as, not the one it had.
+					place:
+						b.poiId === undefined
+							? undefined
+							: placeFor(trip.id, editedType(eventId, b.type), str(b.poiId))
 				},
-				trip.id
+				trip.id,
+				int(b.version)
 			);
-			break;
+			if (!result.ok) {
+				return result.reason === 'conflict'
+					? fail(c, 409, 'Someone else changed this event. Reload to see their version.')
+					: fail(c, 403, 'Not allowed');
+			}
+			return c.json({ ok: true, version: result.version });
+		}
 		case 'delete':
 			okay = deleteEvent(eventId, userId, trip.id);
 			break;
@@ -348,7 +467,7 @@ schedule.patch('/legs/:legId', async (c) => {
 			b.title === undefined ? undefined : str(b.title) || null
 		),
 		404,
-		'Could not find that journey.'
+		goneMessage('journey')
 	);
 });
 

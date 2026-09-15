@@ -1,7 +1,7 @@
 import { Hono, type Context } from 'hono';
 import { requireMember } from '../middleware';
 import { body, int, num, optStr, record, str, strList } from '../parse';
-import { fail, okOr } from '../respond';
+import { fail, goneMessage, okOr } from '../respond';
 import type { Env } from '../types';
 import {
 	addExpense,
@@ -11,11 +11,13 @@ import {
 	listExpenses,
 	recordSettlement,
 	settlement,
+	settlementByToken,
 	tripMembers,
 	updateExpense
 } from '@trippy/server/expenses';
 import { convertCents, ensureRatesFresh, knownCurrencies } from '@trippy/server/fx';
 import { isSplitMode, type SplitMode } from '@trippy/core/split';
+import { amountTooLarge, isAmountInRange, isNameLength, nameTooLong } from '@trippy/core/validate';
 
 export const expenses = new Hono<Env>();
 
@@ -44,6 +46,7 @@ async function parseExpense(
 
 	const description = str(b.description);
 	if (!description) return { error: 'Enter a description.' };
+	if (!isNameLength(description)) return { error: nameTooLong() };
 
 	const amount = num(b.amount);
 	// Income is the same record with the sign flipped: a negative amount means
@@ -51,8 +54,18 @@ async function parseExpense(
 	// credited rather than charged. The sign comes from the amount itself; there
 	// is no separate "this is income" flag to get out of step with it. Zero is
 	// the one value that says nothing either way, so it is rejected.
-	if (amount === null || Math.round(amount * 100) === 0) return { error: 'Enter an amount.' };
+	if (amount === null) return { error: 'Enter an amount.' };
+	// A figure that rounds to nothing is not a blank field, and saying "enter an
+	// amount" against a box with 0.001 in it reads as the app failing to see
+	// what was typed.
+	if (Math.round(amount * 100) === 0) {
+		return { error: 'That rounds to nothing. Enter at least one cent.' };
+	}
 	const cents = Math.round(amount * 100);
+	// An unbounded amount is not merely a silly row: one above the safe-integer
+	// limit made every later read of this trip's ledger throw, which took the
+	// whole page down for everybody with no way left to delete it.
+	if (!isAmountInRange(cents)) return { error: amountTooLarge() };
 
 	const participantIds = strList(b.participantIds);
 	if (!participantIds.length) return { error: 'Pick at least one person.' };
@@ -174,7 +187,7 @@ expenses.put('/:expenseId', async (c) => {
 	if (!result.ok) {
 		return result.reason === 'conflict'
 			? fail(c, 409, 'Someone else changed this expense. Reload to see their version.')
-			: fail(c, 404, 'Could not save that expense.');
+			: fail(c, 404, goneMessage('expense'));
 	}
 	return c.json({ ok: true, version: result.version });
 });
@@ -208,14 +221,36 @@ expenses.post('/settle', async (c) => {
 	const amountCents =
 		b.amountCents !== undefined ? cents : major === null ? null : Math.round(major * 100);
 	if (amountCents === null || amountCents <= 0) return fail(c, 400, 'Enter an amount.');
+	if (!isAmountInRange(amountCents)) return fail(c, 400, amountTooLarge());
+
+	const fromId = str(b.fromId);
+	const token = optStr(b.token);
+
+	// A payment larger than the debt it settles inverts the balance it was meant
+	// to clear, and this endpoint used to take any figure at all. The ledger
+	// already knows what each person owes, so the transfer is held to it rather
+	// than trusted from the client.
+	//
+	// The token is looked up first because settlements count towards the balance:
+	// once a debt is paid it is no longer outstanding, so re-checking a repeat
+	// press against the balance would answer "more than they owe" for a payment
+	// that had already gone through. Idempotency has to win over the rule.
+	const already = token ? settlementByToken(trip.id, token) : undefined;
+	if (!already) {
+		const owed = balances(trip.id).find((row) => row.id === fromId)?.netCents ?? 0;
+		if (owed >= 0) return fail(c, 400, 'That person does not owe anything.');
+		if (amountCents > -owed) {
+			return fail(c, 400, 'That is more than they owe. Enter the outstanding amount or less.');
+		}
+	}
 
 	const result = recordSettlement(
 		trip.id,
 		c.get('user').id,
-		str(b.fromId),
+		fromId,
 		str(b.toId),
 		amountCents,
-		optStr(b.token)
+		token
 	);
 	if (!result) return fail(c, 400, 'Could not record that payment.');
 	return c.json({ id: result.id, duplicate: result.duplicate }, result.duplicate ? 200 : 201);
@@ -226,6 +261,6 @@ expenses.delete('/:expenseId', (c) =>
 		c,
 		deleteExpense(c.get('trip').id, c.get('user').id, c.req.param('expenseId')),
 		404,
-		'Could not delete that expense.'
+		goneMessage('expense')
 	)
 );

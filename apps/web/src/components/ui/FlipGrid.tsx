@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { ElementType, ReactNode } from 'react';
 import { useFlip } from '../../hooks/useFlip';
 
 /**
@@ -10,22 +10,28 @@ import { useFlip } from '../../hooks/useFlip';
  * branches have returned, and a hook cannot be called there. Passing the
  * children in moves the hook somewhere it can be called unconditionally.
  *
+ * `as` is the element to render, because the same behaviour is wanted by a card
+ * grid and by a list of rows, and a `<ul>` whose children are wrapped in a div
+ * is no longer a list to a screen reader.
+ *
  * `signature` must change exactly when the layout could have: the hook reads a
  * rect per child, which forces layout, so it is not something to do per render.
  */
 export default function FlipGrid({
 	signature,
+	as: Tag = 'div',
 	className,
 	children
 }: {
 	signature: string;
+	as?: ElementType;
 	className?: string;
 	children: ReactNode;
 }) {
-	const ref = useFlip<HTMLDivElement>(signature);
+	const ref = useFlip<HTMLElement>(signature);
 	return (
-		<div ref={ref} className={className}>
+		<Tag ref={ref} className={className}>
 			{children}
-		</div>
+		</Tag>
 	);
 }

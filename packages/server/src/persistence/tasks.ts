@@ -54,14 +54,18 @@ interface TaskBase {
  * Tasks with their assignees. A task with assignees is done only when *every*
  * assignee has ticked their own box; "apply for a visa" isn't finished because
  * one person filed. A task with no assignees falls back to one shared tick.
+ *
+ * A packing list is private, so `ownerId` scopes the rows to one person. It is
+ * required for packing and meaningless for tasks, which belong to the trip.
  */
-export function listTasks(tripId: string, kind: string): TaskRow[] {
+export function listTasks(tripId: string, kind: string, ownerId?: string): TaskRow[] {
+	const mine = kind === 'packing';
 	const rows = db
 		.prepare(
 			`SELECT id, kind, label, flag, done, version FROM trip_tasks
-			 WHERE trip_id = ? AND kind = ? ORDER BY sort, created_at`
+			 WHERE trip_id = ? AND kind = ?${mine ? ' AND owner_id = ?' : ''} ORDER BY sort, created_at`
 		)
-		.all(tripId, kind) as unknown as TaskBase[];
+		.all(...(mine ? [tripId, kind, ownerId ?? ''] : [tripId, kind])) as unknown as TaskBase[];
 	if (rows.length === 0) return [];
 
 	const people = db
@@ -129,16 +133,18 @@ export function addTask(
 				.get(tripId, kind) as { n: number } | undefined
 		)?.n ?? 0;
 
-	// A packing item is a list you tick, not work to hand out.
+	// A packing item is one person's own bag: it takes no roster, and it belongs
+	// to whoever wrote it rather than to the trip.
 	const valid = (kind === 'packing' ? [] : assigneeIds).filter((uid) => isMember(tripId, uid));
 	const names = memberNames(valid);
+	const owner = kind === 'packing' ? actorId : null;
 
 	db.exec('BEGIN');
 	try {
 		db.prepare(
-			`INSERT INTO trip_tasks (id, trip_id, kind, label, assignee, flag, done, sort, created_at)
-			 VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`
-		).run(id, tripId, kind, label, names, flag, sort, Date.now());
+			`INSERT INTO trip_tasks (id, trip_id, kind, label, assignee, flag, done, sort, created_at, owner_id)
+			 VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`
+		).run(id, tripId, kind, label, names, flag, sort, Date.now(), owner);
 		const ins = db.prepare(`INSERT OR IGNORE INTO task_assignees (task_id, user_id) VALUES (?, ?)`);
 		for (const uid of valid) ins.run(id, uid);
 		db.exec('COMMIT');
@@ -162,7 +168,8 @@ export function addTask(
  * counts as done by a person the task is no longer for.
  *
  * A packing item takes no roster whatever it is sent, so an older client, or
- * one editing an item from before the rule, cannot put one back on.
+ * one editing an item from before the rule, cannot put one back on. It is also
+ * its owner's alone: nobody else may rewrite what is in your bag.
  *
  * `expectedVersion` is the version the editor was looking at. If the row has
  * moved on since, the write is refused instead of applied: the caller's copy of
@@ -179,9 +186,10 @@ export function updateTask(
 ): WriteResult {
 	if (!isMember(tripId, actorId)) return missing;
 	const row = db
-		.prepare(`SELECT kind, version FROM trip_tasks WHERE id = ? AND trip_id = ?`)
-		.get(taskId, tripId) as { kind: string; version: number } | undefined;
+		.prepare(`SELECT kind, version, owner_id FROM trip_tasks WHERE id = ? AND trip_id = ?`)
+		.get(taskId, tripId) as { kind: string; version: number; owner_id: string | null } | undefined;
 	if (!row) return missing;
+	if (row.owner_id && row.owner_id !== actorId) return missing;
 	if (isStale(expectedVersion, row.version)) return conflict;
 
 	const valid = (row.kind === 'packing' ? [] : assigneeIds).filter((uid) => isMember(tripId, uid));
@@ -234,6 +242,9 @@ export function updateTask(
  * A task with no assignees has no per-person rows, so it sets the shared flag
  * instead. Returns the state the box is now in, which lets a client correct
  * itself when its optimistic guess disagreed.
+ *
+ * A packing item is the exception to "anyone may tick anyone": it is one
+ * person's own list, and nobody else can see it to tick it.
  */
 export function toggleTask(
 	tripId: string,
@@ -244,9 +255,10 @@ export function toggleTask(
 ): { ok: false } | { ok: true; done: boolean } {
 	if (!isMember(tripId, actorId)) return { ok: false };
 	const task = db
-		.prepare(`SELECT id FROM trip_tasks WHERE id = ? AND trip_id = ?`)
-		.get(taskId, tripId) as { id: string } | undefined;
+		.prepare(`SELECT id, owner_id FROM trip_tasks WHERE id = ? AND trip_id = ?`)
+		.get(taskId, tripId) as { id: string; owner_id: string | null } | undefined;
 	if (!task) return { ok: false };
+	if (task.owner_id && task.owner_id !== actorId) return { ok: false };
 
 	const who = targetId ?? actorId;
 	// Membership of the target is not checked separately: the assignee lookup
@@ -301,7 +313,13 @@ export function toggleTask(
 
 export function removeTask(tripId: string, actorId: string, taskId: string): boolean {
 	if (!isMember(tripId, actorId)) return false;
-	const res = db.prepare(`DELETE FROM trip_tasks WHERE id = ? AND trip_id = ?`).run(taskId, tripId);
+	// `owner_id IS NULL` is the trip's own row, which any member may remove; a
+	// packing item can only be thrown out by the person whose bag it is.
+	const res = db
+		.prepare(
+			`DELETE FROM trip_tasks WHERE id = ? AND trip_id = ? AND (owner_id IS NULL OR owner_id = ?)`
+		)
+		.run(taskId, tripId, actorId);
 	if (Number(res.changes) > 0) publish(tripId, 'tasks');
 	return Number(res.changes) > 0;
 }

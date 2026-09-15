@@ -55,10 +55,13 @@ test.describe('preparation', () => {
 			await ticked.click();
 			await expect(unticked).toHaveAttribute('aria-pressed', 'false');
 
-			// Delete takes the whole row after the house confirmation.
+			// Delete lives inside the row's own dialog now, behind the house
+			// confirmation, so the row is opened rather than hunted for a bin.
 			await page
-				.getByRole('button', { name: cp.taskList.removeLabel('task', 'Book the museum') })
+				.getByRole('button', { name: cp.taskList.editLabel('task', 'Book the museum') })
 				.click();
+			const form = page.getByRole('dialog');
+			await form.getByRole('button', { name: copy.common.delete, exact: true }).click();
 			const confirm = page.getByRole('dialog');
 			await expect(confirm.getByText(copy.ui.confirmDialog.undone)).toBeVisible();
 			await confirm.getByRole('button', { name: copy.common.delete, exact: true }).click();
@@ -157,7 +160,11 @@ test.describe('preparation', () => {
 			await dialog.getByRole('button', { name: copy.common.save }).click();
 			await expect(page.getByText('Rental van')).toBeVisible();
 
-			await page.getByRole('button', { name: cp.costTable.removeLabel('Rental van') }).click();
+			await page.getByRole('button', { name: cp.costTable.editLabel('Rental van') }).click();
+			await page
+				.getByRole('dialog')
+				.getByRole('button', { name: copy.common.delete, exact: true })
+				.click();
 			const confirm = page.getByRole('dialog');
 			await confirm.getByRole('button', { name: copy.common.delete, exact: true }).click();
 			await expect(page.getByText('Rental van', { exact: true })).toBeHidden();

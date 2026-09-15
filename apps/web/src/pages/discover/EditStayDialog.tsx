@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { api } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
 import Modal, { ModalFooter, ModalForm } from '../../components/ui/Modal';
+import { useDeleteAction } from '../../components/ui/useDeleteAction';
 import { Field, FieldShell } from '../../components/ui/Field';
 import Select from '../../components/ui/Select';
 import { currencyOptions } from '../../lib/currencies';
@@ -31,7 +32,8 @@ export default function EditStayDialog({
 	currency,
 	currencies,
 	onClose,
-	onSaved
+	onSaved,
+	onDelete
 }: {
 	base: string;
 	stay: Stay;
@@ -40,6 +42,7 @@ export default function EditStayDialog({
 	currencies: string[];
 	onClose: () => void;
 	onSaved: () => void;
+	onDelete: () => void | Promise<void>;
 }) {
 	const [name, setName] = useState(s.name);
 	const [price, setPrice] = useState(s.price_cents == null ? '' : String(s.price_cents / 100));
@@ -48,6 +51,17 @@ export default function EditStayDialog({
 	const [notes, setNotes] = useState(s.tag);
 	const [checkIn, setCheckIn] = useState(s.check_in ?? '');
 	const [checkOut, setCheckOut] = useState(s.check_out ?? '');
+
+	// A stay that is booked on the calendar takes those bands with it, the same
+	// way a place takes its events, so the question says so.
+	const del = useDeleteAction({
+		title:
+			s.linked > 0
+				? copy.discover.deleteStay.linkedTitle(s.name, s.linked)
+				: copy.discover.deleteStay.title(s.name),
+		busyLabel: copy.common.deleting,
+		onDelete
+	});
 
 	const save = useMutation<[number | null]>(
 		(cents) =>
@@ -72,73 +86,77 @@ export default function EditStayDialog({
 		e.preventDefault();
 		const cents = parseMoneyToCents(price);
 		if (cents === 'bad') return save.setError(c.badPrice);
-		if (checkIn && checkOut && checkIn > checkOut) return save.setError(c.badDates);
+		if (checkIn && checkOut && checkIn >= checkOut) return save.setError(c.badDates);
 		void save.run(cents);
 	}
 
 	return (
-		<Modal open title={c.title} size="md" onClose={onClose}>
-			<ModalForm onSubmit={submit}>
-				<div className="mbody">
-					<div className="flex flex-col gap-3">
-						<Field
-							label={c.nameLabel}
-							autoFocus
-							required
-							value={name}
-							onChange={(e) => setName(e.target.value)}
-							inputClassName="w-full"
-						/>
-						<div className="grid grid-cols-2 gap-3">
+		<>
+			<Modal open={!del.asking} title={c.title} size="md" onClose={onClose}>
+				<ModalForm onSubmit={submit}>
+					<div className="mbody">
+						<div className="flex flex-col gap-3">
 							<Field
-								label={c.priceLabel}
-								optional
-								type="number"
-								min="0"
-								step="1"
-								value={price}
-								onChange={(e) => setPrice(e.target.value)}
+								label={c.nameLabel}
+								autoFocus
+								required
+								value={name}
+								onChange={(e) => setName(e.target.value)}
 								inputClassName="w-full"
 							/>
-							<FieldShell label={c.currencyLabel}>
-								<Select
-									options={currencyOptions(currencies)}
-									value={cur}
-									onChange={setCur}
-									ariaLabel={c.currencyLabel}
+							<div className="grid grid-cols-2 gap-3">
+								<Field
+									label={c.priceLabel}
+									optional
+									type="number"
+									min="0"
+									step="1"
+									value={price}
+									onChange={(e) => setPrice(e.target.value)}
+									inputClassName="w-full"
 								/>
-							</FieldShell>
+								<FieldShell label={c.currencyLabel}>
+									<Select
+										options={currencyOptions(currencies)}
+										value={cur}
+										onChange={setCur}
+										ariaLabel={c.currencyLabel}
+									/>
+								</FieldShell>
+							</div>
+							<div className="grid grid-cols-2 gap-3">
+								<Field
+									label={c.checkInLabel}
+									optional
+									type="date"
+									value={checkIn}
+									onChange={(e) => setCheckIn(e.target.value)}
+									inputClassName="w-full"
+								/>
+								<Field
+									label={c.checkOutLabel}
+									optional
+									type="date"
+									value={checkOut}
+									onChange={(e) => setCheckOut(e.target.value)}
+									inputClassName="w-full"
+								/>
+							</div>
+							<LinkField value={url} onChange={setUrl} />
+							<NotesField value={notes} onChange={setNotes} />
 						</div>
-						<div className="grid grid-cols-2 gap-3">
-							<Field
-								label={c.checkInLabel}
-								optional
-								type="date"
-								value={checkIn}
-								onChange={(e) => setCheckIn(e.target.value)}
-								inputClassName="w-full"
-							/>
-							<Field
-								label={c.checkOutLabel}
-								optional
-								type="date"
-								value={checkOut}
-								onChange={(e) => setCheckOut(e.target.value)}
-								inputClassName="w-full"
-							/>
-						</div>
-						<LinkField value={url} onChange={setUrl} />
-						<NotesField value={notes} onChange={setNotes} />
 					</div>
-				</div>
-				<ModalFooter
-					error={save.error}
-					onClose={onClose}
-					busy={save.busy}
-					busyLabel={copy.common.saving}
-					submitLabel={copy.common.save}
-				/>
-			</ModalForm>
-		</Modal>
+					<ModalFooter
+						error={save.error}
+						onClose={onClose}
+						busy={save.busy}
+						busyLabel={copy.common.saving}
+						submitLabel={copy.common.save}
+						start={del.button}
+					/>
+				</ModalForm>
+			</Modal>
+			{del.confirm}
+		</>
 	);
 }

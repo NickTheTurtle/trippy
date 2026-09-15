@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Linking, Pressable, RefreshControl, Text, View } from 'react-native';
 import { copy } from '@trippy/copy';
 import { formatPerNight } from '@trippy/copy/format';
+import { safeExternalUrl } from '@trippy/core/validate';
 import type { DiscoverData, Poi, Stay } from '../../../src/lib/api-types';
 import { api } from '../../../src/lib/api';
 import { useTripId } from '../../../src/trip-id';
@@ -242,7 +243,7 @@ function PlaceRow({ poi, onVote }: { poi: Poi; onVote: () => void }) {
 				<Text style={type.body}>{poi.name}</Text>
 				{poi.category ? <Text style={type.faint}>{poi.category}</Text> : null}
 				{poi.linked > 0 ? (
-					<Text style={type.faint}>{copy.discover.placeCard.onCalendar(poi.linked)}</Text>
+					<Text style={type.faint}>{copy.discover.card.onCalendar(poi.linked)}</Text>
 				) : null}
 			</View>
 			<VoteButton
@@ -256,11 +257,15 @@ function PlaceRow({ poi, onVote }: { poi: Poi; onVote: () => void }) {
 }
 
 function StayRow({ stay, currency, onVote }: { stay: Stay; currency: string; onVote: () => void }) {
+	// The url is free text, so it is validated the same way the web card does
+	// (@trippy/core/validate): only http and https survive, and a bare host is
+	// given a scheme. Anything else is treated as no link rather than opened.
+	const href = stay.url ? safeExternalUrl(stay.url) : null;
 	return (
 		<View style={rowStyle}>
 			<View style={{ flex: 1, gap: 2 }}>
-				<Pressable disabled={!stay.url} onPress={() => stay.url && void Linking.openURL(stay.url)}>
-					<Text style={{ ...type.body, color: stay.url ? color.accentInk : color.ink }}>
+				<Pressable disabled={!href} onPress={() => href && void Linking.openURL(href)}>
+					<Text style={{ ...type.body, color: href ? color.accentInk : color.ink }}>
 						{stay.name}
 					</Text>
 				</Pressable>

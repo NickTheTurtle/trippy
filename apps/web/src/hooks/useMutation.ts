@@ -72,6 +72,12 @@ export function useMutation<A extends unknown[] = []>(
 		} catch (err) {
 			// An abort is the caller cancelling, not something to report.
 			if (err instanceof DOMException && err.name === 'AbortError') return false;
+			// A 404 on a write means somebody else deleted the row while this
+			// dialog was open. The write genuinely failed, so the dialog stays
+			// open with the reason on it, but the section is resynced as well:
+			// otherwise the list keeps drawing a row that no longer exists and
+			// every further action on it fails the same silent way.
+			if (err instanceof ApiError && err.status === 404) optionsRef.current.onSuccess?.();
 			if (alive.current) {
 				setError(
 					err instanceof ApiError

@@ -18,7 +18,10 @@ import type { Crew } from './types';
  * first.
  *
  * Leaving the field empty means the whole group, which is why the trigger reads
- * "Everyone" rather than naming anybody.
+ * "Everyone" rather than naming anybody. The Everyone crew therefore clears the
+ * field rather than ticking every name: the two would look the same today and
+ * part company the moment somebody joins, and the emptied field is the one that
+ * still means everyone afterwards.
  */
 export default function PeoplePicker({
 	people,
@@ -33,11 +36,12 @@ export default function PeoplePicker({
 	crews: Crew[];
 	className?: string;
 }) {
+	const whole = memberOptions.length;
 	return (
 		<FieldShell label="Participants" className={className}>
 			<MultiSelect
 				selected={people}
-				onChange={onChange}
+				onChange={(next) => onChange(next.length === whole ? [] : next)}
 				options={memberOptions}
 				groups={crewGroups(crews)}
 				placeholder="Everyone"

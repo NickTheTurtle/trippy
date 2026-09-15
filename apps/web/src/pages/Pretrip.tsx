@@ -5,11 +5,11 @@ import { useLiveSection } from '../hooks/useTripEvents';
 import { useMutation } from '../hooks/useMutation';
 import { formatMoney } from '../lib/format';
 import { useTrip } from './TripShell';
+import { useNarrowLayout } from '../hooks/useMediaQuery';
 import SectionNav from '../components/ui/SectionNav';
 import FormError from '../components/ui/FormError';
-import ConfirmDialog from '../components/ui/ConfirmDialog';
 import Stat from '../components/ui/Stat';
-import type { Task, CostItem, PretripData, Draft, TaskDraft } from './pretrip/types';
+import type { Task, PretripData, Draft, TaskDraft } from './pretrip/types';
 import TaskList, { ListTitle } from './pretrip/TaskList';
 import MyTasks, { isMine } from './pretrip/MyTasks';
 import CostList from './pretrip/CostList';
@@ -38,13 +38,9 @@ export default function Pretrip() {
 	/** Add and edit share one modal; `id` is null when adding. */
 	const [editingTask, setEditingTask] = useState<TaskDraft | null>(null);
 	const [editing, setEditing] = useState<Draft | null>(null);
-	/** The row a confirmation is open for, and which list it came from. */
-	const [pendingTask, setPendingTask] = useState<{ kind: 'task' | 'packing'; task: Task } | null>(
-		null
-	);
-	const [pendingCost, setPendingCost] = useState<CostItem | null>(null);
 	/** Whose money the estimates are read as. '' is the whole trip. */
 	const [viewAs, setViewAs] = useState('');
+	const narrow = useNarrowLayout();
 
 	// One state machine for the small in-place writes this page makes (ticking a
 	// box, and the deletes the dialogs below confirm), so a refusal lands in the
@@ -120,15 +116,40 @@ export default function Pretrip() {
 				label: task.label,
 				assignees: task.people.map((p) => p.id),
 				version: task.version
-			}),
-		onRemove: (task: Task) =>
-			setPendingTask({ kind: section === 'tasks' ? 'task' : 'packing', task })
+			})
 	};
 
 	// Your own rows move out of the list rather than being copied out of it, so
 	// the list below is titled only while something has been lifted from it.
 	const rest = section === 'tasks' ? data.tasks.filter((t) => !isMine(t, data.me)) : data.packing;
 	const split = section === 'tasks' && rest.length < data.tasks.length;
+
+	const addButton = (
+		<button
+			className="btn primary"
+			onClick={() =>
+				section === 'costs'
+					? setEditing({
+							id: null,
+							label: '',
+							amount: '',
+							currency: data.currency,
+							category: data.categories[0] ?? '',
+							assignees: []
+						})
+					: setEditingTask({
+							id: null,
+							kind: section === 'tasks' ? 'task' : 'packing',
+							label: '',
+							assignees: [],
+							version: null
+						})
+			}
+		>
+			<PlusIcon />
+			{cp.add}
+		</button>
+	);
 
 	return (
 		<div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[190px_minmax(0,1fr)]">
@@ -137,54 +158,45 @@ export default function Pretrip() {
 				value={section}
 				onChange={setSection}
 				ariaLabel={cp.navAriaLabel}
+				action={addButton}
 			/>
 
 			<div className="min-w-0">
 				<FormError message={act.error} variant="banner" />
 
 				{/* The row keeps its height across sections, so switching never shifts
-				    the card below it up or down. The section is named by the nav to the
-				    left, so the button only has to say what it does. The estimates put
-				    their two figures on this line: they answer the question the tab is
-				    open for, and a band of their own above the table only pushed the
-				    numbers further from the rows they add up. */}
-				<div className="mb-4 flex min-h-phead flex-wrap items-center justify-between gap-4">
-					<div className="flex min-w-0 flex-wrap items-end gap-6">
-						{section === 'costs' && (
-							<>
-								<Stat label={cp.tripTotal} value={fmt(grand)} />
-								<Stat
-									label={viewAs ? shareLabel(data.members, viewAs, data.me) : cp.perPerson}
-									value={fmt(viewAs ? shownTotal : perPerson)}
-								/>
-							</>
-						)}
-					</div>
-					<button
-						className="btn primary"
-						onClick={() =>
-							section === 'costs'
-								? setEditing({
-										id: null,
-										label: '',
-										amount: '',
-										currency: data.currency,
-										category: data.categories[0] ?? '',
-										assignees: []
-									})
-								: setEditingTask({
-										id: null,
-										kind: section === 'tasks' ? 'task' : 'packing',
-										label: '',
-										assignees: [],
-										version: null
-									})
-						}
+				    the card below it up or down. The section is named by the nav (the
+				    column beside it, or the dropdown that replaces it), so the button
+				    only has to say what it does. The estimates put their two figures on
+				    this line: they answer the question the tab is open for, and a band
+				    of their own above the table only pushed the numbers further from
+				    the rows they add up.
+
+				    Narrow, the button has gone up beside the dropdown, so on Tasks and
+				    Packing the row has nothing left in it and is not rendered at all:
+				    reserving the height there only opened a gap under a dropdown that
+				    had already said which section you are in. */}
+				{(!narrow || section === 'costs') && (
+					<div
+						className={`mb-4 flex flex-wrap items-center justify-between gap-4 ${narrow ? '' : 'min-h-phead'}`}
 					>
-						<PlusIcon />
-						{cp.add}
-					</button>
-				</div>
+						<div className="flex min-w-0 flex-wrap items-end gap-6">
+							{/* No estimates, no figures: a trip total of zero reads as a
+							    costed trip that comes to nothing rather than as an empty
+							    table. */}
+							{section === 'costs' && data.budget.items.length > 0 && (
+								<>
+									<Stat label={cp.tripTotal} value={fmt(grand)} />
+									<Stat
+										label={viewAs ? shareLabel(data.members, viewAs, data.me) : cp.perPerson}
+										value={fmt(viewAs ? shownTotal : perPerson)}
+									/>
+								</>
+							)}
+						</div>
+						{!narrow && addButton}
+					</div>
+				)}
 
 				{section !== 'costs' ? (
 					<>
@@ -218,7 +230,6 @@ export default function Pretrip() {
 								assignees: it.people.map((p) => p.id)
 							})
 						}
-						onRemove={(it) => setPendingCost(it)}
 					/>
 				)}
 			</div>
@@ -227,10 +238,24 @@ export default function Pretrip() {
 				<EditTask
 					draft={editingTask}
 					members={data.members}
+					crews={data.crews}
 					me={data.me}
 					tripId={trip.id}
 					onClose={() => setEditingTask(null)}
 					onSaved={reload}
+					// Deleting a task takes the whole row, including everyone else's
+					// ticks on it.
+					onDelete={
+						editingTask.id
+							? async () => {
+									await api(`/trips/${trip.id}/pretrip/tasks/${editingTask.id}`, {
+										method: 'DELETE'
+									});
+									setEditingTask(null);
+									reload();
+								}
+							: null
+					}
 				/>
 			)}
 
@@ -241,48 +266,22 @@ export default function Pretrip() {
 					currencies={data.currencies}
 					categories={data.categories}
 					members={data.members}
+					crews={data.crews}
 					me={data.me}
 					tripId={trip.id}
 					onClose={() => setEditing(null)}
 					onSaved={reload}
+					onDelete={
+						editing.id
+							? async () => {
+									await api(`/trips/${trip.id}/pretrip/costs/${editing.id}`, { method: 'DELETE' });
+									setEditing(null);
+									reload();
+								}
+							: null
+					}
 				/>
 			)}
-
-			{/* Deleting a task takes the whole row, including everyone else's ticks
-			    on it. */}
-			<ConfirmDialog
-				open={!!pendingTask}
-				title={
-					pendingTask
-						? pendingTask.kind === 'packing'
-							? cp.deleteTask.packingTitle(pendingTask.task.label)
-							: cp.deleteTask.taskTitle(pendingTask.task.label)
-						: ''
-				}
-				busyLabel={copy.common.deleting}
-				onCancel={() => setPendingTask(null)}
-				onConfirm={async () => {
-					if (!pendingTask) return;
-					await api(`/trips/${trip.id}/pretrip/tasks/${pendingTask.task.id}`, {
-						method: 'DELETE'
-					});
-					setPendingTask(null);
-					reload();
-				}}
-			/>
-
-			<ConfirmDialog
-				open={!!pendingCost}
-				title={pendingCost ? cp.deleteCost.title(pendingCost.label) : ''}
-				busyLabel={copy.common.deleting}
-				onCancel={() => setPendingCost(null)}
-				onConfirm={async () => {
-					if (!pendingCost) return;
-					await api(`/trips/${trip.id}/pretrip/costs/${pendingCost.id}`, { method: 'DELETE' });
-					setPendingCost(null);
-					reload();
-				}}
-			/>
 		</div>
 	);
 }

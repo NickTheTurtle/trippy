@@ -4,28 +4,55 @@ import type { Cell, SavedPoi } from './types';
 
 /* --- Board geometry -------------------------------------------------------
  *
- * The visible window is fixed rather than fitted to the day's contents, so a
- * block sits at the same height whatever else is scheduled and the eye can
- * compare two day columns side by side.
+ * The board ends at midnight and starts at six in the morning, which is where a
+ * day is read from: drawing the small hours on every ordinary day would spend a
+ * third of the column on time nobody schedules.
  *
- * It runs 6:00 to midnight, where the old calendar stopped at 18:00. A stay
- * checks in at 21:00 by default and runs to the end of its day, so an evening
- * cut off at six would have drawn the one event that anchors both ends of the
- * day nowhere at all. Anything outside the window is clamped onto its edge.
+ * Six is a floor rather than a wall. A day holding something earlier opens back
+ * to the hour that holds it, so nothing is clamped onto the top edge and read as
+ * happening at six. `windowStart` is the whole of that rule, and everything that
+ * puts a minute on the board takes its answer.
+ *
+ * `windowStart` answers for the day at rest: what it holds as saved, plus the
+ * draft in an open dialog. A drag opens the board further, but continuously and
+ * to the minute rather than through here, so the two are kept apart: this one
+ * snaps to the hour, which is right for a board that has settled and is exactly
+ * what makes a board lurch while it is being dragged over.
  */
-export const DAY_START = 6 * 60;
+export const DEFAULT_START = 6 * 60;
 export const DAY_END = 24 * 60;
 /** The shortest event the server will store, and so the shortest one offerable. */
-export const MIN_EVENT_MINS = 15;
+export { MIN_EVENT_MINS } from '@trippy/core/types';
 /** One pixel a minute: a 15-minute event, the shortest the server allows, is 15px. */
 export const PX_PER_MIN = 1;
 /** Width of the hour gutter, and of the lane journeys are drawn in. */
 export const GUTTER_PX = 56;
 
-export const HOURS = Array.from(
-	{ length: (DAY_END - DAY_START) / 60 + 1 },
-	(_, i) => DAY_START / 60 + i
-);
+/**
+ * The id a block being added stands under until it has one of its own.
+ *
+ * It is board-level, not dialog-level: the day is replanned around the block
+ * while it is still being described, so the page finds its journeys under this
+ * id and the dialog reports its preview under it.
+ */
+export const DRAFT_ID = 'draft';
+
+/** The first minute the board draws, given every minute it has to hold. */
+export function windowStart(mins: readonly number[]): number {
+	const earliest = mins.reduce((a, b) => Math.min(a, b), DEFAULT_START);
+	return Math.min(DEFAULT_START, Math.max(0, Math.floor(earliest / 60) * 60));
+}
+
+/**
+ * The hour lines the axis draws, from the window's first whole hour to midnight.
+ *
+ * The window itself need not be a whole hour: a drag opens it to the minute, and
+ * an axis is still only ever marked on the hour.
+ */
+export function hoursFrom(start: number): number[] {
+	const first = Math.ceil(start / 60);
+	return Array.from({ length: DAY_END / 60 - first + 1 }, (_, i) => first + i);
+}
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -64,25 +91,16 @@ export function shiftDay(iso: string, delta: number): string {
 	return new Date(Date.UTC(y, m - 1, d + delta)).toISOString().slice(0, 10);
 }
 
-export function clampMin(v: number): number {
-	return Math.max(DAY_START, Math.min(v, DAY_END));
+export function clampMin(v: number, start: number): number {
+	return Math.max(start, Math.min(v, DAY_END));
 }
 
-export function topPx(min: number): number {
-	return (clampMin(min) - DAY_START) * PX_PER_MIN;
+export function topPx(min: number, start: number): number {
+	return (clampMin(min, start) - start) * PX_PER_MIN;
 }
 
-export function heightPx(from: number, to: number): number {
-	return Math.max(3, (clampMin(to) - clampMin(from)) * PX_PER_MIN);
-}
-
-/** Fraction across the window, for the horizontal people view. */
-export function pctLeft(min: number): number {
-	return ((clampMin(min) - DAY_START) / (DAY_END - DAY_START)) * 100;
-}
-
-export function pctWidth(from: number, to: number): number {
-	return ((clampMin(to) - clampMin(from)) / (DAY_END - DAY_START)) * 100;
+export function heightPx(from: number, to: number, start: number): number {
+	return Math.max(3, (clampMin(to, start) - clampMin(from, start)) * PX_PER_MIN);
 }
 
 /* --- Vocabulary ----------------------------------------------------------- */
@@ -172,6 +190,18 @@ export function placeOptions(
  */
 export function placeLabel(type: EventType): string {
 	return type === 'travel' ? 'Ends at' : typeLabel(type);
+}
+
+/**
+ * Whether a place already picked survives a change of type.
+ *
+ * A stay picks from the stays the group is voting on and every other type picks
+ * from Discover's saved places, so crossing that line leaves the field holding
+ * an id from the wrong list: it would show as blank and save as a link to
+ * something the block is not.
+ */
+export function keepsPick(from: EventType, to: EventType): boolean {
+	return (from === 'stay') === (to === 'stay');
 }
 
 /**

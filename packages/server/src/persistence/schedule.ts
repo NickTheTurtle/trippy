@@ -1,12 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { db } from '../db';
-import {
-	isEventType,
-	isLocatedType,
-	isTransportMode,
-	STAY_CHECK_IN,
-	type EventType
-} from '@trippy/core/types';
+import { isEventType, isLocatedType, isTransportMode, type EventType } from '@trippy/core/types';
 import {
 	guessLeg,
 	planLegs,
@@ -16,6 +10,7 @@ import {
 } from '@trippy/core/travel';
 import { publish, publishMany } from '../events';
 import { isMember } from './membership';
+import { conflict, isStale, missing, written, type WriteResult } from './versioning';
 
 /**
  * The schedule, as events with people on them.
@@ -44,7 +39,8 @@ import { isMember } from './membership';
 const SNAP = 5;
 
 /** The shortest event the grid can draw with its title. */
-const MIN_EVENT_MINS = 15;
+export { MIN_EVENT_MINS } from '@trippy/core/types';
+import { MIN_EVENT_MINS } from '@trippy/core/types';
 
 /** Where a stay sits on the clock. In core, so the client anchors it the same. */
 export { STAY_CHECK_IN } from '@trippy/core/types';
@@ -66,6 +62,8 @@ export interface EventRow {
 	notes: string | null;
 	travel_mode: string | null;
 	people: string[];
+	/** Bumped by every edit. Send it back with a PUT to detect a lost update. */
+	version: number;
 }
 
 export interface LegRow {
@@ -100,7 +98,7 @@ export function shiftDay(iso: string, delta: number): string {
 	return new Date(Date.UTC(y, m - 1, d + delta)).toISOString().slice(0, 10);
 }
 
-const EVENT_COLUMNS = `id, day, end_day, title, type, start_min, end_min, poi_id, lodging_id, city_id, lat, lng, notes, travel_mode`;
+const EVENT_COLUMNS = `id, day, end_day, title, type, start_min, end_min, poi_id, lodging_id, city_id, lat, lng, notes, travel_mode, version`;
 
 function attachPeople(rows: EventRow[]): EventRow[] {
 	const stmt = db.prepare(`SELECT user_id FROM event_people WHERE event_id = ?`);
@@ -115,7 +113,7 @@ function attachPeople(rows: EventRow[]): EventRow[] {
  *
  * Stays are not among them. A stay runs over nights rather than sitting on a
  * clock, so the board draws it as a band above the day rather than as a block
- * inside it, and `staysCovering` is what answers for it.
+ * inside it, and `staysOnBoard` is what answers for it.
  */
 export function eventsForDay(tripId: string, day: string): EventRow[] {
 	const rows = db
@@ -130,9 +128,13 @@ export function eventsForDay(tripId: string, day: string): EventRow[] {
 /**
  * Where people sleep on the night of `day`, and who is in each.
  *
- * A stay covers `[day, end_day)`: it is checked into on its own day and out of
- * on `end_day`, so the last night it covers is the day before checkout. That is
- * the same reading `lodging_options.check_in/check_out` has always had.
+ * Nights, not days: a stay covers `[day, end_day)`, checked into on its own day
+ * and out of on `end_day`, so the last night it covers is the day before
+ * checkout. That is the reading `lodging_options.check_in/check_out` has always
+ * had, and it is the one the planner wants, because the night is what a journey
+ * home ends at.
+ *
+ * `staysOnBoard` is the wider answer, for what the board draws.
  *
  * Several, because half a group can be in one building and half in another.
  * Ordered so the answer is stable across runs.
@@ -147,6 +149,47 @@ export function staysCovering(tripId: string, day: string): EventRow[] {
 		)
 		.all(tripId, day, day) as unknown as EventRow[];
 	return attachPeople(rows);
+}
+
+/**
+ * The stays the board shows on `day`, which includes the day of checkout.
+ *
+ * You are still in the room on the morning you leave, so the checkout day is a
+ * day of the stay even though it is not a night of it. Ending the band the
+ * evening before left the last morning looking like nobody had anywhere to
+ * sleep, on the one day of the stay most likely to be read.
+ *
+ * Hence two questions and two answers: `staysCovering` for the nights, which is
+ * what the planner books journeys against, and this for the days, which is what
+ * is drawn.
+ *
+ * A night checked out of and a night checked into can now land on the same day,
+ * which is right when the group is changing hotels and pure noise when it is
+ * not: two identical chips saying the same room twice. So a checkout is dropped
+ * when the same people are booked back into the same place that night.
+ */
+export function staysOnBoard(tripId: string, day: string): EventRow[] {
+	const rows = db
+		.prepare(
+			`SELECT ${EVENT_COLUMNS} FROM events
+			 WHERE trip_id = ? AND type = 'stay'
+			   AND day <= ? AND ? <= COALESCE(end_day, date(day, '+1 day'))
+			 ORDER BY day, start_min, id`
+		)
+		.all(tripId, day, day) as unknown as EventRow[];
+	attachPeople(rows);
+	const tonight = new Set(rows.filter((r) => !leavesOn(r, day)).map(stayKey));
+	return rows.filter((r) => !leavesOn(r, day) || !tonight.has(stayKey(r)));
+}
+
+function leavesOn(row: EventRow, day: string): boolean {
+	return (row.end_day ?? shiftDay(row.day, 1)) === day;
+}
+
+/** What makes two stays the same booking: the same room, held by the same people. */
+function stayKey(row: EventRow): string {
+	const place = row.lodging_id ?? row.poi_id ?? `${row.title}|${row.lat}|${row.lng}`;
+	return `${place}\u0000${[...row.people].sort().join(',')}`;
 }
 
 /**
@@ -188,14 +231,15 @@ function toPlanner(e: EventRow): PlannerEvent {
  * last night's as the morning's origin.
  *
  * A stay is not on the clock, but a journey to it is a real journey, so it
- * enters the plan anchored at the default check-in. That is what puts the walk
- * home on the board, and it is the same minute a stay has always been drawn at.
+ * enters the plan as the end of the day. Midnight rather than a check-in hour:
+ * it is the mirror of the morning, where last night's stay is an origin at
+ * midnight, and `placeLeg` reads it as an arrival with no time to be late for.
  */
 function planFor(tripId: string, day: string): PlannedLeg[] {
 	const events = eventsForDay(tripId, day).map(toPlanner);
 	const tonight = staysCovering(tripId, day).map((s) => ({
 		...toPlanner(s),
-		startMin: STAY_CHECK_IN,
+		startMin: 24 * 60,
 		endMin: 24 * 60
 	}));
 	return planLegs([...events, ...tonight], incomingStays(tripId, day).map(toPlanner));
@@ -545,24 +589,44 @@ export interface EventEdit {
 	 * the event's own lat/lng: a link without them would put the event nowhere
 	 * while claiming a place.
 	 */
-	place?: { poiId: string; lat: number | null; lng: number | null } | null;
+	place?: {
+		poiId?: string;
+		lodgingId?: string;
+		lat: number | null;
+		lng: number | null;
+	} | null;
 }
 
 /** The type an event is stored as, for an edit that does not restate it. */
-function currentType(eventId: string): string {
+export function currentType(eventId: string): string {
 	const row = db.prepare(`SELECT type FROM events WHERE id = ?`).get(eventId) as
 		{ type: string } | undefined;
 	return row?.type ?? '';
 }
 
+/**
+ * Apply an edit to an event.
+ *
+ * `expectedVersion` is the version the editor had on screen. A stale one is
+ * refused rather than applied, because the caller's copy of every field it did
+ * not touch is stale too, and writing those back silently restores whatever the
+ * other editor just changed. Omitting it keeps the old unchecked behaviour, so
+ * a script or an older client is not locked out.
+ */
 export function editEvent(
 	eventId: string,
 	userId: string,
 	edit: EventEdit,
-	tripId: string
-): boolean {
+	tripId: string,
+	expectedVersion?: number | null
+): WriteResult {
 	const where = mayEdit(eventId, userId, tripId);
-	if (!where) return false;
+	if (!where) return missing;
+	const current = db.prepare(`SELECT version FROM events WHERE id = ?`).get(eventId) as
+		| { version: number }
+		| undefined;
+	if (!current) return missing;
+	if (isStale(expectedVersion, current.version)) return conflict;
 	const sets: string[] = [];
 	const args: (string | number | null)[] = [];
 
@@ -588,11 +652,15 @@ export function editEvent(
 	// Free time has just cleared its place above, and re-setting one here would
 	// undo that in the same statement.
 	if (edit.place !== undefined && edit.type !== 'freetime') {
+		// Both columns are always written, because the two links are exclusive:
+		// re-typing a block from an activity to a stay has to release the museum
+		// as it takes the hotel, or the Discover card would keep counting it.
 		if (edit.place) {
-			sets.push('poi_id = ?', 'lat = ?', 'lng = ?');
-			args.push(edit.place.poiId, edit.place.lat, edit.place.lng);
+			sets.push('poi_id = ?', 'lodging_id = ?', 'lat = ?', 'lng = ?');
+			args.push(edit.place.poiId ?? null, edit.place.lodgingId ?? null);
+			args.push(edit.place.lat, edit.place.lng);
 		} else {
-			sets.push('poi_id = NULL', 'lat = NULL', 'lng = NULL');
+			sets.push('poi_id = NULL', 'lodging_id = NULL', 'lat = NULL', 'lng = NULL');
 		}
 	}
 	if (edit.travelMode !== undefined) {
@@ -609,7 +677,7 @@ export function editEvent(
 	) {
 		const cur = db.prepare(`SELECT start_min, end_min FROM events WHERE id = ?`).get(eventId) as
 			{ start_min: number; end_min: number } | undefined;
-		if (!cur) return false;
+		if (!cur) return missing;
 		const wanted = Number.isFinite(edit.startMin as number)
 			? (edit.startMin as number)
 			: cur.start_min;
@@ -641,12 +709,16 @@ export function editEvent(
 		args.push(shiftDay(where.day, 1));
 	}
 
-	if (!sets.length) return false;
+	if (!sets.length) return missing;
+
+	const next = current.version + 1;
+	sets.push('version = ?');
+	args.push(next);
 
 	args.push(eventId);
 	db.prepare(`UPDATE events SET ${sets.join(', ')} WHERE id = ?`).run(...args);
 	touched(tripId, where.day, where.end_day, movedTo, movedEnd);
-	return true;
+	return written(next);
 }
 
 /** Replace who is on an event. This is what makes the group split, or rejoin. */
@@ -701,11 +773,22 @@ export function editLeg(
 
 const CREW_COLORS = ['#2f6d5e', '#b4682a', '#4a6d8c', '#8c5a86', '#6d7a2f'];
 
+/**
+ * The id of the crew that is every member of the trip.
+ *
+ * Fixed rather than a uuid because the crew is not a row: it is derived on
+ * every read, so there is nothing to allocate an id for, and a constant is what
+ * both ends can recognise it by.
+ */
+export const EVERYONE_CREW_ID = 'everyone';
+
 export interface Crew {
 	id: string;
 	name: string;
 	color: string;
 	members: string[];
+	/** Derived from the roster, so it cannot be renamed, emptied or deleted. */
+	locked: boolean;
 }
 
 /**
@@ -718,6 +801,18 @@ export interface Crew {
  * drawing a day, which is why one can be renamed or deleted at any time without
  * the schedule moving underneath anybody.
  *
+ * Every trip has one crew it did not make: everybody. It is the group asked for
+ * most often, and a group nobody should have to assemble by hand or keep up to
+ * date as people join and leave.
+ *
+ * It is derived here rather than stored as a row, because a stored one would
+ * have to be written by every path that touches the roster: joining, being
+ * added, being removed, leaving, and merging a placeholder into a real account.
+ * Each of those is a chance for it to fall behind and start naming a group that
+ * is no longer everyone, which is the one thing it exists to be. Derived, it
+ * cannot drift, needs no migration for the trips that already exist, and cannot
+ * be deleted by somebody tidying up.
+ *
  * Two topics on every write: crews are managed on the People page and read by
  * the board's people picker, so both have to hear about one.
  */
@@ -726,10 +821,31 @@ export function crewsForTrip(tripId: string): Crew[] {
 		.prepare(`SELECT id, name, color FROM crews WHERE trip_id = ? ORDER BY sort, name`)
 		.all(tripId) as unknown as { id: string; name: string; color: string }[];
 	const stmt = db.prepare(`SELECT user_id FROM crew_members WHERE crew_id = ?`);
-	return rows.map((r) => ({
-		...r,
-		members: (stmt.all(r.id) as unknown as { user_id: string }[]).map((x) => x.user_id)
-	}));
+	return [
+		{
+			id: EVERYONE_CREW_ID,
+			name: 'Everyone',
+			color: CREW_COLORS[0],
+			members: rosterInOrder(tripId),
+			locked: true
+		},
+		...rows.map((r) => ({
+			...r,
+			members: (stmt.all(r.id) as unknown as { user_id: string }[]).map((x) => x.user_id),
+			locked: false
+		}))
+	];
+}
+
+/** The roster by name, which is the order every picker lists people in. */
+function rosterInOrder(tripId: string): string[] {
+	const rows = db
+		.prepare(
+			`SELECT m.user_id FROM memberships m JOIN users u ON u.id = m.user_id
+			 WHERE m.trip_id = ? ORDER BY u.name, u.id`
+		)
+		.all(tripId) as unknown as { user_id: string }[];
+	return rows.map((r) => r.user_id);
 }
 
 function writeCrewMembers(crewId: string, tripId: string, members: string[]): void {
@@ -773,6 +889,7 @@ export function editCrew(
 	members: string[] | undefined
 ): boolean {
 	if (!isMember(tripId, userId)) return false;
+	if (crewId === EVERYONE_CREW_ID) return false;
 	if (!db.prepare(`SELECT 1 FROM crews WHERE id = ? AND trip_id = ?`).get(crewId, tripId)) {
 		return false;
 	}
@@ -785,6 +902,7 @@ export function editCrew(
 
 export function deleteCrew(crewId: string, tripId: string, userId: string): boolean {
 	if (!isMember(tripId, userId)) return false;
+	if (crewId === EVERYONE_CREW_ID) return false;
 	const res = db.prepare(`DELETE FROM crews WHERE id = ? AND trip_id = ?`).run(crewId, tripId);
 	if (res.changes > 0) publishMany(tripId, ['schedule', 'members']);
 	return res.changes > 0;

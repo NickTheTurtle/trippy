@@ -3,6 +3,8 @@ import { useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 const GAP = 4;
 const MARGIN = 8;
 const MIN_HEIGHT = 120;
+/** What an overlay scrollbar covers, since it reports no width of its own. */
+const OVERLAY_BAR = 12;
 
 /**
  * Anchors a popup menu to its trigger using `position: fixed`.
@@ -43,7 +45,22 @@ export function useAnchor<T extends HTMLElement, M extends HTMLElement>(
 
 		menu.style.position = 'fixed';
 		menu.style.minWidth = `${r.width}px`;
+		// Cleared before measuring: `place` runs again on every scroll and resize,
+		// and a width handed back last time would otherwise be grown again.
+		menu.style.width = '';
 		menu.style.maxHeight = `${Math.min(maxHeight, room)}px`;
+
+		// A capped menu grows a vertical scrollbar, but its `width: max-content`
+		// was measured without one, so the bar sits on top of the very option that
+		// set the width. Hand back a gutter for it. A classic bar reports its own
+		// width; an overlay bar measures zero and still paints over the text, so
+		// there is a floor.
+		if (menu.scrollHeight > menu.clientHeight) {
+			const cs = getComputedStyle(menu);
+			const borders = parseFloat(cs.borderLeftWidth) + parseFloat(cs.borderRightWidth);
+			const bar = menu.offsetWidth - menu.clientWidth - borders;
+			menu.style.width = `${menu.offsetWidth + Math.max(bar, OVERLAY_BAR)}px`;
+		}
 
 		// Measure after the height cap so a flipped menu sits flush on the trigger.
 		const h = menu.offsetHeight;

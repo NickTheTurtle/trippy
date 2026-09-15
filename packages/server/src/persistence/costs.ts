@@ -61,37 +61,6 @@ export function getBudget(tripId: string): Budget {
 	return { cities: budgetCities, categoryTotals, grandTotal };
 }
 
-/** Upsert a set of {cityId, category, cents} budget cells. Members only. */
-export function setBudget(
-	tripId: string,
-	actorId: string,
-	entries: { cityId: string; category: string; cents: number }[]
-): boolean {
-	if (!isMember(tripId, actorId)) return false;
-	const cityIds = new Set(
-		(
-			db.prepare(`SELECT id FROM cities WHERE trip_id = ?`).all(tripId) as unknown as {
-				id: string;
-			}[]
-		).map((c) => c.id)
-	);
-	const upsert = db.prepare(
-		`INSERT INTO cost_estimates (trip_id, city_id, category, amount_cents)
-		 VALUES (?, ?, ?, ?)
-		 ON CONFLICT(trip_id, city_id, category) DO UPDATE SET amount_cents = excluded.amount_cents`
-	);
-	for (const e of entries) {
-		if (!cityIds.has(e.cityId)) continue;
-		if (!(COST_CATEGORIES as readonly string[]).includes(e.category)) continue;
-		const cents = Math.max(0, Math.round(e.cents));
-		upsert.run(tripId, e.cityId, e.category, cents);
-	}
-	// One event for the whole batch: the client refetches the budget section, so
-	// an event per cell would be the same refetch repeated.
-	publish(tripId, 'costs');
-	return true;
-}
-
 // ---- Itemized cost breakdown -------------------------------------------------
 
 export interface CostPerson {

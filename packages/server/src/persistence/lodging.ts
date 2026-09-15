@@ -16,6 +16,9 @@ export interface LodgingOption {
 	photo: string | null;
 	votes: number;
 	you_voted: number; // 1 if the viewer picked this option
+	linked: number; // stay bands on the calendar booked into this option
+	lat: number | null;
+	lng: number | null;
 }
 
 export interface CityLodging {
@@ -41,9 +44,10 @@ export function cityLodging(tripId: string, userId: string): CityLodging[] {
 	return cities.map((c) => {
 		const options = db
 			.prepare(
-				`SELECT o.id, o.name, o.tag, o.price_cents, o.currency, o.url, o.locked, o.check_in, o.check_out, o.photo,
+				`SELECT o.id, o.name, o.tag, o.price_cents, o.currency, o.url, o.locked, o.check_in, o.check_out, o.photo, o.lat, o.lng,
 				        (SELECT COUNT(*) FROM lodging_votes v WHERE v.option_id = o.id) AS votes,
-				        (SELECT COUNT(*) FROM lodging_votes v WHERE v.option_id = o.id AND v.user_id = ?) AS you_voted
+				        (SELECT COUNT(*) FROM lodging_votes v WHERE v.option_id = o.id AND v.user_id = ?) AS you_voted,
+				        (SELECT COUNT(*) FROM events s WHERE s.lodging_id = o.id) AS linked
 				 FROM lodging_options o WHERE o.city_id = ?
 				 ORDER BY o.locked DESC, votes DESC, o.created_at`
 			)
@@ -62,53 +66,95 @@ export function cityLodging(tripId: string, userId: string): CityLodging[] {
  * Add a candidate stay for a city.
  *
  * A stay is worth proposing with nothing but a name and what it costs per
- * night, so everything after the name is optional: `tag`, `url`, the night
- * range and the photo all default to empty, and an empty `currency` falls back
- * to the trip's home currency, which is what a price typed on the Discover page
- * is denominated in anyway. `priceCents` is the per-night price (the `price_cents`
- * column); it stays nullable because "we have not priced it yet" is a real state.
+ * night, so everything after the name is optional and arrives in one bag
+ * rather than as nine positional arguments: `tag`, `url`, the night range, the
+ * photo and the coordinates all default to empty, and an empty `currency` falls
+ * back to the trip's home currency, which is what a price typed on the Discover
+ * page is denominated in anyway. `priceCents` is the per-night price (the
+ * `price_cents` column); it stays nullable because "we have not priced it yet"
+ * is a real state.
  *
  * Check-in / check-out are set later from the stay's own editor (`setDates`);
  * a stay with no range applies to the whole city stay.
+ *
+ * The coordinates are the provider's, kept for the same reason a place keeps
+ * them: a stay can be booked onto the calendar, and the day's first journey is
+ * planned from where you woke up.
  */
+export interface NewOption {
+	tag?: string;
+	priceCents?: number | null;
+	currency?: string;
+	url?: string | null;
+	checkIn?: string | null;
+	checkOut?: string | null;
+	photo?: string | null;
+	lat?: number | null;
+	lng?: number | null;
+}
+
 export function addOption(
 	tripId: string,
 	actorId: string,
 	cityId: string,
 	name: string,
-	tag = '',
-	priceCents: number | null = null,
-	currency = '',
-	url: string | null = null,
-	checkIn: string | null = null,
-	checkOut: string | null = null,
-	photo: string | null = null
+	opt: NewOption = {}
 ): string | null {
 	if (!isMember(tripId, actorId)) return null;
 	if (!cityInTrip(tripId, cityId)) return null;
 	const clean = name.trim();
 	if (!clean) return null;
+	const priceCents = opt.priceCents;
 	const price = priceCents == null || !Number.isFinite(priceCents) ? null : Math.round(priceCents);
 	const id = randomUUID();
 	db.prepare(
-		`INSERT INTO lodging_options (id, trip_id, city_id, name, tag, price_cents, currency, url, locked, check_in, check_out, photo, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`
+		`INSERT INTO lodging_options (id, trip_id, city_id, name, tag, price_cents, currency, url, locked, check_in, check_out, photo, lat, lng, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)`
 	).run(
 		id,
 		tripId,
 		cityId,
 		clean,
-		tag,
+		opt.tag ?? '',
 		price,
-		currency.trim().toUpperCase() || homeCurrency(tripId),
-		url,
-		checkIn,
-		checkOut,
-		photo,
+		(opt.currency ?? '').trim().toUpperCase() || homeCurrency(tripId),
+		opt.url ?? null,
+		opt.checkIn ?? null,
+		opt.checkOut ?? null,
+		opt.photo ?? null,
+		opt.lat ?? null,
+		opt.lng ?? null,
 		Date.now()
 	);
 	publish(tripId, 'lodging');
 	return id;
+}
+
+/** A stay the calendar can book a night into, shaped like a saved place. */
+export interface SavedStay {
+	id: string;
+	name: string;
+	city_id: string;
+	lat: number | null;
+	lng: number | null;
+	votes: number;
+}
+
+/**
+ * Stays available to book onto the calendar.
+ *
+ * Deliberately the same shape as `savedPoisForTrip`, because the picker in the
+ * event dialogs offers one or the other and nothing else about it changes: a
+ * stay block asks which stay, everything else asks which place.
+ */
+export function stayOptionsForTrip(tripId: string): SavedStay[] {
+	return db
+		.prepare(
+			`SELECT id, name, city_id, lat, lng,
+			        (SELECT COUNT(*) FROM lodging_votes v WHERE v.option_id = o.id) AS votes
+			 FROM lodging_options o WHERE trip_id = ? ORDER BY name`
+		)
+		.all(tripId) as unknown as SavedStay[];
 }
 
 /** A stay still waiting on a cover photo lookup, with the context to find it. */
@@ -218,18 +264,41 @@ export function lockOption(tripId: string, actorId: string, optionId: string): b
 	return true;
 }
 
+/**
+ * Delete a stay option and every calendar band booked into it.
+ *
+ * `events.lodging_id` is ON DELETE SET NULL, which would leave a band on the
+ * board with nowhere to sleep: it keeps its name and its nights but no longer
+ * points at anything, and nothing on screen says why. Deleting a place already
+ * takes its events with it, so a stay does the same, in one transaction, and
+ * the confirmation is told the count beforehand.
+ */
 export function removeOption(tripId: string, actorId: string, optionId: string): boolean {
 	if (!isMember(tripId, actorId)) return false;
-	const res = db
-		.prepare(`DELETE FROM lodging_options WHERE id = ? AND trip_id = ?`)
-		.run(optionId, tripId);
-	// `events.lodging_id` is ON DELETE SET NULL, so a stay event booked into this
-	// option silently loses it: the schedule has to refetch as well.
-	if (res.changes > 0) publishMany(tripId, ['lodging', 'schedule']);
-	return res.changes > 0;
+	db.exec('BEGIN');
+	try {
+		db.prepare(`DELETE FROM events WHERE lodging_id = ? AND trip_id = ?`).run(optionId, tripId);
+		const res = db
+			.prepare(`DELETE FROM lodging_options WHERE id = ? AND trip_id = ?`)
+			.run(optionId, tripId);
+		db.exec('COMMIT');
+		if (Number(res.changes) > 0) publishMany(tripId, ['lodging', 'schedule']);
+		return Number(res.changes) > 0;
+	} catch (err) {
+		db.exec('ROLLBACK');
+		throw err;
+	}
 }
 
-/** Update the check-in / check-out range of an option. Any trip member may edit. */
+/**
+ * Update the check-in / check-out range of an option. Any trip member may edit.
+ *
+ * A stay covers at least one night, so a checkout on or before the check-in day
+ * is refused, the same rule the schedule stay path enforces (it will not check
+ * out on or before the day it checks in). The guard only bites when both ends
+ * are set: an option with one or both dates still blank is undated, not a
+ * zero-night stay.
+ */
 export function setDates(
 	tripId: string,
 	actorId: string,
@@ -238,6 +307,7 @@ export function setDates(
 	checkOut: string | null
 ): boolean {
 	if (!isMember(tripId, actorId)) return false;
+	if (checkIn && checkOut && checkIn >= checkOut) return false;
 	const res = db
 		.prepare(`UPDATE lodging_options SET check_in = ?, check_out = ? WHERE id = ? AND trip_id = ?`)
 		.run(checkIn, checkOut, optionId, tripId);

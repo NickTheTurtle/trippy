@@ -19,7 +19,7 @@
  * would plan a day the server does not.
  */
 import { guessLeg, placeLeg, planLegs, type PlannerEvent } from '@trippy/core/travel';
-import { isLocatedType, STAY_CHECK_IN } from '@trippy/core/types';
+import { isLocatedType } from '@trippy/core/types';
 import type { BoardDay, EventDraft, EventRow, LegRow } from './types';
 import { shiftDay } from './shared';
 
@@ -48,10 +48,11 @@ function plannerEvent(e: EventRow): PlannerEvent {
  * list, and an add previews exactly the way an edit does.
  *
  * Stays are held apart because they are not on the clock: a stay is a range of
- * nights, so it lands on this day only if the range covers it. That also makes
- * the two interesting drafts work: changing a block's type to a stay lifts it
- * out of the day into the band, and dragging a stay's dates off this day takes
- * it off the board entirely while the dialog is still open.
+ * nights, so it lands on this day only if the range covers it, the morning of
+ * checkout included. That also makes the two interesting drafts work: changing
+ * a block's type to a stay lifts it out of the day into the band, and dragging
+ * a stay's dates off this day takes it off the board entirely while the dialog
+ * is still open.
  */
 export function applyDraft(
 	entry: BoardDay,
@@ -67,13 +68,17 @@ export function applyDraft(
 		city_id: entry.city?.id ?? null,
 		notes: null,
 		travel_mode: null,
+		// A draft that is not on the day yet has no stored row behind it, so it
+		// has no version either. This block is only ever drawn, never saved
+		// through here, so the placeholder is not a version anyone writes back.
+		version: 0,
 		...(entry.events.find((e) => e.id === draft.id) ?? entry.stays.find((s) => s.id === draft.id)),
 		...draft
 	};
 
 	if (row.type === 'stay') {
-		const covers = row.day <= entry.day && entry.day < (row.end_day ?? shiftDay(row.day, 1));
-		return { events, stays: covers ? sorted([...stays, row]) : stays };
+		const covers = row.day <= entry.day && entry.day <= stayEndOf(row);
+		return { events, stays: boardStays(covers ? [...stays, row] : stays, entry.day) };
 	}
 	if (row.day !== entry.day) return { events, stays };
 	// The same total order the planner and the layout read days in, so a block
@@ -85,6 +90,30 @@ function sorted(rows: EventRow[]): EventRow[] {
 	return [...rows].sort((a, b) => a.start_min - b.start_min || (a.id < b.id ? -1 : 1));
 }
 
+/** The day a stay is checked out of, which is one day past its last night. */
+export function stayEndOf(row: { day: string; end_day: string | null }): string {
+	return row.end_day ?? shiftDay(row.day, 1);
+}
+
+/** Whether a stay is slept in on the night of `day`, as opposed to left that morning. */
+export function isNightOf(row: { day: string; end_day: string | null }, day: string): boolean {
+	return row.day <= day && day < stayEndOf(row);
+}
+
+/**
+ * The bands a day draws, mirroring `staysOnBoard` on the server.
+ *
+ * A checkout and a check-in can land on the same day. That reads as a change of
+ * hotel, so it is kept when the room really changes and dropped when it does
+ * not: two identical chips naming the same room twice say nothing twice.
+ */
+function boardStays(rows: EventRow[], day: string): EventRow[] {
+	const key = (r: EventRow) =>
+		`${r.lodging_id ?? r.poi_id ?? `${r.title}|${r.lat}|${r.lng}`}\u0000${[...r.people].sort().join(',')}`;
+	const tonight = new Set(rows.filter((r) => isNightOf(r, day)).map(key));
+	return sorted(rows.filter((r) => isNightOf(r, day) || !tonight.has(key(r))));
+}
+
 /**
  * The journeys a day implies, as the board and the dialogs read them.
  *
@@ -92,18 +121,22 @@ function sorted(rows: EventRow[]): EventRow[] {
  * which is what a pin survives on; anything else is planned fresh at its
  * straight-line estimate, the same one the server falls back to.
  *
- * Tonight's lodgings enter the plan anchored at check-in, and last night's are
- * the morning's origins, one per group that slept somewhere of its own. This
- * mirrors `planFor` on the server exactly; if it did not, the preview would
- * disagree with the board that arrives a moment later.
+ * Tonight's lodgings enter the plan as the end of the day, and last night's are
+ * the morning's origins, one per group that slept somewhere of its own. A stay
+ * being checked out of this morning is drawn on the day but is not a night of
+ * it, so it is an origin only: nobody travels back to a room they have left.
+ * This mirrors `planFor` on the server exactly; if it did not, the preview
+ * would disagree with the board that arrives a moment later.
  */
 export function replanLegs(entry: BoardDay, draft: EventDraft | null): LegRow[] {
 	const { events, stays } = applyDraft(entry, draft);
-	const tonight = stays.map((s) => ({
-		...plannerEvent(s),
-		startMin: STAY_CHECK_IN,
-		endMin: 24 * 60
-	}));
+	const tonight = stays
+		.filter((s) => isNightOf(s, entry.day))
+		.map((s) => ({
+			...plannerEvent(s),
+			startMin: 24 * 60,
+			endMin: 24 * 60
+		}));
 	const planned = planLegs(
 		[...events.map(plannerEvent), ...tonight],
 		entry.incoming.map(plannerEvent)

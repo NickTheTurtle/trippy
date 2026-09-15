@@ -318,6 +318,13 @@ addColumn('pois', 'photo', 'TEXT');
 // proxy that places already use work here unchanged.
 addColumn('lodging_options', 'photo', 'TEXT');
 
+// Where the stay is. A place has always kept the provider's coordinates; a stay
+// did not need them while it was only ever voted on, and does now that it can
+// be booked onto the calendar: the morning's first journey starts from the bed.
+// Null for every stay proposed before this, and for one typed by hand.
+addColumn('lodging_options', 'lat', 'REAL');
+addColumn('lodging_options', 'lng', 'REAL');
+
 // Marks an expense that records a transfer between two members rather than a
 // cost the group shared. It changes only how the row is labelled: a settlement
 // has to count towards balances like any other expense, which is the point.
@@ -767,3 +774,19 @@ db.exec(
 	`UPDATE events SET end_day = date(day, '+1 day')
 	 WHERE type = 'stay' AND end_day IS NULL`
 );
+
+/**
+ * Optimistic concurrency for schedule events.
+ *
+ * Tasks and expenses have carried a version for a while, and a stale save on
+ * either is refused with a 409. Events were the one collaborative row left
+ * without one, which made them the only place where two people editing the same
+ * thing ended in silent data loss: one person retitled an event, the other
+ * saved a time change from a form still holding the old title, and the retitle
+ * was gone with nothing said. Events are the most concurrently edited rows in a
+ * group trip planner, so they were the worst possible gap.
+ *
+ * Existing rows start at 1, the same baseline the other two tables were
+ * backfilled to.
+ */
+addColumn('events', 'version', 'INTEGER NOT NULL DEFAULT 1');

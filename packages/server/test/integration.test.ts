@@ -149,8 +149,11 @@ describe('schedule authorization and trip scoping', () => {
 		},
 		{
 			name: 'editEvent',
+			// Normalised to a boolean: this table is about refusal, and `editEvent`
+			// now answers with a `WriteResult` so a stale save can be told apart
+			// from a missing row.
 			run: (itemId: string, actor: string, tripId: string) =>
-				schedule.editEvent(itemId, actor, { title: 'Changed' }, tripId),
+				schedule.editEvent(itemId, actor, { title: 'Changed' }, tripId).ok,
 			assertUnchanged: (itemId: string) => expect(itemRow(itemId)!.title).toBe('Museum')
 		},
 		{
@@ -199,13 +202,39 @@ describe('schedule authorization and trip scoping', () => {
 			false
 		);
 		expect(schedule.deleteCrew(crewA, tripB.tripId, tripB.organizer)).toBe(false);
-		expect(schedule.crewsForTrip(tripA.tripId)[0]).toMatchObject({ name: 'Split' });
+		expect(schedule.crewsForTrip(tripA.tripId).find((x) => x.id === crewA)).toMatchObject({
+			name: 'Split'
+		});
+	});
+
+	it('gives every trip an Everyone crew that follows the roster', () => {
+		const f = createTripFixture('crew-everyone');
+		const everyone = schedule.crewsForTrip(f.tripId)[0];
+
+		// First, because it is the group asked for most often, and locked because
+		// it is derived: there is no row behind it to rename or delete.
+		expect(everyone).toMatchObject({ id: 'everyone', name: 'Everyone', locked: true });
+		expect([...everyone.members].sort()).toEqual([f.organizer, f.member].sort());
+		expect(everyone.members).not.toContain(f.outsider);
+
+		expect(schedule.editCrew('everyone', f.tripId, f.organizer, 'Us', undefined)).toBe(false);
+		expect(schedule.deleteCrew('everyone', f.tripId, f.organizer)).toBe(false);
+		expect(schedule.crewsForTrip(f.tripId)[0]).toMatchObject({ name: 'Everyone' });
+
+		// Derived on every read, so joining and leaving need no crew bookkeeping.
+		expect(members.addPerson(f.tripId, f.organizer, 'Zoe', '')).toBe('created');
+		const joined = schedule.crewsForTrip(f.tripId)[0].members;
+		expect(joined).toHaveLength(3);
+		expect(members.removeMember(f.tripId, f.organizer, f.member)).toBe(true);
+		expect(schedule.crewsForTrip(f.tripId)[0].members).not.toContain(f.member);
 	});
 
 	it('keeps only trip members on a crew, and on an event', () => {
 		const f = createTripFixture('crew-roster');
 		const crew = schedule.createCrew(f.tripId, f.organizer, 'Crew', [f.organizer, f.outsider])!;
-		expect(schedule.crewsForTrip(f.tripId)[0].members).toEqual([f.organizer]);
+		expect(schedule.crewsForTrip(f.tripId).find((x) => x.id === crew)!.members).toEqual([
+			f.organizer
+		]);
 
 		const itemId = createScheduleItem(f);
 		expect(schedule.setEventPeople(itemId, f.tripId, f.organizer, [f.member, f.outsider])).toBe(
@@ -299,17 +328,24 @@ describe('ticking a task box', () => {
 	// A packing item is your own bag, so it takes one shared tick and never a
 	// roster. The rule lives here rather than in the form so an older client
 	// cannot put one back on.
-	it('drops the roster sent with a packing item, on add and on edit', () => {
+	it('drops the roster sent with a packing item, and keeps it to its owner', () => {
 		const f = createTripFixture('packing-unassigned');
 		const id = tasks.addTask(f.tripId, f.organizer, 'packing', 'Passport', [f.member], null)!;
-		const item = () => tasks.listTasks(f.tripId, 'packing').find((t) => t.id === id)!;
+		const item = () => tasks.listTasks(f.tripId, 'packing', f.organizer).find((t) => t.id === id)!;
 		expect(item().people).toEqual([]);
 
 		expect(tasks.updateTask(f.tripId, f.organizer, id, 'Passport', [f.member]).ok).toBe(true);
 		expect(item().people).toEqual([]);
 
-		// With nobody on it, the shared flag is what the box ticks.
-		expect(tasks.toggleTask(f.tripId, f.member, id).ok).toBe(true);
+		// A packing list is private: nobody else's list holds it, and nobody else
+		// may tick it, rename it or throw it out.
+		expect(tasks.listTasks(f.tripId, 'packing', f.member)).toEqual([]);
+		expect(tasks.toggleTask(f.tripId, f.member, id).ok).toBe(false);
+		expect(tasks.updateTask(f.tripId, f.member, id, 'Their passport').ok).toBe(false);
+		expect(tasks.removeTask(f.tripId, f.member, id)).toBe(false);
+
+		// With nobody on it, the shared flag is what its owner's box ticks.
+		expect(tasks.toggleTask(f.tripId, f.organizer, id).ok).toBe(true);
 		expect(item().done).toBe(true);
 	});
 });
