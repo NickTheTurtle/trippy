@@ -1,6 +1,7 @@
 import { Tabs, useLocalSearchParams } from 'expo-router';
 import { Text } from 'react-native';
 import type { ColorValue } from 'react-native';
+import type { ComponentProps } from 'react';
 import { copy } from '@trippy/copy';
 import { AccountMenu } from '../../../src/ui/AccountMenu';
 import { TripIdContext } from '../../../src/trip-id';
@@ -23,9 +24,18 @@ const ICON = {
 	people: '☺'
 } as const;
 
+type TabScreenOptions = NonNullable<ComponentProps<typeof Tabs.Screen>['options']>;
+type TabBarIconProps = Parameters<
+	NonNullable<Extract<TabScreenOptions, { tabBarIcon?: unknown }>['tabBarIcon']>
+>[0];
+
 function icon(glyph: string) {
-	return ({ color: tint, size }: { color: ColorValue; size: number }) => (
-		<Text style={{ color: tint, fontSize: size - 2 }}>{glyph}</Text>
+	// react-native is duplicated in the tree: expo-router types the icon `color`
+	// against the hoisted copy (0.85.x), while Text here resolves to apps/mobile's
+	// 0.87 copy. RN 0.87 restructured OpaqueColorValue, so the two ColorValue types
+	// are nominally different but identical at runtime; bridge them at this seam.
+	return ({ color: tint, size }: TabBarIconProps) => (
+		<Text style={{ color: tint as ColorValue, fontSize: size - 2 }}>{glyph}</Text>
 	);
 }
 

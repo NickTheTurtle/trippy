@@ -9,7 +9,12 @@ import {
 	TextInput,
 	View
 } from 'react-native';
-import type { RefreshControlProps, TextInputProps, ViewStyle } from 'react-native';
+import type {
+	RefreshControlProps,
+	TextInputInstance,
+	TextInputProps,
+	ViewStyle
+} from 'react-native';
 import { card, color, controlHeight, radius, space, type } from '../theme';
 
 /**
@@ -91,7 +96,7 @@ export function Button({
 	);
 }
 
-export const Field = forwardRef<TextInput, { label: string } & TextInputProps>(
+export const Field = forwardRef<TextInputInstance, { label: string } & TextInputProps>(
 	({ label, style, ...props }, ref) => (
 		<View style={{ gap: space.xs }}>
 			<Text style={s.label}>{label}</Text>
