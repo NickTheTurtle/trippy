@@ -697,8 +697,10 @@ long it takes.
 1. The user's own `mode` / `mins` on the leg. Always wins, forever, including
    over a later provider answer. Somebody who has been there knows better.
 2. The provider, via `routeLegs`, cached by `(from, to, mode)` in `cache.ts`.
-   OSRM answers walk / cycle / drive, and transit falls back to a factor on the
-   driving time, because transit routing needs a paid feed the trip does not have.
+   Google Routes answers walk, cycle, drive and transit when the server key is
+   configured. OSRM is the keyless fallback for drive and transit labels only,
+   because asking it about a walk would return a driving time wearing a walking
+   label.
 3. `fallbackEstimate`: straight-line distance times a crow-flies factor, at a
    speed per mode, with **flight above 500 km**. An eight-hour drive block drawn
    across a day is a worse lie than a flight with airport time added, so the
@@ -709,6 +711,16 @@ long it takes.
 provider before it is allowed to succeed, and a read that cannot reach one should
 still answer, with the straight-line estimate. So persistence plans and stores
 structure, and the route fills in durations on the way out.
+
+**Google has two keys because the trust boundary has two sides.** The browser
+map receives `GOOGLE_MAPS_KEY`, which is public by design and can only be
+protected with an HTTP referrer restriction. Server-side Places, photo proxying
+and Routes calls use `GOOGLE_SERVER_KEY`, which is secret and can be restricted
+to the EC2 instance IP. Routes must not fall back to the browser key when the
+server key is missing, because that would make an exposed credential useful for
+billable server APIs again. During the production env migration,
+`GOOGLE_PLACES_KEY` remains a warned compatibility fallback for
+`GOOGLE_SERVER_KEY` only.
 
 **Reads re-plan rather than reading structure back** (`legsForDay`), because
 placing a leg needs the times of the two events it joins, and those change more

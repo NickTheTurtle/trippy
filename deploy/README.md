@@ -104,8 +104,9 @@ export DOMAIN='trippy.dxu.info'             # omit to use the sslip.io fallback
 export ACME_EMAIL='you@example.com'         # optional, Let's Encrypt notices
 
 # Optional provider and mail secrets, plus production throttle settings:
-export GOOGLE_PLACES_KEY='...'              # richer place search; else keyless OSM
-export GOOGLE_MAPS_KEY='...'                # map tiles + server-side routing
+export GOOGLE_SERVER_KEY='...'              # secret Places and Routes key; else OSM/OSRM fallbacks
+export GOOGLE_MAPS_KEY='...'                # public browser Maps JavaScript key
+# export GOOGLE_PLACES_KEY='...'            # deprecated fallback while migrating old deploys
 export MAIL_FROM='trips@trippy.dxu.info'    # turns on email verification
 export AWS_ACCESS_KEY_ID='...'
 export AWS_SECRET_ACCESS_KEY='...'
@@ -292,8 +293,9 @@ The server never crashes on a missing key; each feature simply degrades.
 
 | Variable | Enables | Without it |
 | --- | --- | --- |
-| `GOOGLE_PLACES_KEY` | Google Places search and place photos | Falls back to keyless OpenStreetMap / Photon search; `/api/health` reports `"provider":"osm"` |
-| `GOOGLE_MAPS_KEY` | The interactive map (browser) and server-side travel-time routing | No interactive Google map and no routing estimates; the rest of the app works |
+| `GOOGLE_SERVER_KEY` | Server-side Google Places search, autocomplete, details, photos, and Routes travel times | Falls back to keyless OpenStreetMap / Photon search and OSRM routing; `/api/health` reports `"provider":"osm"` |
+| `GOOGLE_PLACES_KEY` | Deprecated compatibility fallback for `GOOGLE_SERVER_KEY` | Existing deploys keep working during migration; new deploys should leave it unset |
+| `GOOGLE_MAPS_KEY` | Public browser Maps JavaScript key for the interactive map | No interactive Google map; the Leaflet fallback still works |
 | `MAIL_FROM` (+ SES or Resend creds) | Email verification and password reset | Registration completes instantly with no email step; password reset cannot send |
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `SES_REGION` | Amazon SES as the mail provider (preferred) | Mail via Resend if that key is set, otherwise mail is off |
 | `RESEND_API_KEY` | Resend as the mail provider | Used only when SES creds are absent |
@@ -311,19 +313,26 @@ Foreign-exchange rates use a keyless public endpoint, so there is no FX key to
 set. All provider results are cached (`cache.ts`); the caches start cold on a
 fresh box and warm up as people use the app.
 
-### Cost control for the paid keys
+### Google key restriction and cost control
 
-`GOOGLE_PLACES_KEY` and `GOOGLE_MAPS_KEY` bill per call. Before pointing real
-traffic at this box:
+Use separate Google API keys for browser and server traffic. A key can have only
+one restriction type, and mixing these roles forces the key to be unrestricted.
+
+- `GOOGLE_MAPS_KEY` is public by design because it is delivered to the browser
+  to load Maps JavaScript. Enable only the Maps JavaScript API and restrict the
+  key by HTTP referrer, for example `https://trippy.dxu.info/*`.
+- `GOOGLE_SERVER_KEY` is secret and must never be sent to the browser. Enable
+  Places API (New) and Routes API, and restrict the key by the EC2 instance's
+  public IP address.
+- `GOOGLE_PLACES_KEY` is only a deprecated compatibility fallback for older
+  deploy env files. Migrate `/etc/trippy.env` or `/root/trippy-deploy.env` to
+  `GOOGLE_SERVER_KEY`, then remove `GOOGLE_PLACES_KEY`.
+
+Before pointing real traffic at this box:
 
 - Set a billing budget and alert in Google Cloud, and per-API daily quota caps
   on Places, Maps JavaScript, and Routes.
-- Restrict the keys. Note the awkward part: `GOOGLE_MAPS_KEY` is used both in
-  the browser (Maps JavaScript, which wants an HTTP-referrer restriction) and
-  on the server (Routes API, which wants an IP restriction). One key cannot be
-  both. The clean fix is two keys: a referrer-restricted browser key for the
-  map and a separate IP-restricted server key for routing. Until then, restrict
-  the single key by enabled APIs and lean on the billing cap.
+- Regenerate any key that was previously served publicly while unrestricted.
 
 ---
 
@@ -1040,6 +1049,8 @@ deletes `/var/lib/trippy` with it. Two options, in increasing order of safety:
   `sudo journalctl -u trippy -e`.
 - **Map is blank but everything else works:** `GOOGLE_MAPS_KEY` is missing,
   restricted too tightly, or over quota.
+- **Place search falls back to OSM or routing falls back to OSRM:** set
+  `GOOGLE_SERVER_KEY` and confirm Places API (New) and Routes API are enabled.
 - **Registration never sends an email:** mail is not configured, or `MAIL_FROM`
   is on a domain the provider has not verified. Check
   `sudo journalctl -u trippy | grep -i mail`.

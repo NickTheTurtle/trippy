@@ -18,7 +18,7 @@ import { tmpdir } from 'node:os';
 const tempRoot = join(tmpdir(), `trippy-places-tests-${process.pid}-${Date.now()}`);
 mkdirSync(tempRoot, { recursive: true });
 process.env.TRIPPY_DB = join(tempRoot, 'places.test.db');
-process.env.GOOGLE_PLACES_KEY = 'test-key';
+process.env.GOOGLE_SERVER_KEY = 'test-key';
 
 let places: typeof import('../src/providers/places.ts');
 
@@ -94,9 +94,27 @@ const ONE_TEXT_RESULT = {
 
 afterEach(() => {
 	vi.unstubAllGlobals();
+	vi.restoreAllMocks();
+	process.env.GOOGLE_SERVER_KEY = 'test-key';
+	delete process.env.GOOGLE_PLACES_KEY;
 });
 
 describe('as-you-type search', () => {
+	it('uses the deprecated Places key as a rollout fallback', async () => {
+		delete process.env.GOOGLE_SERVER_KEY;
+		process.env.GOOGLE_PLACES_KEY = 'old-server-key';
+		const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+		const calls = stubProvider({ autocomplete: ONE_SUGGESTION });
+
+		const results = await places.searchPlaces('legacy key query', ATHENS, 'place', 'session-legacy');
+
+		expect(calls).toHaveLength(1);
+		expect(results[0].source).toBe('google');
+		expect(warn).toHaveBeenCalledWith(
+			'GOOGLE_PLACES_KEY is deprecated. Set GOOGLE_SERVER_KEY for server-side Google Places and Routes calls.'
+		);
+	});
+
 	it('asks autocomplete, not the billed text search, when it has a session', async () => {
 		const calls = stubProvider({ autocomplete: ONE_SUGGESTION });
 		const results = await places.searchPlaces('acropolis mus', ATHENS, 'place', 'session-aaaa');

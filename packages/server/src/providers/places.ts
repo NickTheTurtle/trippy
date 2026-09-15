@@ -313,7 +313,7 @@ async function searchGoogle(
 	near: SearchNear,
 	kind: SearchKind
 ): Promise<PlaceResult[]> {
-	const key = env.GOOGLE_PLACES_KEY;
+	const key = env.GOOGLE_SERVER_KEY;
 	if (!key) return [];
 	const res = await fetch(GOOGLE_ENDPOINT, {
 		method: 'POST',
@@ -387,7 +387,7 @@ async function suggestGoogle(
 	kind: SearchKind,
 	sessionToken: string
 ): Promise<PlaceResult[]> {
-	const key = env.GOOGLE_PLACES_KEY;
+	const key = env.GOOGLE_SERVER_KEY;
 	if (!key || typeof near.lat !== 'number' || typeof near.lng !== 'number') return [];
 	const res = await fetch(GOOGLE_SUGGEST, {
 		method: 'POST',
@@ -461,7 +461,7 @@ export async function placeDetails(
 	id: string,
 	sessionToken?: string
 ): Promise<PlaceDetails | null> {
-	const key = env.GOOGLE_PLACES_KEY;
+	const key = env.GOOGLE_SERVER_KEY;
 	if (!key || !id) return null;
 	const url = new URL(`${GOOGLE_DETAILS}${encodeURIComponent(id)}`);
 	url.searchParams.set('languageCode', 'en');
@@ -599,7 +599,7 @@ export async function lookupPhoto(
 	lat?: number | null,
 	lng?: number | null
 ): Promise<string> {
-	const key = env.GOOGLE_PLACES_KEY;
+	const key = env.GOOGLE_SERVER_KEY;
 	if (!key) return NO_PHOTO;
 
 	const body: Record<string, unknown> = {
@@ -634,7 +634,7 @@ export async function lookupPhoto(
 
 /** Which backend is active, for the UI to label results. */
 export function activeProvider(): 'google' | 'osm' {
-	return env.GOOGLE_PLACES_KEY ? 'google' : 'osm';
+	return env.GOOGLE_SERVER_KEY ? 'google' : 'osm';
 }
 
 /**
@@ -663,7 +663,7 @@ const detailsCache = createPersistentCache<PlaceDetails | null>(
 );
 
 /**
- * Search for places. Uses Google Places when GOOGLE_PLACES_KEY is set,
+ * Search for places. Uses Google Places when GOOGLE_SERVER_KEY is set,
  * otherwise the keyless OpenStreetMap (Photon) provider. Google falls back
  * to Photon if the request fails so discovery keeps working.
  *
@@ -691,7 +691,7 @@ export async function searchPlaces(
 		// costs the caller no quota. Throws through `take` when over the ceiling,
 		// which the route turns into a 429.
 		gate?.();
-		if (env.GOOGLE_PLACES_KEY) {
+		if (env.GOOGLE_SERVER_KEY) {
 			// Suggestions first, because inside a session they are free. They are
 			// prefix matching though, so they come up empty on the wordier queries
 			// ("cheap sushi near the station") that a text search still answers.

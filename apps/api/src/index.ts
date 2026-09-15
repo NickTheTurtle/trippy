@@ -11,7 +11,9 @@ import { placePhoto } from './routes/place-photo';
 import { ses } from './routes/ses';
 import { ensureDemoAccount, purgeExpiredSessions } from '@trippy/server/auth';
 import { closeAll } from '@trippy/server/events';
+import { env } from '@trippy/server/env';
 import { searchCities } from '@trippy/server/geocode';
+import { activeProvider } from '@trippy/server/places';
 import type { SessionUser } from '@trippy/server/auth';
 
 /**
@@ -50,9 +52,9 @@ if (process.env.NODE_ENV !== 'production') {
 
 app.use('*', session);
 
-app.get('/api/health', (c) =>
-	c.json({ ok: true, provider: process.env.GOOGLE_PLACES_KEY ? 'google' : 'osm' })
-);
+void env.GOOGLE_SERVER_KEY;
+
+app.get('/api/health', (c) => c.json({ ok: true, provider: activeProvider() }));
 app.route('/api/auth', auth);
 app.route('/api/account', account);
 app.route('/api/trips', trips);
