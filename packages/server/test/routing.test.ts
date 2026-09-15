@@ -24,13 +24,18 @@ let routing: typeof import('../src/providers/routing.ts');
 
 beforeEach(async () => {
 	routing = await import('../src/providers/routing.ts');
-	process.env.GOOGLE_MAPS_KEY = 'test-key';
+	process.env.GOOGLE_SERVER_KEY = 'test-key';
+	delete process.env.GOOGLE_MAPS_KEY;
+	delete process.env.GOOGLE_PLACES_KEY;
 });
 
 afterEach(() => {
 	vi.useRealTimers();
 	vi.unstubAllGlobals();
+	vi.restoreAllMocks();
+	delete process.env.GOOGLE_SERVER_KEY;
 	delete process.env.GOOGLE_MAPS_KEY;
+	delete process.env.GOOGLE_PLACES_KEY;
 });
 
 /**
@@ -154,7 +159,7 @@ describe('the fallback chain', () => {
 	});
 
 	it('skips Google entirely when no key is configured', async () => {
-		delete process.env.GOOGLE_MAPS_KEY;
+		delete process.env.GOOGLE_SERVER_KEY;
 		const stub = vi.fn(async (input: unknown) => {
 			if (String(input).includes(GOOGLE)) throw new Error('should not be called');
 			return osrmOk();
@@ -163,6 +168,36 @@ describe('the fallback chain', () => {
 
 		const res = await routing.routeLeg(makeLeg(100), 'drive');
 		expect(res.mins).toBe(12);
+		expect(callCounts(stub)).toEqual({ google: 0, osrm: 1 });
+	});
+
+	it('uses the deprecated Places key as a rollout fallback', async () => {
+		delete process.env.GOOGLE_SERVER_KEY;
+		process.env.GOOGLE_PLACES_KEY = 'old-server-key';
+		const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+		const stub = vi.fn(async () => googleOk());
+		vi.stubGlobal('fetch', stub);
+
+		const res = await routing.routeLeg(makeLeg(100), 'drive');
+		expect(res).toEqual({ mode: 'drive', mins: 10, routed: true });
+		expect(callCounts(stub)).toEqual({ google: 1, osrm: 0 });
+		expect(warn).toHaveBeenCalledWith(
+			'GOOGLE_PLACES_KEY is deprecated. Set GOOGLE_SERVER_KEY for server-side Google Places and Routes calls.'
+		);
+	});
+
+	it('does not use the browser Maps key for server-side routing', async () => {
+		delete process.env.GOOGLE_SERVER_KEY;
+		delete process.env.GOOGLE_PLACES_KEY;
+		process.env.GOOGLE_MAPS_KEY = 'browser-key';
+		const stub = vi.fn(async (input: unknown) => {
+			if (String(input).includes(GOOGLE)) throw new Error('browser key must not be used');
+			return osrmOk();
+		});
+		vi.stubGlobal('fetch', stub);
+
+		const res = await routing.routeLeg(makeLeg(100), 'drive');
+		expect(res).toEqual({ mode: 'drive', mins: 12, routed: true });
 		expect(callCounts(stub)).toEqual({ google: 0, osrm: 1 });
 	});
 

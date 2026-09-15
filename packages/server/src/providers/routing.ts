@@ -71,7 +71,7 @@ async function googleMinutes(
 	canBill?: () => boolean
 ): Promise<number | null> {
 	const travelMode = GOOGLE_MODE[mode];
-	const apiKey = env.GOOGLE_MAPS_KEY;
+	const apiKey = env.GOOGLE_SERVER_KEY;
 	if (!travelMode || !apiKey) return null;
 	// The billed call. When the caller is over its routing quota, skip Google
 	// rather than refuse: the leg falls through to the free OSRM/estimate below,

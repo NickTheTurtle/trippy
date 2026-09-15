@@ -23,8 +23,9 @@
 #   #   export DOMAIN='trippy.dxu.info'           # point its DNS A record at this box first
 #   #   export ACME_EMAIL='you@example.com'       # Let's Encrypt expiry notices
 #   # optional provider / mail secrets (any that are set are written to the env file):
-#   #   export GOOGLE_PLACES_KEY='...'            # place search (else keyless OSM/Photon)
-#   #   export GOOGLE_MAPS_KEY='...'              # maps JS + server-side routing
+#   #   export GOOGLE_SERVER_KEY='...'            # secret Places and Routes key
+#   #   export GOOGLE_MAPS_KEY='...'              # public browser Maps JavaScript key
+#   #   export GOOGLE_PLACES_KEY='...'            # deprecated server key fallback
 #   #   export MAIL_FROM='trips@trippy.dxu.info'  # turns on email verification
 #   #   export AWS_ACCESS_KEY_ID='...' AWS_SECRET_ACCESS_KEY='...' SES_REGION='us-east-1'
 #   #   export RESEND_API_KEY='...'               # used only if SES keys are absent
@@ -264,7 +265,7 @@ warn_if_existing_env_name_unset() {
 
 for v in APP_URL TRIPPY_REGISTER_LIMIT TRIPPY_TRUSTED_PROXIES TRIPPY_PROVIDER_LIMIT \
          TRIPPY_PROVIDER_IP_LIMIT TRIPPY_ROUTING_LIMIT \
-         GOOGLE_PLACES_KEY GOOGLE_MAPS_KEY MAIL_FROM \
+         GOOGLE_SERVER_KEY GOOGLE_PLACES_KEY GOOGLE_MAPS_KEY MAIL_FROM \
          AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN \
          SES_REGION AWS_REGION RESEND_API_KEY; do
   warn_if_existing_env_name_unset "$v"
@@ -296,7 +297,7 @@ append_if_set() {
   local val="${!name:-}"
   if [[ -n "$val" ]]; then printf '%s=%s\n' "$name" "$val" >> "$ENV_FILE"; fi
 }
-for v in GOOGLE_PLACES_KEY GOOGLE_MAPS_KEY MAIL_FROM \
+for v in GOOGLE_SERVER_KEY GOOGLE_PLACES_KEY GOOGLE_MAPS_KEY MAIL_FROM \
          AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN \
          SES_REGION AWS_REGION RESEND_API_KEY \
          TRIPPY_PROVIDER_LIMIT TRIPPY_PROVIDER_IP_LIMIT TRIPPY_ROUTING_LIMIT; do

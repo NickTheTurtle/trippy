@@ -12,6 +12,15 @@
  * undefined.
  */
 export const env = {
+	get GOOGLE_SERVER_KEY(): string | undefined {
+		const serverKey = process.env.GOOGLE_SERVER_KEY;
+		if (serverKey) return serverKey;
+		// Compatibility for the rollout window only. Do not fall back to
+		// GOOGLE_MAPS_KEY here: that key is served to browsers by design.
+		const oldPlacesKey = process.env.GOOGLE_PLACES_KEY;
+		if (oldPlacesKey) warnGooglePlacesFallback();
+		return oldPlacesKey;
+	},
 	get GOOGLE_PLACES_KEY(): string | undefined {
 		return process.env.GOOGLE_PLACES_KEY;
 	},
@@ -49,3 +58,13 @@ export const env = {
 		return process.env.APP_URL ?? 'http://localhost:5174';
 	}
 };
+
+let warnedGooglePlacesFallback = false;
+
+function warnGooglePlacesFallback(): void {
+	if (warnedGooglePlacesFallback) return;
+	warnedGooglePlacesFallback = true;
+	console.warn(
+		'GOOGLE_PLACES_KEY is deprecated. Set GOOGLE_SERVER_KEY for server-side Google Places and Routes calls.'
+	);
+}

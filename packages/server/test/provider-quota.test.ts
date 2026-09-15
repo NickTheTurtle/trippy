@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os';
 const tempRoot = join(tmpdir(), `trippy-provider-quota-${process.pid}-${Date.now()}`);
 mkdirSync(tempRoot, { recursive: true });
 process.env.TRIPPY_DB = join(tempRoot, 'provider-quota.test.db');
-process.env.GOOGLE_PLACES_KEY = 'test-key';
+process.env.GOOGLE_SERVER_KEY = 'test-key';
 
 let places: typeof import('../src/providers/places.ts');
 

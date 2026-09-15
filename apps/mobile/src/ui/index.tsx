@@ -1,5 +1,5 @@
 import { forwardRef } from 'react';
-import type { ReactNode } from 'react';
+import type { ElementRef, ReactNode } from 'react';
 import {
 	ActivityIndicator,
 	Pressable,
@@ -11,7 +11,6 @@ import {
 } from 'react-native';
 import type {
 	RefreshControlProps,
-	TextInputInstance,
 	TextInputProps,
 	ViewStyle
 } from 'react-native';
@@ -96,7 +95,7 @@ export function Button({
 	);
 }
 
-export const Field = forwardRef<TextInputInstance, { label: string } & TextInputProps>(
+export const Field = forwardRef<ElementRef<typeof TextInput>, { label: string } & TextInputProps>(
 	({ label, style, ...props }, ref) => (
 		<View style={{ gap: space.xs }}>
 			<Text style={s.label}>{label}</Text>

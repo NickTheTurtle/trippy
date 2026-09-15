@@ -92,7 +92,7 @@ placePhoto.get('/', requireUser, async (c) => {
 	const name = c.req.query('name') ?? '';
 	if (!NAME_RE.test(name)) return fail(c, 400, 'Bad photo reference.');
 
-	const key = env.GOOGLE_PLACES_KEY;
+	const key = env.GOOGLE_SERVER_KEY;
 	if (!key) return fail(c, 404, 'Photos unavailable.');
 
 	const asked = int(c.req.query('w'));
