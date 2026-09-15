@@ -355,6 +355,182 @@ This fetches, hard-resets to the target ref, reinstalls, rebuilds the web
 client, and restarts the API. It does not touch `/etc/trippy.env` or the
 database.
 
+### Continuous deployment from GitHub Actions
+
+The repository also has `.github/workflows/deploy.yml`, which deploys the tip of
+`main` after the `CI` workflow completes successfully for a push to `main`. A
+manual `workflow_dispatch` run from `main` redeploys the current tip. The action
+does not use SSH and does not store AWS access keys. It uses GitHub OIDC to
+assume an AWS IAM role, then calls AWS Systems Manager Run Command against the
+EC2 instance:
+
+```bash
+bash /opt/trippy/deploy/update.sh
+```
+
+Run Command executes the shell document as root on Ubuntu, which is required by
+`update.sh`. The script fetches `main`, runs `npm ci`, runs `npm run build`,
+publishes the web bundle, and restarts `trippy.service`. The web client is
+rebuilt on the instance on every deploy. On a host with about 1 GB RAM this is
+slow and depends on swap, which `ec2-setup.sh` creates. That is acceptable for a
+small site because the old bundle and API keep running during the slow phase,
+but expect deploys to take several minutes. If builds start timing out or the
+kernel kills Node for OOM, move the build to CI and copy an artifact instead of
+building on the box.
+
+The deploy workflow is intentionally configured to fail before contacting AWS if
+the required repository settings are missing. That makes an early merge
+harmless: no half deploy happens, and the Actions log names the missing setting.
+
+#### One-time AWS IAM setup
+
+Do these steps in the AWS account that owns the instance.
+
+1. Create the GitHub OIDC provider in IAM:
+   - Provider URL: `https://token.actions.githubusercontent.com`
+   - Audience: `sts.amazonaws.com`
+
+2. Create a deploy role for GitHub Actions. The trust policy must allow only
+   this repository on the `main` branch to assume it. For normal `push` runs and
+   manual `workflow_dispatch` runs started from the `main` branch, GitHub's OIDC
+   `sub` claim is:
+
+   ```text
+   repo:NickTheTurtle/trippy:ref:refs/heads/main
+   ```
+
+   Trust policy:
+
+   ```json
+   {
+     "Version": "2012-10-17",
+     "Statement": [
+       {
+         "Effect": "Allow",
+         "Principal": {
+           "Federated": "arn:aws:iam::790873127952:oidc-provider/token.actions.githubusercontent.com"
+         },
+         "Action": "sts:AssumeRoleWithWebIdentity",
+         "Condition": {
+           "StringEquals": {
+             "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+             "token.actions.githubusercontent.com:sub": "repo:NickTheTurtle/trippy:ref:refs/heads/main"
+           }
+         }
+       }
+     ]
+   }
+   ```
+
+   If you later attach a GitHub Environment to the deploy job, GitHub changes
+   the `sub` claim to the environment form, for example
+   `repo:NickTheTurtle/trippy:environment:production`. In that case update the
+   trust policy and restrict that environment to the `main` branch in GitHub.
+
+3. Attach this least-privilege permission policy to the deploy role. Replace
+   `<instance-id>` with the production EC2 instance ID, for example
+   `i-0123456789abcdef0`.
+
+   ```json
+   {
+     "Version": "2012-10-17",
+     "Statement": [
+       {
+         "Sid": "SendDeployCommandToTrippyInstance",
+         "Effect": "Allow",
+         "Action": "ssm:SendCommand",
+         "Resource": [
+           "arn:aws:ec2:us-east-2:790873127952:instance/<instance-id>",
+           "arn:aws:ssm:us-east-2::document/AWS-RunShellScript"
+         ]
+       },
+       {
+         "Sid": "ReadDeployCommandResult",
+         "Effect": "Allow",
+         "Action": "ssm:GetCommandInvocation",
+         "Resource": "*"
+       }
+     ]
+   }
+   ```
+
+   `ssm:SendCommand` is scoped to the one instance and the AWS managed
+   `AWS-RunShellScript` document. `ssm:GetCommandInvocation` does not support
+   resource-level permissions, so it must use `"Resource": "*"`.
+
+4. Add the AWS managed policy `AmazonSSMManagedInstanceCore` to the existing
+   EC2 instance role, `trippy-ec2`. The instance needs this policy so the SSM
+   Agent can register as a managed node and receive the command.
+
+5. Verify the SSM Agent on Ubuntu:
+
+   ```bash
+   sudo systemctl status snap.amazon-ssm-agent.amazon-ssm-agent.service
+   sudo snap services amazon-ssm-agent
+   ```
+
+   If the service is missing on the AMI, install and start it using the current
+   AWS Systems Manager Agent instructions for Ubuntu, then confirm the instance
+   appears in Systems Manager Fleet Manager.
+
+#### GitHub repository settings
+
+Create these repository settings before expecting deploys to succeed:
+
+| Type | Name | Value |
+| --- | --- | --- |
+| Variable | `AWS_REGION` | `us-east-2` |
+| Variable | `EC2_INSTANCE_ID` | The production instance ID |
+| Secret | `AWS_DEPLOY_ROLE_ARN` | The ARN of the deploy IAM role |
+
+The role ARN and instance ID are not in the workflow file. The deploy workflow
+will fail loudly and safely if any of these settings is absent.
+
+#### Verifying continuous deployment
+
+1. In AWS Systems Manager, confirm the instance is listed as a managed node and
+   online.
+2. In GitHub Actions, run the `Deploy` workflow manually from the `main` branch.
+3. Watch the Actions log. It prints the SSM command status plus the remote
+   stdout and stderr returned by Systems Manager.
+4. Confirm the site after the workflow succeeds:
+
+   ```bash
+   curl -s https://trippy.dxu.info/api/health
+   curl -sI https://trippy.dxu.info/
+   ```
+
+On normal pushes to `main`, the deploy workflow is triggered by the completed
+`CI` workflow, not directly by the push. If either required CI job is red, the
+deploy job exits without sending an SSM command.
+
+#### Rollback or disable auto deploy
+
+- Fast web rollback:
+
+  ```bash
+  sudo bash /opt/trippy/deploy/publish-web.sh --rollback
+  ```
+
+- Code rollback:
+
+  ```bash
+  export GIT_REF='<older-commit-sha-or-tag>'
+  sudo -E bash /opt/trippy/deploy/update.sh
+  ```
+
+- Disable automatic deploys quickly: remove or rename the
+  `AWS_DEPLOY_ROLE_ARN` secret, detach the deploy role policy, or disable the
+  `Deploy` workflow in GitHub Actions. Removing the secret makes the workflow
+  fail during configuration validation before any AWS call.
+
+I do not recommend adding a GitHub Environment approval gate at first. Required
+reviewers add a useful human stop before production, but they also remove the
+main benefit requested here: commits that have already passed protected-branch
+review and CI deploy without anyone SSHing or clicking another approval. If the
+site grows or deploy risk increases, add a `production` environment with
+required reviewers and update the OIDC trust policy as described above.
+
 **Ordering and downtime.** The slow work (fetch, `npm ci`, build) runs first,
 while the old bundle is still served and the old API still runs. Only the last
 two steps are user-visible:
