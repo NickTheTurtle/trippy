@@ -79,17 +79,18 @@ ssh -i /path/to/key.pem ubuntu@<public-ip>
 
 ## 4. Get the code onto the box
 
-The repo is private, so create a fine-grained GitHub PAT with Contents:
-Read-only access to `NickTheTurtle/trippy` (GitHub -> Settings -> Developer
-settings -> Fine-grained tokens), then:
+The repo is public, so clone it with no credential:
 
 ```bash
 sudo apt-get update && sudo apt-get install -y git
 git clone https://github.com/NickTheTurtle/trippy.git
-# Username: NickTheTurtle
-# Password: <paste the PAT>
 cd trippy
 ```
+
+If the repo is ever made private again (or you deploy a private fork), set
+`GITHUB_TOKEN` to a fine-grained GitHub PAT with Contents: Read-only on
+`NickTheTurtle/trippy` (GitHub -> Settings -> Developer settings -> Fine-grained
+tokens) before cloning, and the deploy scripts will use it automatically.
 
 ## 5. Set secrets and run the setup script
 
@@ -98,7 +99,7 @@ Secrets come from your shell environment at setup time and are written only to
 have; anything you leave out degrades gracefully (see "What each key does").
 
 ```bash
-export GITHUB_TOKEN='github_pat_...'        # required, to clone to /opt/trippy
+# export GITHUB_TOKEN='github_pat_...'      # only if the repo is private; public clones need none
 export DOMAIN='trippy.dxu.info'             # omit to use the sslip.io fallback
 export ACME_EMAIL='you@example.com'         # optional, Let's Encrypt notices
 
@@ -135,14 +136,15 @@ anything, and aborts if a required check fails. You can also run it by hand
 first (it changes nothing):
 
 ```bash
-export GITHUB_TOKEN='github_pat_...'
+# export GITHUB_TOKEN='github_pat_...'  # only if the repo is private
 export DOMAIN='trippy.dxu.info'      # omit for the sslip.io fallback
 bash deploy/preflight.sh
 ```
 
-It checks that `curl` is present, `GITHUB_TOKEN` is set and can actually read the
-private repo, there is enough disk and memory (or that swap will be added), and,
-when a real `DOMAIN` is set, that its DNS already points at this box. Each
+It checks that `curl` is present, the repo is readable (with `GITHUB_TOKEN` if
+set, anonymously against the public repo if not), there is enough disk and
+memory (or that swap will be added), and, when a real `DOMAIN` is set, that its
+DNS already points at this box. Each
 failure names the exact fix. This matters most for **DNS and the security
 group**: if `trippy.dxu.info` does not resolve here, or ports 80/443 are not
 open, Let's Encrypt will fail, and repeated failures can rate-limit the hostname
@@ -201,8 +203,12 @@ takes roughly 5 to 10 minutes on a `t3.micro`/`t4g.micro`.
    line should be `ok`. If it aborts, it names the fix. The two that bite first:
    - `DOMAIN ... does not resolve` or `resolves to X, not this box`: fix the A
      record and wait for TTL. Do not proceed; Let's Encrypt will fail.
-   - `GITHUB_TOKEN cannot read the repo`: the token is missing a scope or
-     expired. Regenerate a fine-grained PAT with read access to the repo.
+   - `repo ... is not readable anonymously` (no token set): the repo may have
+     been made private again, in which case set `GITHUB_TOKEN` to a fine-grained
+     PAT with Contents: Read; otherwise the box has no network/DNS to GitHub.
+   - `GitHub token ... (401/404)` (token set): the token is missing a scope,
+     expired, or lacks access. Regenerate a fine-grained PAT with Contents: Read
+     on the repo.
 
 2. **APT installs** (`Installing base packages`, `Installing Node.js`,
    `Installing Caddy`). Ubuntu fetches Node, Caddy, git, and Litestream. Expect a
@@ -312,7 +318,7 @@ sudo systemctl reload caddy       # reload after editing the Caddyfile
 ### Update to the latest code
 
 ```bash
-export GITHUB_TOKEN='github_pat_...'
+# export GITHUB_TOKEN='github_pat_...'  # only if the repo is private
 sudo -E bash /opt/trippy/deploy/update.sh
 ```
 
@@ -351,7 +357,7 @@ sudo bash /opt/trippy/deploy/publish-web.sh --rollback   # flip to the previous 
 **Code (API + web), by redeploying an older commit** (rebuilds):
 
 ```bash
-export GITHUB_TOKEN='github_pat_...'
+# export GITHUB_TOKEN='github_pat_...'  # only if the repo is private
 export GIT_REF='<older-commit-sha-or-tag>'
 sudo -E bash /opt/trippy/deploy/update.sh
 ```

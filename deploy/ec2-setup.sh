@@ -18,7 +18,7 @@
 #
 # Usage (run as root, from a checkout of this repo so the script is present):
 #
-#   export GITHUB_TOKEN='github_pat_...'          # required to clone the private repo
+#   #   export GITHUB_TOKEN='github_pat_...'      # only if the repo is private; public clones need no token
 #   # optional but recommended:
 #   #   export DOMAIN='trippy.dxu.info'           # point its DNS A record at this box first
 #   #   export ACME_EMAIL='you@example.com'       # Let's Encrypt expiry notices
@@ -48,6 +48,13 @@
 # is idempotent: safe to re-run.
 #
 set -euo pipefail
+
+# Never let git block on an interactive credential prompt. Without this, an
+# unattended run against a repo it cannot read non-interactively (for example a
+# private repo with no GITHUB_TOKEN) would hang forever waiting for a username;
+# instead we want a clean, fast failure. Applies to every network git call below.
+export GIT_TERMINAL_PROMPT=0
+export GIT_ASKPASS=/bin/true
 
 # ---- config / params -------------------------------------------------------
 REPO_URL="${REPO_URL:-https://github.com/NickTheTurtle/trippy.git}"
@@ -166,6 +173,10 @@ id -u "$APP_USER" >/dev/null 2>&1 || useradd --system --home "$APP_DIR" --shell 
 mkdir -p "$APP_DIR" "$DATA_DIR"
 
 # ---- fetch the code --------------------------------------------------------
+# GITHUB_TOKEN is optional: the repo is public, so the anonymous URL clones and
+# fetches fine. Set GITHUB_TOKEN only if the repo has been made private again (or
+# to deploy a private fork); when set, it is injected into the network URL only,
+# and the stored remote is always scrubbed back to the clean anonymous URL.
 CLONE_URL="$REPO_URL"
 if [[ -n "${GITHUB_TOKEN:-}" ]]; then
   # Inject the token only for the network operation; the stored remote stays clean.

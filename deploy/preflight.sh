@@ -6,12 +6,13 @@
 # nothing on the system.
 #
 # It validates: required commands, required environment, enough disk and memory,
-# that the GitHub token can actually read the private repo, and, when a DOMAIN is
-# set, that its DNS points at THIS instance (so Let's Encrypt will be able to
-# issue, and you do not burn its rate limit on a doomed attempt).
+# that the repo is actually readable (with GITHUB_TOKEN if set, anonymously if
+# not), and, when a DOMAIN is set, that its DNS points at THIS instance (so
+# Let's Encrypt will be able to issue, and you do not burn its rate limit on a
+# doomed attempt).
 #
 # Usage:
-#   export GITHUB_TOKEN='github_pat_...'
+#   export GITHUB_TOKEN='github_pat_...'  # optional; only needed if the repo is private
 #   export DOMAIN='trippy.dxu.info'      # optional; omit to use the sslip.io fallback
 #   bash deploy/preflight.sh
 #
@@ -38,8 +39,10 @@ for c in curl awk; do
 done
 
 # ---- required environment --------------------------------------------------
-if [[ -n "${GITHUB_TOKEN:-}" ]]; then ok "GITHUB_TOKEN is set"
-else bad "GITHUB_TOKEN is not set  (fix: export GITHUB_TOKEN='github_pat_...' with Contents:Read on ${REPO_SLUG})"; fi
+# GITHUB_TOKEN is optional now that the repo is public. When set we use it (and
+# validate it below); when unset we clone anonymously.
+if [[ -n "${GITHUB_TOKEN:-}" ]]; then ok "GITHUB_TOKEN is set (authenticated clone)"
+else ok "GITHUB_TOKEN not set (anonymous clone of the public repo)"; fi
 
 # ---- disk ------------------------------------------------------------------
 free_kb="$(df -Pk / | awk 'NR==2{print $4}')"
@@ -70,7 +73,7 @@ fi
 if [[ -n "$PUBLIC_IP" ]]; then ok "public IP: ${PUBLIC_IP}"
 else warn "could not determine the public IP; DNS match check will be skipped"; fi
 
-# ---- GitHub token can read the private repo --------------------------------
+# ---- repo is readable (with the token if set, anonymously otherwise) -------
 if [[ -n "${GITHUB_TOKEN:-}" ]]; then
   code="$(curl -s -o /dev/null -w '%{http_code}' -m 15 \
     -H "Authorization: Bearer ${GITHUB_TOKEN}" \
@@ -82,6 +85,16 @@ if [[ -n "${GITHUB_TOKEN:-}" ]]; then
     404) bad "repo ${REPO_SLUG} not visible to this token (404)  (fix: grant the token access to that repo)" ;;
     000) warn "could not reach api.github.com to validate the token (network?)" ;;
     *)   bad "unexpected GitHub API status ${code} validating the token" ;;
+  esac
+else
+  code="$(curl -s -o /dev/null -w '%{http_code}' -m 15 \
+    -H 'Accept: application/vnd.github+json' \
+    "https://api.github.com/repos/${REPO_SLUG}" 2>/dev/null || echo 000)"
+  case "$code" in
+    200) ok "public repo ${REPO_SLUG} is readable anonymously" ;;
+    404) bad "repo ${REPO_SLUG} is not readable anonymously (404)  (fix: if it was made private again, export GITHUB_TOKEN='github_pat_...' with Contents:Read on ${REPO_SLUG}; otherwise there is no network/DNS from this box)" ;;
+    000) bad "could not reach api.github.com to check ${REPO_SLUG} anonymously  (fix: check network/DNS from this box; or if the repo is now private, export GITHUB_TOKEN='github_pat_...' with Contents:Read)" ;;
+    *)   bad "unexpected GitHub API status ${code} checking ${REPO_SLUG} anonymously" ;;
   esac
 fi
 

@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 #
 # Pull the latest code and redeploy Trippy on an EC2 box set up by ec2-setup.sh.
-# For the private repo, pass a token:
+# The repo is public, so no token is needed. If the repo has been made private
+# again (or you deploy a private fork), pass a token:
 #
-#   export GITHUB_TOKEN='github_pat_...'
+#   export GITHUB_TOKEN='github_pat_...'   # optional; only for a private repo
 #   sudo -E bash /opt/trippy/deploy/update.sh
 #
 # This rebuilds the web client and restarts the API. It does NOT touch
@@ -23,6 +24,11 @@
 #
 set -euo pipefail
 
+# Never let git block on an interactive credential prompt (see ec2-setup.sh).
+# A failure to reach the remote must be a fast, clean error, not a hang.
+export GIT_TERMINAL_PROMPT=0
+export GIT_ASKPASS=/bin/true
+
 APP_DIR="/opt/trippy"
 DATA_DIR="/var/lib/trippy"
 APP_USER="trippy"
@@ -37,6 +43,8 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 REPO_URL="$(git -C "$APP_DIR" remote get-url origin)"
+# GITHUB_TOKEN is optional (public repo). When set, inject it into the network
+# URL only; the stored remote is scrubbed back to the clean URL afterwards.
 CLONE_URL="$REPO_URL"
 if [[ -n "${GITHUB_TOKEN:-}" ]]; then
   CLONE_URL="https://x-access-token:${GITHUB_TOKEN}@${REPO_URL#https://}"
