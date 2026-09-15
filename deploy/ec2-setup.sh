@@ -185,11 +185,17 @@ fi
 
 if [[ -d "$APP_DIR/.git" ]]; then
   log "Updating existing checkout in ${APP_DIR}"
-  git -C "$APP_DIR" remote set-url origin "$CLONE_URL"
-  git -C "$APP_DIR" fetch --depth 1 origin "$GIT_REF"
-  git -C "$APP_DIR" checkout -f "$GIT_REF"
-  git -C "$APP_DIR" reset --hard "origin/${GIT_REF}"
-  git -C "$APP_DIR" remote set-url origin "$REPO_URL"
+  # On a re-run this checkout is owned by ${APP_USER} (the first run chowns it,
+  # see below), but we are root here, so git would abort with "detected dubious
+  # ownership". Scope a safe.directory exception to each command instead of
+  # mutating root's global git config: it is explicit, leaves no state on the
+  # box, and cannot accumulate duplicate entries across re-runs. Any objects git
+  # writes as root are re-owned by the chown -R below.
+  git -c safe.directory="$APP_DIR" -C "$APP_DIR" remote set-url origin "$CLONE_URL"
+  git -c safe.directory="$APP_DIR" -C "$APP_DIR" fetch --depth 1 origin "$GIT_REF"
+  git -c safe.directory="$APP_DIR" -C "$APP_DIR" checkout -f "$GIT_REF"
+  git -c safe.directory="$APP_DIR" -C "$APP_DIR" reset --hard "origin/${GIT_REF}"
+  git -c safe.directory="$APP_DIR" -C "$APP_DIR" remote set-url origin "$REPO_URL"
 else
   log "Cloning ${REPO_URL} (ref ${GIT_REF}) into ${APP_DIR}"
   git clone --depth 1 --branch "$GIT_REF" "$CLONE_URL" "$APP_DIR"

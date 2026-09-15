@@ -42,7 +42,7 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
-REPO_URL="$(git -C "$APP_DIR" remote get-url origin)"
+REPO_URL="$(git -c safe.directory="$APP_DIR" -C "$APP_DIR" remote get-url origin)"
 # GITHUB_TOKEN is optional (public repo). When set, inject it into the network
 # URL only; the stored remote is scrubbed back to the clean URL afterwards.
 CLONE_URL="$REPO_URL"
@@ -51,11 +51,16 @@ if [[ -n "${GITHUB_TOKEN:-}" ]]; then
 fi
 
 # ---- slow work first (nothing user-visible changes here) -------------------
+# This checkout is owned by ${APP_USER} (ec2-setup.sh chowns it), but update.sh
+# runs as root, so git would abort with "detected dubious ownership". Scope a
+# safe.directory exception to each command rather than writing root's global git
+# config: explicit, no persistent state, and safe to repeat. The chown -R below
+# re-owns any objects git wrote as root.
 echo "==> Fetching latest ${GIT_REF}"
-git -C "$APP_DIR" remote set-url origin "$CLONE_URL"
-git -C "$APP_DIR" fetch --depth 1 origin "$GIT_REF"
-git -C "$APP_DIR" reset --hard "origin/${GIT_REF}"
-git -C "$APP_DIR" remote set-url origin "$REPO_URL"   # scrub token
+git -c safe.directory="$APP_DIR" -C "$APP_DIR" remote set-url origin "$CLONE_URL"
+git -c safe.directory="$APP_DIR" -C "$APP_DIR" fetch --depth 1 origin "$GIT_REF"
+git -c safe.directory="$APP_DIR" -C "$APP_DIR" reset --hard "origin/${GIT_REF}"
+git -c safe.directory="$APP_DIR" -C "$APP_DIR" remote set-url origin "$REPO_URL"   # scrub token
 
 echo "==> Installing and rebuilding (full install; tsx is a runtime dependency)"
 cd "$APP_DIR"

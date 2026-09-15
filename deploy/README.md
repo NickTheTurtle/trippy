@@ -257,7 +257,12 @@ safe to re-run after a failure at any stage. What a re-run does at each point:
   issuance can rate-limit the hostname, so rehearse with `ACME_STAGING=1` first.
 - **Re-running a fully working box:** harmless. It reinstalls the same packages,
   rebuilds, publishes a new release (pruning old ones to the last 5), and
-  restarts the services. It never touches `/etc/trippy.env` or the database.
+  restarts the services. It never touches `/etc/trippy.env` or the database. The
+  existing `/opt/trippy` checkout is owned by the `trippy` service user (the
+  first run chowns it), while the script runs as root; the git fetch/reset on a
+  re-run is therefore issued with a per-command `-c safe.directory=/opt/trippy`
+  so git does not refuse the checkout as "dubious ownership". This exception is
+  scoped to each git call and writes no persistent git config on the box.
 
 ---
 
@@ -764,3 +769,16 @@ deletes `/var/lib/trippy` with it. Two options, in increasing order of safety:
 - **Registration never sends an email:** mail is not configured, or `MAIL_FROM`
   is on a domain the provider has not verified. Check
   `sudo journalctl -u trippy | grep -i mail`.
+- **`fatal: detected dubious ownership in repository at '/opt/trippy'`:** you are
+  running an older `ec2-setup.sh`/`update.sh` that invoked git as root against
+  the checkout after it had been chowned to the `trippy` service user. Current
+  scripts scope a `-c safe.directory=/opt/trippy` to each git call and no longer
+  hit this. To unblock a box stuck on the old script right now, run the update
+  once with the same scoped exception:
+  ```bash
+  sudo git -c safe.directory=/opt/trippy -C /opt/trippy fetch --depth 1 origin main
+  sudo git -c safe.directory=/opt/trippy -C /opt/trippy reset --hard origin/main
+  ```
+  then re-run `sudo -E bash /opt/trippy/deploy/ec2-setup.sh` (or `update.sh`),
+  which now carries the fix. Do not add a global `safe.directory` to root's git
+  config; the scoped form leaves no persistent state on the box.
