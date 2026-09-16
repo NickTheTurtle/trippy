@@ -37,12 +37,15 @@ let sns: typeof import('@trippy/server/sns');
 let db: Awaited<typeof import('@trippy/server/db')>['db'];
 
 beforeAll(async () => {
-	[{ ses: app }, suppressions, sns, { db }] = await Promise.all([
-		import('../src/routes/ses.ts'),
-		import('@trippy/server/suppressions'),
-		import('@trippy/server/sns'),
-		import('@trippy/server/db')
-	]);
+	// Imported one at a time, deliberately. A Promise.all here races the mock
+	// factory against the direct import of the same module, and losing that race
+	// hands the route the real verifier: every negative case still passes (it
+	// verifies nothing) while the positive ones fail, which is the least useful
+	// possible failure mode for a security test.
+	sns = await import('@trippy/server/sns');
+	({ ses: app } = await import('../src/routes/ses.ts'));
+	suppressions = await import('@trippy/server/suppressions');
+	({ db } = await import('@trippy/server/db'));
 });
 
 beforeEach(() => {
@@ -95,6 +98,13 @@ function post(body: unknown) {
 }
 
 describe('the SES notification receiver', () => {
+	it('is really running against the stubbed verifier', () => {
+		// Guards the guard: if the mock ever fails to take effect, every negative
+		// case below still passes (nothing verifies, so nothing is applied) and
+		// the suite would go green while testing nothing. Fail here instead.
+		expect(vi.isMockFunction(sns.verifySnsSignature)).toBe(true);
+	});
+
 	it('applies a verified complaint', async () => {
 		const res = await post(complaintEnvelope('angry@example.test'));
 		expect(res.status).toBe(200);
