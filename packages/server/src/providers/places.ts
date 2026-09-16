@@ -1,5 +1,12 @@
 import { assertPaidProviderAllowed, env, PaidProviderBlockedError } from '../infra/env';
 import { createPersistentCache, purgeCachedValues } from '../infra/cache';
+import {
+	noteProviderFailure,
+	noteProviderOk,
+	resetProviderHealth,
+	serviceHealth,
+	type ProviderFailure
+} from './provider-health';
 
 /**
  * A place returned from a search provider, normalised across backends.
@@ -516,6 +523,62 @@ const OSM_LODGING = new Set([
 	'caravan_site'
 ]);
 
+/** How many rows a search shows, whatever the provider was asked for. */
+const PHOTON_RESULTS = 8;
+
+/**
+ * A Photon feature's properties, as far as we read them.
+ *
+ * `housenumber` and `postcode` are here because an address search needs them:
+ * without the number, the Acropolis Museum's own row said "Dionysiou
+ * Areopagitou, Athens, Greece", which is the street it is on rather than the
+ * building, and matched a dozen other rows exactly.
+ */
+interface PhotonProps {
+	name?: string;
+	osm_key?: string;
+	osm_value?: string;
+	type?: string;
+	housenumber?: string;
+	street?: string;
+	postcode?: string;
+	city?: string;
+	district?: string;
+	state?: string;
+	country?: string;
+}
+
+/**
+ * The label for a feature, which is not always its name.
+ *
+ * A pure address has no `name` at all: OSM records it as a house number on a
+ * street. Those rows were dropped by a `name` filter, which is why typing an
+ * address returned everything except the address. Falling back to
+ * "street number" gives them the label a person would have written.
+ */
+function photonLabel(pr: PhotonProps): string | null {
+	if (pr.name?.trim()) return pr.name.trim();
+	if (pr.street && pr.housenumber) return `${pr.street} ${pr.housenumber}`;
+	if (pr.street) return pr.street;
+	return null;
+}
+
+/**
+ * The address line under the label.
+ *
+ * The house number is included, which it was not: it is the one part of a
+ * street address that distinguishes a building from its street, and dropping it
+ * is what made an address search unusable. The postcode comes with the city
+ * because Photon returns several same-named streets in one city and the
+ * postcode is often the only thing that tells the segments apart.
+ */
+function photonAddress(pr: PhotonProps): string | null {
+	const street = pr.street && pr.housenumber ? `${pr.street} ${pr.housenumber}` : pr.street;
+	const town = [pr.postcode, pr.city ?? pr.district].filter(Boolean).join(' ');
+	const parts = [street, town, pr.country].filter(Boolean);
+	return parts.length ? parts.join(', ') : null;
+}
+
 async function searchPhoton(
 	query: string,
 	near: SearchNear,
@@ -529,53 +592,71 @@ async function searchPhoton(
 		url.searchParams.set('lat', String(near.lat));
 		url.searchParams.set('lon', String(near.lng));
 	}
-	// Photon has no type filter, so lodging is filtered out of the response;
-	// ask for more rows than we show so the filter has something to keep.
-	url.searchParams.set('limit', kind === 'stay' ? '25' : '8');
+	// Names in English where OSM has one. Without this, searching "Acropolis
+	// Museum" saved "Mouseio Akropolis": Photon answers in the local script by
+	// default and the picked name is what lands on the board and in the
+	// database. Verified against the live endpoint, which rejects an unsupported
+	// value with a 400 listing what it takes: default, de, en, fr. So this is
+	// the one useful setting rather than the user's locale.
+	url.searchParams.set('lang', 'en');
+	// Photon has no type filter, so lodging is filtered out of the response, and
+	// a street with many segments floods the rows. Ask for more than we show so
+	// both the filter and the de-duplication below have something to keep.
+	url.searchParams.set('limit', kind === 'stay' ? '25' : '20');
 	const res = await fetch(url, {
 		headers: { 'User-Agent': 'Trippy-trip-planner' }
 	});
 	if (!res.ok) throw new Error(`photon ${res.status}`);
 	const data = (await res.json()) as {
-		features?: {
-			properties?: {
-				name?: string;
-				osm_key?: string;
-				osm_value?: string;
-				street?: string;
-				city?: string;
-				country?: string;
-			};
-			geometry?: { coordinates?: [number, number] };
-		}[];
+		features?: { properties?: PhotonProps; geometry?: { coordinates?: [number, number] } }[];
 	};
-	return (data.features ?? [])
-		.filter((f) => f.properties?.name)
-		.filter(
-			(f) =>
-				kind !== 'stay' ||
-				(f.properties?.osm_key === 'tourism' && OSM_LODGING.has(f.properties?.osm_value ?? ''))
-		)
-		.slice(0, 8)
-		.map((f) => {
-			const pr = f.properties ?? {};
-			const parts = [pr.street, pr.city, pr.country].filter(Boolean);
-			return {
-				id: null,
-				name: pr.name ?? 'Unknown',
-				category: osmCategory(pr.osm_key ?? '', pr.osm_value ?? ''),
-				address: parts.length ? parts.join(', ') : null,
-				url: null,
-				lat: f.geometry?.coordinates?.[1] ?? null,
-				lng: f.geometry?.coordinates?.[0] ?? null,
-				rating: null,
-				ratingCount: null,
-				priceLevel: null,
-				hours: null,
-				photo: null,
-				source: 'osm' as const
-			};
+
+	const rows: (PlaceResult & { street: boolean })[] = [];
+	const seen = new Set<string>();
+	for (const f of data.features ?? []) {
+		const pr = f.properties ?? {};
+		const name = photonLabel(pr);
+		if (!name) continue;
+		if (
+			kind === 'stay' &&
+			!(pr.osm_key === 'tourism' && OSM_LODGING.has(pr.osm_value ?? ''))
+		) {
+			continue;
+		}
+		const address = photonAddress(pr);
+		// Rows that read identically are one row as far as anybody choosing from
+		// a list is concerned. Searching an address returned eight of them: OSM
+		// splits a street into a segment per surface change, and each segment is
+		// a feature with the same name, the same city and different coordinates,
+		// so the list offered the same answer eight times with no way to tell
+		// which was meant. The first is kept, which is the best-ranked one.
+		const key = `${name}|${address ?? ''}`;
+		if (seen.has(key)) continue;
+		seen.add(key);
+		rows.push({
+			id: null,
+			name,
+			category: osmCategory(pr.osm_key ?? '', pr.osm_value ?? ''),
+			address,
+			url: null,
+			lat: f.geometry?.coordinates?.[1] ?? null,
+			lng: f.geometry?.coordinates?.[0] ?? null,
+			rating: null,
+			ratingCount: null,
+			priceLevel: null,
+			hours: null,
+			photo: null,
+			source: 'osm' as const,
+			street: pr.type === 'street'
 		});
+	}
+
+	// A building before the street it stands on. Photon ranks a whole street
+	// above the places on it often enough that the thing actually searched for
+	// fell off the end of the list. Stable, so the provider's ranking still
+	// decides everything else.
+	const ordered = [...rows.filter((r) => !r.street), ...rows.filter((r) => r.street)];
+	return ordered.slice(0, PHOTON_RESULTS).map(({ street: _street, ...row }) => row);
 }
 
 /**
@@ -644,25 +725,15 @@ export function activeProvider(): 'google' | 'osm' {
 // --- Provider health --------------------------------------------------------
 
 /**
- * What a Google failure looked like, without the key or the query in it.
+ * Places' view of the shared health record in `provider-health.ts`.
  *
- * `searchPlaces` used to swallow these in bare `catch` blocks and drop to
- * Photon, while `activeProvider()` and `/health` went on saying "google". That
- * combination hid a real outage for days: every search in the dev environment
- * was answered by OSM (`source: "osm"`, `id: null`) while the app reported
- * Google, and nothing anywhere said why. Degrading to OSM is the right
- * behaviour; doing it silently is not.
+ * The recording mechanism moved there so Routing could use the same one rather
+ * than grow a second: both are the same Google key failing, and an operator
+ * reading `/api/health` should not have to learn two vocabularies. What stays
+ * here is the places-specific reading of it, because only this module knows
+ * that the fallback is OpenStreetMap.
  */
-export interface ProviderFailure {
-	/** Which call failed, e.g. `google places text search`. */
-	op: string;
-	/** Status code or short transport reason. Never a key, never a full query. */
-	reason: string;
-	/** Epoch ms of the most recent occurrence. */
-	at: number;
-	/** How many times this op/reason pair has failed since the process started. */
-	count: number;
-}
+export type { ProviderFailure };
 
 export interface ProviderStatus {
 	/** What configuration says: Google when a server key is set. */
@@ -673,46 +744,8 @@ export interface ProviderStatus {
 	lastFailure: ProviderFailure | null;
 }
 
-/**
- * One line per distinct failure per minute.
- *
- * Search fires as you type, so an outage produces a failure per keystroke-batch
- * per member: logging every one turns a single broken key into thousands of
- * identical lines and buries whatever else the server was saying. De-duplicated
- * on op plus reason (a 403 from a key restriction and a 429 from quota are
- * different problems and both deserve to be seen) and rate-limited to one line
- * a minute each, with the suppressed count carried into the next line so the
- * volume is still visible. First occurrence is always logged immediately.
- */
-const FAILURE_LOG_INTERVAL_MS = 60_000;
-const failureLog = new Map<string, { at: number; suppressed: number }>();
-const failureCounts = new Map<string, number>();
-let lastFailure: ProviderFailure | null = null;
-let lastGoogleOk = 0;
-
-/** A short, safe description of a provider error: a status code, or its kind. */
-function shortReason(err: unknown): string {
-	const raw = err instanceof Error ? err.message : String(err);
-	// Belt and braces. Nothing here puts a key in a message or a URL, but a
-	// logged line must never be the first place that changes.
-	return raw.replace(/([?&](key|api_?key)=)[^&\s]*/gi, '$1[redacted]').slice(0, 120);
-}
-
 function noteGoogleFailure(op: string, err: unknown): void {
-	const reason = shortReason(err);
-	const key = `${op}|${reason}`;
-	const count = (failureCounts.get(key) ?? 0) + 1;
-	failureCounts.set(key, count);
-	lastFailure = { op, reason, at: Date.now(), count };
-
-	const seen = failureLog.get(key);
-	if (seen && Date.now() - seen.at < FAILURE_LOG_INTERVAL_MS) {
-		seen.suppressed += 1;
-		return;
-	}
-	const also = seen?.suppressed ? ` (+${seen.suppressed} more since)` : '';
-	failureLog.set(key, { at: Date.now(), suppressed: 0 });
-	console.warn(`[places] ${op} failed: ${reason}${also}. Serving OpenStreetMap results instead.`);
+	noteProviderFailure('places', op, err);
 }
 
 /**
@@ -720,25 +753,24 @@ function noteGoogleFailure(op: string, err: unknown): void {
  *
  * Google counts as serving until it has failed, and counts as serving again as
  * soon as one call succeeds; a single 403 should not pin the report to "osm"
- * forever once the key is fixed.
+ * forever once the key is fixed. Unlike before, a failure recorded by an earlier
+ * process still counts: `tsx watch` restarts on every save, and forgetting the
+ * outage on restart was how this endpoint came to report green through one.
  */
 export function providerStatus(): ProviderStatus {
 	const configured = activeProvider();
 	if (configured === 'osm') return { configured, serving: 'osm', lastFailure: null };
-	const degraded = lastFailure !== null && lastFailure.at > lastGoogleOk;
+	const { failing, lastFailure } = serviceHealth('places');
 	return {
 		configured,
-		serving: degraded ? 'osm' : 'google',
-		lastFailure: degraded ? lastFailure : null
+		serving: failing ? 'osm' : 'google',
+		lastFailure: failing ? lastFailure : null
 	};
 }
 
-/** Clears remembered failures. For tests. */
+/** Clears remembered failures, stored ones included. For tests. */
 export function resetProviderStatus(): void {
-	failureLog.clear();
-	failureCounts.clear();
-	lastFailure = null;
-	lastGoogleOk = 0;
+	resetProviderHealth('all');
 }
 
 /**
@@ -840,7 +872,7 @@ export async function searchPlaces(
 					try {
 						const hits = await suggestGoogle(q, near, kind, sessionToken);
 						if (hits.length) {
-							lastGoogleOk = Date.now();
+							noteProviderOk('places');
 							return hits;
 						}
 					} catch (err) {
@@ -855,7 +887,7 @@ export async function searchPlaces(
 				}
 				try {
 					const hits = await searchGoogle(q, near, kind);
-					lastGoogleOk = Date.now();
+					noteProviderOk('places');
 					return hits;
 				} catch (err) {
 					if (err instanceof PaidProviderBlockedError) throw err;
@@ -889,7 +921,7 @@ export function placeDetailsCached(
 		gate?.();
 		try {
 			const details = await placeDetails(id, sessionToken);
-			lastGoogleOk = Date.now();
+			noteProviderOk('places');
 			return details;
 		} catch (err) {
 			if (err instanceof PaidProviderBlockedError) throw err;

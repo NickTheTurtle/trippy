@@ -2,6 +2,7 @@ import { estimateTravel } from '@trippy/core/geo';
 import type { PlannedLeg } from '@trippy/core/travel';
 import { createCache } from '../infra/cache';
 import { assertPaidProviderAllowed, env } from '../infra/env';
+import { noteProviderFailure, noteProviderOk, serviceHealth, type ProviderFailure } from './provider-health';
 
 /**
  * How long a journey actually takes.
@@ -52,12 +53,34 @@ const GOOGLE_MODE: Record<string, string | null> = {
 	flight: null
 };
 
-async function withTimeout<T>(run: (signal: AbortSignal) => Promise<T | null>): Promise<T | null> {
+/**
+ * Runs a provider call under a timeout, turning any failure into `null` and
+ * recording what it was.
+ *
+ * The recording is the point. This used to be a bare `catch { return null }`,
+ * which is why a board silently running on straight-line estimates looked
+ * exactly like a board with fast routes: an abort, a DNS failure and a rejected
+ * key all arrived as the same `null` and nothing was written down anywhere.
+ * Reporting is the same mechanism Places uses, so one `/api/health` answer
+ * covers both.
+ */
+async function withTimeout<T>(
+	service: 'routing' | 'osrm',
+	op: string,
+	run: (signal: AbortSignal) => Promise<T | null>
+): Promise<T | null> {
 	const ctrl = new AbortController();
 	const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
 	try {
 		return await run(ctrl.signal);
-	} catch {
+	} catch (err) {
+		// A timeout arrives here as an abort, which is worth telling apart from a
+		// refusal: they have different fixes.
+		noteProviderFailure(
+			service,
+			op,
+			ctrl.signal.aborted ? new Error(`timeout after ${TIMEOUT_MS}ms`) : err
+		);
 		return null;
 	} finally {
 		clearTimeout(timer);
@@ -84,7 +107,7 @@ async function googleMinutes(
 	// served from `legCache` never touches the quota.
 	if (canBill && !canBill()) return null;
 
-	return withTimeout(async (signal) => {
+	return withTimeout('routing', 'google routes', async (signal) => {
 		const res = await fetch(GOOGLE_ROUTES, {
 			method: 'POST',
 			signal,
@@ -102,11 +125,16 @@ async function googleMinutes(
 				...(travelMode === 'DRIVE' ? { routingPreference: 'TRAFFIC_UNAWARE' } : {})
 			})
 		});
-		if (!res.ok) return null;
+		// Thrown rather than returned as null, so the one handler above records
+		// it. A rejected key answers 403 here and never throws, which is how the
+		// broken key in this environment stayed invisible.
+		if (!res.ok) throw new Error(`google ${res.status}`);
 		const data = (await res.json()) as { routes?: { duration?: string }[] };
 		// Durations come back as a protobuf duration string, "1234s".
 		const secs = Number.parseFloat(data.routes?.[0]?.duration?.replace(/s$/, '') ?? '');
-		return Number.isFinite(secs) ? Math.max(1, Math.round(secs / 60)) : null;
+		if (!Number.isFinite(secs)) throw new Error('google answered without a duration');
+		noteProviderOk('routing');
+		return Math.max(1, Math.round(secs / 60));
 	});
 }
 
@@ -117,13 +145,47 @@ async function osrmMinutes(leg: PlannedLeg): Promise<number | null> {
 	// estimate. That also makes a test's travel times deterministic.
 	if (env.OFFLINE_PROVIDERS) return null;
 	const url = `${OSRM}/${leg.fromLng},${leg.fromLat};${leg.toLng},${leg.toLat}?overview=false`;
-	return withTimeout(async (signal) => {
+	return withTimeout('osrm', 'osrm route', async (signal) => {
 		const res = await fetch(url, { signal });
-		if (!res.ok) return null;
+		if (!res.ok) throw new Error(`osrm ${res.status}`);
 		const data = (await res.json()) as { routes?: { duration?: number }[] };
 		const secs = data.routes?.[0]?.duration;
-		return typeof secs === 'number' ? Math.max(1, Math.round(secs / 60)) : null;
+		if (typeof secs !== 'number') throw new Error('osrm answered without a duration');
+		return Math.max(1, Math.round(secs / 60));
 	});
+}
+
+/**
+ * Whether routing is answering from the paid provider, for `/api/health`.
+ *
+ * `serving` is what a leg that misses the cache would be answered by now, not a
+ * per-leg fact: the ladder is decided per call. `configured` is `none` when no
+ * server key is set, which is a deliberate choice rather than a fault, so it is
+ * reported as free routing rather than as degradation.
+ *
+ * The free fallback's own failures are reported beside, never in place of, the
+ * paid one's. When a rejected key drops every leg to OSRM and OSRM is down too,
+ * the thing to fix is the key, and a single "last failure" field would have been
+ * holding the OSRM error by then.
+ */
+export function routingStatus(): {
+	configured: 'google' | 'none';
+	serving: 'google' | 'fallback';
+	degraded: boolean;
+	lastFailure: ProviderFailure | null;
+	fallbackFailure: ProviderFailure | null;
+} {
+	const configured = env.GOOGLE_SERVER_KEY ? 'google' : 'none';
+	const google = serviceHealth('routing');
+	const osrm = serviceHealth('osrm');
+	const degraded = configured === 'google' && google.failing;
+	return {
+		configured,
+		serving: degraded || configured === 'none' ? 'fallback' : 'google',
+		degraded,
+		lastFailure: google.lastFailure,
+		fallbackFailure: osrm.lastFailure
+	};
 }
 
 /**
