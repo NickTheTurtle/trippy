@@ -851,3 +851,35 @@ db.exec(`
  */
 addColumn('mail_suppressions', 'expires_at', 'INTEGER');
 addColumn('mail_suppressions', 'soft_count', 'INTEGER NOT NULL DEFAULT 0');
+
+/**
+ * The last thing each paid provider did: succeed, or fail and how.
+ *
+ * `/api/health` reports whether Google is actually answering, and it used to
+ * learn that only from failures recorded in the current process. The API runs
+ * under `tsx watch`, so every saved file restarts it and wipes that memory, and
+ * the endpoint whose job is to say what is broken went back to reporting green
+ * until the next user happened to search. A monitor polling it saw green through
+ * an outage.
+ *
+ * One row per service (`places`, `routing`), holding when it last succeeded and
+ * what the most recent failure was. It is deliberately not a cache: a row here
+ * is the only evidence that survives a restart, so it is written on a state
+ * change rather than given a TTL. Nothing here is a secret; `fail_reason` is a
+ * status code or a transport reason, never a key and never a full query (see
+ * `provider-health.ts`).
+ *
+ * A brand-new table, so the migration is additive by construction: an existing
+ * database gains it and no existing row is touched. An empty table reads as "no
+ * failure recorded", which is the same state a fresh process was always in.
+ */
+db.exec(`
+	CREATE TABLE IF NOT EXISTS provider_health (
+		service     TEXT PRIMARY KEY,
+		ok_at       INTEGER NOT NULL DEFAULT 0,
+		fail_at     INTEGER,
+		fail_op     TEXT,
+		fail_reason TEXT,
+		fail_count  INTEGER NOT NULL DEFAULT 0
+	);
+`);

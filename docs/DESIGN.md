@@ -706,6 +706,27 @@ long it takes.
    across a day is a worse lie than a flight with airport time added, so the
    fallback changes mode rather than reporting a number nobody would believe.
 
+**There is exactly one estimator, and it answers both halves of the question.**
+`guessLeg` / `minsByMode` in `packages/core/src/travel.ts` decide the label and
+the minutes together. This is worth stating because it was not true and the
+failure was silent: `routing.ts` took its *minutes* from a second estimate in
+`geo.ts` (mode-blind above 8 km, 30 km/h, no flight tier) and its *label* from a
+third copy of the thresholds, so a 1000 km leg was labelled `flight` and given
+2605 minutes, roughly 43 hours of driving, and that number was persisted to
+`travel_legs.auto_mins`. A chosen mode had the same bug in a quieter form: a
+ferry across a bay was priced as the drive around it, because the estimate was
+computed without knowing the mode and then relabelled.
+
+The estimator kept is the one in `travel.ts`, not because its constants are
+better tuned but because everything else already used it: persistence
+(`fallbackEstimate`), the web board and the replan path all call `guessLeg`, so
+the router was the only disagreeing voice, and the number it produced was the
+one that reached the database. It also has a per-mode pace table, which is what
+makes "honour the mode the traveller chose" mean something. The duplicate in
+`geo.ts` has been deleted rather than deprecated; a deprecated second estimator
+is just a slower way to have this bug again. `geo.ts` keeps `haversineKm`, which
+is a distance, not a duration.
+
 **Routing happens in the API route, not in persistence** (`dayLegs` in
 `apps/api/src/routes/schedule.ts`), for two reasons: a write should not wait on a
 provider before it is allowed to succeed, and a read that cannot reach one should
@@ -729,6 +750,25 @@ racing a write shows one fewer journey for a moment, rather than inventing an id
 the client would immediately try to edit.
 
 Legs that cross zones recompute local arrival correctly.
+
+**`geo.ts` keeps only what somebody calls.** `estimateTravelBetween` was a
+two-line composition of `haversineKm` and `estimateTravel` with exactly one
+caller, its own test, so the test was the only thing keeping it alive. A helper
+whose only user is the test that proves it works is not shared code, it is a
+second definition of the estimator waiting to drift from the first, and the
+estimator is a thing the schedule reads as a fact about a real journey. Deleted;
+`estimateTravel(haversineKm(...))` at a call site says the same thing and reads
+the same way.
+
+`estimateTravel` itself stays for now because `providers/routing.ts` still calls
+it as its offline fallback. That fallback and `guessLeg` in `travel.ts` are two
+estimators for one question, and unifying them retires the rest of `geo.ts`
+except `haversineKm`. That is a separate change and is in flight elsewhere.
+
+`isCurrency` in `currency.ts` went the same way: a membership test against
+`FALLBACK_RATES` that nothing in the tree ever asked. Currency validation is
+done against `CURRENCY_CODES` where it is done at all, and a second answer to
+"is this a currency" is one that can disagree.
 
 ### 4.3 Maps
 
@@ -1215,6 +1255,93 @@ Drags and resizes are deliberately left unversioned. They carry exactly one
 field each, so there is nothing stale riding along to overwrite, and holding a
 gesture to a version the board refetches constantly would refuse perfectly good
 drags whenever somebody else touched an unrelated event.
+
+### 4.9 Paid providers: failing loudly, staying honest, and not spending
+
+Four of our providers bill per call (Google Places, Google Places photos, Google
+Routes, the FX feed) and two are free but rate-limited by someone else's goodwill
+(Photon, OSRM). That mix makes provider code a money question as much as a
+correctness one, and the rules below are the ones we arrived at after watching each
+of them fail in a way we could not see.
+
+**A failure that is only a `null` is a failure nobody will ever fix.** Routing's
+`withTimeout` turned every throw into `null`, and `googleMinutes` returned `null`
+on a non-`ok` response. The route still drew, because OSRM answered, so a 403 on
+every single Google Routes call looked exactly like a quiet evening. Places already
+had a recorder for this; Routing now uses the same one rather than a second
+mechanism, because two health stories that disagree are worse than one that is
+sometimes coarse. Google non-`ok` and a missing duration now *throw* so that the
+recorder sees them, and the fallback still runs, so reporting the failure costs us
+no functionality.
+
+**Google Routes and OSRM are recorded as separate services.** The first version
+shared one record, and because OSRM is called immediately after Google fails, an
+OSRM hiccup overwrote the Google 403 and the endpoint confidently reported the
+wrong provider as broken. `routingStatus()` therefore reports `lastFailure` (the
+paid provider, the one you are paying for and want to know about) beside
+`fallbackFailure` (the free one, which explains why the map is empty).
+
+**Degraded is remembered in SQLite, not recomputed.** `providerStatus()` learned
+that Google was down only from a failure in the current process, and `apps/api`
+runs under `tsx watch`, so every file save wiped the memory and the endpoint went
+green again without anything having been fixed. A monitor polling `/api/health`
+would have seen green all night. Three options were weighed:
+
+- *Probe on demand.* Honest, but it turns a health endpoint into a billing line:
+  anything that polls it (a monitor, a load balancer, a curious tab left open)
+  spends money on a timer. Rejected for the same reason a background poller was
+  ruled out.
+- *Derive it from configuration.* Free, but it answers "is a key set?", not "does
+  the key work". Both Google keys in this environment are present and rejected,
+  which is precisely the state this would call healthy. This is the false green we
+  started with.
+- *Persist the last failure and the last success.* Chosen. It costs nothing, it
+  survives a restart, and it reports the thing that actually happened. The new
+  `provider_health` table holds one row per service and is written only on a state
+  change or at most once a minute, so a hot failure loop does not become a write
+  loop.
+
+The bias is deliberately toward pessimism: a remembered failure stands until a real
+call succeeds. Reporting degraded while healthy costs someone a glance at a
+dashboard; reporting healthy while degraded costs a day of nobody looking.
+
+**Photon is asked in English, because we save what it answers.** `searchPhoton`
+sent no `lang`, so Photon replied in the local script and "Acropolis Museum" was
+stored as "Mouseio Akropolis" in a field the trip then displays and edits forever.
+Probing the live endpoint (an invalid value makes Photon list what it takes)
+showed `lang` accepts only `default`, `de`, `en`, `fr`; `en` is now pinned. Note
+what this does *not* fix: only `name`, `city` and `country` are localized, so
+`street` stays in the local script. That is Photon's data, not our parameter.
+
+**Address search: what the provider can and cannot do.** Typing the Acropolis
+Museum's own displayed address returned several visually identical rows with
+different coordinates, none of them the building. Probing the live endpoint
+established that (a) Photon has no structured-query parameter at all, so the house
+number cannot be sent as a field, (b) `dedupe` and `suggest_addresses` changed
+nothing for this query, and (c) Greek addresses in OSM have no house-number node,
+so no free provider can return that building by its address. Three of those
+identical rows were `highway:*` segments of the same street, which is why they
+looked the same and sat in different places. What we could fix, we did: the house
+number and postcode the response *does* carry are no longer discarded, rows are
+deduped on name plus address, and named buildings are ordered ahead of raw street
+segments, so the museum appears above the street it is on. Building-level address
+lookup remains a Google Places job, and will work when a working key exists. This
+is recorded as a limitation rather than a bug: the honest answer is that the free
+provider does not hold the data.
+
+**A cost ceiling is not the same as a cache.** The cache stops us paying twice for
+the same question; it does nothing about a caller asking a million different ones.
+Per-user and per-IP allowances (`TRIPPY_PROVIDER_LIMIT`, `TRIPPY_PROVIDER_IP_LIMIT`,
+`TRIPPY_ROUTING_LIMIT`) bound the searches somebody types. The one billed call
+nobody types is the cover-photo backlog: a board load drains up to 24 photoless
+rows, one paid lookup each, driven by row count rather than by anything a person
+asked for. It now runs behind its own allowance (`TRIPPY_PHOTO_LIMIT`) rather than
+sharing the search budget, because a picture is decoration and must never be able
+to exhaust the allowance that search needs. Its failure mode differs from search's
+for the same reason: search raises a clear 429 so the typist knows why nothing came
+back, while the photo drain simply stops and leaves the rows in the backlog for the
+next visit. Silently returning an empty result is the one thing neither of them
+does.
 
 ---
 
@@ -2196,6 +2323,24 @@ trip was one that could not use half the app. `createTrip` and `updateTrip` now
 reject a blank date, the two date fields lost their "(optional)" suffix, and
 `formatDayRange` takes two days rather than two nullables, which is what deleted
 the placeholder string outright.
+
+**One name per day-range string.** There were two exported functions called
+`formatDayRange`: `packages/core/src/tz.ts` renders "Apr 16 – 20, 2026", always
+with the year and collapsing a same-day range to the one date, and it is what
+the server writes into `trips.dates`; `packages/copy/src/format.ts` renders
+"Apr 16 – 20", never with a year, and it is what the mobile trip card and
+`formatNights` use. Different modules, so nothing ever complained, and an import
+from the wrong one produced a plausible label with a silently different shape,
+on a field that is a fact about somebody's trip.
+
+They are not one function with an option, because they are not the same
+function underneath: the core one formats in `en-US` explicitly so a stored
+label does not depend on the host's locale, and the copy one formats in the
+reader's locale because it is drawn in the reader's UI. Collapsing them would
+have to pick one of those and be wrong for the other caller. So the name was
+made to carry the difference instead: the year-bearing one keeps `formatDayRange`
+and the short one became `formatDayRangeShort`. Each now names the other in its
+doc comment, so the next person to reach for one is told the other exists.
 
 Existing dateless rows are anchored by migration to the day the trip was
 created, as a single-day trip. That invents no travel plan, it is traceable to
@@ -4600,6 +4745,120 @@ A leg is placed by its **arrival**: `start = B.start - mins`. If that lands
 before `A.end`, the journey does not fit, and the leg is returned `tight` and
 drawn filling the gap rather than shrunk to it (4.2, `placeLeg`). Shrinking it
 would make an impossible day look fine.
+
+#### 7.2.1 Per-person conflicts (`packages/core/src/conflicts.ts`)
+
+`placeLeg`'s `tight` flag answers a question about a **journey**: does this leg
+fit in the gap it was drawn into. It cannot answer the question the owner asked
+("warn me if events overlap for one person"), because a leg only exists where
+the planner drew one, and the worst case, the same person on two events at the
+same instant, produces no leg at all. So `findConflicts` is a second, separate
+pass over the same day, run per person rather than per leg.
+
+```ts
+findConflicts(events: readonly ConflictEvent[], options?: ConflictOptions): ScheduleConflict[]
+```
+
+It returns one entry per pair of events, each naming every person the pair
+catches, and it is `kind: 'overlap'` (the times intersect) or `kind: 'travel'`
+(different places, and the gap is shorter than the journey). No sentences: the
+client owns the wording, and copy lives in `apps/web/src/copy.ts`.
+
+The decisions, and why each went the way it did:
+
+- **Roster overlap is not layout overlap, but it is the same predicate.**
+  `layoutDay` already computes overlaps, so sharing was considered seriously.
+  The machinery does not transfer: layout clusters events by time *regardless of
+  who is on them*, over everything drawable, to decide column widths, and two
+  events overlapping there is the normal case (a split), not a fault. What does
+  transfer is the geometric fact, so `rangesOverlap` is now exported from
+  `layout.ts` and used by both. One copy of the boundary rule, two questions.
+- **An event with nobody on it conflicts with nothing.** Storage writes
+  "Everyone" as an empty list (M3.1), and the expansion back to the roster
+  happens where there is a roster to expand against: `toPlanner` on the server,
+  the board's attendee resolution on the client. `ConflictEvent.people` is
+  therefore read as the exact set, the same contract `PlannerEvent.people`
+  already has. Reading empty as everyone inside core would put that rule in a
+  second place, and would mean any caller that passed the stored form straight
+  through got the whole roster on every unassigned event; since most events are
+  left on Everyone, that is a warning on nearly every pair on the day. The
+  failure mode chosen is silence, not noise.
+- **Parties expand before they arrive.** A crew is only a saved selection of
+  people (M3.1), so a party of four is four ids on the event and all four are
+  checked. Nothing here knows what a crew is.
+- **A stay takes no part at all.** A stay covers nights, is drawn as a band
+  above the day, and the minute it carries (`STAY_CHECK_IN`) is a drawing
+  anchor, not a promise to be in the room. `staysCovering` (nights) versus
+  `staysOnBoard` (days) already encodes that. Counting it would report last
+  night's hotel as colliding with every event of the next morning. It is dropped
+  before the walk rather than skipped inside it, so it also cannot interrupt a
+  travel chain it is not part of.
+- **A `travel` event is the transit, so nothing is checked *into* one.** The
+  walk to the airport is inside the flight block by convention, and asking
+  whether you can reach the middle of your own flight is not a question. Where
+  it lands is a different matter: a located travel event starts the next chain
+  (mirroring `landsAt` in `planLegs`), so a stop nobody can reach after the
+  ferry docks is still flagged. A travel event does count for **overlap**: being
+  on a ferry during a museum booking is a real double booking.
+- **Free time breaks the chain and collides with nothing.** It is the explicit
+  absence of a plan, so nobody promised to be anywhere: a journey measured
+  across it would be inventing a fact, and warning that it clashes with an
+  activity would be warning about the arrangement working.
+- **Tracks are not a concept here.** Two events at the same time with different
+  people are a split, the normal way a day runs. The conflict is one *person*
+  being on both, so a group of one and a group of twelve need no separate rule.
+- **Times are compared as instants.** A trip crosses zones, so two wall clocks
+  on the same day are not comparable: flying west, the later-looking clock time
+  can be the earlier instant. `ConflictEvent` carries `day`, `startMin`/`endMin`
+  and the city's `tz`, and `zonedMinutesToUtc` (new in `tz.ts`) resolves each to
+  an instant before anything is ordered or subtracted. The offset is resolved
+  from the zone at that instant, so DST is handled rather than assumed away; an
+  absent zone reads as UTC, which is consistent within a day but is why a caller
+  that knows the zones must pass them.
+- **Zero gap is not a conflict.** Overlap is the open-interval test, so
+  back-to-back events touching at a boundary are fine, and a travel conflict
+  needs `required > available` strictly: arriving exactly on time is arriving on
+  time. Two stops within 30 m are the same place (`SAME_PLACE_KM`, the same
+  threshold `planLegs` declines to draw a leg for), so no journey is required
+  between them however the estimator rounds.
+- **The travel estimate is an input, never computed here.** `options.travelMins`
+  is a callback `(from, to, km) => number | null`; the board passes the leg's
+  `resolvedMins`, which is the user's override, else the provider's answer, else
+  the straight-line guess. Omitting it reports overlaps only, and returning null
+  reports nothing for that pair. Deriving a number inside the detector would let
+  it warn about a journey with one duration while the board draws it with
+  another, and would bake in whichever estimator was handy, including the one
+  currently wrong: `providers/routing.ts` takes its minutes from `estimateTravel`
+  (a flat 30 km/h with no flight tier) while taking its label from `guessMode`,
+  so a 1000 km leg is labelled a flight and given about 43 hours of driving.
+  That defect is tracked separately; nothing here depends on it.
+- **An overlapping pair is reported once.** A pair already flagged as an overlap
+  is not also flagged as an impossible journey: one mistake, one warning, and
+  the overlap is the more useful of the two.
+- **A block with no coordinates breaks the chain.** This is the owner's explicit
+  instruction, in his words: *"if an event is after another event without a
+  location, it should just have no travel time instead of falling through to an
+  event that does."* Falling through measures a journey from the last place
+  anybody named, across a stretch where nobody knows where the group actually
+  is, and then draws the result as a fact; no estimate is more honest than a
+  confident wrong one. Free time already worked this way and this makes the two
+  consistent: both are blocks that fail to say where a person is.
+
+  **This is deliberately ahead of `main`.** `planLegs` on `main` still passes
+  such a block over; the change that makes it break is sitting in an unmerged
+  topic PR and will land. The detector encodes the instructed behaviour now, so
+  that when those PRs merge it does not spend a window warning about travel
+  between two events the planner has already decided are not connected. Nobody
+  should "correct" this back to match `main`; `main` is the stale side.
+
+  Location-less means **both** coordinates absent: `lat != null && lng != null`,
+  exactly `isAnchor`'s test, so one coordinate without the other is half a point
+  and names nowhere. The test is `!= null` rather than truthiness because 0 is a
+  real coordinate, and an event on the equator is located.
+
+Output is aggregated by the pair of events and ordered by the first event's
+instant, so three people late for the same dinner are one warning naming three
+people, and two runs over the same day return the same list in the same order.
 
 ### 7.3 Time-zone rendering
 

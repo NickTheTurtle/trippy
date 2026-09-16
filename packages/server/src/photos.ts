@@ -33,13 +33,35 @@ interface PhotoJob {
 	run: () => Promise<void>;
 }
 
-async function runJobs(jobs: PhotoJob[]): Promise<number> {
+/**
+ * Permission to make one more billed lookup.
+ *
+ * Returns false when the caller is over its photo allowance, and the drain
+ * stops there rather than throwing: a cover picture is decoration, so running
+ * out of allowance must leave the page rendering and the rows in the backlog
+ * for next time. Optional, so a script or a seed can drain without a caller to
+ * charge. See `throttle.ts` (`PHOTO_LIMIT`) for why photos have their own
+ * ceiling rather than sharing the search one.
+ */
+export type PhotoGate = () => boolean;
+
+async function runJobs(jobs: PhotoJob[], gate?: PhotoGate): Promise<number> {
 	let next = 0;
 	let done = 0;
+	let stopped = false;
 	const worker = async (): Promise<void> => {
 		for (;;) {
+			if (stopped) return;
 			const i = next++;
 			if (i >= jobs.length) return;
+			// Charged per lookup, before it is made, and never for a row that is
+			// not about to be bought. Once refused, the whole drain stops: the
+			// next job would be refused too, and asking again per row turns one
+			// ceiling into a per-row map lookup storm.
+			if (gate && !gate()) {
+				stopped = true;
+				return;
+			}
 			try {
 				await jobs[i].run();
 				done++;
@@ -48,9 +70,7 @@ async function runJobs(jobs: PhotoJob[]): Promise<number> {
 			}
 		}
 	};
-	await Promise.all(
-		Array.from({ length: Math.min(CONCURRENCY, jobs.length) }, () => worker())
-	);
+	await Promise.all(Array.from({ length: Math.min(CONCURRENCY, jobs.length) }, () => worker()));
 	return done;
 }
 
@@ -63,7 +83,8 @@ async function runJobs(jobs: PhotoJob[]): Promise<number> {
  */
 export async function backfillTripPhotos(
 	tripId: string,
-	cap: number = PHOTO_BACKLOG_CAP
+	cap: number = PHOTO_BACKLOG_CAP,
+	gate?: PhotoGate
 ): Promise<number> {
 	if (cap <= 0) return 0;
 	const places = poisNeedingPhotos(tripId, cap);
@@ -94,7 +115,7 @@ export async function backfillTripPhotos(
 			}
 		}))
 	];
-	return runJobs(jobs.slice(0, cap));
+	return runJobs(jobs.slice(0, cap), gate);
 }
 
 /**
@@ -103,7 +124,8 @@ export async function backfillTripPhotos(
  */
 export async function backfillTripListPhotos(
 	userId: string,
-	cap: number = PHOTO_BACKLOG_CAP
+	cap: number = PHOTO_BACKLOG_CAP,
+	gate?: PhotoGate
 ): Promise<number> {
 	if (cap <= 0) return 0;
 	const cities = citiesNeedingPhotos(userId, cap);
@@ -120,6 +142,7 @@ export async function backfillTripListPhotos(
 					)
 				);
 			}
-		}))
+		})),
+		gate
 	);
 }
