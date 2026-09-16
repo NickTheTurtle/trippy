@@ -379,14 +379,22 @@ Three consequences, all deliberate:
   along with its override. Additive, like every other migration here: no table
   is dropped and no row is rewritten.
 
-**The client preview has to be told the same thing.** `replanLegs` in
+**The client preview is told the same thing.** `replanLegs` in
 `apps/web/src/pages/schedule/replan.ts` runs the same `planLegs` while a dialog
-is open, and its `plannerEvent` is a copy of the server's `toPlanner` without
-the expansion, so a preview of an Everyone day shows no journeys where the board
-behind it shows them. The roster it needs is already in the payload as
-`ScheduleData.members`; the fix is to thread those ids through `replanLegs` and
-expand an empty `people` the same way, filtering a named list to the roster.
-Owned by the web workspace, not by this change.
+is open, and its `plannerEvent` is a copy of the server's `toPlanner`. It now
+takes the roster as a third argument, `ScheduleData.members` mapped to ids from
+`Schedule.tsx`, and applies the identical rule to the day's blocks, tonight's
+stays and last night's origins: an empty list expands to the roster, a named one
+is filtered to it, an empty roster expands to nobody. Without it a preview of an
+Everyone day showed no journeys where the board behind it showed them, which
+reads worse than either being wrong on its own.
+
+The rule now has two implementations that must agree, which is exactly the
+shape of the original bug. It cannot live in `planLegs` itself without giving
+pure logic a trip concept, but it could live in a pure
+`expandPeople(people, roster)` helper exported from `packages/core` and called
+by both boundaries. That is a follow-up for the core workspace, not something
+the web side can do on its own.
 
 **Deriving the legs** (`packages/core/src/travel.ts`, `planLegs`). For each
 person, walk their own events in order and pair each consecutive two. Bucket the

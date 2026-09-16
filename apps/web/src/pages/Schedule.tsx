@@ -305,10 +305,10 @@ export default function Schedule() {
 					...entry,
 					events,
 					stays,
-					legs: preview ? replanLegs(entry, preview) : entry.legs
+					legs: preview ? replanLegs(entry, preview, memberIds) : entry.legs
 				};
 			}),
-		[data, preview]
+		[data, preview, memberIds]
 	);
 
 	/* The same board, through "view as". An event with nobody on it belongs to
