@@ -4050,8 +4050,19 @@ toast raised by a dialog's own save would be painted behind it. The viewport
 therefore carries `popover="manual"`, the other door into the top layer. The top
 layer is ordered by entry, so a viewport promoted at startup still sits under a
 dialog opened later: each new toast closes and reopens the popover, which moves
-it back to the front. Measured in Chrome on the live app: promoted before the
-dialog it is invisible, re-promoted after it, it paints on top.
+it back to the front, and a `MutationObserver` on the `open` attribute does the
+same for toasts that were already up when a dialog opened. Watching for that
+centrally beats asking each dialog to announce itself, because the dialog that
+forgets is a message nobody sees. Measured in Chrome on the live app: promoted
+before the dialog it is invisible, re-promoted after it, it paints on top.
+
+**The stack pauses while it is under the pointer or the caret, and unsticks
+itself.** Hovering or tabbing into the corner holds every clock, so a message
+cannot expire mid-sentence while it is being read. That state is re-read after
+each removal rather than trusted from the last event: dismissing a toast
+destroys the element that had focus, an element removed while focused never
+fires a blur, and a stack stuck paused would keep everything under it on screen
+for good.
 
 **A toast over an open modal can be read but not pressed.** `showModal()` makes
 the rest of the document inert, and inertness reaches into the top layer, so the
