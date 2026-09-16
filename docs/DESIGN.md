@@ -357,6 +357,27 @@ people is defined as an event for the whole group, so a one-member trip cannot
 distinguish the two and no trip can express "nobody". Free time, not an empty
 participant list, is how the schedule says somebody is not involved.
 
+**A tick that cannot change anything says so.** The consequence above was
+correct and invisible, which is a bad combination for the one row most likely to
+be clicked: the derived Everyone crew sits at the top of the picker's menu, and
+once everyone is picked, clicking it asks to untick the whole trip. That is the
+unrepresentable pick, so the ticks come straight back and the control reads as
+broken. The reported bug was exactly that: "I cannot click Everyone to deselect
+everyone."
+
+Nobody is still not a thing an event can be, and the fix is not to pretend
+otherwise. An empty field that saved as everyone would be a lie told in the one
+place the two forms are supposed to be reconciled, and there is no third record
+to write: `writePeople` deletes the rows and `toPlanner` reads no rows as the
+whole roster. So the refusal is said instead of performed. `PeoplePicker`
+remembers the tick that asked for nobody and passes a line back to the menu,
+which shows it at the top, where the click was; the same line stays under the
+field once the menu closes. It goes in the menu and not only in the field's hint
+because the open menu is `position: fixed` and covers the line under the field,
+so a hint alone would be written where the reader cannot see it. That is the
+same judgment the People page makes about the locked crew row: a control that
+silently does nothing is worse than one that explains itself.
+
 **"Everyone" is expanded at the persistence boundary, and core reads ids
 literally.** The convention above is a storage convention, and `planLegs` never
 knew about it: it builds its traveller set out of the `people` arrays and walks
