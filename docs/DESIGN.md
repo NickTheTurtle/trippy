@@ -834,6 +834,65 @@ profile email consumes any invites waiting at the new address, the same way
 registering does. Without it, somebody invited at their work address who then
 corrected their profile would simply never appear in the trip.
 
+### 4.5a Who the caller is, and why the throttle depends on it
+
+Every per-IP limit in the app (login backoff, registration ceiling, the paid
+provider quotas) counts against one key, and that key is whatever `clientIp`
+returns. If a caller can choose it, the limits are decorative: each guess
+arrives as a brand new client and no backoff ever applies.
+
+`X-Forwarded-For` grows left to right, and the leftmost entry is written by the
+client, so it is the one value in the header an attacker fully controls. Reading
+it (which this code originally did) is the bug. The trustworthy end is the
+right: the entry our own proxy appended.
+
+**The trusted-proxy model**, configured by `TRIPPY_TRUSTED_PROXIES`:
+
+- **Unset or `0`: the header is ignored entirely** and the socket address is
+  used. This is the default, and it is the safe interpretation for anything not
+  behind a proxy, including local development. Reading a header that no proxy of
+  ours wrote is the mirror-image failure: one spoofed value would let a caller
+  impersonate anyone, or make every caller look like one client and throttle the
+  whole world together.
+- **A count** (`1` behind Caddy): take the entry that many positions in from the
+  right. Everything to its left is unverifiable and ignored, so a forged prefix
+  of any length changes nothing.
+- **A list of addresses** (`10.0.0.2,10.0.0.3`): drop entries from the right
+  while they name a proxy we run, and take the first one that does not. The
+  immediate peer must itself be on the list, otherwise the header is ignored,
+  because only a proxy we operate can be trusted to have appended anything
+  truthful. This form is stronger where the hop count can vary, and a caller who
+  names our own proxy addresses in the header gains nothing: the scan stops at
+  the first entry that is not ours, counting from the right, and never reaches
+  the forged prefix.
+
+A setting that parses as neither reads as `0`. Failing closed costs a
+misconfigured deployment some shared throttling; failing open costs it every
+per-IP limit it has.
+
+Addresses are normalised before they are compared or used as a key: ports
+stripped (`203.0.113.7:54321`), IPv6 brackets removed, IPv4-mapped IPv6
+(`::ffff:203.0.113.7`, which is what a dual-stack Node socket reports) unwrapped,
+case folded, and the RFC 7239 `unknown` or obfuscated `_hidden` identifiers
+treated as no address at all. Without this the same client is several throttle
+keys depending on the notation a proxy happened to use, which is a bypass that
+needs no forging at all.
+
+**Throttling recommendation.** Now that the key is honest, the ceilings are
+worth tightening. `TRIPPY_REGISTER_LIMIT` defaults to 20 per address, chosen so
+the E2E suite can register an account per test from one address; production
+should set it to **5**, which is more accounts than any real household creates
+in an hour and stops a bulk signup run cold. Login keeps its 5 free attempts
+before exponential backoff, doubling from 2s to a 15 minute ceiling, and is
+keyed on both the email and the address, so neither a single account nor a
+single machine can be worked at speed. The forgot-password endpoint shares that
+shape and matters most of the three, because each attempt it lets through is an
+email we pay for and a bounce or complaint risk against the sending identity
+(see 4.6). The state is in-memory and per-process, so it resets on deploy and
+does not span instances; that is an accepted limit of a single-process app, and
+the honest fix if the app is ever scaled out is a shared counter, not a bigger
+number here.
+
 ### 4.6 Outbound email
 
 Two providers, Amazon SES and Resend, both over plain `fetch`. SES is preferred
