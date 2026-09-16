@@ -12,7 +12,32 @@
  * undefined.
  */
 export const env = {
+	/**
+	 * "Never call a paid third party from this process."
+	 *
+	 * Set by every automated test harness (see `vitest.setup.ts` and the
+	 * Playwright config). A test suite that reaches Google costs real money per
+	 * run, is non-deterministic because the answers change under it, and ties CI
+	 * to a third party's availability. A convention ("do not put a key in .env
+	 * while testing") is not enough, because breaking it is silent and the only
+	 * evidence arrives on a bill, so this is an explicit switch that the harness
+	 * sets for itself and that no stray key can override.
+	 */
+	get OFFLINE_PROVIDERS(): boolean {
+		return isTruthy(process.env.TRIPPY_OFFLINE_PROVIDERS);
+	},
+	/**
+	 * The secret server-side Google key, or undefined when there is none.
+	 *
+	 * Deliberately undefined while `OFFLINE_PROVIDERS` is set, rather than
+	 * checked separately at each call site. This is the single choke point every
+	 * Google path already reads, so hiding the key here makes "no paid call" a
+	 * property of the process rather than something each provider has to
+	 * remember: `activeProvider()` reports `osm`, the Google branches are never
+	 * entered, and nothing is left holding a key it could send.
+	 */
 	get GOOGLE_SERVER_KEY(): string | undefined {
+		if (this.OFFLINE_PROVIDERS) return undefined;
 		const serverKey = process.env.GOOGLE_SERVER_KEY;
 		if (serverKey) return serverKey;
 		// Compatibility for the rollout window only. Do not fall back to
@@ -22,9 +47,16 @@ export const env = {
 		return oldPlacesKey;
 	},
 	get GOOGLE_PLACES_KEY(): string | undefined {
+		if (this.OFFLINE_PROVIDERS) return undefined;
 		return process.env.GOOGLE_PLACES_KEY;
 	},
+	/**
+	 * The browser key, handed to the client for the interactive map. Also hidden
+	 * offline: Maps JavaScript loads are billed too, so a test run that renders a
+	 * board must fall through to the keyless Leaflet map.
+	 */
 	get GOOGLE_MAPS_KEY(): string | undefined {
+		if (this.OFFLINE_PROVIDERS) return undefined;
 		return process.env.GOOGLE_MAPS_KEY;
 	},
 	get RESEND_API_KEY(): string | undefined {
@@ -60,6 +92,36 @@ export const env = {
 };
 
 let warnedGooglePlacesFallback = false;
+
+/** `1`, `true`, `yes` and `on` all mean set. Anything else, including empty, does not. */
+function isTruthy(raw: string | undefined): boolean {
+	const value = raw?.trim().toLowerCase();
+	return value === '1' || value === 'true' || value === 'yes' || value === 'on';
+}
+
+/**
+ * Thrown when code reaches for a paid provider while `OFFLINE_PROVIDERS` is set.
+ *
+ * Hiding the key (above) is what makes the paid path unreachable; this is the
+ * alarm for the case where a future change reaches one anyway. It is its own
+ * class so the fallback handlers in `places.ts` can rethrow it instead of
+ * degrading quietly: a test that accidentally shops for a billed provider must
+ * fail loudly, not pass on OSM results nobody looked at.
+ */
+export class PaidProviderBlockedError extends Error {
+	constructor(what: string) {
+		super(
+			`Refusing to call the paid provider "${what}": TRIPPY_OFFLINE_PROVIDERS is set. ` +
+				'Automated tests use the keyless OpenStreetMap / Photon provider.'
+		);
+		this.name = 'PaidProviderBlockedError';
+	}
+}
+
+/** Guard at the top of any function that would spend money. */
+export function assertPaidProviderAllowed(what: string): void {
+	if (env.OFFLINE_PROVIDERS) throw new PaidProviderBlockedError(what);
+}
 
 function warnGooglePlacesFallback(): void {
 	if (warnedGooglePlacesFallback) return;

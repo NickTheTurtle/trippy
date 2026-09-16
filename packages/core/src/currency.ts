@@ -48,7 +48,3 @@ export const CURRENCY_CODES: string[] = [
 		.filter((c) => c !== 'USD')
 		.sort()
 ];
-
-export function isCurrency(code: string): boolean {
-	return code in FALLBACK_RATES;
-}

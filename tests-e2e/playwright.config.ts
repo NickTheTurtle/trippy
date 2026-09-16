@@ -64,7 +64,17 @@ export default defineConfig({
 			env: {
 				PORT: String(apiPort),
 				TRIPPY_DB: dbPath,
-				TRIPPY_REGISTER_LIMIT: '10000'
+				TRIPPY_REGISTER_LIMIT: '10000',
+				// Automated runs use the keyless OpenStreetMap / Photon provider,
+				// never Google. Google Places and Routes are billed per request, so a
+				// suite that calls them costs money on every run, is non-deterministic
+				// because the answers move under it, and fails whenever a third party
+				// is having a bad day. Set here rather than left to the developer's
+				// environment: this holds even on a laptop with a live key in .env,
+				// which is exactly the machine where the mistake would be expensive.
+				// `env.ts` reads it once and hides the Google keys, so `activeProvider()`
+				// reports osm and the paid paths are unreachable.
+				TRIPPY_OFFLINE_PROVIDERS: '1'
 			},
 			url: `${apiURL}/health`,
 			cwd: repoRoot,

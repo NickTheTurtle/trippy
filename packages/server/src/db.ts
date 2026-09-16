@@ -807,11 +807,12 @@ addColumn('events', 'version', 'INTEGER NOT NULL DEFAULT 1');
  * touches no existing row. Keyed by the lowercased address, which is the form
  * everything else stores and looks up by.
  *
- *  - `reason` is `bounce` or `complaint`.
+ *  - `reason` is `bounce` (permanent), `soft_bounce` (transient, time-limited)
+ *    or `complaint`.
  *  - `subtype` records the SES distinction that the suppression decision turns
- *    on: `Permanent` or `Transient` for a bounce (only `Permanent` ever reaches
- *    this table; see `applySesNotification`), or the complaint feedback type
- *    when SES supplies one. NULL when the notification carried none.
+ *    on: `Permanent`, `Transient` or `Undetermined` for a bounce, or the
+ *    complaint feedback type when SES supplies one. NULL when the notification
+ *    carried none.
  *  - `created_at` is when we recorded it, in epoch milliseconds like every other
  *    timestamp in this schema.
  */
@@ -905,3 +906,62 @@ addColumn('expenses', 'spent_on', 'TEXT');
 db.exec(
 	`UPDATE expenses SET spent_on = date(created_at / 1000, 'unixepoch') WHERE spent_on IS NULL`
 );
+
+/**
+ * A suppression that ends by itself, and the count of soft failures behind it.
+ *
+ * The first cut of this table recorded only what must never be mailed again,
+ * which meant a transient bounce (a full mailbox, a greylisting mail server, an
+ * hour of downtime at the recipient's provider) had nowhere to go and was simply
+ * dropped. That is safe for the user and bad for the identity: SES counts every
+ * one of those retries in the bounce rate, and nothing in the app could see that
+ * an address had failed nine times this week.
+ *
+ *  - `expires_at` is epoch milliseconds, or NULL for a suppression that never
+ *    lifts. NULL is the default, so every row written before this column existed
+ *    keeps exactly the meaning it had: a hard bounce or a complaint, permanent.
+ *    A soft bounce writes a real timestamp and stops blocking once it passes,
+ *    which is what keeps a temporary failure from locking a real person out of
+ *    their own account for good.
+ *  - `soft_count` is how many soft bounces this address has accumulated, so
+ *    repeated transient failure can escalate to a permanent suppression instead
+ *    of retrying forever. Existing rows default to 0: they were never soft.
+ *
+ * Both are `ALTER TABLE ... ADD COLUMN` through the guarded helper above, so
+ * this is additive and idempotent like every other migration in this file, and
+ * an existing populated database keeps every row it had.
+ */
+addColumn('mail_suppressions', 'expires_at', 'INTEGER');
+addColumn('mail_suppressions', 'soft_count', 'INTEGER NOT NULL DEFAULT 0');
+
+/**
+ * The last thing each paid provider did: succeed, or fail and how.
+ *
+ * `/api/health` reports whether Google is actually answering, and it used to
+ * learn that only from failures recorded in the current process. The API runs
+ * under `tsx watch`, so every saved file restarts it and wipes that memory, and
+ * the endpoint whose job is to say what is broken went back to reporting green
+ * until the next user happened to search. A monitor polling it saw green through
+ * an outage.
+ *
+ * One row per service (`places`, `routing`), holding when it last succeeded and
+ * what the most recent failure was. It is deliberately not a cache: a row here
+ * is the only evidence that survives a restart, so it is written on a state
+ * change rather than given a TTL. Nothing here is a secret; `fail_reason` is a
+ * status code or a transport reason, never a key and never a full query (see
+ * `provider-health.ts`).
+ *
+ * A brand-new table, so the migration is additive by construction: an existing
+ * database gains it and no existing row is touched. An empty table reads as "no
+ * failure recorded", which is the same state a fresh process was always in.
+ */
+db.exec(`
+	CREATE TABLE IF NOT EXISTS provider_health (
+		service     TEXT PRIMARY KEY,
+		ok_at       INTEGER NOT NULL DEFAULT 0,
+		fail_at     INTEGER,
+		fail_op     TEXT,
+		fail_reason TEXT,
+		fail_count  INTEGER NOT NULL DEFAULT 0
+	);
+`);

@@ -15,6 +15,7 @@ import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 process.env.TRIPPY_PROVIDER_LIMIT = '3';
 process.env.TRIPPY_PROVIDER_IP_LIMIT = '100';
 process.env.TRIPPY_ROUTING_LIMIT = '3';
+process.env.TRIPPY_PHOTO_LIMIT = '3';
 
 let quota: typeof import('../src/provider-quota.ts');
 let throttle: typeof import('@trippy/server/throttle');
@@ -93,6 +94,26 @@ describe('routingGate', () => {
 		let sawFalse = false;
 		for (let i = 0; i < 30; i++) if (gate() === false) sawFalse = true;
 		expect(sawFalse).toBe(true);
+	});
+});
+
+describe('photoGate', () => {
+	it('stops the cover-photo drain rather than failing the page', () => {
+		const gate = quota.photoGate('user-a');
+		expect(gate()).toBe(true);
+		let sawFalse = false;
+		for (let i = 0; i < 30; i++) if (gate() === false) sawFalse = true;
+		expect(sawFalse).toBe(true);
+	});
+
+	it('does not spend the search allowance, so a member can still search', () => {
+		const photos = quota.photoGate('user-a');
+		// A full backlog drain, and then some.
+		for (let i = 0; i < 30; i++) photos();
+		// The search gate for the same person is untouched: decoration must not
+		// lock somebody out of the thing they came to do.
+		const search = quota.billingGate(ctx() as never, 'user-a');
+		expect(() => search()).not.toThrow();
 	});
 });
 
