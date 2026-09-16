@@ -2473,6 +2473,36 @@ expense they are typing in now, and there is no schema change. The year is shown
 only when it is not the current one, since it would otherwise repeat on every row
 of the page.
 
+**Superseded: each row shows the day the money moved.** The paragraph above is
+kept because its reasoning about ordering and about the year still holds, but
+its premise does not. `expenses.spent_on` and the API's `parseSpentOn` both
+landed afterwards, and the form never asked for the day, so every expense was
+stamped with the date it was typed in: a trip whose receipts are entered on the
+flight home was dated wrong on every row, and re-saving an old expense dragged
+it forward to today. "Nobody is asked to date an expense they are typing in
+now" is exactly right for the common case and is why the field defaults to
+today; it is not a reason to have no field.
+
+So the form carries a date, beside the description, on the line above the money:
+what it was and when it was, then how much, in what, and by whom. It is not
+`required`, because an empty box is a defined answer on the wire (the server
+keeps the stored day when editing and uses today when adding), and a native
+constraint would block the submit before the server could say so. It opens on
+the stored day when editing, which is what stops an edit from re-stamping a
+backdated row, and it is sent on every save so that the day on screen is the day
+that is stored.
+
+The ledger, and a settlement's dialog, print `spent_on` rather than `created_at`.
+The two are the same on almost every row, and the rows where they differ are
+precisely the ones somebody backdated on purpose. The day is read in the
+reader's own zone, not a destination's: "which day did this money go" is a fact
+about the person who spent it, which is the same reasoning `formatTimestamp`
+carries, and the default of today is taken from the reader's calendar rather
+than from UTC so that nobody in Auckland is offered yesterday all morning.
+
+Its label is the one string on that form not yet in `@trippy/copy`; it is
+written inline with a `COPY:` note naming the key it wants.
+
 **The ledger opens with the same header the estimates do.** Its two figures,
 the trip total and either the per-person average or the viewed member's share,
 sit in line with "+ Add", and the hint sentence that used to occupy that row was
