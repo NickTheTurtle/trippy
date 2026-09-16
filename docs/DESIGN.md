@@ -3164,6 +3164,41 @@ shows a name, and a name on its own does not say that the whole board is being
 read through that person's eyes. `+ Add stay` keeps its noun by the owner's
 ruling, and it is not what was forcing the wrap; the 56px indent was.
 
+**The trip header pairs the dates with the roster on a phone.** Trimming the
+schedule's own chrome left the trip header as the largest thing above the day:
+176px of the 475px still standing above the board at 390px, measured as a 53px
+back link, a 33px title, 25px of dates and a 32px roster row, plus the gaps.
+Its `flex-wrap` layout gave the title a 288px basis so that a shrinking title
+could never drag the roster onto its own line, but below 640px the basis is
+wider than the screen, so the roster always dropped anyway. The result was two
+rows each holding one short thing: dates with empty space beside them, then
+faces with empty space beside them.
+
+A two column grid says it once. The title spans both columns, and below 640px
+the dates take the first column while the roster and its button sit right
+aligned in the second; above 640px the roster spans both rows beside the title,
+which is exactly the old desktop layout. `minmax(0, 1fr)` on the title column
+removes the reason the 288px basis existed, since a grid column cannot push a
+sized neighbour out of its track, and a long name wraps inside its own column
+rather than squeezing the faces. The back link's padding, set for a page with
+room around it, is halved below 640px.
+
+The face count gives up one more below 400px. The strip is the trip at a
+glance and the People tab is the roster, so it already sheds faces as the width
+tightens; measured at 360px the third face is precisely what pushes the dates
+onto a second line, and the count stays computed rather than styled so that
+"+N" keeps telling the truth.
+
+The title keeps `--text-title` at every width. It is what says which trip this
+is, and a page title shrunk to the size of a section heading on the screen with
+the least context around it reads as a mistake rather than as a choice. A long
+name wrapping to two lines at 360px is the honest outcome.
+
+Measured after: the header band falls from 221px to 176px at 390px, 414px and
+430px, and the board box grows from 363 to 408. At 360px the band goes 254 to
+209 and the box 330 to 375, with the dates back on one line. At 1280px every
+number is unchanged, which was the constraint.
+
 **One height, and the page's air belongs to the board.** The next report was
 that the board and the map could both be taller. Measured at 1280x900 before
 anything changed: the box started 458.5px down the page and came out 417.5px
