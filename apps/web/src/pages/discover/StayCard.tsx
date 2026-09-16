@@ -1,7 +1,14 @@
 import Cover from '../../components/Cover';
 import type { Stay } from '../../lib/api-types';
 import { formatNights, formatPerNight } from '../../lib/format';
-import { CARD, OnCalendarMark, OpenLink, VotePill, VoteRule } from './card-controls';
+import {
+	CARD,
+	EditCardButton,
+	OnCalendarMark,
+	OpenLink,
+	VotePill,
+	VoteRule
+} from './card-controls';
 import { copy } from '../../copy';
 
 const c = copy.discover.stayCard;
@@ -10,11 +17,12 @@ const c = copy.discover.stayCard;
  * One proposed stay.
  *
  * Same treatment as a place card so the two read as one family: the cover,
- * title and meta are a single button, because clicking the stay is how you
- * edit it and how you delete it, and the vote and open controls stay outside
- * that button so the card never nests one interactive element inside another.
- * A stay carries two things a place does not: what it costs per night and the
- * nights it covers.
+ * title and meta are a single button, because clicking the stay is how you edit
+ * it, and the footer repeats that as a labelled pencil so the card has a
+ * control that looks like one. Deleting is a button inside the edit dialog. The
+ * footer controls stay outside the body button so the card never nests one
+ * interactive element inside another. A stay carries two things a place does
+ * not: what it costs per night and the nights it covers.
  */
 export default function StayCard({
 	stay: o,
@@ -66,6 +74,7 @@ export default function StayCard({
 			<div className="flex flex-none flex-wrap items-center gap-1.5 px-4 pt-2.5 pb-3.5">
 				<VotePill votes={o.votes} youVoted={!!o.you_voted} subject={o.name} onVote={onVote} />
 				{o.url && <OpenLink url={o.url} name={o.name} />}
+				<EditCardButton name={o.name} onEdit={onEdit} />
 				{o.linked > 0 && <OnCalendarMark linked={o.linked} />}
 			</div>
 

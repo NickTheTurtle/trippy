@@ -14,7 +14,14 @@
  * takes them from.
  */
 
-import { CalendarIcon, CompassIcon, TrashIcon, UpvoteIcon } from '../../components/ui/icons';
+import {
+	CalendarIcon,
+	CompassIcon,
+	PencilIcon,
+	TrashIcon,
+	UpvoteIcon
+} from '../../components/ui/icons';
+import { IconButton } from '../../components/ui/buttons';
 import { copy } from '../../copy';
 import { safeExternalUrl } from '@trippy/core/validate';
 
@@ -71,6 +78,31 @@ export function OpenLink({ url, name }: { url: string; name: string }) {
 			<CompassIcon />
 			<span className="sr-only">{copy.discover.card.openLabel(name)}</span>
 		</a>
+	);
+}
+
+/**
+ * "Edit", as the pencil every other list in the app uses.
+ *
+ * Pressing the body of the card has always opened the editor, and both cards
+ * said so in a comment, which is the wrong place to say it: nothing on the card
+ * looked like a control, so the only way to find out was to press a picture and
+ * see what happened. This puts the action in the footer beside the other two,
+ * where it is visible, reachable by tab, and carries a name of its own rather
+ * than inheriting the card's contents.
+ *
+ * Deleting stays inside the editor. It is one more click from here, it wants
+ * the confirmation that already guards it, and a trash button on every tile of
+ * a fourteen-tile grid would be the loudest thing on the page, which is the
+ * same reasoning `RemoveCardButton` is written down with.
+ */
+export function EditCardButton({ name, onEdit }: { name: string; onEdit: () => void }) {
+	// COPY: pending owner clearance, wanted as
+	// `copy.discover.card.editLabel: (name: string) => \`Edit ${name}\``.
+	return (
+		<IconButton label={`Edit ${name}`} onClick={onEdit}>
+			<PencilIcon />
+		</IconButton>
 	);
 }
 

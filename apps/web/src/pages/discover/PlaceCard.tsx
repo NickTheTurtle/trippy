@@ -1,15 +1,23 @@
 import Cover from '../../components/Cover';
 import type { Poi } from '../../lib/api-types';
-import { CARD, OnCalendarMark, OpenLink, VotePill, VoteRule } from './card-controls';
+import {
+	CARD,
+	EditCardButton,
+	OnCalendarMark,
+	OpenLink,
+	VotePill,
+	VoteRule
+} from './card-controls';
 import { MetaBits, parseHours, todayHours } from './place-meta';
 
 /**
  * One discovered place.
  *
  * The cover, title and meta are a single button, because clicking the place is
- * how you edit it, and deleting it is a button inside that dialog; the vote and
- * open controls stay outside the button so the card never nests one
- * interactive element inside another.
+ * how you edit it; the footer repeats that as a labelled pencil, so the card
+ * has a control that looks like one. Deleting it is a button inside the edit
+ * dialog. The footer controls stay outside the body button so the card never
+ * nests one interactive element inside another.
  */
 export default function PlaceCard({
 	poi: p,
@@ -61,11 +69,12 @@ export default function PlaceCard({
 			</button>
 
 			<div className="flex flex-none flex-col px-4 pt-2.5 pb-3.5">
-				{/* Two controls, left aligned. The gap that used to sit here was
-				    `justify-between` pushing Open and Vote to the right edge. */}
+				{/* Three controls, left aligned. The gap that used to sit here was
+				    `justify-between` pushing them to the right edge. */}
 				<div className="flex flex-wrap items-center gap-1.5">
 					<VotePill votes={p.votes} youVoted={!!p.you_voted} subject={p.name} onVote={onVote} />
 					{p.url && <OpenLink url={p.url} name={p.name} />}
+					<EditCardButton name={p.name} onEdit={onEdit} />
 					{p.linked > 0 && <OnCalendarMark linked={p.linked} />}
 				</div>
 			</div>
