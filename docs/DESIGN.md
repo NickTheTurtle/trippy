@@ -730,6 +730,25 @@ the client would immediately try to edit.
 
 Legs that cross zones recompute local arrival correctly.
 
+**`geo.ts` keeps only what somebody calls.** `estimateTravelBetween` was a
+two-line composition of `haversineKm` and `estimateTravel` with exactly one
+caller, its own test, so the test was the only thing keeping it alive. A helper
+whose only user is the test that proves it works is not shared code, it is a
+second definition of the estimator waiting to drift from the first, and the
+estimator is a thing the schedule reads as a fact about a real journey. Deleted;
+`estimateTravel(haversineKm(...))` at a call site says the same thing and reads
+the same way.
+
+`estimateTravel` itself stays for now because `providers/routing.ts` still calls
+it as its offline fallback. That fallback and `guessLeg` in `travel.ts` are two
+estimators for one question, and unifying them retires the rest of `geo.ts`
+except `haversineKm`. That is a separate change and is in flight elsewhere.
+
+`isCurrency` in `currency.ts` went the same way: a membership test against
+`FALLBACK_RATES` that nothing in the tree ever asked. Currency validation is
+done against `CURRENCY_CODES` where it is done at all, and a second answer to
+"is this a currency" is one that can disagree.
+
 ### 4.3 Maps
 
 - **Mapbox GL JS** (or Google Maps JS). Day-scoped route + numbered pins.
