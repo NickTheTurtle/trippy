@@ -16,8 +16,9 @@
  * One row of controls that apply to the whole schedule: which view to read it
  * in on the left, who to read it as and what to add on the right. The day being
  * looked at is not one of those, so the stepper sits on the board instead; see
- * `.boardhead`. That keeps this row to a single line at every width and matches
- * Discover, where the filter is left and the add button is right.
+ * `.boardhead`. Above 480px that keeps this row to a single line and matches
+ * Discover, where the filter is left and the add button is right; below it the
+ * row takes a second line and the view switch moves onto it.
  */
 
 .sched .toolbar {
@@ -25,7 +26,11 @@
 	align-items: center;
 	justify-content: space-between;
 	gap: 1rem;
-	margin-bottom: 1.2rem;
+	/* 1rem is the gap every trip page puts between its header row and the first
+	   card below it (Tailwind's `mb-4`), and this row is this page's header. It
+	   sat at 1.2rem, which read as the calendar being spaced differently from
+	   the rest of the app because it was. */
+	margin-bottom: 1rem;
 	flex-wrap: wrap;
 }
 .sched .navbtn {
@@ -694,6 +699,19 @@
 	color: var(--color-warn);
 }
 
+/* Stacked, the toolbar is a row above the content rather than a header beside a
+ * column, and that is the shape every other trip page takes below Tailwind's
+ * `lg`: the section dropdown, then 1.5rem, then the card it introduces, which
+ * is the grid's own `gap-6`. The calendar had 1rem there and read tighter than
+ * the rest of the app on a phone for no reason other than the rule it did not
+ * share. Above this width the column layout returns everywhere and the gap goes
+ * back to the 1rem a header row takes over its own body. */
+@media (max-width: 1023.98px) {
+	.sched .toolbar {
+		margin-bottom: 1.5rem;
+	}
+}
+
 @media (max-width: 900px) {
 	.sched {
 		/* The map is under the board here, so the page scrolls whatever this
@@ -841,61 +859,83 @@
 	}
 }
 
-/* The toolbar's second line, laid out rather than fallen into.
+/* The toolbar takes a second line below 560px, and the view switch is what
+ * goes on it.
  *
- * Measured: the row holds a one-line layout down to 484px and wraps at 480,
- * which is where this takes over, so no width that fits today is broken into
- * two by it. What the wrap gave was a first line holding only the view switch
- * with two hundred pixels of nothing beside it, and a second line holding the
- * "view as" control with the page's primary action jammed against it, which is
- * the "looks weird" of the report: nothing wrong with either line except that
- * neither was chosen.
+ * Three things ride this row: the `Day | Agenda` pills, the "View as" person
+ * filter and `+ Add`. All three fit on one line at 390px, and did, by giving
+ * the filter every pixel the other two left and ellipsising a long name inside
+ * it. That worked and still read as cramped: the switch between the two ways of
+ * reading the whole page was the smallest target on it, wedged against a filter
+ * that was itself down to a few characters of a name.
  *
- * Two lines is still the right answer at 390px, so these are the two lines:
- * what you are looking at and the button that adds to it on the first, who you
- * are looking as on the second, with the select taking the rest of that line
- * so it is a comfortable target rather than a 9.5rem box with a gap after it.
- * `+ Add` keeps the top line and the right edge it holds at every other width,
- * which is also the convention that a section's action button rides on the
- * section's own row.
+ * So the row is split by what it does rather than by what fits. The first line
+ * is the two controls that act on the schedule, who to read it as and what to
+ * add to it; the second is the switch that decides which schedule you are
+ * reading.
  *
- * `.tools` becomes `display: contents` so its two children can take their own
- * places in this grid. It carries no role and no styling of its own, so it has
- * nothing to lose by not generating a box. */
-@media (max-width: 480px) {
+ * The switch keeps its natural width there rather than stretching across the
+ * line. A full-width segmented control was tried and is not what ships: the
+ * same capsule appears on Discover as the type filter, and a switch that is
+ * one shape on one page and a different shape on another is two controls to
+ * learn. Being the only thing on its line is already enough to make it easy to
+ * hit; the width was never the problem.
+ *
+ * The break is at 560px rather than at the width where the row stops fitting,
+ * which is 484px. Between the two, flex wrap of its own accord puts the pills
+ * on the first line and the other two on the second, which is the order
+ * backwards and the reason this looked unchanged on a narrow desktop window.
+ * One deliberate layout across the whole range beats a correct one below 480px
+ * and an accidental one just above it.
+ *
+ * The visible "View as" label comes back with the space the pills gave up. It
+ * is the one label here that does not merely repeat its control, and it only
+ * ever came off to buy the single line. With the line to themselves the filter
+ * and the button need none of the trimming the single row wanted: the select
+ * keeps `min-width: 0` so a long name still ellipsises rather than pushing the
+ * button off the edge, and nothing else gives.
+ *
+ * On a solo trip the filter is not rendered at all, so the first line is `+ Add`
+ * alone on the right and the switch still has the second to itself. */
+@media (max-width: 560px) {
 	.sched .toolbar {
-		display: grid;
-		grid-template-columns: 1fr auto;
-		align-items: center;
-		column-gap: 0.8rem;
-		row-gap: 0.6rem;
+		flex-wrap: wrap;
+		gap: 0.5rem;
 	}
+	/* Line one: who to read it as, and what to add. */
 	.sched .toolbar .tools {
-		display: contents;
-	}
-	.sched .toolbar .pills {
-		grid-area: 1 / 1;
-		/* The column is the flexible one, so without this the switch would
-		   stretch to fill it and read as a wide empty box with two words in it. */
-		justify-self: start;
-	}
-	.sched .toolbar .btn.primary {
-		grid-area: 1 / 2;
+		order: 1;
+		flex: 1 1 100%;
+		min-width: 0;
+		flex-wrap: nowrap;
+		justify-content: space-between;
+		gap: 0.5rem;
 	}
 	.sched .toolbar .viewas {
-		grid-area: 2 / 1 / 3 / 3;
+		flex: 1 1 auto;
+		min-width: 0;
 	}
 	.sched .toolbar .viewas .sel {
-		flex: 1;
+		flex: 1 1 auto;
 		width: auto;
+		min-width: 0;
 	}
+	.sched .toolbar .btn.primary {
+		flex: 0 0 auto;
+	}
+	/* Line two: the view switch, at the width it wants. */
+	.sched .toolbar .pills {
+		order: 2;
+	}
+}
 
-	/* The rest of this block is about how much of the phone the chrome above
-	   the day is allowed to eat, which is what "collapses uncomfortably" turned
-	   out to be. Measured at 390px, 583px of the 900px screen stood above the
-	   first hour: 65 of page header, 175 of trip title, dates and roster, 45 of
-	   tabs, then 249 that belongs to this page. The board got the 320px floor,
-	   which is not a day, it is a slot.
+@media (max-width: 480px) {
+	/* How much of the phone the chrome above the day is allowed to eat, which
+	   is what "collapses uncomfortably" turned out to be. Measured at 390px,
+	   583px of the 900px screen stood above the first hour: 65 of page header,
+	   175 of trip title, dates and roster, 45 of tabs, then 249 that belongs to
+	   this page. The board got the 320px floor, which is not a day, it is a
+	   slot.
 	 *
 	 * The lodging band was the single worst row. It is indented 56px to line up
 	 * with the day grid's hour gutter, which is worth having beside a wide
@@ -907,16 +947,16 @@
 	 *
 	 * The rest is rhythm. The gaps here were set for a page with room around
 	 * it; each one trimmed is a strip of the day drawn instead, and the day is
-	 * what the reader came for. Worth 24px between them at every narrow width.
+	 * what the reader came for. The toolbar's own bottom margin is not one of
+	 * them any more: it is the gap between this page's header and its body, and
+	 * every other trip page holds that at 1rem at every width, so trimming it
+	 * here bought 5px by making the calendar the odd page out.
 	 *
-	 * Together: 63px back at 390px, board box 320 to 363, and 360px gets the
-	 * same 63 with the floor taking part of it. The "View as" label stays. It
-	 * is the one label here that is not repeating its control: the select shows
-	 * a name, and the name alone does not say that the board is being read
-	 * through that person's eyes. */
-	.sched .toolbar {
-		margin-bottom: 0.7rem;
-	}
+	 * Together: around 58px back at 390px and a board box that grows from its
+	 * 320px floor. The toolbar's second line is bought out of that: it costs
+	 * the height of one pill row back, which is what the switch is worth once
+	 * it is a target you can hit rather than a capsule wedged beside a
+	 * filter. */
 	.sched .board {
 		padding-top: 0.6rem;
 	}

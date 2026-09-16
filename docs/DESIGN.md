@@ -3813,15 +3813,16 @@ row carries three things: the `Day | Agenda` pills, the "View as" person filter
 and `+ Add`. Measured, they hold one line down to 484px and wrap at 480px, and
 what the wrap produced was not two rows so much as two leftovers: the pills alone
 with 200px of nothing beside them, then the filter with `+ Add` jammed against
-it. Below 480px the row is therefore laid out on purpose as a two-column grid.
-The pills take the top left and `+ Add` the top right, which keeps the
-convention that a section's action sits on the section's own row; "View as"
-spans the second row with its select stretched to the full width, which is the
-one control here that gains from being wide, since it holds people's names. The
-breakpoint is the measured one, so no width that fits today is broken in two.
-`.tools`, the wrapper that grouped the filter with the button, is
-`display: contents` at that width: it carries no styling of its own, so it loses
-nothing by not generating a box, and its children become grid items directly.
+it. The first answer was to lay the row out on purpose below 480px as a
+two-column grid, with the pills top left, `+ Add` top right and "View as"
+spanning the second row at full width.
+
+That grid is not what ships. Which control earns the second line was settled the
+other way later, and the breakpoint moved to 560px to close the band where flex
+wrap still arranged the row itself. See "Below 560px that toolbar takes a second
+line" further down for the layout as built and why it beat this one; what
+survives from here is the measurement, that 484px is where one line stops being
+possible.
 
 **Two rows were still not the answer on their own: the chrome was.** The verdict
 on that layout was that the header still "collapses uncomfortably" at narrow
@@ -3840,9 +3841,12 @@ wide board and not worth 56px of a phone: with the indent the stay chip and
 39px. Flush left below 480px it is one row again, which also restores the
 convention that the section's action rides on its own row. Measured, the indent
 is exactly what breaks it, since the band still fits at 430px with it and not at
-390px. The vertical rhythm around the toolbar, the card's top padding and the
-day title's rule were set for a page with room around it; trimmed at that width
-they give back another 24px. And the height measurement now re-runs on
+390px. The card's top padding and the day title's rule were set for a page with
+room around it; trimmed at that width they give back another 24px. The toolbar's
+own bottom margin was trimmed with them and has since been put back: it is the
+gap between this page's header and its body, and every trip page holds that to
+one rule, so the 5px it bought was paid for by making the calendar the odd page
+out. And the height measurement now re-runs on
 `document.fonts.ready`: the web font is narrower than the fallback, so the band
 comes back to one row after the first paint, and because the box absorbs what
 the band gives back, the card's own height does not change and the observer
@@ -4879,6 +4883,61 @@ _is_, not a setting applied to it. The `Day | Agenda` switch had also been
 clipping rather than wrapping: `.pills` sets `overflow: hidden` to clip its own
 rounded corners, and per spec that makes its automatic minimum size resolve to
 zero, so it was free to shrink to nothing. A breakpoint was never the fix.
+
+**Below 560px that toolbar takes a second line, and the view switch is what goes
+on it.** The three controls hold one line down to 484px. They can be made to keep
+it below that, by letting `View as` take whatever the pills and `+ Add` leave and
+ellipsise a long name inside itself, and that was tried and shipped and then
+reversed on sight. It fit, and it read as cramped: the control that switches
+between the two ways of reading the entire page was the smallest target in the
+row, pressed against a filter itself cut down to a few characters of a name.
+Fitting was the wrong thing to optimise.
+
+So the row is split by what each control does rather than by what will squeeze.
+The first line holds the two that act on the schedule, who to read it as and what
+to add to it. The second holds the switch that decides which schedule you are
+reading.
+
+**The switch keeps its natural width on that line.** Stretching it across the
+line, halves split evenly, is the usual phone treatment of a segmented control
+and was tried first. By the owner's ruling it is wrong here: the same capsule is
+Discover's type filter, and one shape on one page and another shape on the next
+is two controls to learn rather than one. Being alone on its line already makes
+it easy to hit, and the width was never what was wrong with it.
+
+**The break is at 560px, not at the 484px where the row stops fitting.** Between
+those two the row wraps on its own, and flex wrap follows source order, so it put
+the switch on the first line and the other two on the second, which is this
+layout backwards. That band is why the change looked like it had not landed when
+tested by dragging a desktop window narrow. One deliberate layout across the
+whole range beats a correct one below 480px and an accidental one just above it.
+
+With the line to themselves the filter and the button need none of the trimming
+the single row wanted. `min-width: 0` still runs the whole way down to the
+select, since a wrapper that will not shrink pins the control inside it, so a
+long name ellipsises rather than pushing `+ Add` off the edge. The filter still
+renders only on a trip with more than one member, so a solo trip gets `+ Add`
+alone on the first line and the switch still has the second.
+
+Held by `narrow-layout.spec.ts`, which asserts against a seeded two-member trip
+that at 390px the filter and the button share a line with the switch below both,
+that the switch sits at the left edge under 70% of the toolbar's width, that the
+document does not scroll sideways, that 520px gets the same two lines in the same
+order, and that at 1440px all three return to one line.
+
+**Every trip page holds the same gap between its header row and its body.**
+Measured in Chrome on the same seeded trip, the four column pages put 16px
+between the row of controls and the first card at desktop width, and 24px
+between the section dropdown and the card once the layout stacks, which is the
+grid's own `gap-6`. Two pages did not. Discover's type row carried `mb-2.5`, so
+it sat 6px tighter than the identical row on Preparation, Expenses and People.
+The calendar's toolbar carried `margin-bottom: 1.2rem`, so it was 3px loose on a
+desktop and, once stacked, 8px tighter than every other page, which is what "the
+margins are off on narrower screens" turned out to be.
+
+Both now follow the convention: Discover takes `mb-4`, and the toolbar is 1rem
+with the column layout and 1.5rem once the page stacks, matching the `lg`
+breakpoint the other pages already switch on.
 
 **The brand mark is a tree of choices, not a glyph.** The header used to sit a
 Unicode `◍` next to the wordmark and the tab still shipped the SvelteKit logo

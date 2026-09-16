@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { createApiFixture } from './fixtures/api';
-import { addCity } from './fixtures/seed';
+import { addCity, seedMembers } from './fixtures/seed';
 import { copy } from './fixtures/copy';
 import { signIn } from './fixtures/session';
 
@@ -110,6 +110,70 @@ test.describe('narrow layouts', () => {
 			await expect(
 				page.getByRole('navigation', { name: copy.discover.cityList.navLabel })
 			).toBeVisible();
+		} finally {
+			fixture.teardown();
+		}
+	});
+
+	test('the schedule toolbar gives the view switch its own line on a phone', async ({
+		page,
+		request
+	}) => {
+		const fixture = await createApiFixture(request);
+		try {
+			await signIn(page, fixture.sessionCookie);
+			// The "View as" filter is only rendered once there is somebody else to
+			// read the board as, and it is the control the switch shares its row
+			// with, so the crowded case is the one worth holding onto.
+			await seedMembers(request, fixture, ['Wren']);
+
+			await page.setViewportSize(PHONE);
+			await page.goto(`/trips/${fixture.tripId}/schedule`);
+
+			const pills = page.locator('.sched .toolbar .pills');
+			const viewAs = page.locator('.sched .toolbar .viewas');
+			const add = page.locator('.sched .toolbar .btn.primary');
+			await expect(pills).toBeVisible();
+			await expect(viewAs).toBeVisible();
+
+			const boxes = async () => ({
+				pills: await pills.boundingBox(),
+				viewAs: await viewAs.boundingBox(),
+				add: await add.boundingBox(),
+				toolbar: await page.locator('.sched .toolbar').boundingBox()
+			});
+
+			let box = await boxes();
+			// The filter and the button share the first line, and the switch is
+			// below both of them rather than wedged between them.
+			expect(box.viewAs && box.add && Math.abs(box.viewAs.y - box.add.y)).toBeLessThan(12);
+			expect(box.pills && box.add && box.pills.y - box.add.y).toBeGreaterThan(12);
+
+			// It keeps the width it has everywhere else rather than stretching to
+			// fill the line, so it is the same control here as on Discover.
+			expect(box.pills && box.toolbar && box.pills.width / box.toolbar.width).toBeLessThan(0.7);
+			expect(box.pills && box.toolbar && box.pills.x - box.toolbar.x).toBeLessThan(2);
+
+			// Nothing bought that line by pushing the page sideways.
+			expect(
+				await page.evaluate(
+					() => document.documentElement.scrollWidth <= document.documentElement.clientWidth
+				)
+			).toBe(true);
+
+			// A narrow desktop window gets the same two lines in the same order.
+			// Left to wrap by itself the row put the switch on top and the other
+			// two below it, which is the order backwards.
+			await page.setViewportSize({ width: 520, height: 900 });
+			box = await boxes();
+			expect(box.viewAs && box.add && Math.abs(box.viewAs.y - box.add.y)).toBeLessThan(12);
+			expect(box.pills && box.add && box.pills.y - box.add.y).toBeGreaterThan(12);
+
+			// Given the room, all three go back to one line.
+			await page.setViewportSize(DESKTOP);
+			box = await boxes();
+			expect(box.pills && box.add && Math.abs(box.pills.y - box.add.y)).toBeLessThan(12);
+			expect(box.viewAs && box.add && Math.abs(box.viewAs.y - box.add.y)).toBeLessThan(12);
 		} finally {
 			fixture.teardown();
 		}
