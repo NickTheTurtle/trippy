@@ -501,6 +501,49 @@ unconditionally: a stay is the previous night for the morning that follows it, a
 doing it only for stays leaves a bug where an event changes type into one and the
 next morning is never told.
 
+**One planner, called twice** (`packages/core/src/plan.ts`). Deriving the legs is
+`planLegs`, which is pure and knows nothing about storage. Getting from stored
+rows to the thing `planLegs` takes is a separate step, and it was written twice:
+`planFor` in `packages/server/src/persistence/schedule.ts` and `replanLegs` in
+`apps/web/src/pages/schedule/replan.ts`. The server plans the legs it stores; the
+client replans the same day while an edit dialog is open, so the reader sees the
+consequence of the edit before the write lands. The two answers **have to be
+identical**, and nothing made them so except two people keeping two copies in
+step.
+
+Four rules were duplicated, not one: the field renaming from a row to a
+`PlannerEvent`, blanking the coordinates of a type that cannot have a location,
+expanding an empty `people` list to the roster, and which stays are a night of
+the day rather than a day of it. A narrower extraction of just the people
+expansion was rejected: it dedupes one of three copied lines and leaves the other
+two free to drift, which is the same bug with a smaller blast radius.
+
+So `packages/core/src/plan.ts` holds `toPlannerEvent`, `planDay`, `stayBand`,
+`shiftDay`, `stayEndOf` / `isNightOf` / `isDayOf`, and `resolveLeg`. It takes
+rows and a roster as arguments and does no I/O, which is what lets the same code
+run in the API process and in a browser, and later in the Expo client. The
+server's `planFor` is now one call to `planDay`; `legsForDay` is a column rename
+around `resolveLeg`; `staysOnBoard` is its query plus `stayBand`. `apps/web`
+adopting the same three calls is a follow-up, held back only because two other
+sessions hold that directory.
+
+**`planDay` filters its own stays to the nights of the day**, which is a no-op
+for the server (its query already does) and load-bearing for the client (which
+passes the band it draws, checkout mornings included). One entry point that
+accepts either shape beats two entry points that agree today.
+
+**`stayBand` does not sort.** The two callers order their bands differently on
+purpose, the server by the stay's own start day and the client by the minute it
+is drawn at, and the ordering is not what was duplicated; the "drop a checkout
+when the same people are back in the same room tonight" filter is. Input order is
+preserved so neither caller's ordering has to move.
+
+**The location-less break rule is ahead of `main`.** `origin/main` still plans a
+journey straight across a block with no coordinates. The owner has ruled that it
+**breaks the chain**, for the reason above, and PR #31
+(`topic/schedule-conflicts`) encodes it. Anything read here describes the ruled
+behaviour, not what `main` does today.
+
 **Drawing dense travel** (`layoutBoard`). A day that splits four ways generates a
 lot of short legs at the same moment. Every one of them is drawn as a **block**,
 because a block says how long the journey takes and how much of the gap it eats,
