@@ -30,10 +30,10 @@ import { copy } from '../../copy';
  * be painted behind it. The viewport is a `popover`, which is the other way
  * into the top layer.
  *
- * **It is re-promoted on every toast.** The top layer is ordered by when each
- * element entered it, so a viewport promoted at startup still sits under a
- * dialog opened later. Closing and reopening the popover moves it back to the
- * front, which is why each new toast does that.
+ * **It is re-promoted.** The top layer is ordered by when each element entered
+ * it, so a viewport promoted at startup still sits under a dialog opened later.
+ * Each new toast closes and reopens the popover, which moves it back to the
+ * front, and a dialog opening does the same for the toasts already up.
  *
  * **A toast raised over an open modal can be read but not pressed.**
  * `showModal()` makes the rest of the document inert, and inertness reaches
@@ -130,27 +130,57 @@ function ToastViewport({
 	const ref = useRef<HTMLDivElement>(null);
 	const [paused, setPaused] = useState(false);
 
-	// Opened once and left open, rather than opened when the first toast arrives.
-	// A message inserted into a container that is itself `display: none` until
-	// that same moment is the classic way to have it announced by nobody, so the
-	// container is always rendered and always in the top layer. Empty, it paints
-	// nothing and takes no clicks.
-	useLayoutEffect(() => {
+	/**
+	 * Into the top layer, or back to the front of it. Opened once and left open
+	 * rather than opened when the first toast arrives: a message inserted into a
+	 * container that is itself `display: none` until that same moment is the
+	 * classic way to have it announced by nobody. Empty, it paints nothing and
+	 * takes no clicks.
+	 */
+	const promote = useCallback(() => {
 		const el = ref.current;
 		if (!el || typeof el.showPopover !== 'function') return;
 		try {
-			if (!el.matches(':popover-open')) el.showPopover();
-			else if (promotions > 0) {
-				// Back to the front of the top layer, above any dialog opened since.
-				el.hidePopover();
-				el.showPopover();
-			}
+			if (el.matches(':popover-open')) el.hidePopover();
+			el.showPopover();
 		} catch {
 			// A browser without popover support draws the viewport in the page
 			// instead. It is then under an open dialog, which is worse than this
 			// code being here and better than crashing the app.
 		}
-	}, [promotions]);
+	}, []);
+
+	// Every new toast climbs back above whatever entered the top layer since.
+	useLayoutEffect(promote, [promote, promotions]);
+
+	// And so does a toast that was already up when a dialog opened. The top layer
+	// is ordered by entry, so `showModal()` puts the dialog in front of a
+	// viewport promoted earlier, and the error the user is being asked to read
+	// disappears behind the thing they opened. Watched here rather than announced
+	// by each dialog: a dialog that forgets to say so is a message nobody sees.
+	useEffect(() => {
+		const seen = new MutationObserver((records) => {
+			for (const r of records) {
+				if (r.target instanceof HTMLDialogElement && r.target.hasAttribute('open')) {
+					promote();
+					return;
+				}
+			}
+		});
+		seen.observe(document.body, { subtree: true, attributeFilter: ['open'] });
+		return () => seen.disconnect();
+	}, [promote]);
+
+	/* The pointer or the caret being on the stack holds every clock. Re-read
+	   after each removal rather than trusted from the last event: dismissing a
+	   toast destroys the element that had focus, and an element removed while
+	   focused never fires a blur, so a stack left in the paused state would keep
+	   the messages under it on screen for good. */
+	useLayoutEffect(() => {
+		const el = ref.current;
+		if (!el) return;
+		setPaused(el.matches(':hover') || el.contains(document.activeElement));
+	}, [toasts.length]);
 
 	return (
 		<div
