@@ -472,6 +472,7 @@ That is the whole of splitting and rejoining. Three rules keep it honest:
   `travel` event is decided before this rule is reached: one with a destination
   becomes the origin of the next leg, one without breaks the chain, both exactly
   as before.
+
 - **A hand-entered `travel` event is never an endpoint**, so no automatic leg is
   planned into or out of it. Saying how you are getting from A to B is how you
   turn the planner off for that hop.
@@ -4224,6 +4225,84 @@ header bar green was considered and rejected: the bar is a translucent off-white
 with a blur and a hairline that every page is designed against, and going solid
 green would force a rethink of the nav links, the avatar pill, the accent "Start
 planning" button and the focus rings, which is a redesign, not a logo change.
+
+## Results go to a corner, the page keeps its validation
+
+**The red and green blocks pushed into the page are now toasts.** A result the
+app owes the user after an action ("Saved.", "Could not change your password.")
+used to be a tinted block inserted above the form that caused it. Three things
+were wrong with that. It moved the page under the reader's hands, so the button
+they had just pressed jumped. On a scrolling page (Preparation ticking a box
+near the bottom, Discover voting on a card) it appeared somewhere off screen, so
+the refusal of a write was reported to nobody. And the one that had to survive
+the save could not: saving a new email remounts the Account profile form by key,
+which threw its own confirmation away before it could be read, and the page had
+to hold the flag on the form's behalf to work around it. A toast lives above the
+router, so the result outlives the page that raised it.
+
+**What did not move.** Two kinds of message stayed exactly where they were.
+
+- **A failed load is the page.** `if (!data) return error ? <FormError/> : null`
+  on Discover, Preparation, People, Expenses and the trip list is not a result,
+  it is the only content there is. A corner popup over a blank screen would say
+  what went wrong and leave nothing behind.
+- **A refused submit belongs to the form that was refused.** `ModalFooter` and
+  `ConfirmDialog` print the server's refusal beside the button that failed, and
+  `SettleRow` prints its own beside the row. These are read where the correction
+  is made. "Pick a start date." in the corner while the empty date field sits
+  unmarked in the middle of the screen is worse than the same sentence under the
+  button, not better. The auth forms keep their message for the same reason and
+  because the card is the whole screen there.
+
+The rule: a _result_ goes to the corner, a _refusal attached to a control_ stays
+beside the control. `useMutation` supports both at once through `onError`, which
+reports the resolved message without taking it out of `error`.
+
+**Errors do not expire; successes do.** A success repeats something the user
+just watched happen, so it costs nothing to lose after 4.5 seconds. An error is
+the only account of why something did not happen, it frequently carries wording
+the server chose, and it can arrive while a modal is open, where it cannot be
+dismissed at all (see below). A timer there deletes the answer before the reader
+can reach it. Errors leave on a click, or when a fifth toast pushes the oldest
+out. The stack is capped rather than scrolled: a corner holds the last few things
+that happened, and a column tall enough to scroll is covering the page it reports
+on.
+
+**The viewport is a popover, because dialogs are in the top layer.** Every
+dialog in the app is a native `showModal()` dialog, which puts it in the top
+layer, above any z-index a stylesheet can name (the app's ceiling is 40). A
+toast raised by a dialog's own save would be painted behind it. The viewport
+therefore carries `popover="manual"`, the other door into the top layer. The top
+layer is ordered by entry, so a viewport promoted at startup still sits under a
+dialog opened later: each new toast closes and reopens the popover, which moves
+it back to the front. Measured in Chrome on the live app: promoted before the
+dialog it is invisible, re-promoted after it, it paints on top.
+
+**A toast over an open modal can be read but not pressed.** `showModal()` makes
+the rest of the document inert, and inertness reaches into the top layer, so the
+dismiss button does not take the click while the dialog is up. That is the right
+end of the trade rather than a defect to route around: focus belongs to the
+dialog, a toast must never pull it out, and an error simply waits, still there
+and now pressable, once the dialog closes. It also means the corner is a safe
+home for a refusal raised from inside a dialog, which is what the API rejecting
+an event with nobody on it will need.
+
+**Politeness follows tone, as it already did inline.** A success is a
+`role="status"` and waits its turn; an error is a `role="alert"` and interrupts.
+The viewport is opened once and left open for the session rather than opened
+with its first message, so messages are inserted into a container that is
+already rendered instead of one that appears with them, which is the usual way
+to have a live region announced by nobody. Empty, it paints nothing and takes no
+clicks.
+
+**The picker note stayed in the menu.** The refusal in `PeoplePicker` ("An event
+with no names on it means everyone, so this cannot be emptied") was considered
+for the corner and deliberately left where it is. It is not a result of an
+action the app took; it is an answer to a tick, and the reader is looking at the
+row they just ticked, inside a menu that is itself fixed above the dialog. The
+corner would put the answer as far from the question as the screen allows. It
+also fires while a modal is open, which is exactly where a toast cannot be
+dismissed.
 
 ## The header reaches the right edge
 
