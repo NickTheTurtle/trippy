@@ -21,7 +21,6 @@ import {
 	TrashIcon,
 	UpvoteIcon
 } from '../../components/ui/icons';
-import { IconButton } from '../../components/ui/buttons';
 import { copy } from '../../copy';
 import { safeExternalUrl } from '@trippy/core/validate';
 
@@ -95,14 +94,22 @@ export function OpenLink({ url, name }: { url: string; name: string }) {
  * the confirmation that already guards it, and a trash button on every tile of
  * a fourteen-tile grid would be the loudest thing on the page, which is the
  * same reasoning `RemoveCardButton` is written down with.
+ *
+ * It is a bordered `btn small`, not the app's `IconButton`, because `IconButton`
+ * is `quiet` (no border) and its two neighbours in this footer are not. Three
+ * controls in a row, one of them without an outline, reads as two buttons and a
+ * decoration. Checked on screen at both widths: it now sits in line with the
+ * vote pill and the open link.
  */
 export function EditCardButton({ name, onEdit }: { name: string; onEdit: () => void }) {
 	// COPY: pending owner clearance, wanted as
 	// `copy.discover.card.editLabel: (name: string) => \`Edit ${name}\``.
+	const label = `Edit ${name}`;
 	return (
-		<IconButton label={`Edit ${name}`} onClick={onEdit}>
+		<button type="button" className="btn small" title={label} onClick={onEdit}>
 			<PencilIcon />
-		</IconButton>
+			<span className="sr-only">{label}</span>
+		</button>
 	);
 }
 
