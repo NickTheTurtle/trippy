@@ -3688,6 +3688,25 @@ row, and adds a little air under the last one. Nothing is imposed on a short
 agenda, because the box is a `max-height`: a nine-row day measures 321px tall in
 a box that would allow 500, so it does not scroll and shows no bar at all.
 
+**The agenda's times are a column, so they are sized as one.** The rows are read
+down the left edge, which only works if that edge is straight, and it was not.
+The time was sized to its own content with tabular figures, which hold the digits
+to one width and say nothing about the rest: measured, a one-digit hour is 7.3px
+narrower than a two-digit one, and "AM" is 1.15px narrower than "PM". A day
+holding 9:00 AM, 10:00 AM, 12:00 PM and 7:00 PM therefore started its titles at
+four different places, 8.5px apart, which is what "the times are not aligned
+properly" was.
+
+The column now has a floor of 4rem and its times are right-aligned in it, so a
+short hour sets in the way a right-aligned number should and every title begins
+at one x. Floored rather than fixed, which is the opposite of the typed clock's
+segments in `index.css` and for the opposite reason: there a value that outgrew
+its box shunted the colon along, whereas here it would be a meridiem cut off. A
+fallback font that needs more than 4rem costs one indented row; a fixed width
+would cost an unreadable one. Held by `schedule.spec.ts`, which asserts at both
+1440px and 390px that the titles have exactly one left edge and that no time is
+clipped to get it.
+
 **The height is measured, not stated.** The box's top depends on a toolbar that
 wraps at narrow widths and a lodging band that may hold nothing or three stays,
 so no `calc()` of viewport units can name it. It is measured in document
