@@ -874,6 +874,65 @@ profile email consumes any invites waiting at the new address, the same way
 registering does. Without it, somebody invited at their work address who then
 corrected their profile would simply never appear in the trip.
 
+### 4.5a Who the caller is, and why the throttle depends on it
+
+Every per-IP limit in the app (login backoff, registration ceiling, the paid
+provider quotas) counts against one key, and that key is whatever `clientIp`
+returns. If a caller can choose it, the limits are decorative: each guess
+arrives as a brand new client and no backoff ever applies.
+
+`X-Forwarded-For` grows left to right, and the leftmost entry is written by the
+client, so it is the one value in the header an attacker fully controls. Reading
+it (which this code originally did) is the bug. The trustworthy end is the
+right: the entry our own proxy appended.
+
+**The trusted-proxy model**, configured by `TRIPPY_TRUSTED_PROXIES`:
+
+- **Unset or `0`: the header is ignored entirely** and the socket address is
+  used. This is the default, and it is the safe interpretation for anything not
+  behind a proxy, including local development. Reading a header that no proxy of
+  ours wrote is the mirror-image failure: one spoofed value would let a caller
+  impersonate anyone, or make every caller look like one client and throttle the
+  whole world together.
+- **A count** (`1` behind Caddy): take the entry that many positions in from the
+  right. Everything to its left is unverifiable and ignored, so a forged prefix
+  of any length changes nothing.
+- **A list of addresses** (`10.0.0.2,10.0.0.3`): drop entries from the right
+  while they name a proxy we run, and take the first one that does not. The
+  immediate peer must itself be on the list, otherwise the header is ignored,
+  because only a proxy we operate can be trusted to have appended anything
+  truthful. This form is stronger where the hop count can vary, and a caller who
+  names our own proxy addresses in the header gains nothing: the scan stops at
+  the first entry that is not ours, counting from the right, and never reaches
+  the forged prefix.
+
+A setting that parses as neither reads as `0`. Failing closed costs a
+misconfigured deployment some shared throttling; failing open costs it every
+per-IP limit it has.
+
+Addresses are normalised before they are compared or used as a key: ports
+stripped (`203.0.113.7:54321`), IPv6 brackets removed, IPv4-mapped IPv6
+(`::ffff:203.0.113.7`, which is what a dual-stack Node socket reports) unwrapped,
+case folded, and the RFC 7239 `unknown` or obfuscated `_hidden` identifiers
+treated as no address at all. Without this the same client is several throttle
+keys depending on the notation a proxy happened to use, which is a bypass that
+needs no forging at all.
+
+**Throttling recommendation.** Now that the key is honest, the ceilings are
+worth tightening. `TRIPPY_REGISTER_LIMIT` defaults to 20 per address, chosen so
+the E2E suite can register an account per test from one address; production
+should set it to **5**, which is more accounts than any real household creates
+in an hour and stops a bulk signup run cold. Login keeps its 5 free attempts
+before exponential backoff, doubling from 2s to a 15 minute ceiling, and is
+keyed on both the email and the address, so neither a single account nor a
+single machine can be worked at speed. The forgot-password endpoint shares that
+shape and matters most of the three, because each attempt it lets through is an
+email we pay for and a bounce or complaint risk against the sending identity
+(see 4.6). The state is in-memory and per-process, so it resets on deploy and
+does not span instances; that is an accepted limit of a single-process app, and
+the honest fix if the app is ever scaled out is a shared counter, not a bigger
+number here.
+
 ### 4.6 Outbound email
 
 Two providers, Amazon SES and Resend, both over plain `fetch`. SES is preferred
@@ -902,6 +961,58 @@ the one mismatch AWS cannot catch, seeing only the header.
 works end to end without email, so a missing key must not turn inviting
 somebody into an error. This is load-bearing beyond convenience: it is what
 lets the E2E suite and a fresh clone register accounts without an SES identity.
+
+#### 4.6.1 The suppression list: what we refuse to mail, and for how long
+
+Open sign-up means every registration mails an address a stranger typed, so
+typos and deliberate garbage are routine, and a real recipient can always press
+"this is spam". AWS watches the bounce and complaint rates of a *sending
+identity*, not of an app, at roughly 5% and 0.1%. The identity here is the
+owner's whole `dxu.info` domain, so one badly behaved app suspends mail for
+everything on it. `mail_suppressions` is the record that stops a known-bad
+address being mailed twice, and `sendMail` consults it before it chooses a
+provider at all.
+
+The policy turns on one distinction, and the reason it matters is the same
+reason the feature is dangerous:
+
+- A **complaint** suppresses permanently. Someone told their provider our mail
+  was spam. Sending more is precisely the behavior that raises the metric AWS
+  suspends for, and no amount of elapsed time makes the complaint less true.
+- A **permanent bounce** suppresses permanently. The mailbox does not exist. It
+  will never deliver, and every retry is another hard bounce on the identity.
+- A **transient bounce** suppresses for 24 hours and then lifts by itself. A
+  full mailbox, greylisting, or an hour of downtime at the recipient's provider
+  is not evidence about the address, it is evidence about a moment. Blacklisting
+  permanently on one would be the worst failure mode this feature has: the user
+  is locked out of their own account with no way back, because the password
+  reset mail they need is exactly the mail we would be refusing to send. A day
+  is long enough that we do not retry into a full mailbox an hour later (SES
+  counts each of those), and short enough that someone who cleared their inbox
+  is not stuck.
+- `Undetermined`, and any bounce type SES adds later, is treated as transient.
+  We only suppress forever on evidence SES is sure about.
+
+Five soft bounces escalate to a permanent one. A mailbox that has been
+"temporarily" unavailable on five separate occasions is not coming back, and the
+retries are not free. That is deliberately the cheaper mistake: escalation is
+visible and reversible, an unbounded retry loop against the identity is not.
+
+**Nothing here is a life sentence, and nothing is invisible.** The row survives
+its own expiry, so `list()` shows an operator the address, the reason, the SES
+subtype, the soft counter and whether it is blocking right now; `unsuppress()`
+lifts any of it. And `sendMail` answers `suppressed`, a distinct `MailResult`
+from `skipped` (no provider configured) and `failed` (a provider refused), so a
+caller counting outcomes can tell a deliberate non-send from a broken
+deployment, and the log line names the address and the subject. A user who
+cannot receive their reset link is a support question with an answer, not a
+silent black hole.
+
+Schema-wise this is `expires_at INTEGER` (NULL meaning permanent) and
+`soft_count INTEGER NOT NULL DEFAULT 0`, added with the guarded `addColumn`
+helper. NULL as the default is what makes the migration safe: every row written
+before these columns existed was a hard bounce or a complaint, and NULL is
+exactly "permanent", so no existing row changes meaning.
 
 ### 4.7 Emailed links: confirming an address, and forgetting a password
 
@@ -957,6 +1068,56 @@ deleting rows nobody can use.
 configured.** See §4.6: the E2E suite and a fresh clone register through this
 route, and a deployment that cannot send mail should not be one where nobody
 can sign up.
+
+#### 4.7.1 Trusting a POST from Amazon: the SES bounce receiver
+
+`/api/ses/notifications` is mounted outside `requireUser`, because SNS holds no
+session and a session gate would reject every real notification. That makes it
+the one write endpoint in the app any stranger can reach, and what it writes is
+the suppression list, so an unverified endpoint is not a small bug: anyone who
+found the URL could POST a forged "complaint" for any address and stop us
+mailing that person, locking them out of their own account with a denial of
+service we inflicted on ourselves.
+
+A shared secret in the query string was rejected: it leaks into proxy and
+access logs, cannot be rotated per message, and is copied verbatim by anyone who
+sees it once. The defence is the asymmetric signature AWS already attaches.
+
+Four gates, all failing closed, in this order:
+
+1. **Certificate URL allowlist.** HTTPS only, host matching
+   `sns.<region>.amazonaws.com` (or the `.com.cn` China variant), and the path
+   pinned to `/SimpleNotificationService-<id>.pem`. Checked *before* anything is
+   fetched, so the endpoint can never be turned into a request against a server
+   of the attacker's choosing. A valid signature proves nothing if the attacker
+   also chose the key it is checked against, which is exactly what a permissive
+   URL rule would allow.
+2. **No redirects.** The certificate fetch uses `redirect: 'error'`. A 302 from
+   a genuine SNS host to somewhere else would step straight past the allowlist
+   and let the response body, the public key, be chosen by whoever controlled
+   the redirect. The URL we validated and the URL we fetch stay the same one.
+3. **Signature.** The canonical string is rebuilt from the fixed field subset
+   for the message's `Type`, in AWS's order, and verified with SHA1 or SHA256
+   per `SignatureVersion`. An unknown `Type` has no defined signed string, so
+   there is nothing to verify and the answer is no.
+4. **Freshness and replay.** A signature says *who* wrote a message, never
+   *when* or *how many times* it may be delivered. A genuine notification
+   captured anywhere on its path would otherwise verify forever. Messages older
+   than an hour (comfortably beyond SNS delivery and retry latency) are refused,
+   as are messages dated more than a minute into the future, and a missing or
+   unparseable `Timestamp` is refused rather than read as "now". Inside that
+   window, `MessageId` is remembered per process so a replay is a no-op. The
+   memory is in-process on purpose: applying the same bounce twice is idempotent
+   anyway, so the only thing worth stopping is a flood, and a durable store here
+   would hand an unauthenticated caller a write to SQLite.
+
+The `SubscribeURL` for a subscription confirmation is checked against the same
+host rule before it is followed, even though the message already verified: a
+signed message must still not be able to aim us at an arbitrary host.
+
+Everything answers a bare `200` with no body, verified or not. SNS is the only
+legitimate caller and it wants an acknowledgement, not a diagnosis; anything
+more would let the endpoint be probed for which addresses or topics it knows.
 
 ### 4.8 Who is on a trip
 
