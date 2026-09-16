@@ -7,6 +7,7 @@ import { useTrip } from './TripShell';
 import { useNarrowLayout } from '../hooks/useMediaQuery';
 import SectionNav, { type SectionItem } from '../components/ui/SectionNav';
 import LoadError from '../components/ui/LoadError';
+import Loading from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
 import Stat from '../components/ui/Stat';
 import ViewAsBar, { shareLabel } from '../components/ui/ViewAsBar';
@@ -56,9 +57,11 @@ export default function Expenses() {
 	const [viewAs, setViewAs] = useState('');
 	const narrow = useNarrowLayout();
 
-	/* The reason goes to the corner, the page keeps a line saying it is not
-	   there. A popup over a blank screen explains itself and leaves nothing. */
-	if (!data) return error ? <LoadError message={error} onRetry={reload} /> : null;
+	/* Three states before there is a page: still loading, failed, or here. The
+	   reason for a failure goes to the corner and the page keeps a line saying
+	   it is not there; a popup over a blank screen explains itself and leaves
+	   nothing. The first fetch says it is loading rather than flashing blank. */
+	if (!data) return error ? <LoadError message={error} onRetry={reload} /> : <Loading />;
 
 	// Compared in whole cents, so a balance is either zero or it is not; the old
 	// 0.01 epsilon existed only because the figure arrived as a float.

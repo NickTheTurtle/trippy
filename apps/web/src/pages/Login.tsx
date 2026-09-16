@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, Navigate, useLocation } from 'react-router';
 import { AuthShell } from '../components/ui/AuthShell';
 import { Field } from '../components/ui/Field';
-import { useToast } from '../components/ui/Toast';
+import { useErrorSlot } from '../components/ui/Toast';
 import { useAuth } from '../auth';
 import { copy } from '../copy';
 
@@ -11,7 +11,7 @@ const c = copy.auth.login;
 export default function Login() {
 	const { status, logIn } = useAuth();
 	const location = useLocation();
-	const toast = useToast();
+	const failure = useErrorSlot();
 
 	const [email, setEmail] = useState('');
 	const [password, setPassword] = useState('');
@@ -28,12 +28,14 @@ export default function Login() {
 	if (status === 'authenticated') return <Navigate to={next} replace />;
 
 	async function submit() {
+		// The last attempt's refusal is not this attempt's answer.
+		failure.clear();
 		setSubmitting(true);
 		try {
 			await logIn(email, password);
 			// No navigate here on purpose. See the redirect above.
 		} catch (err) {
-			toast.error(err instanceof Error ? err.message : c.fallback);
+			failure.show(err instanceof Error ? err.message : c.fallback);
 			setSubmitting(false);
 		}
 	}
@@ -62,6 +64,14 @@ export default function Login() {
 				type="email"
 				name="email"
 				autoComplete="email"
+				// Both fields are `required`, so an empty form never leaves the
+				// browser. The server's answer to one is "Wrong email or password",
+				// which is true of a blank box only in the least useful sense: it
+				// costs a round trip to say so and it points at the wrong problem.
+				// Native validation is the right tool here precisely because these
+				// two rules are not the server's to own, unlike the trip form's
+				// dates, where the server's wording is the answer.
+				required
 				value={email}
 				onChange={(e) => setEmail(e.target.value)}
 			/>
@@ -70,6 +80,7 @@ export default function Login() {
 				type="password"
 				name="password"
 				autoComplete="current-password"
+				required
 				value={password}
 				onChange={(e) => setPassword(e.target.value)}
 			/>

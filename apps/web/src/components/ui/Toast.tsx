@@ -70,7 +70,10 @@ const MAX = 4;
 type ToastApi = {
 	/**
 	 * Ignores an empty message, so callers can pass state straight in. Returns
-	 * the new toast's id, or null when there was nothing to say.
+	 * the new toast's id, or null when there was nothing to say. The id is what
+	 * a caller needs to take one back down: a form that is submitted twice
+	 * should replace its own last refusal rather than stack a second copy of it
+	 * under the first.
 	 */
 	success: (message: string) => number | null;
 	error: (message: string) => number | null;
@@ -201,6 +204,36 @@ export function DialogError({ message }: { message: string }) {
 		<p role="alert" className="sr-only">
 			{message}
 		</p>
+	);
+}
+
+/**
+ * One error slot for one form.
+ *
+ * A form that can be submitted again needs the corner to hold its *latest*
+ * answer and nothing else. Without this, a refusal stayed up (errors do not
+ * expire, by design), so a second attempt stacked an identical message under
+ * the first, and a third attempt that finally succeeded left the old refusal
+ * sitting there while the app navigated away from it: a stale message that
+ * reads exactly like a fresh failure.
+ *
+ * So: clear the slot when a submit starts, fill it when one fails.
+ */
+export function useErrorSlot(): { show: (message: string) => void; clear: () => void } {
+	const toast = useToast();
+	const id = useRef<number | null>(null);
+	return useMemo(
+		() => ({
+			show: (message: string) => {
+				toast.dismiss(id.current);
+				id.current = toast.error(message);
+			},
+			clear: () => {
+				toast.dismiss(id.current);
+				id.current = null;
+			}
+		}),
+		[toast]
 	);
 }
 

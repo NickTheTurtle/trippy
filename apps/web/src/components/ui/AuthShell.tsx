@@ -30,7 +30,14 @@ function AuthCard({
  * No error slot. A refusal from the server is a result like any other and goes
  * to the corner, which each page raises in its own catch rather than through a
  * prop here: the same wrong password twice is two refusals, and a prop holding
- * one string cannot say that a second time.
+ * one string cannot say that a second time. Each page clears its own slot when
+ * a submit starts, so the corner holds the latest answer and not the last one.
+ *
+ * Every field on these four forms is `required`. Presence is not the server's
+ * rule to own here: its answer to an empty log in is "Wrong email or password",
+ * which costs a round trip and points at the wrong thing. Anything the server
+ * does own (how long a password must be, whether an address is already taken)
+ * is still left to it, and arrives in the corner.
  */
 export function AuthShell({
 	title,

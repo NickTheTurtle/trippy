@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, Navigate } from 'react-router';
 import { AuthNotice, AuthShell } from '../components/ui/AuthShell';
 import { Field } from '../components/ui/Field';
-import { useToast } from '../components/ui/Toast';
+import { useErrorSlot } from '../components/ui/Toast';
 import { useAuth } from '../auth';
 import { api } from '../lib/api';
 import { copy } from '../copy';
@@ -11,7 +11,7 @@ const c = copy.auth.forgot;
 
 export default function Forgot() {
 	const { status } = useAuth();
-	const toast = useToast();
+	const failure = useErrorSlot();
 	const [email, setEmail] = useState('');
 	const [sent, setSent] = useState(false);
 	const [submitting, setSubmitting] = useState(false);
@@ -19,6 +19,8 @@ export default function Forgot() {
 	if (status === 'authenticated') return <Navigate to="/trips" replace />;
 
 	async function submit() {
+		// The last attempt's refusal is not this attempt's answer.
+		failure.clear();
 		setSubmitting(true);
 		try {
 			await api('/auth/forgot', { method: 'POST', body: { email } });
@@ -28,7 +30,7 @@ export default function Forgot() {
 			// is being careful not to.
 			setSent(true);
 		} catch (err) {
-			toast.error(err instanceof Error ? err.message : c.fallback);
+			failure.show(err instanceof Error ? err.message : c.fallback);
 			setSubmitting(false);
 		}
 	}
@@ -71,6 +73,7 @@ export default function Forgot() {
 				type="email"
 				name="email"
 				autoComplete="email"
+				required
 				value={email}
 				onChange={(e) => setEmail(e.target.value)}
 			/>

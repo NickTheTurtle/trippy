@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, Navigate, useSearchParams } from 'react-router';
 import { AuthNotice, AuthShell } from '../components/ui/AuthShell';
 import { Field } from '../components/ui/Field';
-import { useToast } from '../components/ui/Toast';
+import { useErrorSlot } from '../components/ui/Toast';
 import { useAuth } from '../auth';
 import { copy } from '../copy';
 
@@ -11,7 +11,7 @@ const c = copy.auth.register;
 export default function Register() {
 	const { status, register } = useAuth();
 	const [params] = useSearchParams();
-	const toast = useToast();
+	const failure = useErrorSlot();
 
 	// An invite link carries the address it was sent to, so the one field that
 	// has to match exactly for the invite to be consumed is filled in already.
@@ -26,6 +26,8 @@ export default function Register() {
 	if (status === 'authenticated') return <Navigate to="/trips" replace />;
 
 	async function submit() {
+		// The last attempt's refusal is not this attempt's answer.
+		failure.clear();
 		setSubmitting(true);
 		try {
 			// 'pending' means the account does not exist yet and a confirmation link
@@ -33,7 +35,7 @@ export default function Register() {
 			// needs anything rendered for it.
 			if ((await register(name, email, password)) === 'pending') setPending(true);
 		} catch (err) {
-			toast.error(err instanceof Error ? err.message : c.fallback);
+			failure.show(err instanceof Error ? err.message : c.fallback);
 			setSubmitting(false);
 		}
 	}
@@ -61,6 +63,7 @@ export default function Register() {
 				type="text"
 				name="name"
 				autoComplete="name"
+				required
 				value={name}
 				onChange={(e) => setName(e.target.value)}
 			/>
@@ -69,6 +72,7 @@ export default function Register() {
 				type="email"
 				name="email"
 				autoComplete="email"
+				required
 				value={email}
 				onChange={(e) => setEmail(e.target.value)}
 			/>
@@ -77,6 +81,7 @@ export default function Register() {
 				type="password"
 				name="password"
 				autoComplete="new-password"
+				required
 				hint={c.passwordHint}
 				value={password}
 				onChange={(e) => setPassword(e.target.value)}
