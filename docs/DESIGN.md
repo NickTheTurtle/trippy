@@ -2055,6 +2055,24 @@ reject a blank date, the two date fields lost their "(optional)" suffix, and
 `formatDayRange` takes two days rather than two nullables, which is what deleted
 the placeholder string outright.
 
+**One name per day-range string.** There were two exported functions called
+`formatDayRange`: `packages/core/src/tz.ts` renders "Apr 16 – 20, 2026", always
+with the year and collapsing a same-day range to the one date, and it is what
+the server writes into `trips.dates`; `packages/copy/src/format.ts` renders
+"Apr 16 – 20", never with a year, and it is what the mobile trip card and
+`formatNights` use. Different modules, so nothing ever complained, and an import
+from the wrong one produced a plausible label with a silently different shape,
+on a field that is a fact about somebody's trip.
+
+They are not one function with an option, because they are not the same
+function underneath: the core one formats in `en-US` explicitly so a stored
+label does not depend on the host's locale, and the copy one formats in the
+reader's locale because it is drawn in the reader's UI. Collapsing them would
+have to pick one of those and be wrong for the other caller. So the name was
+made to carry the difference instead: the year-bearing one keeps `formatDayRange`
+and the short one became `formatDayRangeShort`. Each now names the other in its
+doc comment, so the next person to reach for one is told the other exists.
+
 Existing dateless rows are anchored by migration to the day the trip was
 created, as a single-day trip. That invents no travel plan, it is traceable to
 something real, and one edit corrects it. The same migration recomputes the

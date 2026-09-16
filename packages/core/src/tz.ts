@@ -137,6 +137,12 @@ export function eachDay(start: string, end: string): string[] {
  *
  * Both endpoints are required. A trip cannot exist without them, so there is no
  * placeholder case to format.
+ *
+ * `formatDayRangeShort` in `@trippy/copy/format` is the other one, and it is a
+ * deliberately different string: no year, no same-day collapse, for a chip next
+ * to something that has already said which year it is. Both were once called
+ * `formatDayRange`, which made importing the wrong module produce a label that
+ * looked right and was not.
  */
 export function formatDayRange(start: string, end: string): string {
 	if (start === end) return niceDay(start, true);
