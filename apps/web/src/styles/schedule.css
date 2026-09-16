@@ -131,6 +131,57 @@
 	max-height: 70vh;
 	overflow-x: hidden;
 	overflow-y: auto;
+	/* Room for the hour label that hangs above the first rule.
+	 *
+	 * An hour is written across its own line rather than under it, so the label
+	 * sits about ten pixels higher than the rule it names. That used to overflow
+	 * a box that did not clip; this one does, and the first hour of every day
+	 * came out sliced in half lengthways, which is the "the time is cut off" of
+	 * the report. The padding is on the scroller rather than on the grid because
+	 * the grid's own children are positioned against its padding box and would
+	 * not have moved. It scrolls away with the first hour, so nothing below is
+	 * pushed off the bottom. Paired with `BOARD_PAD_PX` in `Schedule.tsx`, which
+	 * is what the drag uses to keep the block it is holding inside the box. */
+	padding-top: 12px;
+	/* The board is a card, not a window frame, and the platform scrollbar it
+	   grew when the hours moved inside it arrived with stepper arrows and a
+	   white track hard against the card's edge. This is the same bar in the
+	   page's own language: a soft pill in the line colour, thickening under the
+	   pointer. It stays visible rather than fading, because inside a card with
+	   no other edge to read it is the only thing that says the hours go on.
+
+	   The standard properties are quarantined below rather than written here,
+	   because a browser that has both takes the standard pair and drops the
+	   `::-webkit-` rules, and Chromium's `thin` bar comes with the stepper
+	   arrows this is trying to be rid of. Firefox, which has no `::-webkit-`
+	   scrollbar at all, picks them up instead. */
+}
+@supports not selector(::-webkit-scrollbar) {
+	.sched .boardscroll {
+		scrollbar-width: thin;
+		scrollbar-color: color-mix(in srgb, var(--color-ink-faint) 55%, transparent) transparent;
+	}
+}
+.sched .boardscroll::-webkit-scrollbar {
+	width: 10px;
+}
+.sched .boardscroll::-webkit-scrollbar-track {
+	background: transparent;
+}
+.sched .boardscroll::-webkit-scrollbar-button {
+	/* Chromium still draws stepper arrows once the bar is styled at all. */
+	display: none;
+}
+.sched .boardscroll::-webkit-scrollbar-thumb {
+	/* Drawn into the content box of a transparent border, which is what insets
+	   a 6px pill inside a 10px bar without a second element to pad it. */
+	background-color: color-mix(in srgb, var(--color-ink-faint) 55%, transparent);
+	background-clip: content-box;
+	border: 2px solid transparent;
+	border-radius: 999px;
+}
+.sched .boardscroll::-webkit-scrollbar-thumb:hover {
+	background-color: var(--color-ink-faint);
 }
 /* The board's title bar: the day it is drawing, and the way to the next one.
    Centred over the board rather than left-aligned in the toolbar, because it
