@@ -21,6 +21,21 @@ import { copy } from '../copy';
 const ce = copy.expenses;
 
 /**
+ * What one expense did to one member's balance, in home-currency cents:
+ * positive when the trip ended up owing them for it, negative when they owe
+ * their share of it.
+ *
+ * This is the server's own balance arithmetic read one row at a time: it adds
+ * the payer the whole converted total and charges every participant their
+ * share, exactly as `balances()` does over the ledger, so the signs here sum to
+ * the figures the balances panel shows. A settlement falls out of the same
+ * rule, since it is stored as the payer covering the recipient in full: the
+ * person who handed money over goes up, the one who received it goes down.
+ */
+const netFor = (e: Expense, userId: string) =>
+	(e.payer_id === userId ? e.home_cents : 0) - (e.shares[userId] ?? 0);
+
+/**
  * Expenses: the ledger, the balances it nets out to, and the transfers that
  * clear them, as three sections of one page.
  *
@@ -60,13 +75,14 @@ export default function Expenses() {
 	const perPerson = data.members.length ? Math.round(spent / data.members.length) : spent;
 	const mine = viewAs ? spend.reduce((n, e) => n + (e.shares[viewAs] ?? 0), 0) : 0;
 
-	// Read as one person, the ledger keeps the rows that charge them, plus the
-	// payments they made. A row somebody else paid and nobody split with them
-	// costs them nothing, and a list of zeroes is not an answer.
+	// Read as one person, the ledger keeps the rows that moved their balance:
+	// anything they were charged a share of, and anything they paid for. A row
+	// somebody else paid and nobody split with them left them where they were,
+	// and a list of zeroes is not an answer. Paying for a row they take no share
+	// of is the whole of what a credit is, so it stays even though their share
+	// of it is nothing.
 	const shown = viewAs
-		? data.expenses.filter(
-				(e) => e.shares[viewAs] !== undefined || (e.settlement === 1 && e.payer_id === viewAs)
-			)
+		? data.expenses.filter((e) => e.shares[viewAs] !== undefined || e.payer_id === viewAs)
 		: data.expenses;
 
 	const sections: SectionItem[] = [
@@ -161,7 +177,7 @@ export default function Expenses() {
 											key={e.id}
 											expense={e}
 											home={data.currency}
-											share={viewAs && e.settlement !== 1 ? (e.shares[viewAs] ?? 0) : undefined}
+											net={viewAs ? netFor(e, viewAs) : undefined}
 											// A settlement has nothing to edit, so its dialog states the
 											// payment and offers only the delete.
 											onOpen={() =>
@@ -232,7 +248,11 @@ export default function Expenses() {
 							{data.settlement.length === 0 ? (
 								<EmptyState message={ce.nothingToSettle} />
 							) : (
-								<ul className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-1.5 p-0">
+								<ul className="m-0 flex list-none flex-col gap-1.5 p-0">
+									{/* One column at every width. A transfer reads as a sentence
+									    ("A pays B $30"), and sentences side by side are harder to
+									    scan than a single list, which is what a phone was already
+									    getting out of the old auto-fill grid. */}
 									{data.settlement.map((t) => (
 										<SettleRow
 											key={t.fromId + t.toId}

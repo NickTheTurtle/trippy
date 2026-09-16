@@ -495,6 +495,7 @@ export const copy = {
 			fallback: 'Could not complete that.'
 		},
 		searchDropdown: { busyLabel: 'Searching...' },
+		currencyPicker: { noMatches: 'No currencies matched that.' },
 		select: { placeholder: 'Select...', ariaLabel: 'Select' },
 		multiSelect: {
 			placeholder: 'Anyone',

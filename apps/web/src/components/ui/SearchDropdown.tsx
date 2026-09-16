@@ -44,6 +44,7 @@ export default function SearchDropdown<T>({
 	onChange,
 	open,
 	onOpenChange,
+	openOnEmpty = false,
 	busy = false,
 	items,
 	itemKey,
@@ -71,6 +72,14 @@ export default function SearchDropdown<T>({
 	 */
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
+	/**
+	 * Set when the items are a local list rather than a search result, so an
+	 * empty query means all of them instead of none. The currency picker is one:
+	 * the whole list is already in memory, and a picker that shows nothing until
+	 * you type is not browsable. Off by default, which is what a remote search
+	 * wants: there, an empty box has nothing to show and nothing to say.
+	 */
+	openOnEmpty?: boolean;
 	/** Drives the indeterminate line across the input's lower edge. */
 	busy?: boolean;
 	items: T[];
@@ -105,9 +114,11 @@ export default function SearchDropdown<T>({
 	const baseId = useId();
 	const optionId = (i: number) => `${baseId}-opt-${i}`;
 
-	// An empty box has nothing to hang a popup off, and a state the caller has
-	// no message for is not worth an empty panel.
-	const shown = open && value.trim().length > 0 && (items.length > 0 || empty != null);
+	// An empty box has nothing to hang a popup off, unless the list is local and
+	// an empty query means all of it, and a state the caller has no message for
+	// is not worth an empty panel.
+	const shown =
+		open && (openOnEmpty || value.trim().length > 0) && (items.length > 0 || empty != null);
 	const { triggerRef, menuRef } = useAnchor<HTMLDivElement, HTMLDivElement>(shown);
 
 	// Back to the first pickable row whenever the result set changes underneath

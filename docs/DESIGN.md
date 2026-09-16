@@ -970,7 +970,55 @@ the write bound would be the 400-day bug again with a friendlier number.
 
 - Log expense: payer, amount, currency, split rule (equal / shares / exact / % ).
 - Compute net balances; produce a **minimal-transaction settlement**.
-- Multi-currency: store original amount + currency, normalize at settlement time.
+- Multi-currency: store the original amount and currency **plus the rate they were entered
+  at** (`expenses.fx_rate`, `expenses.fx_home`), and convert with that stored rate.
+
+This last point corrects the doc, which previously said "normalize at settlement time",
+meaning convert from today's rates on every read. That is not what is implemented, and the
+implementation is right. Converting on read made a €920 dinner worth a different number of
+dollars each time the page loaded, and let a trip that everybody had settled up drift back
+out of balance months later with nobody having touched it. The rate is locked to the
+transaction instead, which is what every other expense tool does. A stored rate is used
+only while `fx_home` still matches the trip's home currency; when it does not, or when the
+row predates the columns, the reader falls back to a live conversion and the next edit
+re-locks it.
+
+#### The date an expense happened (`expenses.spent_on`)
+
+An expense carries the day it happened, `YYYY-MM-DD`, separate from `created_at`, which is
+the instant it was typed. Members reconcile a week of receipts in one sitting, and without
+this the whole week landed on the day of the sitting.
+
+It is a zone-free calendar day, like `trips.start_date` and `events.day`, not an instant.
+A trip crosses time zones by definition, so an instant would render as a different date
+depending on who was reading it: a 9pm dinner in Tokyo is the previous day in London. The
+day the group had that dinner is one fact, and everyone who was there agrees on it.
+
+**`spent_on` is descriptive and drives ordering only. It must never affect FX conversion.**
+Backdating an expense does not revalue it: the rate stays the one recorded when it was
+entered. Two reasons, and both matter:
+
+1. The rate provider serves current rates only and has no historical lookup, so there is no
+   rate for the named day to honour even if we wanted one.
+2. A rate that changed retroactively would silently move every member's settled balance
+   without anybody having edited a number. Correcting a date is a bookkeeping tidy-up, and
+   it must not be able to move real money between real people.
+
+Only a change to the expense's own currency re-locks the rate.
+
+Ordering is `spent_on DESC, created_at DESC`: newest day first, and within a day the most
+recently entered first. The entry time is the tiebreaker because it is the only total order
+left, and it means a trip whose expenses all share a date reads exactly as it did before
+the column existed.
+
+The server backstops the date rather than validating it into a refusal: a missing, blank or
+malformed value falls back to today (UTC) on create, and on edit an omitted value keeps the
+day already on the row, so a caller that forgets the field cannot drag a backdated expense
+forward. Absurd-but-real days such as `1200-01-01` are stored as typed; bounding them
+belongs to the API layer, which has an error channel to explain a refusal. The UTC fallback
+is deliberate: there is no trip timezone to use, since each city carries its own `tz` and an
+expense is not linked to a city, so the client, which knows what day it is where the member
+is standing, should always send the date.
 
 #### Split model (implemented)
 
@@ -1009,6 +1057,23 @@ the per-person amounts are still typed as positive magnitudes and checked agains
 
 Validation is doubled: the client disables Save when `exact` amounts don't add up, and the
 server independently re-checks and fails the action.
+
+**Read as one person, the ledger is signed.** With "View as" set to a member, a row shows
+what it did to that person's balance rather than the gross share it charged them: the
+payer's converted total, minus their own share. That is the arithmetic `balances()` runs
+over the whole ledger, read one row at a time, so the signed rows add up to exactly the
+figure the balances panel gives that member. A settlement needs no special case, because it
+is stored as the payer covering the recipient in full: whoever handed the money over goes
+up, whoever received it goes down. The list also keeps a row the viewer paid but takes no
+share of, which the older share-only reading dropped even though it is the plainest credit
+they have. With "Everyone" selected there is no sign at all: a shared cost has no direction
+from the group's point of view. The `+` and the minus carry the meaning and the accent and
+danger colours only repeat it, which is the balances panel's treatment rather than a second
+visual language.
+
+**Settle up is one column at every width.** A transfer reads as a sentence ("A pays B $30")
+and sentences side by side are harder to scan than a list, so the auto-fill grid that gave a
+phone one column and a desktop three now gives every width one.
 
 ---
 
@@ -1176,6 +1241,24 @@ Converting again would silently use _today's_ rate for the row while the
 ledger underneath it used the locked one, so a euro dinner's "≈ $X" and the
 trip's total spend disagreed with the balances they were supposed to explain.
 The only rows that still convert live are those with no stored rate to use.
+
+**The currency field is a typeahead, not a dropdown.** The offline table is
+twenty codes, but every field is filled from whatever the server sends, and once
+live rates land that is roughly a hundred and sixty. A `Select` over that many
+unlabelled three-letter codes can only be scrolled, so all five currency fields
+(expense, estimate, stay price in both the add and the edit dialog, and the
+trip's home currency) are `CurrencyPicker`, a thin wrapper around the existing
+`SearchDropdown`. It needed one prop there, `openOnEmpty`: a local list is
+complete, so an empty query is all of it rather than none, which is the opposite
+of what a remote search wants. Rows carry the code and its English name and a
+query matches either, so "yen" and "jpy" find the same row. The names live in
+`apps/web/src/lib/currencies.ts` rather than beside `FALLBACK_RATES`, because
+they are display labels and they cover codes that table has never heard of,
+which must not read as currencies the app can convert offline. A code with no
+name shows as the code alone: a guessed name is worse than none, since half the
+point of it is to be searched for. The input shows the chosen code whenever it
+is not focused and becomes the query while it is, with the code as the
+placeholder behind it, so the field never hides what is selected.
 
 **Changing a password signs the other devices out.** A session here is a bearer
 credential with a 30 day life and no link back to the password it was issued
@@ -2695,6 +2778,36 @@ impossible to tell apart and the ordering itself was unexplained. It is the
 expense they are typing in now, and there is no schema change. The year is shown
 only when it is not the current one, since it would otherwise repeat on every row
 of the page.
+
+**Superseded: each row shows the day the money moved.** The paragraph above is
+kept because its reasoning about ordering and about the year still holds, but
+its premise does not. `expenses.spent_on` and the API's `parseSpentOn` both
+landed afterwards, and the form never asked for the day, so every expense was
+stamped with the date it was typed in: a trip whose receipts are entered on the
+flight home was dated wrong on every row, and re-saving an old expense dragged
+it forward to today. "Nobody is asked to date an expense they are typing in
+now" is exactly right for the common case and is why the field defaults to
+today; it is not a reason to have no field.
+
+So the form carries a date, beside the description, on the line above the money:
+what it was and when it was, then how much, in what, and by whom. It is not
+`required`, because an empty box is a defined answer on the wire (the server
+keeps the stored day when editing and uses today when adding), and a native
+constraint would block the submit before the server could say so. It opens on
+the stored day when editing, which is what stops an edit from re-stamping a
+backdated row, and it is sent on every save so that the day on screen is the day
+that is stored.
+
+The ledger, and a settlement's dialog, print `spent_on` rather than `created_at`.
+The two are the same on almost every row, and the rows where they differ are
+precisely the ones somebody backdated on purpose. The day is read in the
+reader's own zone, not a destination's: "which day did this money go" is a fact
+about the person who spent it, which is the same reasoning `formatTimestamp`
+carries, and the default of today is taken from the reader's calendar rather
+than from UTC so that nobody in Auckland is offered yesterday all morning.
+
+Its label is the one string on that form not yet in `@trippy/copy`; it is
+written inline with a `COPY:` note naming the key it wants.
 
 **The ledger opens with the same header the estimates do.** Its two figures,
 the trip total and either the per-person average or the viewed member's share,

@@ -1,9 +1,9 @@
 import { useState, type ReactNode } from 'react';
 import { useMutation } from '../hooks/useMutation';
-import { currencyOptions } from '../lib/currencies';
+import { CURRENCY_CODES } from '../lib/currencies';
 import Modal, { ModalFooter, ModalForm } from './ui/Modal';
-import Select from './ui/Select';
-import { Field, FieldShell } from './ui/Field';
+import CurrencyPicker from './ui/CurrencyPicker';
+import { Field } from './ui/Field';
 import { copy } from '../copy';
 
 const c = copy.tripForm;
@@ -96,14 +96,17 @@ export default function TripFormDialog({
 							value={endDate}
 							onChange={(e) => setEndDate(e.target.value)}
 						/>
-						<FieldShell label={c.currencyLabel} className="flex-[0_1_130px]">
-							<Select
-								ariaLabel={c.currencyAriaLabel}
-								value={currency}
-								onChange={setCurrency}
-								options={currencyOptions()}
-							/>
-						</FieldShell>
+						<CurrencyPicker
+							className="flex-[0_1_130px]"
+							label={c.currencyLabel}
+							ariaLabel={c.currencyAriaLabel}
+							// The offline codes, not a server list: the home currency is what
+							// everything else converts into, so it stays the set that can be
+							// converted without the network.
+							codes={CURRENCY_CODES}
+							value={currency}
+							onChange={setCurrency}
+						/>
 					</div>
 				</div>
 				<ModalFooter
