@@ -206,8 +206,11 @@ export default function Discover() {
 				{stays.length + places.length === 0 ? (
 					// The grid is skipped entirely rather than emptied: a centred panel
 					// inside a column track would sit under the first column instead of
-					// under the whole area it is standing in for.
-					<div className="card px-5 py-5">
+					// under the whole area it is standing in for. The card carries no
+					// padding of its own, because the empty state is the whole panel and
+					// brings its own; padding here made this card taller than the same
+					// panel on Expenses.
+					<div className="card">
 						<EmptyState graphic message={copy.common.nothingAdded} />
 					</div>
 				) : (

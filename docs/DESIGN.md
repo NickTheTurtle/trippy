@@ -1723,7 +1723,60 @@ has its own Add control a few pixels away.
 Explicit `width` and `height` on the `svg` rather than Tailwind size classes.
 The utility classes are only emitted for values already used elsewhere in the
 tree, so a new one silently does nothing and the drawing stretches to fill its
-container.
+container. The two classes it does carry, `max-w-full h-auto`, are standard
+utilities and exist only as a floor: they let the drawing shrink, keeping its
+ratio, if it is ever handed less than its 220px.
+
+**One empty state, one size, on every page.** The block was already identical
+everywhere (`py-12`, one 280px drawing, one caption), but the panel behind it
+was not, because each caller framed it differently: Discover and Preparation put
+it inside a `card px-5 py-5` and Expenses and the estimates inside a `card p-0`,
+so the same panel measured 354.8px on two tabs of a trip and 314.8px on two
+others, and the trips index had no card at all, which left the drawing's
+surface-filled body as white cut-outs on the page background. Moving between
+tabs the drawing jumped.
+
+The rule that removes it: **the empty state is the whole panel.** It carries its
+own `px-5 py-12`, and a caller hands it a `.card` with no padding, so nothing
+about the page it is on can change its size. Padding stays on the cards that
+hold real rows, which is why the two Expenses tabs and the Preparation task card
+set it only when there is something in them.
+
+The drawing went from 280px to 220px at the same time. At 390px it sat in a
+300px column with ten pixels to spare, which is an advert for a fly rather than
+a quiet note that a list is empty.
+
+**The two computed states in Expenses keep the caption and drop the drawing.**
+"Everyone is even" and "Nothing to settle" are answers the app worked out, not
+lists you have failed to fill, and the fly with nowhere to go is the wrong
+picture of a settled ledger. They are the same component with `graphic` off, so
+they are centred with the same padding in the same unpadded card and only the
+drawing is missing; before this they were left-aligned and a third of the
+height, which made one page show two unrelated-looking empty treatments.
+
+**An empty panel starts at the same y on every section of a page.** The sizing
+above made the panel the same shape everywhere; it did not stop it moving.
+Narrow, Preparation rendered its header row on the estimates whether or not
+there were any estimates to head, and an empty flex row is not free: it carries
+`mb-4`, so at 390px the empty card on Estimated costs began 16px below the
+identical card on Tasks and Packing and the panel stepped down as you switched
+sections. Expenses had the same shape of bug and a bigger number, 53.6px, from
+its figure band plus that margin above an empty ledger while Balances and Settle
+up opened straight onto their card.
+
+The rule both now follow: **narrow, a header row is rendered only when it has
+something in it.** Wide, both pages still reserve the band, because the Add
+button lives in it there and reserving is what keeps the sections aligned.
+Discover needed nothing: its header holds the type filter, which is the same
+control on all four views.
+
+Note this was a page bug, not a component one. `EmptyState` measured 340 x 273.8
+on all three Preparation sections before and after; only its y moved.
+ It is a first-run page rather than
+a hole in a list: it has a heading, a sentence and the trip's single call to
+action, and it is the only thing on the screen. Folding it into `EmptyState`
+would mean opting out of the drawing, the centring and the caption-only shape,
+which is the whole component.
 
 Deliberately not applied to the expenses list, the estimated-costs table, or the
 trips page. Those are tables and a top-level index rather than a section of a
