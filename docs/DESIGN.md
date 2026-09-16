@@ -3112,9 +3112,20 @@ labels and moves the hours.
 So the hours move on their own. `.boardscroll` is a box between the lodging band
 and the bottom of the screen; the grid scrolls inside it, and the stepper and the
 band stand outside it and stay. The hour gutter is inside, because it is the
-axis: pinning it would pin the times to rows that had moved away from them. The
-day view alone gets the box. The agenda is a list of the day's rows, short by
-construction, and boxing a list only makes two scrollbars out of one.
+axis: pinning it would pin the times to rows that had moved away from them.
+
+**The agenda is in the same box.** It was left out at first, on the reasoning
+that a list of the day's rows is short by construction and boxing a list only
+makes two scrollbars out of one. That held for the seeded days and not for a real
+one: a full day is forty rows, and the owner hit a day where the agenda ran past
+the bottom of the screen and took the day's title and stepper with it, which is
+the complaint the box was built to answer. So both boards now render inside one
+`.boardscroll`, with the same measured height, the same 320px floor and the same
+`70vh` fallback: one mechanism, not two. A `list` modifier drops the 12px of
+head room the hour labels need, since a list has no label hanging above its first
+row, and adds a little air under the last one. Nothing is imposed on a short
+agenda, because the box is a `max-height`: a nine-row day measures 321px tall in
+a box that would allow 500, so it does not scroll and shows no bar at all.
 
 **The height is measured, not stated.** The box's top depends on a toolbar that
 wraps at narrow widths and a lodging band that may hold nothing or three stays,
@@ -3235,6 +3246,21 @@ day and one closing it, so both are written. The closing label is not what was
 being clipped: it sits 7px clear of the bottom of the box, inside the 16px the
 grid already carries past its last rule. Top clipping and the missing label were
 two bugs, not one.
+
+**The schedule toolbar has two rows on a phone, and they are chosen ones.** The
+row carries three things: the `Day | Agenda` pills, the "View as" person filter
+and `+ Add`. Measured, they hold one line down to 484px and wrap at 480px, and
+what the wrap produced was not two rows so much as two leftovers: the pills alone
+with 200px of nothing beside them, then the filter with `+ Add` jammed against
+it. Below 480px the row is therefore laid out on purpose as a two-column grid.
+The pills take the top left and `+ Add` the top right, which keeps the
+convention that a section's action sits on the section's own row; "View as"
+spans the second row with its select stretched to the full width, which is the
+one control here that gains from being wide, since it holds people's names. The
+breakpoint is the measured one, so no width that fits today is broken in two.
+`.tools`, the wrapper that grouped the filter with the button, is
+`display: contents` at that width: it carries no styling of its own, so it loses
+nothing by not generating a box, and its children become grid items directly.
 
 ## The board reads its clock as AM/PM
 

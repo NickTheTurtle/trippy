@@ -107,7 +107,7 @@
 	padding: 1rem 1rem 1rem 0;
 	overflow: visible;
 }
-/* The day's own viewport.
+/* The board's viewport, whichever board is in it.
  *
  * The grid is as tall as the day it draws, around nineteen hours at a pixel a
  * minute, so on every screen it is taller than the screen. Scrolling the page to
@@ -182,6 +182,18 @@
 }
 .sched .boardscroll::-webkit-scrollbar-thumb:hover {
 	background-color: var(--color-ink-faint);
+}
+/* The agenda in the same box.
+ *
+ * It holds a list rather than a grid, so the two things the grid needed from
+ * the box it does not: there is no hour label hanging above the first row to
+ * leave room for, and nothing is positioned absolutely, so the rows simply
+ * stack and the box clips them. The padding goes instead where a list wants it,
+ * a little air under the last row so the final row does not sit on the edge of
+ * the card when the list is scrolled to its end. */
+.sched .boardscroll.list {
+	padding-top: 0;
+	padding-bottom: 0.4rem;
 }
 /* The board's title bar: the day it is drawing, and the way to the next one.
    Centred over the board rather than left-aligned in the toolbar, because it
@@ -742,6 +754,56 @@
 	}
 	.sched .schedule .jmode {
 		flex: 1 1 auto;
+	}
+}
+
+/* The toolbar's second line, laid out rather than fallen into.
+ *
+ * Measured: the row holds a one-line layout down to 484px and wraps at 480,
+ * which is where this takes over, so no width that fits today is broken into
+ * two by it. What the wrap gave was a first line holding only the view switch
+ * with two hundred pixels of nothing beside it, and a second line holding the
+ * "view as" control with the page's primary action jammed against it, which is
+ * the "looks weird" of the report: nothing wrong with either line except that
+ * neither was chosen.
+ *
+ * Two lines is still the right answer at 390px, so these are the two lines:
+ * what you are looking at and the button that adds to it on the first, who you
+ * are looking as on the second, with the select taking the rest of that line
+ * so it is a comfortable target rather than a 9.5rem box with a gap after it.
+ * `+ Add` keeps the top line and the right edge it holds at every other width,
+ * which is also the convention that a section's action button rides on the
+ * section's own row.
+ *
+ * `.tools` becomes `display: contents` so its two children can take their own
+ * places in this grid. It carries no role and no styling of its own, so it has
+ * nothing to lose by not generating a box. */
+@media (max-width: 480px) {
+	.sched .toolbar {
+		display: grid;
+		grid-template-columns: 1fr auto;
+		align-items: center;
+		column-gap: 0.8rem;
+		row-gap: 0.6rem;
+	}
+	.sched .toolbar .tools {
+		display: contents;
+	}
+	.sched .toolbar .pills {
+		grid-area: 1 / 1;
+		/* The column is the flexible one, so without this the switch would
+		   stretch to fill it and read as a wide empty box with two words in it. */
+		justify-self: start;
+	}
+	.sched .toolbar .btn.primary {
+		grid-area: 1 / 2;
+	}
+	.sched .toolbar .viewas {
+		grid-area: 2 / 1 / 3 / 3;
+	}
+	.sched .toolbar .viewas .sel {
+		flex: 1;
+		width: auto;
 	}
 }
 
