@@ -10,6 +10,7 @@ import FormError from '../components/ui/FormError';
 import EmptyState from '../components/ui/EmptyState';
 import Select from '../components/ui/Select';
 import WarnMark from '../components/ui/WarnMark';
+import { useToast } from '../components/ui/Toast';
 import GoogleMap, { type MapTrack } from '../components/GoogleMap';
 import TripMap from '../components/TripMap';
 
@@ -559,6 +560,7 @@ export default function Schedule() {
 	const qs = query.toString();
 
 	const { data, error, reload } = useApi<ScheduleData>(qs ? `${base}?${qs}` : base);
+	const toast = useToast();
 	// The payload carries the events, the crews that fill their people picker,
 	// the stays behind the lodging band and the roster it is filtered by.
 	useLiveSection(['schedule', 'lodging', 'members', 'trip'], reload);
@@ -581,7 +583,6 @@ export default function Schedule() {
 	} | null>(null);
 	const [openEventId, setOpenEventId] = useState('');
 	const [openLegId, setOpenLegId] = useState('');
-	const [notice, setNotice] = useState('');
 	/** The open edit dialog's unsaved draft, drawn on the board as it is typed. */
 	const [preview, setPreview] = useState<EventDraft | null>(null);
 
@@ -748,18 +749,28 @@ export default function Schedule() {
 		};
 	}, [data]);
 
+	/* The board's one write path: a drag that lands, a resize that lands. Its
+	   failures are corner toasts rather than a line above the board. The line
+	   was in the wrong place twice over: the board is a scroll box that fills
+	   the screen now, so the top of the page is not where the reader is, and a
+	   refused gesture is answered where the block they just moved is, not a
+	   screenful away. The corner is also in the top layer, so a dialog opened
+	   afterwards cannot bury the message. The load failure further down stays
+	   inline: it is not the result of an action, it is the whole of the page
+	   when it fires, and a popup over a blank screen explains itself and then
+	   leaves nothing behind. The two event dialogs report their own saves in
+	   their own footers, beside the form that caused them. */
 	const act = useCallback(
 		async (fn: () => Promise<unknown>) => {
-			setNotice('');
 			try {
 				await fn();
 				reload();
 			} catch (err) {
 				setPending(null);
-				setNotice(err instanceof ApiError ? err.message : copy.api.saveFallback);
+				toast.error(err instanceof ApiError ? err.message : copy.api.saveFallback);
 			}
 		},
-		[reload]
+		[reload, toast]
 	);
 
 	const eventOp = useCallback(
@@ -1724,12 +1735,6 @@ export default function Schedule() {
 				onViewAs={setViewAs}
 				onAdd={addHere}
 			/>
-
-			{notice && (
-				<p role="alert" className="mb-4 text-body text-danger-ink">
-					{notice}
-				</p>
-			)}
 
 			<div className="split">
 				<div className="boardcol">
