@@ -3552,6 +3552,27 @@ clipping rather than wrapping: `.pills` sets `overflow: hidden` to clip its own
 rounded corners, and per spec that makes its automatic minimum size resolve to
 zero, so it was free to shrink to nothing. A breakpoint was never the fix.
 
+**That row is one line at every width, 390px included.** Left to itself the flex
+row wraps just under 484px, and the two leftovers it produced were not a layout:
+the pills alone with 200px of nothing beside them, then "View as" with `+ Add`
+jammed against it. A two-column grid for the second line was tried and is not
+what ships, by the owner's ruling: three controls that fit are one row, and a
+phone reader should not lose a strip of the day to chrome that could have been
+flat. Below 480px the row is therefore held to `nowrap` and one element is
+allowed to give. The pills and `+ Add` are not it, because each carries a width
+of its own: the pills clip rather than ellipsise (see above), and the primary
+action's label is already as short as it reads. "View as" is the one control in
+the row whose width is a preference rather than a fact, so it is the flexible
+one, taking whatever the other two leave and ellipsising a long name inside it.
+The chain has to run all the way down, since a wrapper that will not shrink pins
+the control inside it, so `.tools` and `.viewas` take `min-width: 0` with the
+select. The visible "View as" label comes off at that width to pay for it: it is
+the one label in the row that does not simply repeat its control, but the select
+trigger already carries "View the schedule as" as its accessible name, so the
+sentence survives for a screen reader and only the pixels go. What is trimmed is
+gaps and horizontal padding, never type size, and nothing in the row drops below
+32px tall.
+
 **The brand mark is a tree of choices, not a glyph.** The header used to sit a
 Unicode `◍` next to the wordmark and the tab still shipped the SvelteKit logo
 in Svelte orange, both leftovers from the port. A text glyph is drawn by
