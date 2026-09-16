@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { db } from '../db';
+import { db, backfillDone, markBackfillDone } from '../db';
 import { isEventType, isLocatedType, isTransportMode, type EventType } from '@trippy/core/types';
 import {
 	guessLeg,
@@ -211,7 +211,45 @@ export function scheduleDays(tripId: string): string[] {
 	return rows.map((r) => r.day);
 }
 
-function toPlanner(e: EventRow): PlannerEvent {
+/**
+ * The trip's roster, sorted, which is what "Everyone" means at this instant.
+ *
+ * Read on every plan rather than copied onto an event, for the same reason the
+ * `everyone` crew is derived rather than stored: a copy starts naming a group
+ * that is no longer everyone the moment somebody joins or leaves.
+ */
+function tripRoster(tripId: string): string[] {
+	const rows = db
+		.prepare(`SELECT user_id FROM memberships WHERE trip_id = ? ORDER BY user_id`)
+		.all(tripId) as unknown as { user_id: string }[];
+	return rows.map((r) => r.user_id);
+}
+
+/**
+ * An event as the planner needs it, with "Everyone" put back.
+ *
+ * The board stores an event assigned to the whole group as no rows at all in
+ * `event_people`, because that is the only form that survives somebody joining.
+ * `planLegs` reads a `people` list as the exact set of travellers and an empty
+ * one as nobody, so the expansion has to happen somewhere, and this is the only
+ * layer that can do it: core is pure and has no way to look a roster up.
+ *
+ * Doing it here rather than passing the roster into `planLegs` keeps a trip
+ * concept out of pure logic. The planner never learns what a trip is; it is
+ * handed a set of ids and answers about those ids. The alternative, a roster
+ * parameter, would put the "empty means everyone" rule in one place, but that
+ * place would be the one module that must stay portable and I/O-free, and it
+ * would still leave every other caller of `PlannerEvent` free to disagree.
+ *
+ * A named list is filtered to the roster on the way through. `event_people`
+ * survives a membership being deleted, so a person who has left can still be
+ * named on an old event, and planning a journey for somebody who is no longer
+ * on the trip puts a stranger in a leg key. A list that names only people who
+ * have left therefore empties, and empties to nobody rather than to everybody:
+ * somebody chose those names, and the choice was not "the whole group".
+ */
+function toPlanner(e: EventRow, roster: readonly string[]): PlannerEvent {
+	const members = new Set(roster);
 	return {
 		id: e.id,
 		type: e.type,
@@ -222,7 +260,7 @@ function toPlanner(e: EventRow): PlannerEvent {
 		// to free time and back without losing the place it was at.
 		lat: isLocatedType(e.type) ? e.lat : null,
 		lng: isLocatedType(e.type) ? e.lng : null,
-		people: e.people
+		people: e.people.length ? e.people.filter((id) => members.has(id)) : [...roster]
 	};
 }
 
@@ -234,15 +272,23 @@ function toPlanner(e: EventRow): PlannerEvent {
  * enters the plan as the end of the day. Midnight rather than a check-in hour:
  * it is the mirror of the morning, where last night's stay is an origin at
  * midnight, and `placeLeg` reads it as an arrival with no time to be late for.
+ *
+ * The roster is read once and applied to blocks, tonight's stays and last
+ * night's alike: an incoming stay carries people too, and a stay left on
+ * "Everyone" is where the whole group wakes up.
  */
 function planFor(tripId: string, day: string): PlannedLeg[] {
-	const events = eventsForDay(tripId, day).map(toPlanner);
+	const roster = tripRoster(tripId);
+	const events = eventsForDay(tripId, day).map((e) => toPlanner(e, roster));
 	const tonight = staysCovering(tripId, day).map((s) => ({
-		...toPlanner(s),
+		...toPlanner(s, roster),
 		startMin: 24 * 60,
 		endMin: 24 * 60
 	}));
-	return planLegs([...events, ...tonight], incomingStays(tripId, day).map(toPlanner));
+	return planLegs(
+		[...events, ...tonight],
+		incomingStays(tripId, day).map((s) => toPlanner(s, roster))
+	);
 }
 
 /**
@@ -284,6 +330,60 @@ export function recomputeLegs(tripId: string, day: string): void {
 	}
 	// Whatever is left was planned once and is not any more.
 	for (const id of have.values()) del.run(id);
+}
+
+/**
+ * Reconcile every day of every trip that carries an event.
+ *
+ * Reconciliation is otherwise only triggered by a write, which is exactly right
+ * while the rules do not move: a day nobody has touched still implies the legs
+ * that are stored for it. When the rules do move, every stored day is suddenly
+ * a day whose plan changed with no write to notice, and `legsForDay` shows only
+ * legs that have a row, so an untouched day would draw no travel until somebody
+ * happened to drag something on it.
+ *
+ * It is the ordinary per-day reconciliation run over the whole database, so it
+ * inserts what is newly planned, prunes what is no longer planned, and leaves
+ * every row whose key still stands, overrides and all. Nothing is dropped and
+ * no table is rebuilt.
+ *
+ * Returns the number of (trip, day) pairs it visited, which is what the caller
+ * logs or a test asserts on.
+ */
+export function reconcileAllLegs(): number {
+	const rows = db
+		.prepare(`SELECT DISTINCT trip_id, day FROM events ORDER BY trip_id, day`)
+		.all() as unknown as { trip_id: string; day: string }[];
+	// The morning after a stay leaves it, so the day after one carrying events
+	// can have legs of its own even with nothing scheduled on it.
+	const pairs = new Set<string>();
+	for (const r of rows) {
+		pairs.add(`${r.trip_id}\u0000${r.day}`);
+		pairs.add(`${r.trip_id}\u0000${shiftDay(r.day, 1)}`);
+	}
+	for (const pair of pairs) {
+		const [tripId, day] = pair.split('\u0000');
+		recomputeLegs(tripId, day);
+	}
+	return pairs.size;
+}
+
+/**
+ * The one-time pass for the rule change that made "Everyone" expand.
+ *
+ * Before it, an event left on the whole group named nobody, so it was on
+ * nobody's chain and a trip whose events were all left on the default planned
+ * no journeys at all. Every day stored under the old rules therefore has legs
+ * missing, and days with a location-less block in them have legs that were
+ * planned straight across it and are no longer planned at all.
+ *
+ * Guarded by a marker row rather than run on every boot: the work is a plan per
+ * stored day, which is cheap once and pointless forever after.
+ */
+const LEGS_BACKFILL = 'travel-legs-everyone-expansion';
+if (!backfillDone(LEGS_BACKFILL)) {
+	reconcileAllLegs();
+	markBackfillDone(LEGS_BACKFILL);
 }
 
 /** The straight-line guess, used until a provider has said better. */
@@ -392,10 +492,7 @@ export interface NewEvent {
 
 /** Members of the trip, used to validate who an event can be assigned to. */
 function tripMemberIds(tripId: string): Set<string> {
-	const rows = db
-		.prepare(`SELECT user_id FROM memberships WHERE trip_id = ?`)
-		.all(tripId) as unknown as { user_id: string }[];
-	return new Set(rows.map((r) => r.user_id));
+	return new Set(tripRoster(tripId));
 }
 
 function writePeople(eventId: string, tripId: string, userIds: string[]): void {

@@ -357,6 +357,59 @@ people is defined as an event for the whole group, so a one-member trip cannot
 distinguish the two and no trip can express "nobody". Free time, not an empty
 participant list, is how the schedule says somebody is not involved.
 
+**"Everyone" is expanded at the persistence boundary, and core reads ids
+literally.** The convention above is a storage convention, and `planLegs` never
+knew about it: it builds its traveller set out of the `people` arrays and walks
+each person's own events, so an event naming nobody was on nobody's chain. A
+trip whose events were all left on the default therefore had an empty traveller
+set and **no travel legs at all**, which is the bug that made this explicit.
+
+The two readings were both written down and neither was wrong on its own, so
+the rule is now stated in one place and enforced in another:
+
+- `PlannerEvent.people` in `packages/core/src/travel.ts` is **exactly the ids
+  travelling**. An empty list is nobody, never everybody. Core is pure and
+  browser-portable, so it has no roster to expand against and cannot get one
+  without doing I/O.
+- `toPlanner` in `packages/server/src/persistence/schedule.ts` expands an empty
+  list to the trip's `memberships`, for blocks, for tonight's stays and for
+  last night's incoming stays alike, and reads the roster fresh on every plan
+  rather than copying it onto a row.
+
+The rejected alternative was a roster parameter on `planLegs`, which would have
+kept "empty means everyone" in a single place. It was rejected because that
+place would be the one module that must stay free of trip concepts and of I/O,
+and it would not even settle the question: every other caller constructing a
+`PlannerEvent` would still be free to mean something else by an empty array.
+Expanding at the boundary leaves core with one meaning and no special case.
+
+Three consequences, all deliberate:
+
+- **A trip with no members plans nothing.** The expansion yields an empty set,
+  which is right: there is nobody to travel.
+- **A stale id is dropped.** `event_people` outlives a membership, so a person
+  who has left can still be named on an old event. A named list is filtered to
+  the roster, and a list that names only people who have left empties to
+  **nobody**, not to everybody: somebody chose those names, and the choice was
+  not "the whole group".
+- **Leg keys change where an event was on Everyone**, because the key carries
+  the sorted travellers. Nothing is orphaned in practice, since those days
+  previously planned no legs to store. To catch days nobody writes to again,
+  `reconcileAllLegs()` runs the ordinary per-day reconciliation across every
+  stored day once, guarded by a row in `schema_backfills`; it inserts what is
+  newly planned and prunes what is not, keeping every row whose key still stands
+  along with its override. Additive, like every other migration here: no table
+  is dropped and no row is rewritten.
+
+**The client preview has to be told the same thing.** `replanLegs` in
+`apps/web/src/pages/schedule/replan.ts` runs the same `planLegs` while a dialog
+is open, and its `plannerEvent` is a copy of the server's `toPlanner` without
+the expansion, so a preview of an Everyone day shows no journeys where the board
+behind it shows them. The roster it needs is already in the payload as
+`ScheduleData.members`; the fix is to thread those ids through `replanLegs` and
+expand an empty `people` the same way, filtering a named list to the roster.
+Owned by the web workspace, not by this change.
+
 **Deriving the legs** (`packages/core/src/travel.ts`, `planLegs`). For each
 person, walk their own events in order and pair each consecutive two. Bucket the
 pairs by the pair of event ids, so:
@@ -369,12 +422,27 @@ That is the whole of splitting and rejoining. Three rules keep it honest:
 - **Free time breaks the chain on both sides.** Not because it has no location,
   but because nobody has promised to be anywhere, so planning a journey out of it
   would be inventing a fact.
-- **An event with no location is passed over, not treated as a break.** A block
-  with no coordinates says _when_ someone is busy, not _where_ they are, so the
-  chain runs on through it and the journeys either side survive. The earlier rule
-  broke the chain on anything that was not an anchor, which meant adding a
-  reminder in the middle of an afternoon silently deleted the two travel times
-  around it and planned none in their place.
+- **An event with no location breaks the chain, like free time does.** A block
+  with no coordinates does not say _where_ its people are, so a journey measured
+  across it is an estimate from the last known place drawn on the day as a fact.
+  A missing estimate is more honest than a wrong one, so the chain stops at such
+  a block and picks up at the next place somebody has named.
+
+  This **reverses the earlier rule**, which passed a location-less block over on
+  the grounds that it says _when_ someone is busy rather than _where_ they are,
+  and so kept the journeys either side of it. That rule was written against the
+  failure it replaced (breaking on anything that was not an anchor, which meant
+  a reminder dropped into an afternoon silently deleted the travel times around
+  it). What it traded away is worse: with A located, B without an address and C
+  located, it planned and drew an A -> C travel time that nobody can stand
+  behind, because between A and C the group's whereabouts are unknown. Adding an
+  address to B brings both journeys back; until then the day shows none, which
+  is what it knows.
+
+  Only an ordinary block is affected. `freetime` already broke the chain, and a
+  `travel` event is decided before this rule is reached: one with a destination
+  becomes the origin of the next leg, one without breaks the chain, both exactly
+  as before.
 - **A hand-entered `travel` event is never an endpoint**, so no automatic leg is
   planned into or out of it. Saying how you are getting from A to B is how you
   turn the planner off for that hop.
