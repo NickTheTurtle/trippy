@@ -642,7 +642,29 @@ between raising the cap and removing it. Raising it would have been the same bug
 at a different trip length; a list that no statement of reach depends on can be
 shortened, or dropped, without making a day unreachable. The window is centred on
 the day being drawn rather than anchored at the first day, so a trip long enough
-to exceed it still lists the days either side of the reader.
+to exceed it still lists the days either side of the reader, and it slides back
+off the end rather than being truncated there, so a window taken at the last day
+of a very long trip is the same size as one taken in the middle.
+
+**One code path, not a threshold.** A trip shorter than the window gets its whole
+self, and gets it because the clamps collapse, not because there is a branch
+testing its length. The alternative considered was to keep the whole trip below
+some threshold and window only above it. That was rejected: two behaviors are two
+things to reason about, and the divergence would only ever appear on the trips
+that are hardest to test by looking at the app. Measured before and after against
+a copy of the real database, the short trips are byte-identical:
+
+| trip | dates | days before | days after | identical |
+| --- | --- | --- | --- | --- |
+| Athens escape marathon | 2026-04-16..2026-04-20 | 5 | 5 | yes |
+| China, autumn | 2026-10-24..2026-11-08 | 16 | 16 | yes |
+| Test 2 | 2026-09-10..2026-09-10 | 1 | 1 | yes |
+| Pin Trip | 2026-09-08..2026-09-08 | 1 | 1 | yes |
+| Montreal | 2024-09-09..2026-09-12 | 400 | 734 | no, and by design |
+
+Montreal's new list has the old one as an exact prefix. The one-day trips are in
+the table deliberately: window arithmetic fails first at a length of 1, where
+`from` and `to` must both land on the single day.
 
 **A day the trip does not have is refused, with the reason machine-readable.**
 Silently serving a different day is what put the url and the board out of step,

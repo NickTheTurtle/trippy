@@ -252,8 +252,18 @@ const MAX_DAY_LIST = 4000;
 /**
  * The days the trip offers, as a window around the one being drawn.
  *
- * Centred on `day` rather than started at `first` so that a trip long enough to
- * exceed the window still lists the days either side of where the reader is.
+ * One code path for every trip length, which is the point: a trip shorter than
+ * the window gets its whole self, byte for byte what it got before there was a
+ * window at all, because the clamps collapse rather than because there is a
+ * branch testing its length. Two behaviors would be two things to reason about,
+ * and the one that only shows up on long trips is the one nobody can test by
+ * looking at the app.
+ *
+ * Centred on `day` rather than anchored at `first` so a trip long enough to
+ * exceed the window still lists days either side of the reader, and slid back
+ * off the end rather than truncated there, so the window is the same size
+ * wherever in a long trip it is taken. At length 1, `from` and `to` are both
+ * that day.
  */
 function tripDays(
 	tripId: string,
@@ -262,8 +272,12 @@ function tripDays(
 	day: string
 ): string[] {
 	const half = Math.floor(MAX_DAY_LIST / 2);
+	// The latest start that still reaches the end of the trip, so a window taken
+	// at the far end fills backwards instead of coming up short.
+	const latest = shiftDay(reach.last, -(MAX_DAY_LIST - 1));
 	const back = shiftDay(day, -half);
-	const from = back > reach.first ? back : reach.first;
+	const slid = back > latest ? latest : back;
+	const from = slid > reach.first ? slid : reach.first;
 	const edge = shiftDay(from, MAX_DAY_LIST - 1);
 	const to = edge < reach.last ? edge : reach.last;
 	const days = new Set(scheduleDays(tripId).filter((d) => d >= from && d <= to));

@@ -184,6 +184,45 @@ describe('a day the trip does not have', () => {
 	});
 });
 
+describe('a trip past the day-list window', () => {
+	/**
+	 * Fourteen years, which no real trip is and the trip form will not create.
+	 * It exists to exercise the only regime where the window binds at all: the
+	 * bar for every real trip is that the list is untouched, and the bar here is
+	 * that the window never decides which day is served.
+	 */
+	const WIDE = { start: '2000-01-01', end: '2013-12-31', days: 5114 };
+	const WINDOW = 4000;
+
+	it('serves the far end of it, and still names the real first and last day', async () => {
+		const f = fixture(WIDE.start, WIDE.end);
+		const body = await payload(await get(f, `?day=${WIDE.end}`));
+		expect(body.day).toBe(WIDE.end);
+		expect(body.board[0].day).toBe(WIDE.end);
+		expect(body.firstDay).toBe(WIDE.start);
+		expect(body.lastDay).toBe(WIDE.end);
+		expect(body.dayCount).toBe(WIDE.days);
+		expect(body.nextDay).toBeNull();
+		expect(body.prevDay).toBe('2013-12-30');
+	});
+
+	it('takes the same size window wherever in the trip it is taken', async () => {
+		const f = fixture(WIDE.start, WIDE.end);
+		for (const day of [WIDE.start, '2007-01-01', WIDE.end]) {
+			const body = await payload(await get(f, `?day=${day}`));
+			expect(body.days.length).toBe(WINDOW);
+			expect(body.days).toContain(day);
+		}
+	});
+
+	it('never lets the window decide which day the board draws', async () => {
+		const f = fixture(WIDE.start, WIDE.end);
+		const body = await payload(await get(f, '?day=2013-06-15'));
+		expect(body.day).toBe('2013-06-15');
+		expect(body.days[0] > WIDE.start).toBe(true);
+	});
+});
+
 describe('a trip shortened under an event', () => {
 	/** The stranded day is still reachable; the gap it left behind is not. */
 	function stranded(): Fixture {
