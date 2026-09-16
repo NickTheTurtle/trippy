@@ -3552,26 +3552,33 @@ clipping rather than wrapping: `.pills` sets `overflow: hidden` to clip its own
 rounded corners, and per spec that makes its automatic minimum size resolve to
 zero, so it was free to shrink to nothing. A breakpoint was never the fix.
 
-**That row is one line at every width, 390px included.** Left to itself the flex
-row wraps just under 484px, and the two leftovers it produced were not a layout:
-the pills alone with 200px of nothing beside them, then "View as" with `+ Add`
-jammed against it. A two-column grid for the second line was tried and is not
-what ships, by the owner's ruling: three controls that fit are one row, and a
-phone reader should not lose a strip of the day to chrome that could have been
-flat. Below 480px the row is therefore held to `nowrap` and one element is
-allowed to give. The pills and `+ Add` are not it, because each carries a width
-of its own: the pills clip rather than ellipsise (see above), and the primary
-action's label is already as short as it reads. "View as" is the one control in
-the row whose width is a preference rather than a fact, so it is the flexible
-one, taking whatever the other two leave and ellipsising a long name inside it.
-The chain has to run all the way down, since a wrapper that will not shrink pins
-the control inside it, so `.tools` and `.viewas` take `min-width: 0` with the
-select. The visible "View as" label comes off at that width to pay for it: it is
-the one label in the row that does not simply repeat its control, but the select
-trigger already carries "View the schedule as" as its accessible name, so the
-sentence survives for a screen reader and only the pixels go. What is trimmed is
-gaps and horizontal padding, never type size, and nothing in the row drops below
-32px tall.
+**Below 480px that toolbar takes a second line, and the view switch is what goes
+on it.** The three controls hold one line down to 484px. They can be made to keep
+it below that, by letting `View as` take whatever the pills and `+ Add` leave and
+ellipsise a long name inside itself, and that was tried and shipped and then
+reversed on sight. It fit, and it read as cramped: the control that switches
+between the two ways of reading the entire page was the smallest target in the
+row, pressed against a filter itself cut down to a few characters of a name.
+Fitting was the wrong thing to optimise.
+
+So the row is split by what each control does rather than by what will squeeze.
+The first line holds the two that act on the schedule, who to read it as and what
+to add to it. The second holds the switch that decides which schedule you are
+reading, and the switch takes the whole width of it, its two halves dividing that
+evenly. That is the ordinary phone treatment of a segmented control, and it turns
+the narrowest target in the row into the widest. On the first line the filter
+still flexes and the button still does not, so a long name ellipsises rather than
+cutting the page's primary action short; the flex chain runs the whole way down,
+since a wrapper that will not shrink pins the control inside it, so `.tools` and
+`.viewas` carry `min-width: 0` along with the select. What is trimmed is gaps and
+horizontal padding, never type size, and nothing drops below 32px tall. The
+filter still renders only on a trip with more than one member, so a solo trip
+gets `+ Add` alone on the first line and the switch still has the second.
+
+Held by `narrow-layout.spec.ts`, which asserts against a seeded two-member trip
+that at 390px the filter and the button share a line with the switch below both,
+that the switch spans the toolbar and stands over 30px tall, that the document
+does not scroll sideways, and that at 1440px all three return to one line.
 
 **The brand mark is a tree of choices, not a glyph.** The header used to sit a
 Unicode `◍` next to the wordmark and the tab still shipped the SvelteKit logo

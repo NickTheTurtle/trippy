@@ -16,8 +16,9 @@
  * One row of controls that apply to the whole schedule: which view to read it
  * in on the left, who to read it as and what to add on the right. The day being
  * looked at is not one of those, so the stepper sits on the board instead; see
- * `.boardhead`. That keeps this row to a single line at every width and matches
- * Discover, where the filter is left and the add button is right.
+ * `.boardhead`. Above 480px that keeps this row to a single line and matches
+ * Discover, where the filter is left and the add button is right; below it the
+ * row takes a second line and the view switch moves onto it.
  */
 
 .sched .toolbar {
@@ -669,60 +670,50 @@
 	}
 }
 
-/* The toolbar keeps its single line at every width, 390px included.
+/* The toolbar takes a second line below 480px, and the view switch is what
+ * goes on it.
  *
- * Three things ride that row: the `Day | Agenda` pills, the "View as" person
- * filter and `+ Add`. Two of them have a width of their own. The pills are two
- * words in a joined capsule, and `.pills` clips its own rounded corners with
- * `overflow: hidden`, which per spec resolves its automatic minimum size to
- * zero: left free to shrink it does not ellipsise, it cuts a word in half. The
- * button is the page's primary action and its label is already two words long.
- * Neither is allowed to give.
+ * Three things ride this row: the `Day | Agenda` pills, the "View as" person
+ * filter and `+ Add`. Measured, they hold one line down to 484px. They can be
+ * made to keep it below that, by letting the filter take whatever the other two
+ * leave and ellipsise a long name inside itself, and that was tried. It fit and
+ * it read as cramped: the switch between the two ways of reading the whole page
+ * became the smallest target on the row, wedged against a filter itself cut
+ * down to a few characters of a name.
  *
- * The filter is the third, and it is the only one here whose width is a
- * preference rather than a fact, so it is the element that flexes: it takes
- * whatever the other two leave, and a long name ellipsises inside it rather
- * than pushing the row onto a second line or off the side of the screen. The
- * flex chain has to run the whole way down, because a wrapper that will not
- * shrink pins the control inside it: `.tools` and `.viewas` are both plain
- * boxes around the select, so both carry `min-width: 0` with it.
+ * So the row is split by what its controls do rather than by what will squeeze.
+ * The first line is the two that act on the schedule, who to read it as and
+ * what to add to it; the second is the switch that decides which schedule you
+ * are reading. The switch takes the full width of that line and its two halves
+ * divide it evenly, which is the phone pattern for a segmented control and
+ * turns the narrowest target in the row into the widest.
  *
- * The visible "View as" label comes off at this width. It is the one label in
- * the row that does not merely repeat its control, but it is also 4rem that the
- * select needs more, and nothing is lost to a screen reader: the trigger
- * carries "View the schedule as" as its accessible name, which says the same
- * thing in a whole sentence. `.tools` keeps its box and pushes its contents
- * right, so a solo trip, where the filter is not rendered at all, still ends
- * with `+ Add` on the right edge.
- *
- * What is trimmed to pay for the row is gaps and horizontal padding, never type
+ * On the first line the filter flexes and the button does not, so a long name
+ * ellipsises rather than cutting the page's primary action short. The flex
+ * chain runs the whole way down, because a wrapper that will not shrink pins
+ * the control inside it, so `.tools` and `.viewas` both carry `min-width: 0`
+ * with the select. What is trimmed is gaps and horizontal padding, never type
  * size: a 0.82rem pill is read at arm's length on a phone and a 0.7rem one is
- * squinted at. Nothing below drops a control under 32px tall. */
+ * squinted at. Nothing here drops a control under 32px tall.
+ *
+ * On a solo trip the filter is not rendered at all, so the first line is
+ * `+ Add` alone on the right and the switch still has the second to itself. */
 @media (max-width: 480px) {
 	.sched .toolbar {
-		flex-wrap: nowrap;
 		gap: 0.5rem;
 	}
-	.sched .toolbar .pills {
-		flex: 0 0 auto;
-	}
-	.sched .toolbar .pill {
-		padding-left: 0.6rem;
-		padding-right: 0.6rem;
-	}
+	/* Line one: who to read it as, and what to add. */
 	.sched .toolbar .tools {
-		flex: 1 1 auto;
+		order: 1;
+		flex: 1 1 100%;
 		min-width: 0;
 		flex-wrap: nowrap;
-		justify-content: flex-end;
+		justify-content: space-between;
 		gap: 0.5rem;
 	}
 	.sched .toolbar .viewas {
 		flex: 1 1 auto;
 		min-width: 0;
-	}
-	.sched .toolbar .viewas .muted {
-		display: none;
 	}
 	.sched .toolbar .viewas .sel {
 		flex: 1 1 auto;
@@ -733,6 +724,18 @@
 		flex: 0 0 auto;
 		padding-left: 0.7rem;
 		padding-right: 0.7rem;
+	}
+	/* Line two: the view switch, full width and split evenly. */
+	.sched .toolbar .pills {
+		order: 2;
+		display: flex;
+		flex: 1 1 100%;
+	}
+	.sched .toolbar .pill {
+		flex: 1 1 0;
+		text-align: center;
+		padding-left: 0.6rem;
+		padding-right: 0.6rem;
 	}
 }
 
