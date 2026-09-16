@@ -15,6 +15,11 @@ export default defineConfig({
 			{ find: '@trippy/core/travel', replacement: core('travel.ts') },
 			{ find: '@trippy/core/conflicts', replacement: core('conflicts.ts') },
 			{ find: '@trippy/core/currency', replacement: core('currency.ts') },
+			// `validate` is aliased like the rest so a route under test resolves it
+			// the way the app does. Without it, the first test to load a route that
+			// validates a field fails with ERR_MODULE_NOT_FOUND rather than a
+			// failed assertion, which is a confusing way to learn about a missing
+			// line in a config.
 			{ find: '@trippy/core/validate', replacement: core('validate.ts') },
 			{ find: '@trippy/core/sample', replacement: core('sample.ts') },
 			{ find: '@trippy/core/types', replacement: core('types.ts') },

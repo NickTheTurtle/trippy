@@ -56,14 +56,17 @@ test.describe('schedule toolbar', () => {
 			await expect(prevLink).toBeVisible();
 			await expect(next).toBeDisabled();
 
-			// A day typed past the end lands on the last day the trip offers, not on
-			// an empty board with no way back.
+			// A day typed past the end is refused now rather than swapped for the
+			// last day the trip has. The swap was a 200 carrying a different day
+			// than the url named, which is how the url and the board got out of
+			// step; the refusal names the range instead, and the payload carries
+			// `firstDay` / `lastDay` so the board can send the reader to a real day
+			// once that half is built.
 			await page.goto(`/trips/${fixture.tripId}/schedule?day=2030-01-01&view=day`);
-			await expect(next).toBeDisabled();
-			await expect(prevLink).toBeVisible();
+			await expect(page.getByText('That day is outside this trip')).toBeVisible();
 
 			await page.goto(`/trips/${fixture.tripId}/schedule?day=1999-01-01&view=day`);
-			await expect(prev).toBeDisabled();
+			await expect(page.getByText('That day is outside this trip')).toBeVisible();
 
 			// A view the app no longer has falls back to the day board rather than
 			// an empty one, since the view is a url and urls outlive a view. The

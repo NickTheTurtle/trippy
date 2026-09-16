@@ -443,6 +443,46 @@ model exists to record. The trip's places, stays, expenses, tasks and people are
 all untouched; only the scheduled blocks were lost, and only after the owner
 confirmed they were disposable.
 
+#### Empty means everyone, and the one list of people that is refused
+
+An event assigned to the whole group is stored as **no `event_people` rows at
+all**, and that is deliberate rather than incidental. It is the only form that
+survives somebody joining the trip: a frozen list of today's ids would quietly
+leave the next member out of every block that was on "everyone" when they
+arrived. The same emptiness is the wire form. `PeoplePicker` normalizes a full
+roster back to `[]` before it sends, so `people: []` is what both the create
+(`POST .../schedule/events`) and the replace (`PUT .../schedule/events/:id/people`)
+carry every time the whole group is on a block. Empty is displayed as every name
+ticked, because empty ticks read as nobody, but it is stored and sent empty.
+
+The consequence worth writing down is that **"nobody" is not representable, by
+design**. There is no third state between "these named people" and "everybody",
+in the database or on the wire, and asking for one would be a schema change plus
+a migration. The owner considered adding that state, in order to reject an
+event with nobody on it outright, and **declined it**: the two payloads are the
+same bytes, so denying the one would deny the other, and the product would lose
+its commonest save to protect against a state nothing can store. Free time, not
+an empty participant list, remains how the schedule says somebody is not
+involved. This is settled; please do not relitigate it by adding a flag column.
+
+What *is* refused, at the API and on both write paths, is a list that **names
+people and names nobody this trip has**. That payload is a genuine mistake, and
+until now it was silently rewarded: `writePeople` filters to the roster before
+writing, so a body of ids from another trip, or of people who have since left,
+wrote zero rows and the event came back as everyone. The opposite of what was
+asked for, with no way to notice. It now answers `400` with
+`{"error":"Nobody in that list is on this trip. Pick from the trip's members."}`,
+the same envelope every other refusal in the API uses.
+
+The boundary is exactly there and no wider. A **partial** list still succeeds
+with the members it names: four members and one stale id saves the four, because
+a roster changes under an open dialog and dropping the person who left is the
+right answer. Only the all-unknown case fails, because that is the only one
+where the caller's intent cannot be honoured at all. The check lives in
+`routes/schedule.ts` rather than in `writePeople`, since the route is the layer
+that still has somewhere to put the reason, and pushing it down would turn every
+partial list into a refusal too.
+
 ### M3.3: The toolbar is bounded at both ends
 
 Two controls decide which board you are looking at, and both were unbounded in
@@ -461,11 +501,13 @@ stranded by a shortened trip stays reachable. The bound is therefore what the
 trip offers, not what its dates claim, and stepping by index skips the gap to a
 stranded day instead of landing on a day that is not there.
 
-**The server clamps the same way**, because the day is a URL: it can be typed,
-bookmarked, or left behind by a trip whose dates were edited afterwards. Guarding
-only the buttons would answer all three with an empty board. The existing
-malformed-day fallback is unchanged and still comes first; the clamp only applies
-to days that parse.
+**The server used to clamp the same way**, because the day is a URL: it can be
+typed, bookmarked, or left behind by a trip whose dates were edited afterwards.
+Guarding only the buttons would answer all three with an empty board. The clamp
+itself is gone (see M3.6): answering with a day other than the one asked for, at
+200 and with no sign of the swap, turned out to be its own defect. The server now
+refuses a day the trip does not have and names the range; the buttons are bounded
+as before.
 
 **The 3-day view was removed.** It was a window three columns wide, which bought
 one thing: seeing tomorrow without leaving today. It cost a second clamp rule
@@ -606,6 +648,92 @@ reads as a bug.
 - **Estimated costs live here too** (see M5): planning what a trip will cost is the
   same job as preparing for it, and splitting them across two tabs meant bouncing
   between them. `/costs` 307-redirects here.
+
+### M3.6: How far a trip reaches, and what a day outside it gets
+
+The schedule read served 400 days and clamped everything else onto the last of
+them. The Montreal trip runs 2024-09-09 to 2026-09-12, which is 734 days, so the
+last eleven months were not served at all: the arrows, the date picker and a
+typed url all bottomed out at 2025-10-13, and a request for 2026-05-01 came back
+`200` drawing 2025-10-13. The url said one thing and the board drew another with
+nothing in the payload to say so.
+
+**The cap was never a cost control**, which is worth stating because this project
+has had a billing hole driven by row count before. It was a loop guard, written
+as `for (let d = from, i = 0; d <= to && i < 400; ...)` with the comment "guard
+against a reversed or absurd range walking forever": the day list was built by
+walking the calendar, and a walk needs a stopping rule. Nothing paid keys off the
+day count. Routing is called for the one day being drawn, and cover photos are
+per city, so 400 and 4000 cost the same at the provider.
+
+**The reach is now answered without the list.** A trip's reach is what it always
+was, the date range union anything scheduled outside it, but it now comes from
+the trip's two dates and a `MIN`/`MAX` over its events, so it costs the same on a
+weekend and on a decade. The stepper's neighbours come from the same place:
+`prevDay` and `nextDay` are the nearer of the day inside the range and the
+nearest day carrying something, which is what skips the gap to an event stranded
+by a shortened trip. The payload carries `firstDay`, `lastDay`, `dayCount`,
+`prevDay` and `nextDay` alongside `days`.
+
+**`days` is now a window, not the truth.** It is still the full list for every
+real trip, because the window is 4000 days, but it no longer decides anything:
+every day the client needs to navigate is its own field. That is the difference
+between raising the cap and removing it. Raising it would have been the same bug
+at a different trip length; a list that no statement of reach depends on can be
+shortened, or dropped, without making a day unreachable. The window is centred on
+the day being drawn rather than anchored at the first day, so a trip long enough
+to exceed it still lists the days either side of the reader, and it slides back
+off the end rather than being truncated there, so a window taken at the last day
+of a very long trip is the same size as one taken in the middle.
+
+**One code path, not a threshold.** A trip shorter than the window gets its whole
+self, and gets it because the clamps collapse, not because there is a branch
+testing its length. The alternative considered was to keep the whole trip below
+some threshold and window only above it. That was rejected: two behaviors are two
+things to reason about, and the divergence would only ever appear on the trips
+that are hardest to test by looking at the app. Measured before and after against
+a copy of the real database, the short trips are byte-identical:
+
+| trip | dates | days before | days after | identical |
+| --- | --- | --- | --- | --- |
+| Athens escape marathon | 2026-04-16..2026-04-20 | 5 | 5 | yes |
+| China, autumn | 2026-10-24..2026-11-08 | 16 | 16 | yes |
+| Test 2 | 2026-09-10..2026-09-10 | 1 | 1 | yes |
+| Pin Trip | 2026-09-08..2026-09-08 | 1 | 1 | yes |
+| Montreal | 2024-09-09..2026-09-12 | 400 | 734 | no, and by design |
+
+Montreal's new list has the old one as an exact prefix. The one-day trips are in
+the table deliberately: window arithmetic fails first at a length of 1, where
+`from` and `to` must both land on the single day.
+
+**A day the trip does not have is refused, with the reason machine-readable.**
+Silently serving a different day is what put the url and the board out of step,
+so the read now answers `400` with `{ error, code, firstDay, lastDay }` and three
+distinguishable codes:
+
+- `not_a_date`: the day in the url is not a date at all.
+- `outside_trip`: a real date, before or after everything the trip reaches. This
+  is the client error the brief calls for: outside the trip is not a place you
+  can be.
+- `day_not_offered`: a real date inside the reach, on neither the trip's dates
+  nor anything scheduled. Only a trip shortened under an event has these, and the
+  distinction matters: the stranded day itself is still served, the empty days
+  between it and the range are not.
+
+A day inside the trip is never an error, and is never affected by the window. The
+window decides what `days` lists, never which day the board draws.
+
+`firstDay` and `lastDay` ride on the refusal so the client can send the reader
+somewhere real instead of parsing the range back out of the sentence. **That half
+is not built**: the board currently renders the refusal in its error banner,
+which is honest but is not the end state. The client should redirect an
+out-of-range day to `firstDay` or `lastDay` and rewrite the url with it.
+
+**Trip length is bounded at the other end, at 366 days**, in the trip form: a new
+or lengthened trip may not exceed a year, and an existing longer trip is
+grandfathered so it can still be renamed and re-dated. The read makes no use of
+that number. It has to keep serving Montreal's 734 days, and a read that assumed
+the write bound would be the 400-day bug again with a friendlier number.
 
 ### M5: Estimated Costs (inside Preparation)
 
@@ -4627,6 +4755,13 @@ than for reuse, which is the right trade while there is exactly one consumer.
 app that talks to a provider. See 4.2 for why routing sits here and not in
 persistence.
 
+**`GET /schedule` refuses a day the trip does not have** rather than clamping it
+onto one the trip does. It answers `{ error, code, firstDay, lastDay }` at 400,
+with `code` one of `not_a_date`, `outside_trip` or `day_not_offered`. The success
+payload carries `firstDay`, `lastDay`, `dayCount`, `prevDay` and `nextDay`, all
+of which are computed without listing the days, so `days` is a window over a long
+trip rather than the statement of what exists. See M3.6.
+
 **One `/op` endpoint for the four event mutations** (move, resize, edit, delete)
 rather than four REST verbs. The board fires all of them from one drag handler
 and the ownership check is identical, so splitting them would spread that check
@@ -4648,6 +4783,98 @@ body carries `weights: { userId: number }`.
 or an object, and `String(x)` on an object yields "[object Object]" rather than
 failing. FormData could only ever yield strings, so the old `String(f.get(k) ??
 '')` idiom was safe and the JSON equivalent is not.
+
+#### An op payload is checked field by field, before the store sees it
+
+`POST /schedule/events/:eventId/op` used to check exactly two fields, the
+dialog's two clock values, and coerce the rest. Coercion turned one class of
+mistake into two different wrong answers.
+
+A drag or a resize whose minute could not be read reached the store as `NaN`,
+which is what `num(b.startMin) ?? NaN` was written to do. `node:sqlite` binds
+NaN as NULL, the minute columns are NOT NULL, and the constraint failure came
+back to the member as a 500 and "Something went wrong": a request only the
+caller could fix, reported as a broken server. The shape is not exotic. An
+emptied number field in the dialog is `Number('')`, which is NaN, and
+`JSON.stringify` writes NaN as `null`, so the commonest way to send an
+unreadable minute is to clear a field and press Save.
+
+Everything else failed the other way, which is harder to notice and harder to
+report: an unreadable time on a dialog save, a type outside the five, a misspelt
+travel mode, a malformed day and a version that is not a whole number were all
+dropped on the way through. The write then succeeded with those fields left out,
+the API answered 200, and the board came back holding the old value with nothing
+said about why the new one did not stick. A version that could not be read was
+the worst of them, because being ignored there switches the optimistic-locking
+check off and lets a stale copy of every untouched field overwrite whoever saved
+first.
+
+All of it is now refused by `opProblem`, in one place ahead of the switch,
+because the fields mean the same thing whichever op is carrying them. Each
+refusal is a 400 in the standard `{ error }` envelope with a sentence a member
+can act on, which is what the corner toast shows.
+
+What is deliberately still not refused: an unknown place id, which unlinks (see
+`placeFor`); an empty travel mode, which hands the journey back to the router;
+and an empty participant list, which means everyone (see 4.8). Those are
+requests rather than mistakes.
+
+#### Absent, null and empty are three different requests
+
+The op edit branch is a partial update, so "the body did not mention this" has
+to stay distinguishable from "the body asked for this to be cleared". What each
+optional field does, as built:
+
+| Field | Absent | Explicit `null` | Empty (`''` / `[]`) | Unreadable |
+|---|---|---|---|---|
+| `title` | unchanged | unchanged (null reads as silence, as it always has) | **400 `Enter a title.`** | 400, over-length quotes the limit |
+| `type` | unchanged | 400 | 400 | 400 `Pick an event type.` |
+| `notes` | unchanged | cleared | cleared | n/a, any string is notes |
+| `travelMode` | unchanged | cleared, back to the router | cleared, back to the router | 400 `Pick a travel mode.` |
+| `poiId` | link unchanged | link and coordinates cleared | link and coordinates cleared | 400 for a non-string; an unknown id unlinks by design |
+| `startMin` / `endMin` | unchanged | **400** | n/a | 400 |
+| `day` / `endDay` | unchanged | 400 | 400 | 400; a checkout on or before the check-in is 400 |
+| `version` | unchecked write, as before | unchecked write | unchecked write | 400 `Reload the page and try again.` |
+| `people` | not read by this branch at all | not read | not read | not read |
+
+Two entries are worth the reasoning. `title` is the one field a member can set
+and cannot clear: every event has a name, create refuses a blank one, so a save
+that blanks it is refused rather than ignored. It used to be dropped, and the
+old name reappeared on the next load looking as though the save had not
+happened. `people` is not read here at all, by design: participants are written
+through `PUT /events/:eventId/people`, which is the endpoint that splits and
+rejoins the group and the one that recomputes the day's travel. An edit that
+carries a `people` field is not refused, because refusing would break clients
+that send a harmless one, but it does not save participants either.
+
+#### The type's own noun lives in core
+
+`EVENT_TYPE_LABELS` in `@trippy/core/types` is the single map from an event type
+to the word for it. There were two copies, one in the API and one in the web
+client's `schedule/shared.ts`, plus a third half-copy in the API's create path
+as a `travel`/`freetime` ternary. Two copies of a vocabulary is how "Free time"
+becomes "Freetime" on one surface and not the other, and this vocabulary is also
+what an unnamed block is called, so a divergence is visible to a member as a
+block that renames itself when it is saved.
+
+A label map is display text, which is usually a reason to keep it out of core.
+It goes there anyway because core already owns the literals it is keyed by, and
+because the client, the API and a future native client all need the same words.
+Core stays pure: it is a frozen-in-practice constant and a lookup, no
+formatting, no locale, no I/O.
+
+Two client-side follow-ups fall out of this and are deliberately not made here,
+because `apps/web` was being edited by other work at the time:
+
+- `schedule/shared.ts` should drop its own `TYPE_LABELS` and its `'New event'`
+  fallback in `deriveTitle`, and read `EVENT_TYPE_LABELS` instead. The server
+  names an unnamed block after its type, so a preview that says "New event"
+  shows a name that is about to be replaced: the block appears to rename itself
+  the moment it is saved. The server's rule is the correct one, since a column
+  of identical "New event"s says nothing about the day.
+- `AddEventDialog` never sends `travelMode`, although create has always accepted
+  and stored it for a `travel` block, so a mode can currently only be set by
+  saving the journey and reopening it.
 
 **Known gaps, inherited rather than introduced.** `getBudget` / `setBudget`,
 `toggleSave` and `linkedItemCount` exist in `packages/server` but no UI ever
