@@ -36,6 +36,33 @@ export function isEventType(v: string): v is EventType {
 }
 
 /**
+ * What each type is called, in one place.
+ *
+ * Display text, but it belongs beside the literals rather than beside any one
+ * screen: the same five words are the labels in the client's type picker, the
+ * words the API falls back to when a block has no name of its own, and the
+ * words a future native client will need. There were already two copies of this
+ * map, and two copies of a vocabulary is how "Free time" becomes "Freetime" on
+ * one surface and not the other.
+ *
+ * Core stays pure, so this is a constant and nothing more: no formatting, no
+ * locale lookup, no I/O. Translating it later means replacing the lookup at the
+ * edges, and having one map is what makes that a single change.
+ */
+export const EVENT_TYPE_LABELS: Record<EventType, string> = {
+	activity: 'Activity',
+	food: 'Food',
+	stay: 'Stay',
+	travel: 'Travel',
+	freetime: 'Free time'
+};
+
+/** What a type is called, for untrusted text: an unknown one is shown as it came. */
+export function eventTypeLabel(t: string): string {
+	return isEventType(t) ? EVENT_TYPE_LABELS[t] : t;
+}
+
+/**
  * Types that record where a person is, and so can carry coordinates.
  *
  * Free time is the one exclusion: it is deliberately nowhere, because nobody
