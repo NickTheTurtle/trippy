@@ -193,6 +193,34 @@ export function placeLabel(type: EventType): string {
 }
 
 /**
+ * What an unnamed block will end up called.
+ *
+ * Picking a place is how a block is usually added, so the name is optional and
+ * the server names the ones that arrive without one: the place, else the first
+ * line of the notes, else the type's own noun. This mirrors that order so the
+ * preview on the board shows the name that is about to be saved rather than a
+ * placeholder the reader never asked for.
+ *
+ * It is a mirror and nothing more. The server derives the stored name and wins
+ * every disagreement; this only has to be close enough that the block does not
+ * appear to rename itself the moment it is saved.
+ */
+export function deriveTitle(
+	typed: string,
+	placeName: string | null,
+	notes: string,
+	type: EventType
+): string {
+	const named = typed.trim();
+	if (named) return named;
+	if (placeName) return placeName;
+	const line = notes.split('\n').find((l) => l.trim());
+	if (line) return line.trim();
+	if (type === 'travel' || type === 'freetime') return typeLabel(type);
+	return 'New event';
+}
+
+/**
  * Whether a place already picked survives a change of type.
  *
  * A stay picks from the stays the group is voting on and every other type picks

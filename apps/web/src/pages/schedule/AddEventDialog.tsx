@@ -16,6 +16,7 @@ import {
 	MIN_EVENT_MINS,
 	TYPE_OPTIONS,
 	dayLabel,
+	deriveTitle,
 	keepsPick,
 	placeLabel,
 	placeOptions,
@@ -146,8 +147,9 @@ export default function AddEventDialog({
 			id: DRAFT_ID,
 			day: onDay,
 			end_day: staying ? checkOut : null,
-			// An unnamed block still has to read as a block rather than as a gap.
-			title: title.trim() || 'New event',
+			// An unnamed block still has to read as a block rather than as a gap,
+			// and now reads as the name the server is about to give it.
+			title: deriveTitle(title, spot?.name ?? null, notes, type),
 			type,
 			start_min: startAt,
 			end_min: endAt,
@@ -155,7 +157,20 @@ export default function AddEventDialog({
 			lat: spot?.lat ?? null,
 			lng: spot?.lng ?? null
 		});
-	}, [onDay, staying, checkOut, title, type, startAt, endAt, people, spot?.lat, spot?.lng]);
+	}, [
+		onDay,
+		staying,
+		checkOut,
+		title,
+		notes,
+		type,
+		startAt,
+		endAt,
+		people,
+		spot?.name,
+		spot?.lat,
+		spot?.lng
+	]);
 	// Mount-scoped, so the board drops the block whether it was added or not.
 	useEffect(() => () => preview.current?.(null), []);
 
@@ -201,16 +216,28 @@ export default function AddEventDialog({
 			<ModalForm className="schedule" onSubmit={add.submit}>
 				<div className="mbody flex flex-col gap-4">
 					{/* The same 12-column grid as the edit dialog: the two ask for the
-					    same thing and should read the same way. */}
+					    same thing and should read the same way.
+
+					    The place leads, because picking one is how a block is usually
+					    added and the name follows from it. The grid stays full either
+					    way: the wide half of the first row is the place when the type
+					    has one, and the name when it does not, so free time does not
+					    leave a hole beside the type. */}
 					<div className="grid grid-cols-12 gap-x-2.5 gap-y-3.5">
-						<Field
-							label="Name"
-							className="col-span-8"
-							autoFocus
-							required
-							value={title}
-							onChange={(e) => setTitle(e.target.value)}
-						/>
+						{placeable ? (
+							<FieldShell label={placeText} optional className="col-span-8">
+								<Select value={poi} onChange={setPoi} options={poiOptions} ariaLabel={placeText} />
+							</FieldShell>
+						) : (
+							<Field
+								label="Name"
+								className="col-span-8"
+								optional
+								autoFocus
+								value={title}
+								onChange={(e) => setTitle(e.target.value)}
+							/>
+						)}
 						<FieldShell label="Type" className="col-span-4">
 							<Select
 								value={type}
@@ -258,9 +285,13 @@ export default function AddEventDialog({
 						/>
 
 						{placeable && (
-							<FieldShell label={placeText} optional className="col-span-12">
-								<Select value={poi} onChange={setPoi} options={poiOptions} ariaLabel={placeText} />
-							</FieldShell>
+							<Field
+								label="Name"
+								className="col-span-12"
+								optional
+								value={title}
+								onChange={(e) => setTitle(e.target.value)}
+							/>
 						)}
 						<TextArea
 							label="Notes"
