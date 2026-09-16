@@ -31,20 +31,39 @@ export function useApi<T>(path: string | null): Loadable<T> {
 		const ac = new AbortController();
 		setLoading(true);
 
-		api<T>(path, { signal: ac.signal })
-			.then((d) => {
-				setData(d);
-				setError(null);
-			})
-			.catch((err) => {
-				// An abort means this request was superseded, so its outcome is not
-				// news. Reporting it would overwrite the newer request's state.
-				if (ac.signal.aborted) return;
-				setError(err instanceof ApiError ? err.message : copy.api.loadFailed);
-			})
-			.finally(() => {
-				if (!ac.signal.aborted) setLoading(false);
-			});
+		// The request is started a microtask late, and that is deliberate.
+		//
+		// React's StrictMode mounts every component twice in development: it runs
+		// the effect, runs its cleanup, then runs the effect again, all in one
+		// synchronous commit. Started inline, the first pass therefore put a real
+		// request on the wire and the cleanup immediately aborted it, so every
+		// navigation printed a red `net::ERR_ABORTED` line per section and sent
+		// each GET twice. Both are harmless and both are noise, and noise is what
+		// a genuine error hides in: it made a recent audit of this app slower.
+		//
+		// Deferring by a microtask lets that discarded first pass be cancelled
+		// before it ever reaches the network, because the flush happens after the
+		// commit. Nothing else changes: a request that has actually started is
+		// still aborted the moment its path is superseded, which is a real
+		// cancellation and still worth doing.
+		queueMicrotask(() => {
+			if (ac.signal.aborted) return;
+
+			api<T>(path, { signal: ac.signal })
+				.then((d) => {
+					setData(d);
+					setError(null);
+				})
+				.catch((err) => {
+					// An abort means this request was superseded, so its outcome is not
+					// news. Reporting it would overwrite the newer request's state.
+					if (ac.signal.aborted) return;
+					setError(err instanceof ApiError ? err.message : copy.api.loadFailed);
+				})
+				.finally(() => {
+					if (!ac.signal.aborted) setLoading(false);
+				});
+		});
 
 		return () => ac.abort();
 	}, [path, nonce]);
