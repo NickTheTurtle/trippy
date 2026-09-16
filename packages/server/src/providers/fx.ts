@@ -10,6 +10,7 @@
  * them: see `rateTo`, and the `fx_rate` column expenses store it in.
  */
 import { FALLBACK_RATES } from '@trippy/core/currency';
+import { env } from '../infra/env';
 
 // Units of each currency per 1 USD. Static fallback; refreshed at runtime.
 // The table lives in `@trippy/core/currency` so the home-currency picker and
@@ -45,8 +46,22 @@ async function doRefresh(): Promise<void> {
 	}
 }
 
-/** Kick off a background refresh if the cache is stale. Safe to call often. */
+/**
+ * Kick off a background refresh if the cache is stale. Safe to call often.
+ *
+ * Skipped entirely while `OFFLINE_PROVIDERS` is set. The FX feed
+ * (open.er-api.com) is keyless and free, so unlike Places and Routes it is not
+ * a cost problem and it does not get the throwing guard: a blocked call here
+ * would be a false alarm. It is skipped for the other two reasons the offline
+ * flag exists. Determinism, because live rates change under a test that asserts
+ * a converted total, and independence, because a test must not fail when
+ * somebody else's free service is down. `FALLBACK_RATES` in `@trippy/core` is
+ * a complete table for every currency the app offers, so conversion keeps
+ * working with no network at all; that is what a fresh clone with no keys
+ * already relies on.
+ */
 export function ensureRatesFresh(): void {
+	if (env.OFFLINE_PROVIDERS) return;
 	if (Date.now() - fetchedAt > MAX_AGE_MS) void doRefresh();
 }
 

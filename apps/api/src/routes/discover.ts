@@ -25,7 +25,7 @@ import { backfillTripPhotos } from '@trippy/server/photos';
 import { ensureRatesFresh, knownCurrencies } from '@trippy/server/fx';
 import { citySearchContext } from '@trippy/server/trips';
 import {
-	activeProvider,
+	providerStatus,
 	placeDetailsCached,
 	searchPlaces,
 	MIN_QUERY,
@@ -76,7 +76,10 @@ discover.get('/', async (c) => {
 		currencies: knownCurrencies().sort(),
 		memberCount: trip.members.length,
 		isOrganizer: trip.role === 'organizer',
-		provider: activeProvider()
+		// The provider that is actually answering, not the one configured. This
+		// drives the attribution line under the search box, and attributing an
+		// OSM result to Google is both wrong and a licence problem.
+		provider: providerStatus().serving
 	});
 });
 

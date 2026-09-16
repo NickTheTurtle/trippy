@@ -1,7 +1,7 @@
 import { estimateTravel } from '@trippy/core/geo';
 import type { PlannedLeg } from '@trippy/core/travel';
 import { createCache } from '../infra/cache';
-import { env } from '../infra/env';
+import { assertPaidProviderAllowed, env } from '../infra/env';
 
 /**
  * How long a journey actually takes.
@@ -71,8 +71,13 @@ async function googleMinutes(
 	canBill?: () => boolean
 ): Promise<number | null> {
 	const travelMode = GOOGLE_MODE[mode];
+	// Routes is billed against the same Google key as Places, so it is held to
+	// the same rule: an automated run never buys a route. The key reads as unset
+	// while TRIPPY_OFFLINE_PROVIDERS is set, so this returns before any request;
+	// the assert is the alarm for a future path that gets a key some other way.
 	const apiKey = env.GOOGLE_SERVER_KEY;
 	if (!travelMode || !apiKey) return null;
+	assertPaidProviderAllowed('google routes');
 	// The billed call. When the caller is over its routing quota, skip Google
 	// rather than refuse: the leg falls through to the free OSRM/estimate below,
 	// so a board still loads, only with a rougher time. Charged here so a leg
@@ -107,6 +112,10 @@ async function googleMinutes(
 
 /** OSRM driving minutes, or null. Free, so it is a fallback rather than the first call. */
 async function osrmMinutes(leg: PlannedLeg): Promise<number | null> {
+	// Free but still a third party, and `withTimeout` would swallow a thrown
+	// guard anyway, so offline runs skip it outright and take the straight-line
+	// estimate. That also makes a test's travel times deterministic.
+	if (env.OFFLINE_PROVIDERS) return null;
 	const url = `${OSRM}/${leg.fromLng},${leg.fromLat};${leg.toLng},${leg.toLat}?overview=false`;
 	return withTimeout(async (signal) => {
 		const res = await fetch(url, { signal });
