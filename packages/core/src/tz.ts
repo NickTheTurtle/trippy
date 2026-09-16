@@ -84,6 +84,40 @@ export function localDayMinutes(tz: string, at: Date = new Date()): { day: strin
 	}
 }
 
+/**
+ * The instant (epoch ms) of `minutes` past midnight on `day` in `tz`.
+ *
+ * The schedule stores a wall clock and a calendar day, and takes the zone from
+ * the event's city. A trip crosses zones, so two such wall clocks are not
+ * comparable to each other: 09:00 in Athens is not 09:00 in London, and on a
+ * day with a flight in it the later-looking time can be the earlier instant.
+ * Anything that has to put two events in one order therefore has to come
+ * through here first.
+ *
+ * `minutes` is not restricted to a single day: 1440 is midnight at the end of
+ * `day`, which is how the board ends a day and how a stay is anchored.
+ *
+ * The offset is resolved by guessing the instant as if the wall clock were UTC,
+ * asking the zone what it was offset by around then, and correcting. That is
+ * done twice because the first correction can step over a DST transition and
+ * land in the other offset. On the two ambiguous wall clocks a year (the hour
+ * that repeats, the hour that does not exist) it settles on one of the two
+ * readings rather than throwing: an hour of doubt on one night is not worth
+ * failing a whole day's comparison over.
+ *
+ * An empty or unknown zone is read as UTC, which is what `tzOffsetMinutes`
+ * already falls back to, so a day whose events have no city still compares
+ * consistently within itself.
+ */
+export function zonedMinutesToUtc(day: string, minutes: number, tz?: string | null): number {
+	const [y, m, d] = day.split('-').map(Number);
+	const wall = Date.UTC(y, (m || 1) - 1, d || 1) + minutes * 60000;
+	if (!tz) return wall;
+	let guess = wall - tzOffsetMinutes(tz, new Date(wall)) * 60000;
+	guess = wall - tzOffsetMinutes(tz, new Date(guess)) * 60000;
+	return guess;
+}
+
 /* --- Calendar days -------------------------------------------------------- */
 
 /*
@@ -137,6 +171,12 @@ export function eachDay(start: string, end: string): string[] {
  *
  * Both endpoints are required. A trip cannot exist without them, so there is no
  * placeholder case to format.
+ *
+ * `formatDayRangeShort` in `@trippy/copy/format` is the other one, and it is a
+ * deliberately different string: no year, no same-day collapse, for a chip next
+ * to something that has already said which year it is. Both were once called
+ * `formatDayRange`, which made importing the wrong module produce a label that
+ * looked right and was not.
  */
 export function formatDayRange(start: string, end: string): string {
 	if (start === end) return niceDay(start, true);
