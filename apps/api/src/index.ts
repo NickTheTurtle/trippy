@@ -13,7 +13,8 @@ import { ensureDemoAccount, purgeExpiredSessions } from '@trippy/server/auth';
 import { closeAll } from '@trippy/server/events';
 import { env } from '@trippy/server/env';
 import { searchCities } from '@trippy/server/geocode';
-import { activeProvider } from '@trippy/server/places';
+import { providerStatus } from '@trippy/server/places';
+import { routingStatus } from '@trippy/server/routing';
 import type { SessionUser } from '@trippy/server/auth';
 
 /**
@@ -54,7 +55,42 @@ app.use('*', session);
 
 void env.GOOGLE_SERVER_KEY;
 
-app.get('/api/health', (c) => c.json({ ok: true, provider: activeProvider() }));
+/**
+ * Liveness plus which provider is actually answering, for places and routing.
+ *
+ * `provider` used to be `activeProvider()`, which only says whether a key is
+ * configured. With a broken key that reported "google" while every search was
+ * being served by OSM, so the one endpoint whose job is to say what is wrong
+ * was the thing hiding it. It now reports `serving`, and carries `configured`
+ * and the most recent Google failure beside it so the discrepancy is visible
+ * rather than inferred.
+ *
+ * Routing is reported the same way and from the same record. It used to say
+ * nothing at all: its failures were swallowed into a `null` and a board ran on
+ * straight-line estimates with no trace anywhere.
+ *
+ * Both halves survive a restart, which matters here more than it sounds: this
+ * process runs under `tsx watch`, so it restarts on every file save, and a
+ * report built only from this process's memory went back to green after each
+ * one. See `provider-health.ts` for why that is persisted rather than probed.
+ *
+ * `ok` stays true in a degraded state on purpose: searches and journeys are
+ * still answered, just by the free providers. That is degraded, not down, and a
+ * health check that fails on it would page for something the app is handling.
+ * `degraded` is the field to alert on, and it is true when either half is.
+ */
+app.get('/api/health', (c) => {
+	const { configured, serving, lastFailure } = providerStatus();
+	const routing = routingStatus();
+	return c.json({
+		ok: true,
+		provider: serving,
+		providerConfigured: configured,
+		degraded: serving !== configured || routing.degraded,
+		lastFailure,
+		routing
+	});
+});
 app.route('/api/auth', auth);
 app.route('/api/account', account);
 app.route('/api/trips', trips);

@@ -68,6 +68,25 @@ export const PROVIDER_IP_LIMIT = Number(process.env.TRIPPY_PROVIDER_IP_LIMIT ?? 
  */
 export const ROUTING_LIMIT = Number(process.env.TRIPPY_ROUTING_LIMIT ?? 300);
 
+/**
+ * Per-user ceiling on cover-photo lookups, which are billed Places calls made
+ * by the backlog drainer rather than by anything a member typed.
+ *
+ * It needs its own number for the same reason routing does. A row is looked up
+ * at most once ever and a single request drains at most `PHOTO_BACKLOG_CAP` of
+ * them, so ordinary use is self-limiting; what is not self-limiting is a caller
+ * who adds places faster than the backlog drains, which turns "add a row" into
+ * "buy a Places call" with no ceiling anywhere. Charging these against
+ * `PROVIDER_LIMIT` instead would have been worse than no limit in one specific
+ * way: opening a fresh trip with a full backlog would spend a third of the
+ * search allowance before the member had typed anything, and they would then be
+ * refused a search they were entitled to. Cosmetic work must not be able to
+ * lock a member out of the work they came to do, so it gets a separate, looser
+ * allowance and a gentler failure: the drain simply stops and the rows stay in
+ * the backlog for the next visit.
+ */
+export const PHOTO_LIMIT = Number(process.env.TRIPPY_PHOTO_LIMIT ?? 120);
+
 /** First penalty, doubling per failure after that. */
 const BASE_DELAY_MS = 2_000;
 

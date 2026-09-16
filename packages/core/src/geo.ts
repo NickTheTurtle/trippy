@@ -1,10 +1,18 @@
 /**
  * Geographic helpers shared by everything that has to answer "how far apart are
- * these two stops, and how long does getting between them take?".
+ * these two stops?".
  *
  * This lived twice in `packages/server` (the calendar's inline estimate and the
  * router's fallback), which drifted the moment either was tuned. It is plain
  * arithmetic with no I/O, so it belongs here and both callers import it.
+ *
+ * *How long* that distance takes is deliberately not here: it lives once, in
+ * `travel.ts`, as `minsByMode` and `guessLeg`. There used to be a second
+ * estimate in this file, mode-blind past 8km and with no flight tier, and the
+ * two drifted exactly as the server copies once did: the router took its
+ * minutes from this file and its label from the other, so a 1000km leg was
+ * labelled a flight and given 43 hours of driving. One estimator now answers
+ * both halves of the question. See docs/DESIGN.md, "Travel time".
  */
 
 /** Great-circle distance in km. */
@@ -17,21 +25,4 @@ export function haversineKm(lat1: number, lng1: number, lat2: number, lng2: numb
 		Math.sin(dLat / 2) ** 2 +
 		Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
 	return 2 * R * Math.asin(Math.sqrt(a));
-}
-
-export interface TravelEstimate {
-	mode: string;
-	mins: number;
-}
-
-/**
- * Rough door-to-door estimate from a straight-line distance. Used directly for
- * short hops, and as the fallback whenever the routing provider is unreachable.
- */
-export function estimateTravel(km: number): TravelEstimate {
-	// Real roads are longer than straight lines; pad the distance a little.
-	const dist = km * 1.3;
-	if (dist < 1.1) return { mode: 'walk', mins: Math.max(3, Math.round((dist / 4.8) * 60)) };
-	if (dist < 8) return { mode: 'transit', mins: Math.max(8, Math.round((dist / 16) * 60) + 6) };
-	return { mode: 'drive', mins: Math.max(10, Math.round((dist / 30) * 60) + 5) };
 }
