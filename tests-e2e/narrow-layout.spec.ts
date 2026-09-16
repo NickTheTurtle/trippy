@@ -149,10 +149,10 @@ test.describe('narrow layouts', () => {
 			expect(box.viewAs && box.add && Math.abs(box.viewAs.y - box.add.y)).toBeLessThan(12);
 			expect(box.pills && box.add && box.pills.y - box.add.y).toBeGreaterThan(12);
 
-			// It takes the line it is given, so each half is a real target rather
-			// than the smallest thing in the row.
-			expect(box.pills && box.toolbar && box.pills.width / box.toolbar.width).toBeGreaterThan(0.9);
-			expect(box.pills && box.pills.height).toBeGreaterThan(30);
+			// It keeps the width it has everywhere else rather than stretching to
+			// fill the line, so it is the same control here as on Discover.
+			expect(box.pills && box.toolbar && box.pills.width / box.toolbar.width).toBeLessThan(0.7);
+			expect(box.pills && box.toolbar && box.pills.x - box.toolbar.x).toBeLessThan(2);
 
 			// Nothing bought that line by pushing the page sideways.
 			expect(
@@ -160,6 +160,14 @@ test.describe('narrow layouts', () => {
 					() => document.documentElement.scrollWidth <= document.documentElement.clientWidth
 				)
 			).toBe(true);
+
+			// A narrow desktop window gets the same two lines in the same order.
+			// Left to wrap by itself the row put the switch on top and the other
+			// two below it, which is the order backwards.
+			await page.setViewportSize({ width: 520, height: 900 });
+			box = await boxes();
+			expect(box.viewAs && box.add && Math.abs(box.viewAs.y - box.add.y)).toBeLessThan(12);
+			expect(box.pills && box.add && box.pills.y - box.add.y).toBeGreaterThan(12);
 
 			// Given the room, all three go back to one line.
 			await page.setViewportSize(DESKTOP);

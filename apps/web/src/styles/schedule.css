@@ -670,7 +670,7 @@
 	}
 }
 
-/* The toolbar takes a second line below 480px, and the view switch is what
+/* The toolbar takes a second line below 560px, and the view switch is what
  * goes on it.
  *
  * Three things ride this row: the `Day | Agenda` pills, the "View as" person
@@ -684,21 +684,29 @@
  * So the row is split by what its controls do rather than by what will squeeze.
  * The first line is the two that act on the schedule, who to read it as and
  * what to add to it; the second is the switch that decides which schedule you
- * are reading. The switch takes the full width of that line and its two halves
- * divide it evenly, which is the phone pattern for a segmented control and
- * turns the narrowest target in the row into the widest.
+ * are reading.
  *
- * On the first line the filter flexes and the button does not, so a long name
- * ellipsises rather than cutting the page's primary action short. The flex
- * chain runs the whole way down, because a wrapper that will not shrink pins
- * the control inside it, so `.tools` and `.viewas` both carry `min-width: 0`
- * with the select. What is trimmed is gaps and horizontal padding, never type
- * size: a 0.82rem pill is read at arm's length on a phone and a 0.7rem one is
- * squinted at. Nothing here drops a control under 32px tall.
+ * The switch keeps its natural width there rather than stretching across the
+ * line. A full-width segmented control was tried and is not what ships: the
+ * same capsule is Discover's type filter, and a switch that is one shape on one
+ * page and a different shape on another is two controls to learn. Being the
+ * only thing on its line is already enough to make it easy to hit; the width
+ * was never the problem.
+ *
+ * The break is at 560px rather than at the 484px where the row stops fitting.
+ * Between the two, flex wrap of its own accord follows source order and puts
+ * the pills on the first line with the other two below, which is this layout
+ * backwards. One deliberate layout across the whole range beats a correct one
+ * below 480px and an accidental one just above it.
+ *
+ * With the line to themselves the filter and the button need none of the
+ * trimming the single row wanted. `min-width: 0` still runs the whole way down
+ * to the select, because a wrapper that will not shrink pins the control inside
+ * it, so a long name ellipsises rather than pushing `+ Add` off the edge.
  *
  * On a solo trip the filter is not rendered at all, so the first line is
  * `+ Add` alone on the right and the switch still has the second to itself. */
-@media (max-width: 480px) {
+@media (max-width: 560px) {
 	.sched .toolbar {
 		gap: 0.5rem;
 	}
@@ -722,20 +730,10 @@
 	}
 	.sched .toolbar .btn.primary {
 		flex: 0 0 auto;
-		padding-left: 0.7rem;
-		padding-right: 0.7rem;
 	}
-	/* Line two: the view switch, full width and split evenly. */
+	/* Line two: the view switch, at the width it wants. */
 	.sched .toolbar .pills {
 		order: 2;
-		display: flex;
-		flex: 1 1 100%;
-	}
-	.sched .toolbar .pill {
-		flex: 1 1 0;
-		text-align: center;
-		padding-left: 0.6rem;
-		padding-right: 0.6rem;
 	}
 }
 

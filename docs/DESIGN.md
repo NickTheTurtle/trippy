@@ -3552,7 +3552,7 @@ clipping rather than wrapping: `.pills` sets `overflow: hidden` to clip its own
 rounded corners, and per spec that makes its automatic minimum size resolve to
 zero, so it was free to shrink to nothing. A breakpoint was never the fix.
 
-**Below 480px that toolbar takes a second line, and the view switch is what goes
+**Below 560px that toolbar takes a second line, and the view switch is what goes
 on it.** The three controls hold one line down to 484px. They can be made to keep
 it below that, by letting `View as` take whatever the pills and `+ Add` leave and
 ellipsise a long name inside itself, and that was tried and shipped and then
@@ -3564,21 +3564,34 @@ Fitting was the wrong thing to optimise.
 So the row is split by what each control does rather than by what will squeeze.
 The first line holds the two that act on the schedule, who to read it as and what
 to add to it. The second holds the switch that decides which schedule you are
-reading, and the switch takes the whole width of it, its two halves dividing that
-evenly. That is the ordinary phone treatment of a segmented control, and it turns
-the narrowest target in the row into the widest. On the first line the filter
-still flexes and the button still does not, so a long name ellipsises rather than
-cutting the page's primary action short; the flex chain runs the whole way down,
-since a wrapper that will not shrink pins the control inside it, so `.tools` and
-`.viewas` carry `min-width: 0` along with the select. What is trimmed is gaps and
-horizontal padding, never type size, and nothing drops below 32px tall. The
-filter still renders only on a trip with more than one member, so a solo trip
-gets `+ Add` alone on the first line and the switch still has the second.
+reading.
+
+**The switch keeps its natural width on that line.** Stretching it across the
+line, halves split evenly, is the usual phone treatment of a segmented control
+and was tried first. By the owner's ruling it is wrong here: the same capsule is
+Discover's type filter, and one shape on one page and another shape on the next
+is two controls to learn rather than one. Being alone on its line already makes
+it easy to hit, and the width was never what was wrong with it.
+
+**The break is at 560px, not at the 484px where the row stops fitting.** Between
+those two the row wraps on its own, and flex wrap follows source order, so it put
+the switch on the first line and the other two on the second, which is this
+layout backwards. That band is why the change looked like it had not landed when
+tested by dragging a desktop window narrow. One deliberate layout across the
+whole range beats a correct one below 480px and an accidental one just above it.
+
+With the line to themselves the filter and the button need none of the trimming
+the single row wanted. `min-width: 0` still runs the whole way down to the
+select, since a wrapper that will not shrink pins the control inside it, so a
+long name ellipsises rather than pushing `+ Add` off the edge. The filter still
+renders only on a trip with more than one member, so a solo trip gets `+ Add`
+alone on the first line and the switch still has the second.
 
 Held by `narrow-layout.spec.ts`, which asserts against a seeded two-member trip
 that at 390px the filter and the button share a line with the switch below both,
-that the switch spans the toolbar and stands over 30px tall, that the document
-does not scroll sideways, and that at 1440px all three return to one line.
+that the switch sits at the left edge under 70% of the toolbar's width, that the
+document does not scroll sideways, that 520px gets the same two lines in the same
+order, and that at 1440px all three return to one line.
 
 **The brand mark is a tree of choices, not a glyph.** The header used to sit a
 Unicode `◍` next to the wordmark and the tab still shipped the SvelteKit logo
