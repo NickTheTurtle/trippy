@@ -14,6 +14,7 @@ import { closeAll } from '@trippy/server/events';
 import { env } from '@trippy/server/env';
 import { searchCities } from '@trippy/server/geocode';
 import { providerStatus } from '@trippy/server/places';
+import { routingStatus } from '@trippy/server/routing';
 import type { SessionUser } from '@trippy/server/auth';
 
 /**
@@ -55,7 +56,7 @@ app.use('*', session);
 void env.GOOGLE_SERVER_KEY;
 
 /**
- * Liveness plus which places provider is actually answering.
+ * Liveness plus which provider is actually answering, for places and routing.
  *
  * `provider` used to be `activeProvider()`, which only says whether a key is
  * configured. With a broken key that reported "google" while every search was
@@ -64,19 +65,30 @@ void env.GOOGLE_SERVER_KEY;
  * and the most recent Google failure beside it so the discrepancy is visible
  * rather than inferred.
  *
- * `ok` stays true in that state on purpose: searches are still answered, just
- * by the keyless provider. That is degraded, not down, and a health check that
- * fails on it would page for something the app is handling. `degraded` is the
- * field to alert on.
+ * Routing is reported the same way and from the same record. It used to say
+ * nothing at all: its failures were swallowed into a `null` and a board ran on
+ * straight-line estimates with no trace anywhere.
+ *
+ * Both halves survive a restart, which matters here more than it sounds: this
+ * process runs under `tsx watch`, so it restarts on every file save, and a
+ * report built only from this process's memory went back to green after each
+ * one. See `provider-health.ts` for why that is persisted rather than probed.
+ *
+ * `ok` stays true in a degraded state on purpose: searches and journeys are
+ * still answered, just by the free providers. That is degraded, not down, and a
+ * health check that fails on it would page for something the app is handling.
+ * `degraded` is the field to alert on, and it is true when either half is.
  */
 app.get('/api/health', (c) => {
 	const { configured, serving, lastFailure } = providerStatus();
+	const routing = routingStatus();
 	return c.json({
 		ok: true,
 		provider: serving,
 		providerConfigured: configured,
-		degraded: serving !== configured,
-		lastFailure
+		degraded: serving !== configured || routing.degraded,
+		lastFailure,
+		routing
 	});
 });
 app.route('/api/auth', auth);

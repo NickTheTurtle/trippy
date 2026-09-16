@@ -1055,6 +1055,93 @@ field each, so there is nothing stale riding along to overwrite, and holding a
 gesture to a version the board refetches constantly would refuse perfectly good
 drags whenever somebody else touched an unrelated event.
 
+### 4.9 Paid providers: failing loudly, staying honest, and not spending
+
+Four of our providers bill per call (Google Places, Google Places photos, Google
+Routes, the FX feed) and two are free but rate-limited by someone else's goodwill
+(Photon, OSRM). That mix makes provider code a money question as much as a
+correctness one, and the rules below are the ones we arrived at after watching each
+of them fail in a way we could not see.
+
+**A failure that is only a `null` is a failure nobody will ever fix.** Routing's
+`withTimeout` turned every throw into `null`, and `googleMinutes` returned `null`
+on a non-`ok` response. The route still drew, because OSRM answered, so a 403 on
+every single Google Routes call looked exactly like a quiet evening. Places already
+had a recorder for this; Routing now uses the same one rather than a second
+mechanism, because two health stories that disagree are worse than one that is
+sometimes coarse. Google non-`ok` and a missing duration now *throw* so that the
+recorder sees them, and the fallback still runs, so reporting the failure costs us
+no functionality.
+
+**Google Routes and OSRM are recorded as separate services.** The first version
+shared one record, and because OSRM is called immediately after Google fails, an
+OSRM hiccup overwrote the Google 403 and the endpoint confidently reported the
+wrong provider as broken. `routingStatus()` therefore reports `lastFailure` (the
+paid provider, the one you are paying for and want to know about) beside
+`fallbackFailure` (the free one, which explains why the map is empty).
+
+**Degraded is remembered in SQLite, not recomputed.** `providerStatus()` learned
+that Google was down only from a failure in the current process, and `apps/api`
+runs under `tsx watch`, so every file save wiped the memory and the endpoint went
+green again without anything having been fixed. A monitor polling `/api/health`
+would have seen green all night. Three options were weighed:
+
+- *Probe on demand.* Honest, but it turns a health endpoint into a billing line:
+  anything that polls it (a monitor, a load balancer, a curious tab left open)
+  spends money on a timer. Rejected for the same reason a background poller was
+  ruled out.
+- *Derive it from configuration.* Free, but it answers "is a key set?", not "does
+  the key work". Both Google keys in this environment are present and rejected,
+  which is precisely the state this would call healthy. This is the false green we
+  started with.
+- *Persist the last failure and the last success.* Chosen. It costs nothing, it
+  survives a restart, and it reports the thing that actually happened. The new
+  `provider_health` table holds one row per service and is written only on a state
+  change or at most once a minute, so a hot failure loop does not become a write
+  loop.
+
+The bias is deliberately toward pessimism: a remembered failure stands until a real
+call succeeds. Reporting degraded while healthy costs someone a glance at a
+dashboard; reporting healthy while degraded costs a day of nobody looking.
+
+**Photon is asked in English, because we save what it answers.** `searchPhoton`
+sent no `lang`, so Photon replied in the local script and "Acropolis Museum" was
+stored as "Mouseio Akropolis" in a field the trip then displays and edits forever.
+Probing the live endpoint (an invalid value makes Photon list what it takes)
+showed `lang` accepts only `default`, `de`, `en`, `fr`; `en` is now pinned. Note
+what this does *not* fix: only `name`, `city` and `country` are localized, so
+`street` stays in the local script. That is Photon's data, not our parameter.
+
+**Address search: what the provider can and cannot do.** Typing the Acropolis
+Museum's own displayed address returned several visually identical rows with
+different coordinates, none of them the building. Probing the live endpoint
+established that (a) Photon has no structured-query parameter at all, so the house
+number cannot be sent as a field, (b) `dedupe` and `suggest_addresses` changed
+nothing for this query, and (c) Greek addresses in OSM have no house-number node,
+so no free provider can return that building by its address. Three of those
+identical rows were `highway:*` segments of the same street, which is why they
+looked the same and sat in different places. What we could fix, we did: the house
+number and postcode the response *does* carry are no longer discarded, rows are
+deduped on name plus address, and named buildings are ordered ahead of raw street
+segments, so the museum appears above the street it is on. Building-level address
+lookup remains a Google Places job, and will work when a working key exists. This
+is recorded as a limitation rather than a bug: the honest answer is that the free
+provider does not hold the data.
+
+**A cost ceiling is not the same as a cache.** The cache stops us paying twice for
+the same question; it does nothing about a caller asking a million different ones.
+Per-user and per-IP allowances (`TRIPPY_PROVIDER_LIMIT`, `TRIPPY_PROVIDER_IP_LIMIT`,
+`TRIPPY_ROUTING_LIMIT`) bound the searches somebody types. The one billed call
+nobody types is the cover-photo backlog: a board load drains up to 24 photoless
+rows, one paid lookup each, driven by row count rather than by anything a person
+asked for. It now runs behind its own allowance (`TRIPPY_PHOTO_LIMIT`) rather than
+sharing the search budget, because a picture is decoration and must never be able
+to exhaust the allowance that search needs. Its failure mode differs from search's
+for the same reason: search raises a clear 429 so the typist knows why nothing came
+back, while the photo drain simply stops and leaves the rows in the backlog for the
+next visit. Silently returning an empty result is the one thing neither of them
+does.
+
 ---
 
 ## 5. Architecture & Stack
