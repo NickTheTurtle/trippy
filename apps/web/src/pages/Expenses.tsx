@@ -175,7 +175,9 @@ export default function Expenses() {
 
 				{section === 'balances' && (
 					<>
-						<div className="card px-5 py-5">
+						{/* Empty, the card is unpadded: the empty state is the panel and
+						    carries its own padding, the same as on the list tab. */}
+						<div className={`card ${unsettled === 0 ? '' : 'px-5 py-5'}`}>
 							{unsettled === 0 ? (
 								<EmptyState message={ce.allEven} />
 							) : (
@@ -226,7 +228,7 @@ export default function Expenses() {
 
 				{section === 'settle' && (
 					<>
-						<div className="card px-5 py-5">
+						<div className={`card ${data.settlement.length === 0 ? '' : 'px-5 py-5'}`}>
 							{data.settlement.length === 0 ? (
 								<EmptyState message={ce.nothingToSettle} />
 							) : (

@@ -201,8 +201,12 @@ export default function Pretrip() {
 				{section !== 'costs' ? (
 					<>
 						{section === 'tasks' && <MyTasks {...taskProps} items={data.tasks} />}
+						{/* An empty list hands the whole card to `EmptyState`, which brings
+						    its own padding, so the panel is the height it is on every other
+						    tab. Padding here as well made this one 40px taller than the
+						    identical panel on Expenses. */}
 						{(rest.length > 0 || !split) && (
-							<div className="card min-w-0 px-5 py-5">
+							<div className={`card min-w-0 ${rest.length === 0 ? '' : 'px-5 py-5'}`}>
 								{split && <ListTitle>{cp.myTasks.othersTitle}</ListTitle>}
 								<TaskList {...taskProps} items={rest} />
 							</div>
