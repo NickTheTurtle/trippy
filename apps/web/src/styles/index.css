@@ -1418,7 +1418,7 @@ html[data-page-nav='back']::view-transition-new(trippage) {
 	font-size: var(--text-meta);
 	margin: 0.6rem 0 0;
 }
-.wp-pin span {
+.wp-pin .wp-pin-body {
 	display: grid;
 	place-items: center;
 	width: 24px;
@@ -1429,10 +1429,39 @@ html[data-page-nav='back']::view-transition-new(trippage) {
 	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
 	border: 2px solid #fff;
 }
-.wp-pin span b {
+.wp-pin .wp-pin-body b {
 	transform: rotate(45deg);
 	color: #fff;
 	font: 600 0.75rem/1 var(--font-sans);
+}
+/* The wrapper a counted pin needs, so the badge is a sibling of the teardrop
+   rather than a child of it: the teardrop is rotated, and anything inside it
+   turns with it. */
+.wp-pin .wp-pin-stack {
+	display: contents;
+}
+/* How many things are at this point. It sits at the corner of the pin rather
+   than inside it because the inside is where the order number goes, and a count
+   written there would be read as one. It never takes the pointer: it overhangs
+   its pin's 24px box, and a badge that could be clicked would swallow the
+   clicks meant for whatever pin is beside it. */
+.wp-pin .wp-pin-count {
+	position: absolute;
+	top: -3px;
+	left: 11px;
+	min-width: 15px;
+	height: 15px;
+	padding: 0 3px;
+	box-sizing: border-box;
+	display: grid;
+	place-items: center;
+	border-radius: 999px;
+	background: #fff;
+	border: 2px solid var(--pin, #2f6d5e);
+	color: var(--pin, #2f6d5e);
+	font: 700 0.6rem/1 var(--font-sans);
+	font-style: normal;
+	pointer-events: none;
 }
 /* The layer the hover card is drawn on: fixed, so no scroll box or map frame
    can clip it, and never a pointer target, so it cannot steal the hover that
@@ -1462,6 +1491,30 @@ html[data-page-nav='back']::view-transition-new(trippage) {
 	box-shadow: var(--shadow-card);
 	font-family: var(--font-sans);
 	line-height: 1.35;
+}
+.mapcard-one,
+.mapcard-entry {
+	display: flex;
+	flex-direction: column;
+	gap: 0.05rem;
+}
+/* What a pin holding several things says. It scrolls rather than grows: nine
+   things at one venue would otherwise make a card taller than a phone. The
+   pointer is given back to it, because the layer refuses the pointer and a list
+   nobody can reach cannot be scrolled; the card is only reachable once it has
+   been clicked, which is what holds it open. */
+.mapcard-list {
+	display: flex;
+	flex-direction: column;
+	max-height: min(18rem, 50vh);
+	overflow-y: auto;
+	pointer-events: auto;
+	overscroll-behavior: contain;
+}
+.mapcard-list .mapcard-entry + .mapcard-entry {
+	margin-top: 0.4rem;
+	padding-top: 0.4rem;
+	border-top: 1px solid var(--color-line);
 }
 /* The only thing tying a card to the pin under the pointer is that pin's
    colour, so the track name wears it. Small and spaced, so it reads as a label
