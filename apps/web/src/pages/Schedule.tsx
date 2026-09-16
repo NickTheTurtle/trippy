@@ -411,10 +411,17 @@ const Axis = memo(function Axis({ boardStart }: { boardStart: number }) {
 					className="hourline"
 					style={{ top: `${(h * 60 - boardStart) * PX_PER_MIN}px` }}
 				>
-					{/* The last line is where the day stops, not an hour of it:
-					    labelling it would put a second "12 AM" on a board dragged
-					    fully open, directly under the one the day started on. */}
-					{h * 60 < DAY_END && <span>{hourLabel(h)}</span>}
+					{/* Every rule is named, the closing midnight included.
+					    It used to be left bare, on the reasoning that a board
+					    dragged fully open would then carry two "12 AM"s. It would,
+					    but they are a day and 1440px apart with twenty-three named
+					    hours between them, and a box capped at 70vh has to be over
+					    1440px tall before both are even on screen at once. What the
+					    bare rule cost instead was on every ordinary board: the day
+					    ran 11 PM, blank, and stopped without saying where. Each
+					    midnight is true where it sits, one opening the day and one
+					    closing it, so both are written. */}
+					<span>{hourLabel(h)}</span>
 				</div>
 			))}
 		</div>
