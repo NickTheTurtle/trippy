@@ -3,10 +3,10 @@ import { splitByWeight, type SplitMode } from '@trippy/core/split';
 import { api } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
 import { currencySymbol, formatMoney } from '../../lib/format';
-import { currencyOptions } from '../../lib/currencies';
 import Modal, { ModalFooter, ModalForm } from '../../components/ui/Modal';
 import { useDeleteAction } from '../../components/ui/useDeleteAction';
 import Select from '../../components/ui/Select';
+import CurrencyPicker from '../../components/ui/CurrencyPicker';
 import { FieldShell } from '../../components/ui/Field';
 import { IconButton, LinkButton } from '../../components/ui/buttons';
 import { MinusIcon, PlusIcon } from '../../components/ui/icons';
@@ -242,14 +242,14 @@ export default function EditExpense({
 									className="input"
 								/>
 							</FieldShell>
-							<FieldShell className="col-span-6 sm:col-span-3" label={c.currencyLabel}>
-								<Select
-									options={currencyOptions(currencies)}
-									value={currency}
-									onChange={setCurrency}
-									ariaLabel={c.currencyLabel}
-								/>
-							</FieldShell>
+							<CurrencyPicker
+								className="col-span-6 sm:col-span-3"
+								label={c.currencyLabel}
+								codes={currencies}
+								value={currency}
+								onChange={setCurrency}
+								ariaLabel={c.currencyLabel}
+							/>
 							<FieldShell
 								className="col-span-12 sm:col-span-5"
 								label={income ? c.receivedByLabel : c.paidByLabel}
