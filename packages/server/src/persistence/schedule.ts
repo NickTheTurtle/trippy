@@ -211,6 +211,70 @@ export function scheduleDays(tripId: string): string[] {
 	return rows.map((r) => r.day);
 }
 
+/*
+ * --- Where the schedule reaches, without listing it ------------------------
+ *
+ * `scheduleDays` materialises every day that carries something, which is fine
+ * for a trip with events on twenty days and useless as a way to answer "how far
+ * does this trip reach" or "what is the next day I can step to". A two-year
+ * trip has no more rows than a weekend one, but the caller that needed the
+ * edges used to walk the calendar to find them, and a walk needs a stopping
+ * rule that is always wrong at some trip length.
+ *
+ * These four answer the same questions in SQL, in constant time, so the reach
+ * of a trip no longer depends on anything being listed first.
+ */
+
+/** Whether anything starts on `day`. The cheap form of `scheduleDays().includes`. */
+export function dayHasEvents(tripId: string, day: string): boolean {
+	const row = db
+		.prepare(`SELECT 1 AS hit FROM events WHERE trip_id = ? AND day = ? LIMIT 1`)
+		.get(tripId, day) as unknown as { hit: number } | undefined;
+	return row !== undefined;
+}
+
+/** Earliest and latest day carrying anything, or nulls for an empty schedule. */
+export function scheduledDayEdges(tripId: string): { first: string | null; last: string | null } {
+	const row = db
+		.prepare(`SELECT MIN(day) AS first, MAX(day) AS last FROM events WHERE trip_id = ?`)
+		.get(tripId) as unknown as { first: string | null; last: string | null } | undefined;
+	return { first: row?.first ?? null, last: row?.last ?? null };
+}
+
+/** The nearest day before `day` that carries something, or null. */
+export function scheduledDayBefore(tripId: string, day: string): string | null {
+	const row = db
+		.prepare(`SELECT MAX(day) AS d FROM events WHERE trip_id = ? AND day < ?`)
+		.get(tripId, day) as unknown as { d: string | null } | undefined;
+	return row?.d ?? null;
+}
+
+/** The nearest day after `day` that carries something, or null. */
+export function scheduledDayAfter(tripId: string, day: string): string | null {
+	const row = db
+		.prepare(`SELECT MIN(day) AS d FROM events WHERE trip_id = ? AND day > ?`)
+		.get(tripId, day) as unknown as { d: string | null } | undefined;
+	return row?.d ?? null;
+}
+
+/**
+ * How many days carry something outside `[start, end]`.
+ *
+ * The count of days a trip offers is the length of its own range plus these:
+ * the days inside the range are already offered whether or not anything is on
+ * them, so only the stranded ones add to the total. Counted rather than listed
+ * so the total costs the same on a trip of any length.
+ */
+export function strandedDayCount(tripId: string, start: string, end: string): number {
+	const row = db
+		.prepare(
+			`SELECT COUNT(DISTINCT day) AS n FROM events
+			 WHERE trip_id = ? AND (day < ? OR day > ?)`
+		)
+		.get(tripId, start, end) as unknown as { n: number } | undefined;
+	return row?.n ?? 0;
+}
+
 function toPlanner(e: EventRow): PlannerEvent {
 	return {
 		id: e.id,

@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { requireMember } from '../middleware';
 import { routingGate } from '../provider-quota';
 import { body, int, isoDay, num, str, strList } from '../parse';
@@ -6,6 +7,7 @@ import { fail, goneMessage, okOr } from '../respond';
 import type { Env, Trip } from '../types';
 import { env } from '@trippy/server/env';
 import { isEventType, isLocatedType, MIN_EVENT_MINS, type EventType } from '@trippy/core/types';
+import { formatDayRange } from '@trippy/core/tz';
 import { isNameLength, nameTooLong } from '@trippy/core/validate';
 import {
 	createEvent,
@@ -23,9 +25,14 @@ import {
 	resizeEvent,
 	saveAutoLeg,
 	scheduleDays,
+	scheduledDayAfter,
+	scheduledDayBefore,
+	scheduledDayEdges,
 	setEventPeople,
 	shiftDay,
 	staysOnBoard,
+	strandedDayCount,
+	dayHasEvents,
 	STAY_CHECK_IN
 } from '@trippy/server/schedule';
 import { routeLegs } from '@trippy/server/routing';
@@ -55,6 +62,42 @@ function foreignEvent(tripId: string, eventId: string): boolean {
 }
 
 /**
+ * What a request for a day the trip does not have is told.
+ *
+ * A 400 in this API is `{ error }` and nothing else, and that is still what the
+ * message is read from. The extra fields are for the client's own recovery: the
+ * board is reached by url, so the commonest way here is a bookmark left behind
+ * by a trip whose dates were edited, and the honest fix is to send the reader to
+ * a day that exists rather than to leave them on a dead url. Parsing the range
+ * back out of the sentence is not a contract.
+ *
+ * `code` is there because the three refusals are genuinely different and only
+ * one of them is the reader's typing:
+ *
+ *  - `not_a_date` the day in the url is not a date at all
+ *  - `outside_trip` a real date, before or after everything the trip reaches
+ *  - `day_not_offered` a real date inside the trip's reach, on neither its dates
+ *    nor anything scheduled: the gap left behind when a trip was shortened under
+ *    an event
+ *
+ * `firstDay` / `lastDay` are null on a trip with no dates and nothing scheduled,
+ * which has no range to name; they are null rather than invented.
+ */
+type DayRefusal = 'not_a_date' | 'outside_trip' | 'day_not_offered';
+
+function outOfRange(
+	c: Context<Env>,
+	reach: { first: string; last: string } | null,
+	code: DayRefusal,
+	message: string
+) {
+	return c.json(
+		{ error: message, code, firstDay: reach?.first ?? null, lastDay: reach?.last ?? null },
+		400
+	);
+}
+
+/**
  * Fill in the automatic side of a day's travel, then read it back.
  *
  * Routing is done here rather than inside the persistence layer because it
@@ -79,21 +122,155 @@ async function dayLegs(tripId: string, day: string, canBill?: () => boolean) {
 }
 
 /**
- * The days the trip offers, which is its date range plus anything scheduled
- * outside it.
+ * The trip's own date range, when it has a usable one.
  *
- * The range alone is not enough: a trip's dates can be edited after the fact,
- * and an event stranded outside the new range would become unreachable rather
- * than visibly wrong. `scheduleDays` alone is not enough either, since a trip
- * with nothing on it yet would offer no days to put the first event on.
+ * Reversed endpoints are treated as no range at all rather than walked: a range
+ * that ends before it starts describes no days, and the schedule's reach then
+ * comes from what is actually scheduled.
  */
-function tripDays(tripId: string, start: string | null, end: string | null): string[] {
-	const days = new Set(scheduleDays(tripId));
+function tripRange(start: string | null, end: string | null): { start: string; end: string } | null {
 	const from = isoDay(start);
 	const to = isoDay(end);
-	if (from && to) {
-		// Guard against a reversed or absurd range walking forever.
-		for (let d = from, i = 0; d <= to && i < 400; d = shiftDay(d, 1), i++) days.add(d);
+	return from && to && from <= to ? { start: from, end: to } : null;
+}
+
+/** Whole days from `start` to `end` inclusive. Arithmetic, so no walk. */
+function spanDays(start: string, end: string): number {
+	const ms = Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`);
+	return Math.round(ms / 86400000) + 1;
+}
+
+/**
+ * How far the trip reaches, and how many days that is.
+ *
+ * This is the same definition the day list has always had - the date range
+ * union everything scheduled outside it, so an event stranded by a shortened
+ * trip stays reachable - but answered without building the list. That matters
+ * because the list used to *be* the answer, and building it needed a stopping
+ * rule: `for (let d = from, i = 0; d <= to && i < 400; ...)`. Four hundred was
+ * a guard against a reversed or absurd range walking forever, not a considered
+ * limit, and it silently truncated any real trip longer than it. The Montreal
+ * trip runs 2024-09-09 to 2026-09-12, so its last eleven months were not served
+ * at all and every request for a day in them was answered with 2025-10-13.
+ *
+ * Edges come from `MIN`/`MAX` over the events table, so the cost is the same
+ * whether the trip is a weekend or a decade, and no number in here decides how
+ * far a trip may run.
+ */
+function tripReach(
+	tripId: string,
+	range: { start: string; end: string } | null
+): { first: string; last: string; count: number } | null {
+	const edges = scheduledDayEdges(tripId);
+	if (!range) {
+		if (!edges.first || !edges.last) return null;
+		return { first: edges.first, last: edges.last, count: scheduleDays(tripId).length };
+	}
+	return {
+		first: edges.first && edges.first < range.start ? edges.first : range.start,
+		last: edges.last && edges.last > range.end ? edges.last : range.end,
+		count: spanDays(range.start, range.end) + strandedDayCount(tripId, range.start, range.end)
+	};
+}
+
+/**
+ * Whether the trip offers `day` at all.
+ *
+ * Offered is the date range union the days that carry something, which is the
+ * set the arrows walk: a day stranded outside a shortened range is offered, and
+ * so are all the days inside the range, empty or not. The gap between a
+ * stranded day and the range is neither, and answering for it would be the same
+ * fiction as the clamp - a board for a day the trip does not have.
+ *
+ * Two indexed reads at most, and neither depends on how long the trip is.
+ */
+function offersDay(
+	tripId: string,
+	range: { start: string; end: string } | null,
+	reach: { first: string; last: string },
+	day: string
+): boolean {
+	if (day < reach.first || day > reach.last) return false;
+	if (range && day >= range.start && day <= range.end) return true;
+	return dayHasEvents(tripId, day);
+}
+
+/**
+ * The next day the trip offers in `delta`'s direction, or null at the end.
+ *
+ * The arrows step through what the trip offers, which is not the calendar: a
+ * day stranded outside a shortened range is offered, and the empty days between
+ * it and the range are not. So the answer is the nearest of two candidates -
+ * the neighbouring day inside the range, and the nearest day carrying anything
+ * - rather than `day ± 1`.
+ *
+ * Served as a field because the client used to derive it by finding the day in
+ * the list and taking the next index, which only works while the whole list is
+ * in the payload.
+ */
+function stepDay(
+	tripId: string,
+	range: { start: string; end: string } | null,
+	day: string,
+	delta: 1 | -1
+): string | null {
+	const forward = delta === 1;
+	const inRange = range
+		? forward
+			? day < range.start
+				? range.start
+				: day < range.end
+					? shiftDay(day, 1)
+					: null
+			: day > range.end
+				? range.end
+				: day > range.start
+					? shiftDay(day, -1)
+					: null
+		: null;
+	const scheduled = forward ? scheduledDayAfter(tripId, day) : scheduledDayBefore(tripId, day);
+	const options = [inRange, scheduled].filter((d): d is string => d !== null);
+	if (!options.length) return null;
+	return forward
+		? options.reduce((a, b) => (b < a ? b : a))
+		: options.reduce((a, b) => (b > a ? b : a));
+}
+
+/**
+ * How many days the payload is willing to list at once.
+ *
+ * The list is no longer what decides which days exist - `firstDay`, `lastDay`,
+ * `prevDay` and `nextDay` do, and every one of them is answered without it - so
+ * this is a payload bound rather than a reach bound. It is deliberately far
+ * above any real trip (eleven years) so that the window is never what a member
+ * runs into: the trip form caps a new trip at 366 days, and the longest trip in
+ * the database is 730. If the list is ever dropped from the payload, nothing
+ * about which days are reachable changes.
+ */
+const MAX_DAY_LIST = 4000;
+
+/**
+ * The days the trip offers, as a window around the one being drawn.
+ *
+ * Centred on `day` rather than started at `first` so that a trip long enough to
+ * exceed the window still lists the days either side of where the reader is.
+ */
+function tripDays(
+	tripId: string,
+	range: { start: string; end: string } | null,
+	reach: { first: string; last: string },
+	day: string
+): string[] {
+	const half = Math.floor(MAX_DAY_LIST / 2);
+	const back = shiftDay(day, -half);
+	const from = back > reach.first ? back : reach.first;
+	const edge = shiftDay(from, MAX_DAY_LIST - 1);
+	const to = edge < reach.last ? edge : reach.last;
+	const days = new Set(scheduleDays(tripId).filter((d) => d >= from && d <= to));
+	if (range) {
+		const walkFrom = from > range.start ? from : range.start;
+		const walkTo = to < range.end ? to : range.end;
+		for (let d = walkFrom; d <= walkTo; d = shiftDay(d, 1)) days.add(d);
 	}
 	return [...days].sort();
 }
@@ -101,41 +278,68 @@ function tripDays(tripId: string, start: string | null, end: string | null): str
 schedule.get('/', async (c) => {
 	const trip = c.get('trip');
 
-	const days = tripDays(trip.id, trip.start_date, trip.end_date);
-	// `day` is fed to shiftDay(), so a malformed one would build an Invalid Date
-	// and throw inside toISOString(), turning a mistyped url into a 500. Anything
-	// that is not a real calendar day falls back to a day the trip really has.
-	//
+	const range = tripRange(trip.start_date, trip.end_date);
+	const reach = tripReach(trip.id, range);
+
 	// The trip's own start comes first, ahead of the earliest scheduled day. It
 	// used to be the other way around, and a single event saved on a mistyped
 	// date was then enough to make a bare /schedule open on the year 1900 for
 	// every member of the trip, with no previous arrow and nothing but empty
-	// board ahead. The stray day is still reachable, because `tripDays` still
-	// lists it; it just no longer decides where everybody starts.
-	const fallback =
-		isoDay(trip.start_date) ?? isoDay(days[0]) ?? new Date().toISOString().slice(0, 10);
+	// board ahead. The stray day is still reachable, because it is still inside
+	// the trip's reach; it just no longer decides where everybody starts.
+	const fallback = range?.start ?? reach?.first ?? new Date().toISOString().slice(0, 10);
 	const viewRaw = c.req.query('view') ?? 'day';
 	const view: ViewMode = VIEWS.includes(viewRaw as ViewMode) ? (viewRaw as ViewMode) : 'day';
 
-	/* Outside the trip is not a place you can be.
+	/* A day the trip does not have is refused, not quietly swapped.
 	 *
-	 * Clamped here rather than only in the toolbar because the day is a url, and
-	 * a url can be typed, bookmarked or left behind by a trip whose dates were
-	 * shortened afterwards. Answering those with an empty board would show a day
-	 * the trip does not have and offer no clue which way is back.
+	 * This used to clamp: a request for a day past the end came back 200 with
+	 * the last day on it, so the url said one thing and the board drew another,
+	 * and there was nothing in the response to tell the client they had parted
+	 * company. Paired with a day list truncated at 400, that turned a genuine
+	 * bug (the last eleven months of a two-year trip were not served) into a
+	 * silent one: the board looked like it had answered.
 	 *
-	 * `tripDays` already includes anything scheduled outside the range, so a
-	 * stranded event stays reachable: the bound is what the trip offers, not its
-	 * dates. */
-	const requested = isoDay(c.req.query('day')) ?? fallback;
-	const last = days[days.length - 1];
-	const day = !days.length
-		? requested
-		: requested < days[0]
-			? days[0]
-			: last && requested > last
-				? last
-				: requested;
+	 * Two cases, kept distinguishable:
+	 *
+	 *  - Not a date at all, or a date outside what the trip offers: a client
+	 *    error, 400, with the range named and carried as `firstDay`/`lastDay` so
+	 *    the caller can send the reader somewhere real rather than parse prose.
+	 *  - A date inside what the trip offers: always served, whatever `days`
+	 *    happens to list. The list is a window; it never decides which day the
+	 *    board draws.
+	 *
+	 * `day` is fed to shiftDay(), so a malformed one would build an Invalid Date
+	 * and throw inside toISOString(): the refusal comes before any use of it.
+	 *
+	 * The reach is the date range union anything scheduled outside it, so an
+	 * event stranded by a shortened trip is still inside and still reachable. */
+	const asked = c.req.query('day');
+	const requested = asked ? isoDay(asked) : fallback;
+	if (!requested) return outOfRange(c, reach, 'not_a_date', 'That is not a date.');
+	if (reach && (requested < reach.first || requested > reach.last)) {
+		return outOfRange(
+			c,
+			reach,
+			'outside_trip',
+			`That day is outside this trip, which runs ${formatDayRange(reach.first, reach.last)}.`
+		);
+	}
+	if (reach && !offersDay(trip.id, range, reach, requested)) {
+		// Inside the reach but on neither the dates nor anything scheduled, which
+		// only happens to a trip that was shortened under an event: the stranded
+		// day is still offered, the empty days between it and the range are not.
+		return outOfRange(
+			c,
+			reach,
+			'day_not_offered',
+			range
+				? `The trip does not cover that day. Its dates run ${formatDayRange(range.start, range.end)}, and nothing is scheduled on it.`
+				: 'Nothing is scheduled on that day.'
+		);
+	}
+	const day = requested;
+	const days = reach ? tripDays(trip.id, range, reach, day) : [day];
 
 	// Cities are dateless itinerary places, so the first city is the trip-wide
 	// default rather than a schedule. It frames the day view's map; the pins
@@ -171,6 +375,20 @@ schedule.get('/', async (c) => {
 		days,
 		day,
 		view,
+		/* What the trip reaches, answered without the list.
+		 *
+		 * `days` used to be the only statement of this, so anything it left out
+		 * did not exist as far as the client was concerned. These four are each
+		 * derived from the trip's dates and a `MIN`/`MAX` over its events, so
+		 * they stay correct at any trip length and the list can shrink or go
+		 * away without changing what is reachable. `dayCount` is what the trip
+		 * offers in total, which is not `days.length` on a trip long enough to
+		 * exceed the window. */
+		firstDay: reach?.first ?? day,
+		lastDay: reach?.last ?? day,
+		dayCount: reach?.count ?? 1,
+		prevDay: reach ? stepDay(trip.id, range, day, -1) : null,
+		nextDay: reach ? stepDay(trip.id, range, day, 1) : null,
 		board,
 		members: trip.memberList,
 		me: c.get('user').id,
@@ -219,7 +437,7 @@ function editedType(eventId: string, sent: unknown): EventType {
 /**
  * Whether a day falls outside the trip, for a write that is choosing one.
  *
- * Reads are deliberately more forgiving than writes: `tripDays` still lists
+ * Reads are deliberately more forgiving than writes: a read still serves
  * anything already scheduled outside the range, so an event stranded by a later
  * change to the trip's dates stays reachable. This is only about refusing to
  * create the stranded row in the first place. A single event saved on a
