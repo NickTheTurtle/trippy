@@ -33,8 +33,11 @@ test.describe('people', () => {
 			await dialog.getByRole('button', { name: copy.common.add, exact: true }).click();
 
 			// An invite is a real placeholder member, tagged invited and carrying the
-			// address it was sent to, not a separate pending list.
-			const row = page.getByRole('listitem').filter({ hasText: 'Zoe' });
+			// address it was sent to, not a separate pending list. Scoped to the
+			// roster card: results are corner toasts now, and a toast is a list item
+			// too, so an unscoped listitem query matches the confirmation as well.
+			const roster = page.locator('section.card');
+			const row = roster.getByRole('listitem').filter({ hasText: 'Zoe' });
 			await expect(row).toContainText(cpl.row.invitedTag);
 			await expect(row).toContainText('zoe@example.test');
 
@@ -48,7 +51,7 @@ test.describe('people', () => {
 			const confirm = page.getByRole('dialog');
 			await expect(confirm.getByRole('heading', { name: cpl.deleteTitle('Zoe') })).toBeVisible();
 			await confirm.getByRole('button', { name: copy.common.delete, exact: true }).click();
-			await expect(page.getByRole('listitem').filter({ hasText: 'Zoe' })).toHaveCount(0);
+			await expect(roster.getByRole('listitem').filter({ hasText: 'Zoe' })).toHaveCount(0);
 		} finally {
 			fixture.teardown();
 		}
@@ -69,8 +72,10 @@ test.describe('people', () => {
 			await dialog.getByRole('button', { name: copy.common.add, exact: true }).click();
 
 			// Nothing was sent, so nothing claims to be waiting, and the synthetic
-			// address the server keeps for its index never reaches the page.
-			const row = page.getByRole('listitem').filter({ hasText: 'Mum' });
+			// address the server keeps for its index never reaches the page. Scoped
+			// to the roster card, since the corner toast confirming the add is a
+			// list item that carries the same name.
+			const row = page.locator('section.card').getByRole('listitem').filter({ hasText: 'Mum' });
 			await expect(row).toBeVisible();
 			await expect(row).not.toContainText(cpl.row.invitedTag);
 			await expect(row).not.toContainText('waypoint.invalid');

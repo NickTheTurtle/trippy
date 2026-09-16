@@ -35,7 +35,9 @@ test.describe('account', () => {
 			await page.getByRole('option', { name: 'America/New York', exact: true }).click();
 			await profile.getByRole('button', { name: copy.common.save }).click();
 
-			await expect(profile.getByText(ca.profile.saved)).toBeVisible();
+			// The confirmation is a corner toast, so it is on the page rather than in
+			// the card: the save outlives the form, which remounts on a new email.
+			await expect(page.locator('.toast.ok').filter({ hasText: ca.profile.saved })).toBeVisible();
 
 			// A reload reseeds the fields from what was stored, so surviving it is the
 			// proof the change persisted rather than lingering in form state.
@@ -50,6 +52,55 @@ test.describe('account', () => {
 			expect(body.profile.name).toBe('Nova Traveler');
 			expect(body.profile.email).toBe(newEmail);
 			expect(body.profile.homeTz).toBe('America/New_York');
+		} finally {
+			user.teardown();
+		}
+	});
+
+	/**
+	 * The corner popups, driven from the one page that can raise both tones a few
+	 * seconds apart: the profile save succeeds and the password save is refused.
+	 */
+	test('results stack in the corner, an error waits to be dismissed and a success expires', async ({
+		page,
+		request
+	}) => {
+		const user = await registerUser(request);
+		try {
+			await signIn(page, user.sessionCookie);
+			await page.goto('/account');
+
+			const profile = page
+				.locator('section')
+				.filter({ has: page.getByRole('heading', { name: ca.profile.heading }) });
+			const password = page
+				.locator('section')
+				.filter({ has: page.getByRole('heading', { name: ca.password.heading }) });
+
+			await profile.getByRole('button', { name: copy.common.save }).click();
+			const ok = page.locator('.toast.ok');
+			await expect(ok).toHaveCount(1);
+			// Politely for a success, so it waits its turn rather than cutting in.
+			await expect(ok.locator('span[role="status"]')).toBeVisible();
+
+			await password.getByLabel(ca.password.currentLabel).fill('not-the-password');
+			await password.getByLabel(/^New password/).fill('Another-Pass-2026!');
+			await password.getByLabel(ca.password.confirmLabel).fill('Another-Pass-2026!');
+			await password.getByRole('button', { name: copy.common.save }).click();
+
+			// Both at once: the second does not replace the first.
+			const bad = page.locator('.toast.bad');
+			await expect(bad).toHaveCount(1);
+			await expect(bad.locator('span[role="alert"]')).toBeVisible();
+			await expect(page.locator('.toast')).toHaveCount(2);
+
+			// The success goes on its own clock. The refusal does not: it is the only
+			// account of why the save did not happen.
+			await expect(ok).toHaveCount(0, { timeout: 8000 });
+			await expect(bad).toHaveCount(1);
+
+			await bad.getByRole('button').click();
+			await expect(page.locator('.toast')).toHaveCount(0);
 		} finally {
 			user.teardown();
 		}
