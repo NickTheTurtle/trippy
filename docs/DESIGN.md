@@ -5193,6 +5193,49 @@ and in the same five columns beside the clock's seven, so the two dialogs read
 alike and the row is full rather than half empty. An unpicked mode is sent as
 absent, not as an empty string: absent means "let the router decide", which is
 the right default for a journey nobody has an opinion about.
+## A card says what it can do
+
+**A Discover card carries a pencil.** Pressing the cover of a place or a stay
+has always opened its editor, and both card components said so in a comment,
+which is the wrong place to say it: nothing on the card looked like a control,
+so the only way to discover the app's main editing gesture was to press a
+picture and find out. Enumerating a card's controls found one name, the vote
+pill; the body button's name is whatever text the card happens to contain, which
+is a title, a rating and an opening time, not an action. The footer now holds a
+third control beside Vote and Open: the shared `IconButton` with the pencil
+every other list in the app already uses, labelled "Edit <name>". The body
+button stays exactly as it was, because the large target is genuinely the nicer
+way to open the editor once you know it is there.
+
+**Deleting stays in the editor.** It is one click further, it keeps the
+confirmation that already guards it, and a trash button on every tile of a
+fourteen-tile grid would be the loudest thing on the page. That is the same
+reasoning `RemoveCardButton` carries for the city rows, where the button is
+revealed by hovering its row rather than drawn on all of them at once.
+
+## When the drawing appears on an empty panel
+
+`EmptyState` has two shapes and they differ only by the drawn bug. The rule for
+choosing between them is about what the panel is standing in for:
+
+- **A list you add to gets the drawing**, with the house caption "Nothing added
+  yet". The space is already reserved for rows, and a single grey sentence in
+  the corner of it reads as a rendering failure rather than as an empty list.
+- **An answer the app computed gets the caption alone.** "Everyone is even" and
+  "Nothing to settle" on the Expenses tabs are results, not absences: the
+  ledger did its arithmetic and this is what it came to. The fly with nowhere
+  to land is a joke about an empty list, and it is the wrong picture of a
+  settled account. `LoadError` follows the same rule for the same reason: a
+  joke over a server failure is the wrong tone.
+
+Both shapes keep the same padding, centring and size, so a trip whose three
+Expenses tabs are all empty does not step up and down as you move between them.
+
+One known edge reads against the rule and is deliberately left for now: with
+"View as" set to somebody who has no rows in the ledger, the list is filtered to
+nothing rather than empty, so it is a computed state, and it still shows the
+drawing and "Nothing added yet", which is not true of a ledger with rows in it.
+Fixing it needs a sentence that does not exist in `@trippy/copy` yet.
 
 ## Implementation status
 
