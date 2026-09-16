@@ -13,7 +13,7 @@ import { ensureDemoAccount, purgeExpiredSessions } from '@trippy/server/auth';
 import { closeAll } from '@trippy/server/events';
 import { env } from '@trippy/server/env';
 import { searchCities } from '@trippy/server/geocode';
-import { activeProvider } from '@trippy/server/places';
+import { providerStatus } from '@trippy/server/places';
 import type { SessionUser } from '@trippy/server/auth';
 
 /**
@@ -54,7 +54,31 @@ app.use('*', session);
 
 void env.GOOGLE_SERVER_KEY;
 
-app.get('/api/health', (c) => c.json({ ok: true, provider: activeProvider() }));
+/**
+ * Liveness plus which places provider is actually answering.
+ *
+ * `provider` used to be `activeProvider()`, which only says whether a key is
+ * configured. With a broken key that reported "google" while every search was
+ * being served by OSM, so the one endpoint whose job is to say what is wrong
+ * was the thing hiding it. It now reports `serving`, and carries `configured`
+ * and the most recent Google failure beside it so the discrepancy is visible
+ * rather than inferred.
+ *
+ * `ok` stays true in that state on purpose: searches are still answered, just
+ * by the keyless provider. That is degraded, not down, and a health check that
+ * fails on it would page for something the app is handling. `degraded` is the
+ * field to alert on.
+ */
+app.get('/api/health', (c) => {
+	const { configured, serving, lastFailure } = providerStatus();
+	return c.json({
+		ok: true,
+		provider: serving,
+		providerConfigured: configured,
+		degraded: serving !== configured,
+		lastFailure
+	});
+});
 app.route('/api/auth', auth);
 app.route('/api/account', account);
 app.route('/api/trips', trips);
