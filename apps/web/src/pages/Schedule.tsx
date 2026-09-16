@@ -1882,8 +1882,8 @@ export default function Schedule() {
 							label={dayLabel(data.day)}
 							view={view}
 							day={data.day}
-							first={data.days[0] ?? data.day}
-							last={data.days[data.days.length - 1] ?? data.day}
+							first={data.firstDay}
+							last={data.lastDay}
 							prev={dayStep(-1)}
 							next={dayStep(1)}
 						/>

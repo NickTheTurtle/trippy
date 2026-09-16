@@ -910,6 +910,15 @@ way no test on today's data would catch. Where the window does already lie is
 about totals and ends, which is why `dayCount` exists and why the picker's
 bounds are read from `firstDay` and `lastDay`.
 
+**The picker's bounds are now actually wired to them.** The date field's `min`
+and `max` were `days[0]` and `days[days.length - 1]`, the ends of the window
+rather than the ends of the trip, because the picker and the new fields were
+built on separate branches and neither could see the other. With both in one
+change it is two attributes: `first={data.firstDay}` and `last={data.lastDay}`.
+This is visible, unlike the stepper: on a long trip the picker refused every day
+past the edge of the window, so a trip running to 2026-09-12 stopped offering
+dates at 2025-10-13.
+
 **What `day_not_offered` should do, and why it is not the same answer.** An
 out-of-range day can honestly be sent to an end, because the reader asked for
 somewhere the trip is not. A day in the gap is different: it is inside the trip's
