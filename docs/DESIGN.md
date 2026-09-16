@@ -4416,6 +4416,74 @@ over a blank screen explains itself and then leaves nothing behind. The two
 event dialogs keep showing their own save failures in their own footers, which
 is beside the form that caused them and already above the board.
 
+## A page that is loading says so, and a form refuses before the server has to
+
+**Every first fetch now shows the same line.** Six pages had six answers to the
+same moment. Discover, Expenses, People and Preparation returned `null`, so
+opening a trip flashed the header over a blank body and looked, for as long as
+the round trip took, like a page that had failed. Account printed "Loading..."
+in a muted paragraph of its own, and the trip list printed nothing at all. They
+share one `Loading` component now, and the pages that could fail pair it with
+`LoadError`, so the three outcomes of a first fetch (waiting, failed, empty) are
+told apart by three different things on screen instead of by one blank area.
+
+It is a line of text, not a spinner and not a skeleton, for three reasons. A
+skeleton has to be drawn per page to be worth anything, and a grey rectangle of
+the wrong shape is a worse lie than an honest sentence; these pages differ too
+much (a card grid, a ledger, a checklist) for one skeleton to fit. A spinner
+says only "something is happening", which is the one thing a reader already
+assumes, and it has to be sized and centred somewhere, which is a layout
+decision repeated per page. A line of text is announced to a screen reader,
+which the other two are not without extra work: `Loading` is a `role="status"`,
+so a blind reader is told the page is coming rather than being handed silence.
+It reuses `EmptyState` without the drawing, so the waiting state and the empty
+state occupy the same place on the page and it does not jump when one replaces
+the other; the fly is a joke about a list nobody has filled in, and it is not
+funny twice a second.
+
+`Schedule.tsx` has the same `return null` and is not changed here: another
+session holds that file tonight. It is reported rather than fixed.
+
+**A form answers what it can answer itself.** Submitting the log in page with
+both fields empty made a network round trip and came back "Wrong email or
+password.", which is slow and is also a lie: nothing was wrong with the
+password, there was no password. The auth pages mark their fields `required`, so
+the browser stops an empty submit at the field itself, in the reader's own
+language, without asking the server what it thinks of the empty string. The
+server keeps every one of its checks; this only removes the submits that could
+never have succeeded.
+
+The rule this follows: the client refuses what is true of the input alone
+(missing, malformed, too long), and never what depends on data only the server
+holds (whether this password is right, whether this email is taken). The second
+kind cannot be checked here without either being wrong or leaking who has an
+account.
+
+**A refusal is cleared by the next attempt.** Auth failures live in the corner
+now rather than in the card, and a toast does not know that the form under it
+has been submitted again, so the previous "Wrong email or password." sat there
+while the new attempt was in flight and then looked like its answer. Each auth
+page takes one error slot from `useErrorSlot`, dismisses the toast it raised at
+the top of the submit, and raises a fresh one in the catch. One slot per form,
+so the corner holds the current answer and never a stale one alongside it. This
+needed `toast.push` to return the id it had been discarding.
+
+**A trip is bounded at a year.** The Montreal demo trip runs from September 2024
+to September 2026, which the schedule turns into 400 day columns stepped one
+click at a time. `TripFormDialog` refuses a span longer than 366 days, in the
+dialog, before the request. 366 rather than 365 so that a full leap year is a
+legal trip, and a year rather than something rounder because the number has to
+be defensible to somebody who really is away that long: past a year the day
+stepper is the wrong instrument regardless.
+
+Two things this does not do. It does not strand the trips that already exist:
+an over-long trip can still be edited as long as the edit does not lengthen it,
+because the alternative is a trip whose name cannot be corrected. And it is a
+client rule only, so it is a courtesy and not an invariant; the durable version
+belongs next to the other date checks in `validateDates`, which has no maximum,
+and is reported for the owner of that file. The stepper itself needs a date
+picker either way, since a 400-day trip already exists.
+
 ## The header reaches the right edge
 
 The sticky header is full-bleed and its centred `.container` holds the content,
