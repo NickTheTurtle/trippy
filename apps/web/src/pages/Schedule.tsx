@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { api, ApiError } from '../lib/api';
 import { useApi } from '../hooks/useApi';
@@ -121,6 +121,14 @@ const EDGE_RATE = 150;
 const MIN_VIEW_H = 320;
 /** Breathing room under the board, so it does not sit on the bottom edge. */
 const VIEW_GAP = 24;
+/**
+ * The room the scroll box leaves above the first hour line, for the label that
+ * hangs over it. Set in `schedule.css` as `.boardscroll`'s `padding-top`, and
+ * repeated here because a drag measures where the block it is holding sits
+ * inside the box against `scrollTop`, whose origin is the top of that padding
+ * rather than the top of the grid.
+ */
+const BOARD_PAD_PX = 12;
 
 /**
  * Where a dragged block sits: the pointer's own travel, plus whatever the edge
@@ -136,6 +144,390 @@ function liveStartFor(d: Drag, creep: number, y: number): number {
 	const raw = d.origStart + (y - d.pointerStartY) / PX_PER_MIN - creep;
 	return Math.max(0, Math.min(DAY_END - d.mins, Math.round(raw / 5) * 5));
 }
+
+/**
+ * One event on the day board.
+ *
+ * Lifted out of the page and memoised, which is the drag fix. A pointer move
+ * changes where one block is drawn, but it used to re-render every one of them:
+ * a busy day is forty blocks, each of them a title, a time and a row of names,
+ * and rebuilding all of it to move one cost about ten milliseconds a move,
+ * which is most of a frame before the browser has drawn anything.
+ *
+ * So everything this needs arrives as a number, a string or a value that keeps
+ * its identity between renders: the event row off the board, the callbacks
+ * behind `useCallback`, the column as two numbers rather than the layout object
+ * that is rebuilt each pass. Only the block under the pointer sees a changed
+ * prop, so only that one renders. When the window opens, `boardStart` moves and
+ * they all render, which is right: they have all moved.
+ *
+ * `didDrag` is a ref rather than a value because the click that follows a drag
+ * has to read it in the same event sequence that set it.
+ */
+type BlockProps = {
+	ev: EventRow;
+	day: string;
+	lanePx: number;
+	left: number;
+	width: number;
+	from: number;
+	to: number;
+	boardStart: number;
+	dragging: boolean;
+	resizing: boolean;
+	editing: boolean;
+	memberCount: number;
+	shortName: (id: string) => string;
+	didDrag: React.RefObject<boolean>;
+	onDown: (e: React.PointerEvent, ev: EventRow, day: string) => void;
+	onMove: (e: React.PointerEvent) => void;
+	onUp: () => void;
+	onOpen: (id: string) => void;
+	onGripDown: (e: React.PointerEvent, ev: EventRow) => void;
+	onGripMove: (e: React.PointerEvent) => void;
+	onGripUp: () => void;
+};
+
+const Block = memo(function Block({
+	ev,
+	day,
+	lanePx,
+	left,
+	width,
+	from,
+	to,
+	boardStart,
+	dragging,
+	resizing,
+	editing,
+	memberCount,
+	shortName,
+	didDrag,
+	onDown,
+	onMove,
+	onUp,
+	onOpen,
+	onGripDown,
+	onGripMove,
+	onGripUp
+}: BlockProps) {
+	const bud = whoBudget(width, to - from, ev.title, lanePx);
+	const cls = [
+		'block',
+		ev.type,
+		dragging ? 'dragging' : '',
+		resizing ? 'resizing' : '',
+		editing ? 'editingnow' : '',
+		width < 0.34 ? 'narrow' : ''
+	]
+		.filter(Boolean)
+		.join(' ');
+
+	return (
+		<div
+			className={cls}
+			role="button"
+			tabIndex={0}
+			aria-label={`${ev.title}, ${clock(ev.start_min)} to ${clock(ev.end_min)}. Open, or drag to reschedule.`}
+			style={{
+				left: `${left * 100}%`,
+				width: `calc(${width * 100}% - 6px)`,
+				top: `${topPx(from, boardStart)}px`,
+				height: `${heightPx(from, to, boardStart)}px`,
+				['--trows' as string]: bud.trows,
+				['--wrows' as string]: bud.wrows
+			}}
+			onPointerDown={(e) => onDown(e, ev, day)}
+			onPointerMove={onMove}
+			onPointerUp={onUp}
+			onClick={(e) => {
+				if ((e.target as HTMLElement).closest('.bresize')) return;
+				if (didDrag.current) return;
+				onOpen(ev.id);
+			}}
+			onKeyDown={(e) => {
+				if (e.key === 'Enter' || e.key === ' ') {
+					e.preventDefault();
+					onOpen(ev.id);
+				}
+			}}
+		>
+			<div className="bt">{ev.title}</div>
+			<div className="bmeta">
+				{bud.showTime && <span>{bud.compact ? clock(from) : clockRange(from, to)}</span>}
+			</div>
+			<div className="bwho">
+				{ev.people.length === 0 || ev.people.length === memberCount ? (
+					<span className="who all">Everyone</span>
+				) : ev.people.length <= bud.fit ? (
+					ev.people.map((id) => (
+						<span key={id} className="who">
+							{shortName(id)}
+						</span>
+					))
+				) : bud.fit > 0 ? (
+					<>
+						{ev.people.slice(0, bud.fit - 1).map((id) => (
+							<span key={id} className="who">
+								{shortName(id)}
+							</span>
+						))}
+						<span className="who more" title={ev.people.map((id) => shortName(id)).join(', ')}>
+							+{ev.people.length - (bud.fit - 1)}
+						</span>
+					</>
+				) : null}
+			</div>
+			<div
+				className="bresize"
+				role="separator"
+				aria-label="Drag to change the end time"
+				onPointerDown={(e) => onGripDown(e, ev)}
+				onPointerMove={onGripMove}
+				onPointerUp={onGripUp}
+			/>
+		</div>
+	);
+});
+
+/**
+ * A journey, drawn as the block it is, in the column of the event it arrives
+ * at and directly on top of it.
+ *
+ * An automatic leg and a travel event somebody typed describe the same act, so
+ * they are the same block: same colour, same column, same name on the front. A
+ * leg keeps one difference, and it is a fact about the leg rather than about
+ * where it came from: it cannot be dragged, because its position is the gap
+ * between the two events it joins, and moving it would mean moving one of them.
+ *
+ * Memoised for the same reason as `Block`: a drag moves the journeys arriving
+ * at the block under the pointer and leaves every other one of them where it
+ * was. The two names it draws are worked out by the page and handed over as
+ * strings, which compare by value, so they cost a render only when they differ.
+ */
+type LegProps = {
+	leg: LegRow;
+	lanePx: number;
+	left: number;
+	width: number;
+	boardStart: number;
+	name: string;
+	title: string;
+	editing: boolean;
+	onOpen: (leg: LegRow) => void;
+};
+
+const Leg = memo(function Leg({
+	leg,
+	lanePx,
+	left,
+	width,
+	boardStart,
+	name,
+	title,
+	editing,
+	onOpen
+}: LegProps) {
+	const wpx = width * lanePx;
+	const mins = leg.endMin - leg.startMin;
+	// A short hop cannot carry two lines of type, so it is drawn as a rule
+	// across the gap with its duration on it, floored to a height a pointer
+	// can hit. The floor grows upwards, into the waiting time before the
+	// journey, because downwards is the block it arrives at.
+	const trueH = heightPx(leg.startMin, leg.endMin, boardStart);
+	const h = Math.max(trueH, 15);
+	const thin = trueH < TWO_LINE_H;
+	const bud = whoBudget(width, mins, name, lanePx);
+	const cls = [
+		'block',
+		'travel',
+		'leg',
+		thin ? 'thin' : '',
+		wpx < TINY_W ? 'tiny' : '',
+		leg.tight ? 'tight' : '',
+		editing ? 'editingnow' : '',
+		width < 0.34 ? 'narrow' : ''
+	]
+		.filter(Boolean)
+		.join(' ');
+
+	return (
+		<div
+			className={cls}
+			role="button"
+			tabIndex={0}
+			aria-label={`${name}, ${clock(leg.startMin)} to ${clock(leg.endMin)}. Open.`}
+			title={title}
+			style={{
+				left: `${left * 100}%`,
+				width: `calc(${width * 100}% - 6px)`,
+				top: `${topPx(leg.endMin, boardStart) - h}px`,
+				height: `${h}px`,
+				['--trows' as string]: bud.trows,
+				['--wrows' as string]: bud.wrows
+			}}
+			onClick={() => onOpen(leg)}
+			onKeyDown={(e) => {
+				if (e.key === 'Enter' || e.key === ' ') {
+					e.preventDefault();
+					onOpen(leg);
+				}
+			}}
+		>
+			<div className="bt">
+				{thin
+					? // A bar one column wide holds a duration and nothing else. It is
+						// still the more legible mark: at that width the event title
+						// beneath it has already truncated.
+						wpx > 90
+						? `${name} ${leg.resolvedMins}m`
+						: `${leg.resolvedMins}m`
+					: name}
+			</div>
+			{!thin && (
+				<div className="bmeta">
+					{bud.showTime && <span>{clockRange(leg.startMin, leg.endMin)}</span>}
+					<span>{leg.resolvedMins}m</span>
+				</div>
+			)}
+		</div>
+	);
+});
+
+/**
+ * The clock the day is read against.
+ *
+ * It depends on nothing but where the window starts, so it is memoised on that
+ * alone: a block dragged around inside an open window does not move the hours,
+ * and redrawing twenty rules and their labels for every pointer move was a
+ * measurable part of what made the drag late.
+ */
+const Axis = memo(function Axis({ boardStart }: { boardStart: number }) {
+	return (
+		<div className="axis">
+			{hoursFrom(boardStart).map((h) => (
+				<div
+					key={h}
+					className="hourline"
+					style={{ top: `${(h * 60 - boardStart) * PX_PER_MIN}px` }}
+				>
+					{/* The last line is where the day stops, not an hour of it:
+					    labelling it would put a second "12 AM" on a board dragged
+					    fully open, directly under the one the day started on. */}
+					{h * 60 < DAY_END && <span>{hourLabel(h)}</span>}
+				</div>
+			))}
+		</div>
+	);
+});
+
+/** The url for a day and a view. The schedule is addressable; see `navUrl`. */
+const navUrl = (day: string, v: string) => `?day=${day}&view=${v}`;
+
+/**
+ * The controls that apply to the whole schedule, and the board's own title bar.
+ *
+ * Both are memoised because neither has anything to do with a drag, and both
+ * are built out of router links, which are not free: a `Link` resolves its
+ * path on every render, and the eight of them across these two rows were
+ * costing a JSON round trip each per pointer move.
+ */
+type ToolbarProps = {
+	view: string;
+	day: string;
+	memberCount: number;
+	readAs: string;
+	viewAsOptions: { value: string; label: string; warn?: string }[];
+	onViewAs: (id: string) => void;
+	onAdd: () => void;
+};
+
+const Toolbar = memo(function Toolbar({
+	view,
+	day,
+	memberCount,
+	readAs,
+	viewAsOptions,
+	onViewAs,
+	onAdd
+}: ToolbarProps) {
+	return (
+		<div className="toolbar">
+			<div className="pills" role="group" aria-label="Schedule view">
+				{VIEW_OPTIONS.map((o) => (
+					<Link
+						key={o.v}
+						className={o.v === view ? 'pill on' : 'pill'}
+						aria-current={o.v === view ? 'true' : undefined}
+						to={navUrl(day, o.v)}
+					>
+						{o.label}
+					</Link>
+				))}
+			</div>
+
+			<div className="tools">
+				{/* On a solo trip the only person to read the board as is you, and the
+				    control would be a dropdown with one name that changes nothing. */}
+				{memberCount > 1 && (
+					<div className="viewas">
+						<span className="muted">{copy.viewAs.label}</span>
+						<Select
+							compact
+							value={readAs}
+							onChange={onViewAs}
+							options={viewAsOptions}
+							ariaLabel="View the schedule as"
+						/>
+					</div>
+				)}
+				<button className="btn primary" type="button" onClick={onAdd}>
+					+ Add
+				</button>
+			</div>
+		</div>
+	);
+});
+
+/* The day stepper is the board's own title bar: it names the day being drawn
+   and steps to the next one, so it belongs to the board rather than to the page
+   toolbar, which is left holding only the controls that apply to the whole
+   schedule. */
+const BoardHead = memo(function BoardHead({
+	label,
+	view,
+	prev,
+	next
+}: {
+	label: string;
+	view: string;
+	prev: string | null;
+	next: string | null;
+}) {
+	return (
+		<div className="boardhead">
+			{prev ? (
+				<Link className="navbtn" to={navUrl(prev, view)} aria-label="Previous day">
+					‹
+				</Link>
+			) : (
+				<button className="navbtn" type="button" disabled aria-label="Previous day">
+					‹
+				</button>
+			)}
+			<span className="curday">{label}</span>
+			{next ? (
+				<Link className="navbtn" to={navUrl(next, view)} aria-label="Next day">
+					›
+				</Link>
+			) : (
+				<button className="navbtn" type="button" disabled aria-label="Next day">
+					›
+				</button>
+			)}
+		</div>
+	);
+});
 
 export default function Schedule() {
 	const { trip } = useTrip();
@@ -200,16 +592,54 @@ export default function Schedule() {
 	 */
 	const dragRef = useRef<Drag | null>(null);
 	const [drag, setDrag] = useState<Drag | null>(null);
-	const putDrag = useCallback((next: Drag | null) => {
-		dragRef.current = next;
-		setDrag(next);
-	}, []);
 	const resizeRef = useRef<Resize | null>(null);
 	const [resize, setResize] = useState<Resize | null>(null);
+
+	/**
+	 * A gesture that has moved but has not been drawn yet.
+	 *
+	 * Rendering straight out of the pointer handler meant a commit of the whole
+	 * page per move: the board, its journeys, the toolbar and the map, to shift
+	 * one block by three pixels. A mouse can report faster than the screen can
+	 * draw, so some of those commits were thrown away unpainted, and on a busy
+	 * day the rest arrived late enough to see.
+	 *
+	 * So a move writes the ref, which is what every handler and the drop read,
+	 * and only marks the render dirty. The frame that is about to be painted is
+	 * what clears it: `flush` below for a resize, and the edge-travel loop for a
+	 * drag, which is already running a frame at a time for the whole gesture and
+	 * so needs no second timer. At most one commit is drawn per frame, and the
+	 * one that is drawn is always the latest position rather than the oldest
+	 * unpainted one.
+	 */
+	const dirty = useRef(false);
+	const flushRaf = useRef(0);
+	const flush = useCallback(() => {
+		flushRaf.current = 0;
+		if (!dirty.current) return;
+		dirty.current = false;
+		setDrag(dragRef.current);
+		setResize(resizeRef.current);
+	}, []);
+	/** Mark the gesture moved. Cheap enough to call on every pointer event. */
+	const touch = useCallback(() => {
+		dirty.current = true;
+		if (!flushRaf.current) flushRaf.current = requestAnimationFrame(flush);
+	}, [flush]);
+	useEffect(() => () => cancelAnimationFrame(flushRaf.current), []);
+
+	/** Start or end a gesture: drawn at once, since nothing else will draw it. */
+	const putDrag = useCallback((next: Drag | null) => {
+		dragRef.current = next;
+		dirty.current = false;
+		setDrag(next);
+	}, []);
 	const putResize = useCallback((next: Resize | null) => {
 		resizeRef.current = next;
+		dirty.current = false;
 		setResize(next);
 	}, []);
+
 	/* Where a block was let go, held until the reloaded day agrees.
 	 *
 	 * Clearing the drag on pointer-up is not enough on its own: the write is a
@@ -271,16 +701,19 @@ export default function Schedule() {
 		};
 	}, [data]);
 
-	async function act(fn: () => Promise<unknown>) {
-		setNotice('');
-		try {
-			await fn();
-			reload();
-		} catch (err) {
-			setPending(null);
-			setNotice(err instanceof ApiError ? err.message : copy.api.saveFallback);
-		}
-	}
+	const act = useCallback(
+		async (fn: () => Promise<unknown>) => {
+			setNotice('');
+			try {
+				await fn();
+				reload();
+			} catch (err) {
+				setPending(null);
+				setNotice(err instanceof ApiError ? err.message : copy.api.saveFallback);
+			}
+		},
+		[reload]
+	);
 
 	const eventOp = useCallback(
 		(eventId: string, body: Record<string, unknown>) =>
@@ -510,7 +943,7 @@ export default function Schedule() {
 		const d = dragRef.current;
 		if (!el || !d || glue === prev) return;
 		el.scrollTop += glue - prev;
-		const top = topPx(d.liveStart, boardStart);
+		const top = BOARD_PAD_PX + topPx(d.liveStart, boardStart);
 		const foot = top + d.mins * PX_PER_MIN - el.clientHeight;
 		el.scrollTop = Math.min(Math.max(el.scrollTop, foot), top);
 	});
@@ -532,15 +965,20 @@ export default function Schedule() {
 	   a journey is edited: it belongs to its arrival rather than standing on its
 	   own. The id is kept so the dialog can open on the journey that was meant,
 	   since a block can have one arriving group of people or five. */
-	const openLeg = (leg: LegRow) => {
+	const openLeg = useCallback((leg: LegRow) => {
 		setOpenLegId(leg.id);
 		setOpenEventId(leg.toEventId);
-	};
+	}, []);
 	/** The same panel, opened at the event itself rather than at an approach. */
-	const openBlock = (id: string) => {
+	const openBlock = useCallback((id: string) => {
 		setOpenLegId('');
 		setOpenEventId(id);
-	};
+	}, []);
+	/** Add something to the day being read, with no time chosen yet. */
+	const shownDay = data?.day;
+	const addHere = useCallback(() => {
+		if (shownDay) setAdding({ day: shownDay, start: null });
+	}, [shownDay]);
 	const closeEvent = () => {
 		setOpenEventId('');
 		setOpenLegId('');
@@ -620,6 +1058,139 @@ export default function Schedule() {
 		[members.length, shortName]
 	);
 
+	// --- Map ----------------------------------------------------------------
+
+	/**
+	 * The pins and routes the map draws, and the panel that draws them.
+	 *
+	 * Both are memoised, and that is a drag fix rather than tidiness. Every
+	 * pointer move commits a render of this page, and assembling the tracks
+	 * inline handed the map a brand new array each time: the map then took a
+	 * JSON signature of it to decide whether anything had moved, which came to
+	 * thirty `JSON.stringify` calls and fifteen kilobytes of string per pointer
+	 * move, to conclude every time that nothing had changed. None of this
+	 * depends on the drag, so holding the whole panel by identity lets React
+	 * skip the subtree outright while a block is under the pointer.
+	 */
+	const mapTracks: MapTrack[] = useMemo(() => {
+		/* Every place the trip saved in Discover is on the map, so the day is read
+		   against everything that was considered rather than against a blank
+		   field: grey for the places this day does not visit, green for the ones
+		   it does. */
+		const dayPins = (anchor?.events ?? []).filter((e) => e.lat != null && e.lng != null);
+		const scheduledPoiIds = new Set(
+			(anchor?.events ?? []).map((e) => e.poi_id).filter((id): id is string => id !== null)
+		);
+		const restPins = (data?.saved ?? []).filter(
+			(p) => p.lat != null && p.lng != null && !scheduledPoiIds.has(p.id)
+		);
+
+		/**
+		 * Whether the day's places are a sequence, and so whether the pins may be
+		 * numbered and joined up.
+		 *
+		 * Two conditions, both about honesty rather than tidiness. Nothing may
+		 * overlap, because two things at once have no first. And everybody on the
+		 * day must be doing the same things, because a day that splits has one
+		 * order per track and no order overall: a line through those pins would
+		 * draw a route nobody takes, crossing between groups that never met.
+		 * People with nothing scheduled do not break it: they are simply absent
+		 * from every event's list. Reading the day as one person drops the second
+		 * condition, because their own thread through a day is a sequence however
+		 * the rest of the group divides.
+		 */
+		const ordered = ((): boolean => {
+			const evs = [...dayPins].sort((a, b) => a.start_min - b.start_min);
+			if (evs.length < 2) return true;
+			for (let i = 1; i < evs.length; i++) {
+				if (evs[i].start_min < evs[i - 1].end_min) return false;
+			}
+			if (readAs) return true;
+			const who = (e: EventRow) => (e.people.length ? [...e.people].sort().join(',') : '*');
+			return evs.every((e) => who(e) === who(evs[0]));
+		})();
+
+		const tracks: MapTrack[] = [];
+		if (restPins.length) {
+			const cityName = new Map(
+				(data?.cities ?? []).filter((c) => c !== null).map((c) => [c.id, c.name])
+			);
+			tracks.push({
+				name: 'Saved locations',
+				color: '#9aa39c',
+				items: restPins.map((p) => ({
+					title: p.name,
+					lat: p.lat,
+					lng: p.lng,
+					/* Which city it is in, which neither the colour nor the track name
+					   says, and how much appetite there is for it: a saved place is
+					   read to decide whether to schedule it, and the vote is what that
+					   decision turns on. */
+					subtitle: cityName.get(p.city_id),
+					detail: p.votes ? [p.votes === 1 ? '1 vote' : `${p.votes} votes`] : undefined
+				})),
+				line: false,
+				numbered: false
+			});
+		}
+		if (dayPins.length && data) {
+			/* How you get here, which is the question a map is being asked. The legs
+			   are the ones already on the board, so they answer it for whoever is
+			   being read rather than for the group in the abstract. */
+			const arrivals = new Map<string, LegRow[]>();
+			for (const l of anchor?.legs ?? []) {
+				const at = arrivals.get(l.toEventId);
+				if (at) at.push(l);
+				else arrivals.set(l.toEventId, [l]);
+			}
+			tracks.push({
+				name: dayLabel(data.day),
+				color: '#2f6d5e',
+				items: [...dayPins]
+					.sort((a, b) => a.start_min - b.start_min)
+					.map((e) => {
+						const legs = arrivals.get(e.id) ?? [];
+						/* Two routes at most. A day that splits can have a journey per
+						   group, and six of them turn the card into a timetable: the
+						   board already holds the full list, and this is a glance. */
+						const shown = legs.slice(0, 2).map((l) => {
+							const from = eventById.get(l.fromEventId)?.title;
+							const mode = modeLabel(l.resolvedMode);
+							const lead = from ? `${mode} from ${from}` : mode;
+							return `${lead} · ${l.resolvedMins}m`;
+						});
+						if (legs.length > shown.length) {
+							shown.push(`+${legs.length - shown.length} more routes here`);
+						}
+						return {
+							title: e.title,
+							lat: e.lat,
+							lng: e.lng,
+							subtitle: `${typeLabel(e.type)} · ${clockRange(e.start_min, e.end_min)}`,
+							detail: [peopleLabel(e.people), ...shown],
+							warn: legs.some((l) => l.tight) ? copy.viewAs.travelWarning : undefined
+						};
+					}),
+				numbered: ordered,
+				line: ordered
+			});
+		}
+		return tracks;
+	}, [anchor, data, readAs, eventById, peopleLabel]);
+
+	const mapPanel = useMemo(
+		() => (
+			<aside className="mapwrap card">
+				{data?.mapsKey ? (
+					<GoogleMap tracks={mapTracks} apiKey={data.mapsKey} center={anchorCity} />
+				) : (
+					<TripMap tracks={mapTracks} />
+				)}
+			</aside>
+		),
+		[data?.mapsKey, mapTracks, anchorCity]
+	);
+
 	// --- Drag and resize ----------------------------------------------------
 
 	function startFor(ev: EventRow): number {
@@ -633,30 +1204,38 @@ export default function Schedule() {
 		return startFor(ev) + (ev.end_min - ev.start_min);
 	}
 
-	function onPointerDown(e: React.PointerEvent, ev: EventRow, day: string) {
-		// Let the resize grip through.
-		if ((e.target as HTMLElement).closest('.bresize')) return;
-		(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-		didDrag.current = false;
-		putDrag({
-			id: ev.id,
-			day,
-			pointerStartY: e.clientY,
-			pointerY: e.clientY,
-			origStart: ev.start_min,
-			mins: ev.end_min - ev.start_min,
-			creep: 0,
-			liveStart: ev.start_min
-		});
-	}
+	const onPointerDown = useCallback(
+		(e: React.PointerEvent, ev: EventRow, day: string) => {
+			// Let the resize grip through.
+			if ((e.target as HTMLElement).closest('.bresize')) return;
+			(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+			didDrag.current = false;
+			putDrag({
+				id: ev.id,
+				day,
+				pointerStartY: e.clientY,
+				pointerY: e.clientY,
+				origStart: ev.start_min,
+				mins: ev.end_min - ev.start_min,
+				creep: 0,
+				liveStart: ev.start_min
+			});
+		},
+		[putDrag]
+	);
 
-	function onPointerMove(e: React.PointerEvent) {
-		const d = dragRef.current;
-		if (!d) return;
-		const y = e.clientY;
-		if (Math.abs(y - d.pointerStartY) > 3) didDrag.current = true;
-		putDrag({ ...d, pointerY: y, liveStart: liveStartFor(d, d.creep, y) });
-	}
+	const onPointerMove = useCallback(
+		(e: React.PointerEvent) => {
+			const d = dragRef.current;
+			if (!d) return;
+			const y = e.clientY;
+			if (Math.abs(y - d.pointerStartY) > 3) didDrag.current = true;
+			// The ref is the truth and is right immediately; the frame draws it.
+			dragRef.current = { ...d, pointerY: y, liveStart: liveStartFor(d, d.creep, y) };
+			touch();
+		},
+		[touch]
+	);
 
 	/**
 	 * Keep travelling while the pointer is held against an edge of the viewport.
@@ -695,16 +1274,23 @@ export default function Schedule() {
 							: 0;
 				if (by) {
 					const creep = d.creep + by;
-					putDrag({ ...d, creep, liveStart: liveStartFor(d, creep, d.pointerY) });
+					dragRef.current = { ...d, creep, liveStart: liveStartFor(d, creep, d.pointerY) };
+					dirty.current = true;
 				}
+			}
+			// The one commit this frame gets, carrying whatever the pointer and
+			// the edge have done to the block since the last one.
+			if (dirty.current) {
+				dirty.current = false;
+				setDrag(dragRef.current);
 			}
 			raf = requestAnimationFrame(tick);
 		};
 		raf = requestAnimationFrame(tick);
 		return () => cancelAnimationFrame(raf);
-	}, [drag !== null, putDrag]);
+	}, [drag !== null]);
 
-	async function onPointerUp() {
+	const onPointerUp = useCallback(async () => {
 		const d = dragRef.current;
 		if (!d) return;
 		const snapped = Math.round(d.liveStart / 5) * 5;
@@ -717,36 +1303,43 @@ export default function Schedule() {
 		// The day rides along because a move carries one, and sending the block's
 		// own day keeps a drag in the 3-day view on the column it was drawn in.
 		await act(() => eventOp(id, { op: 'move', startMin: snapped, day }));
-	}
+	}, [act, eventOp, putDrag]);
 
-	function onResizeDown(e: React.PointerEvent, ev: EventRow) {
-		e.stopPropagation();
-		(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-		didDrag.current = false;
-		putResize({
-			id: ev.id,
-			pointerStartY: e.clientY,
-			startMin: ev.start_min,
-			origEnd: ev.end_min,
-			liveEnd: ev.end_min
-		});
-	}
+	const onResizeDown = useCallback(
+		(e: React.PointerEvent, ev: EventRow) => {
+			e.stopPropagation();
+			(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+			didDrag.current = false;
+			putResize({
+				id: ev.id,
+				pointerStartY: e.clientY,
+				startMin: ev.start_min,
+				origEnd: ev.end_min,
+				liveEnd: ev.end_min
+			});
+		},
+		[putResize]
+	);
 
-	function onResizeMove(e: React.PointerEvent) {
-		const r = resizeRef.current;
-		if (!r) return;
-		const y = e.clientY;
-		if (Math.abs(y - r.pointerStartY) > 3) didDrag.current = true;
-		putResize({
-			...r,
-			liveEnd: Math.max(
-				r.startMin + MIN_EVENT_MINS,
-				Math.round((r.origEnd + (y - r.pointerStartY) / PX_PER_MIN) / 5) * 5
-			)
-		});
-	}
+	const onResizeMove = useCallback(
+		(e: React.PointerEvent) => {
+			const r = resizeRef.current;
+			if (!r) return;
+			const y = e.clientY;
+			if (Math.abs(y - r.pointerStartY) > 3) didDrag.current = true;
+			resizeRef.current = {
+				...r,
+				liveEnd: Math.max(
+					r.startMin + MIN_EVENT_MINS,
+					Math.round((r.origEnd + (y - r.pointerStartY) / PX_PER_MIN) / 5) * 5
+				)
+			};
+			touch();
+		},
+		[touch]
+	);
 
-	async function onResizeUp() {
+	const onResizeUp = useCallback(async () => {
 		const r = resizeRef.current;
 		if (!r) return;
 		const snapped = Math.round(r.liveEnd / 5) * 5;
@@ -755,7 +1348,7 @@ export default function Schedule() {
 		if (snapped === origEnd) return;
 		setPending({ id, end: snapped });
 		await act(() => eventOp(id, { op: 'resize', endMin: snapped }));
-	}
+	}, [act, eventOp, putResize]);
 
 	/**
 	 * The board's entrance when the day or the view changes under it.
@@ -779,7 +1372,6 @@ export default function Schedule() {
 	if (!data) return error ? <FormError message={error} variant="banner" /> : null;
 
 	const view = data.view;
-	const navUrl = (day: string, v: string) => `?day=${day}&view=${v}`;
 
 	/* The day one step either way, or null at the ends.
 	 *
@@ -846,85 +1438,31 @@ export default function Schedule() {
 		const p = place.placed.get(ev.id);
 		if (!p) return null;
 
-		const from = startFor(ev);
-		const to = endFor(ev);
-		const box = { left: `${p.left * 100}%`, width: `calc(${p.width * 100}% - 6px)` };
-		const bud = whoBudget(p.width, to - from, ev.title, lanePx);
-		const cls = [
-			'block',
-			ev.type,
-			drag?.id === ev.id ? 'dragging' : '',
-			resize?.id === ev.id ? 'resizing' : '',
-			preview?.id === ev.id ? 'editingnow' : '',
-			p.width < 0.34 ? 'narrow' : ''
-		]
-			.filter(Boolean)
-			.join(' ');
-
 		return (
-			<div
+			<Block
 				key={ev.id}
-				className={cls}
-				role="button"
-				tabIndex={0}
-				aria-label={`${ev.title}, ${clock(ev.start_min)} to ${clock(ev.end_min)}. Open, or drag to reschedule.`}
-				style={{
-					...box,
-					top: `${topPx(from, boardStart)}px`,
-					height: `${heightPx(from, to, boardStart)}px`,
-					['--trows' as string]: bud.trows,
-					['--wrows' as string]: bud.wrows
-				}}
-				onPointerDown={(e) => onPointerDown(e, ev, day)}
-				onPointerMove={onPointerMove}
-				onPointerUp={onPointerUp}
-				onClick={(e) => {
-					if ((e.target as HTMLElement).closest('.bresize')) return;
-					if (didDrag.current) return;
-					openBlock(ev.id);
-				}}
-				onKeyDown={(e) => {
-					if (e.key === 'Enter' || e.key === ' ') {
-						e.preventDefault();
-						openBlock(ev.id);
-					}
-				}}
-			>
-				<div className="bt">{ev.title}</div>
-				<div className="bmeta">
-					{bud.showTime && <span>{bud.compact ? clock(from) : clockRange(from, to)}</span>}
-				</div>
-				<div className="bwho">
-					{ev.people.length === 0 || ev.people.length === members.length ? (
-						<span className="who all">Everyone</span>
-					) : ev.people.length <= bud.fit ? (
-						ev.people.map((id) => (
-							<span key={id} className="who">
-								{shortName(id)}
-							</span>
-						))
-					) : bud.fit > 0 ? (
-						<>
-							{ev.people.slice(0, bud.fit - 1).map((id) => (
-								<span key={id} className="who">
-									{shortName(id)}
-								</span>
-							))}
-							<span className="who more" title={ev.people.map((id) => shortName(id)).join(', ')}>
-								+{ev.people.length - (bud.fit - 1)}
-							</span>
-						</>
-					) : null}
-				</div>
-				<div
-					className="bresize"
-					role="separator"
-					aria-label="Drag to change the end time"
-					onPointerDown={(e) => onResizeDown(e, ev)}
-					onPointerMove={onResizeMove}
-					onPointerUp={onResizeUp}
-				/>
-			</div>
+				ev={ev}
+				day={day}
+				lanePx={lanePx}
+				left={p.left}
+				width={p.width}
+				from={startFor(ev)}
+				to={endFor(ev)}
+				boardStart={boardStart}
+				dragging={drag?.id === ev.id}
+				resizing={resize?.id === ev.id}
+				editing={preview?.id === ev.id}
+				memberCount={members.length}
+				shortName={shortName}
+				didDrag={didDrag}
+				onDown={onPointerDown}
+				onMove={onPointerMove}
+				onUp={onPointerUp}
+				onOpen={openBlock}
+				onGripDown={onResizeDown}
+				onGripMove={onResizeMove}
+				onGripUp={onResizeUp}
+			/>
 		);
 	}
 
@@ -955,71 +1493,19 @@ export default function Schedule() {
 	 * moving one of them.
 	 */
 	function legNode(leg: LegRow, lanePx: number, box: { left: number; width: number }) {
-		const wpx = box.width * lanePx;
-		const name = legName(leg, wpx);
-		const mins = leg.endMin - leg.startMin;
-		// A short hop cannot carry two lines of type, so it is drawn as a rule
-		// across the gap with its duration on it, floored to a height a pointer
-		// can hit. The floor grows upwards, into the waiting time before the
-		// journey, because downwards is the block it arrives at.
-		const trueH = heightPx(leg.startMin, leg.endMin, boardStart);
-		const h = Math.max(trueH, 15);
-		const thin = trueH < TWO_LINE_H;
-		const bud = whoBudget(box.width, mins, name, lanePx);
-		const cls = [
-			'block',
-			'travel',
-			'leg',
-			thin ? 'thin' : '',
-			wpx < TINY_W ? 'tiny' : '',
-			leg.tight ? 'tight' : '',
-			openLegId === leg.id ? 'editingnow' : '',
-			box.width < 0.34 ? 'narrow' : ''
-		]
-			.filter(Boolean)
-			.join(' ');
-
 		return (
-			<div
+			<Leg
 				key={legKey(leg)}
-				className={cls}
-				role="button"
-				tabIndex={0}
-				aria-label={`${name}, ${clock(leg.startMin)} to ${clock(leg.endMin)}. Open.`}
+				leg={leg}
+				lanePx={lanePx}
+				left={box.left}
+				width={box.width}
+				boardStart={boardStart}
+				name={legName(leg, box.width * lanePx)}
 				title={legTitle(leg)}
-				style={{
-					left: `${box.left * 100}%`,
-					width: `calc(${box.width * 100}% - 6px)`,
-					top: `${topPx(leg.endMin, boardStart) - h}px`,
-					height: `${h}px`,
-					['--trows' as string]: bud.trows,
-					['--wrows' as string]: bud.wrows
-				}}
-				onClick={() => openLeg(leg)}
-				onKeyDown={(e) => {
-					if (e.key === 'Enter' || e.key === ' ') {
-						e.preventDefault();
-						openLeg(leg);
-					}
-				}}
-			>
-				<div className="bt">
-					{thin
-						? // A bar one column wide holds a duration and nothing else. It is
-							// still the more legible mark: at that width the event title
-							// beneath it has already truncated.
-							wpx > 90
-							? `${name} ${leg.resolvedMins}m`
-							: `${leg.resolvedMins}m`
-						: name}
-				</div>
-				{!thin && (
-					<div className="bmeta">
-						{bud.showTime && <span>{clockRange(leg.startMin, leg.endMin)}</span>}
-						<span>{leg.resolvedMins}m</span>
-					</div>
-				)}
-			</div>
+				editing={openLegId === leg.id}
+				onOpen={openLeg}
+			/>
 		);
 	}
 
@@ -1082,20 +1568,7 @@ export default function Schedule() {
 				className={`daygrid${drag ? ' still' : ''}${drag && openedBy > 0 ? ' opening' : ''}`}
 				style={{ height: `${(DAY_END - boardStart) * PX_PER_MIN + 16}px` }}
 			>
-				<div className="axis">
-					{hoursFrom(boardStart).map((h) => (
-						<div
-							key={h}
-							className="hourline"
-							style={{ top: `${(h * 60 - boardStart) * PX_PER_MIN}px` }}
-						>
-							{/* The last line is where the day stops, not an hour of it:
-							    labelling it would put a second "12 AM" on a board dragged
-							    fully open, directly under the one the day started on. */}
-							{h * 60 < DAY_END && <span>{hourLabel(h)}</span>}
-						</div>
-					))}
-				</div>
+				<Axis boardStart={boardStart} />
 
 				<div
 					className="lane"
@@ -1193,148 +1666,17 @@ export default function Schedule() {
 		);
 	}
 
-	// --- Map ----------------------------------------------------------------
-
-	/* Every place the trip saved in Discover is on the map, so the day is read
-	   against everything that was considered rather than against a blank field:
-	   grey for the places this day does not visit, green for the ones it does. */
-	const dayPins = (anchor?.events ?? []).filter((e) => e.lat != null && e.lng != null);
-	const scheduledPoiIds = new Set(
-		(anchor?.events ?? []).map((e) => e.poi_id).filter((id): id is string => id !== null)
-	);
-	const restPins = data.saved.filter(
-		(p) => p.lat != null && p.lng != null && !scheduledPoiIds.has(p.id)
-	);
-
-	/**
-	 * Whether the day's places are a sequence, and so whether the pins may be
-	 * numbered and joined up.
-	 *
-	 * Two conditions, both about honesty rather than tidiness. Nothing may
-	 * overlap, because two things at once have no first. And everybody on the
-	 * day must be doing the same things, because a day that splits has one order
-	 * per track and no order overall: a line through those pins would draw a
-	 * route nobody takes, crossing between groups that never met. People with
-	 * nothing scheduled do not break it: they are simply absent from every
-	 * event's list. Reading the day as one person drops the second condition,
-	 * because their own thread through a day is a sequence however the rest of
-	 * the group divides.
-	 */
-	const ordered = ((): boolean => {
-		const evs = [...dayPins].sort((a, b) => a.start_min - b.start_min);
-		if (evs.length < 2) return true;
-		for (let i = 1; i < evs.length; i++) {
-			if (evs[i].start_min < evs[i - 1].end_min) return false;
-		}
-		if (readAs) return true;
-		const who = (e: EventRow) => (e.people.length ? [...e.people].sort().join(',') : '*');
-		return evs.every((e) => who(e) === who(evs[0]));
-	})();
-
-	const mapTracks: MapTrack[] = [];
-	if (restPins.length) {
-		const cityName = new Map(data.cities.filter((c) => c !== null).map((c) => [c.id, c.name]));
-		mapTracks.push({
-			name: 'Saved locations',
-			color: '#9aa39c',
-			items: restPins.map((p) => ({
-				title: p.name,
-				lat: p.lat,
-				lng: p.lng,
-				/* Which city it is in, which neither the colour nor the track name
-				   says, and how much appetite there is for it: a saved place is
-				   read to decide whether to schedule it, and the vote is what that
-				   decision turns on. */
-				subtitle: cityName.get(p.city_id),
-				detail: p.votes ? [p.votes === 1 ? '1 vote' : `${p.votes} votes`] : undefined
-			})),
-			line: false,
-			numbered: false
-		});
-	}
-	if (dayPins.length) {
-		/* How you get here, which is the question a map is being asked. The legs
-		   are the ones already on the board, so they answer it for whoever is
-		   being read rather than for the group in the abstract. */
-		const arrivals = new Map<string, LegRow[]>();
-		for (const l of anchor?.legs ?? []) {
-			const at = arrivals.get(l.toEventId);
-			if (at) at.push(l);
-			else arrivals.set(l.toEventId, [l]);
-		}
-		mapTracks.push({
-			name: dayLabel(data.day),
-			color: '#2f6d5e',
-			items: [...dayPins]
-				.sort((a, b) => a.start_min - b.start_min)
-				.map((e) => {
-					const legs = arrivals.get(e.id) ?? [];
-					/* Two routes at most. A day that splits can have a journey per
-					   group, and six of them turn the card into a timetable: the
-					   board already holds the full list, and this is a glance. */
-					const shown = legs.slice(0, 2).map((l) => {
-						const from = eventById.get(l.fromEventId)?.title;
-						const mode = modeLabel(l.resolvedMode);
-						const lead = from ? `${mode} from ${from}` : mode;
-						return `${lead} · ${l.resolvedMins}m`;
-					});
-					if (legs.length > shown.length) {
-						shown.push(`+${legs.length - shown.length} more routes here`);
-					}
-					return {
-						title: e.title,
-						lat: e.lat,
-						lng: e.lng,
-						subtitle: `${typeLabel(e.type)} · ${clockRange(e.start_min, e.end_min)}`,
-						detail: [peopleLabel(e.people), ...shown],
-						warn: legs.some((l) => l.tight) ? copy.viewAs.travelWarning : undefined
-					};
-				}),
-			numbered: ordered,
-			line: ordered
-		});
-	}
-
 	return (
 		<div className="sched">
-			<div className="toolbar">
-				<div className="pills" role="group" aria-label="Schedule view">
-					{VIEW_OPTIONS.map((o) => (
-						<Link
-							key={o.v}
-							className={o.v === view ? 'pill on' : 'pill'}
-							aria-current={o.v === view ? 'true' : undefined}
-							to={navUrl(data.day, o.v)}
-						>
-							{o.label}
-						</Link>
-					))}
-				</div>
-
-				<div className="tools">
-					{/* On a solo trip the only person to read the board as is you, and the
-					    control would be a dropdown with one name that changes nothing. */}
-					{members.length > 1 && (
-						<div className="viewas">
-							<span className="muted">{copy.viewAs.label}</span>
-							<Select
-								compact
-								value={readAs}
-								onChange={setViewAs}
-								options={viewAsOptions}
-								ariaLabel="View the schedule as"
-							/>
-						</div>
-					)}
-					<button
-						className="btn primary"
-						type="button"
-						onClick={() => setAdding({ day: data.day, start: null })}
-					>
-						+ Add
-					</button>
-				</div>
-			</div>
+			<Toolbar
+				view={view}
+				day={data.day}
+				memberCount={members.length}
+				readAs={readAs}
+				viewAsOptions={viewAsOptions}
+				onViewAs={setViewAs}
+				onAdd={addHere}
+			/>
 
 			{notice && (
 				<p role="alert" className="mb-4 text-body text-danger-ink">
@@ -1345,39 +1687,12 @@ export default function Schedule() {
 			<div className="split">
 				<div className="boardcol">
 					<div className="board card" ref={boardRef}>
-						{/* The day stepper is the board's own title bar: it names the day
-						    being drawn and steps to the next one, so it belongs to the
-						    board rather than to the page toolbar, which is left holding
-						    only the controls that apply to the whole schedule. */}
-						<div className="boardhead">
-							{dayStep(-1) ? (
-								<Link
-									className="navbtn"
-									to={navUrl(dayStep(-1) as string, view)}
-									aria-label="Previous day"
-								>
-									‹
-								</Link>
-							) : (
-								<button className="navbtn" type="button" disabled aria-label="Previous day">
-									‹
-								</button>
-							)}
-							<span className="curday">{dayLabel(data.day)}</span>
-							{dayStep(1) ? (
-								<Link
-									className="navbtn"
-									to={navUrl(dayStep(1) as string, view)}
-									aria-label="Next day"
-								>
-									›
-								</Link>
-							) : (
-								<button className="navbtn" type="button" disabled aria-label="Next day">
-									›
-								</button>
-							)}
-						</div>
+						<BoardHead
+							label={dayLabel(data.day)}
+							view={view}
+							prev={dayStep(-1)}
+							next={dayStep(1)}
+						/>
 						{anchor && stayBands(anchor)}
 						{anchor ? (
 							view === 'agenda' ? (
@@ -1398,13 +1713,7 @@ export default function Schedule() {
 					</div>
 				</div>
 
-				<aside className="mapwrap card">
-					{data.mapsKey ? (
-						<GoogleMap tracks={mapTracks} apiKey={data.mapsKey} center={anchorCity} />
-					) : (
-						<TripMap tracks={mapTracks} />
-					)}
-				</aside>
+				{mapPanel}
 			</div>
 
 			{adding && (
