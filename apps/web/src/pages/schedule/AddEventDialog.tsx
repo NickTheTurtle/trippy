@@ -223,8 +223,14 @@ export default function AddEventDialog({
 					    The place leads, because picking one is how a block is usually
 					    added and the name now follows from it: there is no name field,
 					    so the first row is the place and the type. Free time has no
-					    place at all, so its type keeps the narrow half of the row and
-					    the clock moves up beside it rather than leaving a hole.
+					    place at all, so its type moves down to share the clock's row
+					    rather than leaving a hole.
+
+					    The clock takes seven of the twelve columns rather than six,
+					    which is what the pair actually measures: two fixed-width
+					    clocks, a gap either side of "to", and 242px in all. Six
+					    columns is 232px, and the difference used to come out of the
+					    meridiem. Whatever shares the row takes the other five.
 
 					    The clock and whatever shares its row take the whole width
 					    below `sm`: two clocks of three segments each do not fit in
@@ -237,7 +243,7 @@ export default function AddEventDialog({
 						)}
 						<FieldShell
 							label="Type"
-							className={placeable ? 'col-span-4' : 'col-span-12 sm:col-span-4'}
+							className={placeable ? 'col-span-4' : 'col-span-12 sm:col-span-5'}
 						>
 							<Select
 								value={type}
@@ -259,10 +265,7 @@ export default function AddEventDialog({
 								onCheckOut={setCheckOut}
 							/>
 						) : (
-							<FieldShell
-								label="When"
-								className={placeable ? 'col-span-12 sm:col-span-6' : 'col-span-12 sm:col-span-8'}
-							>
+							<FieldShell label="When" className="col-span-12 sm:col-span-7">
 								<div className="tfpair">
 									<TimeField
 										value={startAt}
@@ -285,7 +288,7 @@ export default function AddEventDialog({
 							memberOptions={memberOptions}
 							crews={crews}
 							className={
-								staying ? 'col-span-4' : placeable ? 'col-span-12 sm:col-span-6' : 'col-span-12'
+								staying ? 'col-span-4' : placeable ? 'col-span-12 sm:col-span-5' : 'col-span-12'
 							}
 						/>
 

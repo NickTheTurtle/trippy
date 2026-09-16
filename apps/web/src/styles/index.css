@@ -306,6 +306,14 @@ textarea.input {
 	display: inline-flex;
 	align-items: center;
 	height: var(--control-h);
+	/* Sized by what is in it, and never squeezed under that. The field sits in a
+	   flex pair inside a grid cell, and `.input` sets `min-width: 0`, so it was
+	   free to shrink below its own segments: at 1280 the half-column cell gave
+	   it 101.8px for 107px of clock, and the meridiem hung 5px past the padding
+	   into the border, which is what "AM goes outside the box" was. The segments
+	   cannot shrink, so the box has to be the thing that holds its ground. */
+	flex: none;
+	width: max-content;
 	/* Stated, not inherited: `.field` sets a smaller size for its label, and a
 	   div with `font: inherit` took it, so the clock read a size under the text
 	   box beside it. */
@@ -354,9 +362,13 @@ textarea.input {
 	color: var(--color-ink-faint);
 }
 /* A start and an end read as one answer, so they sit in one field with a word
-   between them rather than under two labels. */
+   between them rather than under two labels. The pair wraps rather than
+   clipping: the clocks are a fixed width now, so a cell too narrow for both has
+   to put the end time on a second line, and a wrapped answer is still readable
+   where a cut-off one is not. */
 .tfpair {
 	display: flex;
+	flex-wrap: wrap;
 	align-items: center;
 	gap: 0.5rem;
 }

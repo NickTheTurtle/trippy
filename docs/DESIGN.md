@@ -3116,14 +3116,37 @@ the name.
 
 Two rows were re-laid out around the hole it left, since the grid is 12 columns
 and a row with one control in it reads as a mistake. Free time has no place
-picker, so its Type keeps the narrow third of the first row and the clock moves
-up beside it, with the people running full width underneath. A journey's Mode
-takes the half of the second row the people used to share, for the same reason.
-Every one of the five types now fills every row it draws.
+picker, so its Type moves down to share the clock's row, with the people running
+full width underneath. A journey's Mode takes the rest of the second row the
+people used to share, for the same reason. Every one of the five types now fills
+every row it draws.
+
+**The clock is sized by its content, and the row is sized around the clock.**
+The field's three segments cannot shrink, so the box holding them must not
+either: `.tfield` is `flex: none; width: max-content`. Without that it was a
+flex item with `min-width: 0` inherited from `.input`, free to be squeezed by
+the grid cell it sat in, and at 1280px a half-column cell gave it 101.8px for
+107px of clock. The overflow came out of the last segment, so the focused
+meridiem's highlight ran into the right border, which is what "the AM and PM
+goes a little outside the input box" was. Shrinking the type or the segment
+widths would have paid for the layout with legibility; the box is the thing that
+should hold its ground.
+
+The pair then has an honest intrinsic width: two 107px clocks, an 8px gap either
+side of "to", 242px in all. Six of twelve columns is 232px in a 512px dialog, so
+the clock takes **seven** columns and whatever shares its row takes five. That
+is a 7/5 split rather than 6/6 because one side is a fixed measurement and the
+other is elastic: a picker of avatars or a Mode select reads the same at 191px
+as at 232px, and the clock does not. `.tfpair` also wraps rather than clips, so
+a cell that is somehow still too narrow puts the end time on a second line
+instead of cutting a digit off it.
 
 Below `sm` the clock takes the whole row and so does whatever shared it. The
 meridiem made the pair wide enough that half of a 390px dialog clipped the end
-time mid-digit, which reads as a different time rather than as a truncation.
+time mid-digit, which reads as a different time rather than as a truncation. The
+content-width fix does not make that stacking unnecessary: at 390px the full row
+is 313px, comfortably over the 242px the pair needs, but half of it would still
+be 152px.
 
 ## Shared UI conventions
 
