@@ -77,7 +77,7 @@ export interface PlannedLeg {
  * is inside the error of a geocoded street address and well inside the width of
  * a hotel.
  */
-const SAME_PLACE_KM = 0.03;
+export const SAME_PLACE_KM = 0.03;
 
 /** The people key half of a leg key: sorted ids, so it does not depend on write order. */
 export function peopleKey(people: readonly string[]): string {

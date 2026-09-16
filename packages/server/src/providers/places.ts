@@ -1,5 +1,12 @@
-import { env } from '../infra/env';
-import { createPersistentCache } from '../infra/cache';
+import { assertPaidProviderAllowed, env, PaidProviderBlockedError } from '../infra/env';
+import { createPersistentCache, purgeCachedValues } from '../infra/cache';
+import {
+	noteProviderFailure,
+	noteProviderOk,
+	resetProviderHealth,
+	serviceHealth,
+	type ProviderFailure
+} from './provider-health';
 
 /**
  * A place returned from a search provider, normalised across backends.
@@ -313,6 +320,7 @@ async function searchGoogle(
 	near: SearchNear,
 	kind: SearchKind
 ): Promise<PlaceResult[]> {
+	assertPaidProviderAllowed('google places text search');
 	const key = env.GOOGLE_SERVER_KEY;
 	if (!key) return [];
 	const res = await fetch(GOOGLE_ENDPOINT, {
@@ -387,6 +395,7 @@ async function suggestGoogle(
 	kind: SearchKind,
 	sessionToken: string
 ): Promise<PlaceResult[]> {
+	assertPaidProviderAllowed('google places autocomplete');
 	const key = env.GOOGLE_SERVER_KEY;
 	if (!key || typeof near.lat !== 'number' || typeof near.lng !== 'number') return [];
 	const res = await fetch(GOOGLE_SUGGEST, {
@@ -461,6 +470,7 @@ export async function placeDetails(
 	id: string,
 	sessionToken?: string
 ): Promise<PlaceDetails | null> {
+	assertPaidProviderAllowed('google place details');
 	const key = env.GOOGLE_SERVER_KEY;
 	if (!key || !id) return null;
 	const url = new URL(`${GOOGLE_DETAILS}${encodeURIComponent(id)}`);
@@ -513,6 +523,62 @@ const OSM_LODGING = new Set([
 	'caravan_site'
 ]);
 
+/** How many rows a search shows, whatever the provider was asked for. */
+const PHOTON_RESULTS = 8;
+
+/**
+ * A Photon feature's properties, as far as we read them.
+ *
+ * `housenumber` and `postcode` are here because an address search needs them:
+ * without the number, the Acropolis Museum's own row said "Dionysiou
+ * Areopagitou, Athens, Greece", which is the street it is on rather than the
+ * building, and matched a dozen other rows exactly.
+ */
+interface PhotonProps {
+	name?: string;
+	osm_key?: string;
+	osm_value?: string;
+	type?: string;
+	housenumber?: string;
+	street?: string;
+	postcode?: string;
+	city?: string;
+	district?: string;
+	state?: string;
+	country?: string;
+}
+
+/**
+ * The label for a feature, which is not always its name.
+ *
+ * A pure address has no `name` at all: OSM records it as a house number on a
+ * street. Those rows were dropped by a `name` filter, which is why typing an
+ * address returned everything except the address. Falling back to
+ * "street number" gives them the label a person would have written.
+ */
+function photonLabel(pr: PhotonProps): string | null {
+	if (pr.name?.trim()) return pr.name.trim();
+	if (pr.street && pr.housenumber) return `${pr.street} ${pr.housenumber}`;
+	if (pr.street) return pr.street;
+	return null;
+}
+
+/**
+ * The address line under the label.
+ *
+ * The house number is included, which it was not: it is the one part of a
+ * street address that distinguishes a building from its street, and dropping it
+ * is what made an address search unusable. The postcode comes with the city
+ * because Photon returns several same-named streets in one city and the
+ * postcode is often the only thing that tells the segments apart.
+ */
+function photonAddress(pr: PhotonProps): string | null {
+	const street = pr.street && pr.housenumber ? `${pr.street} ${pr.housenumber}` : pr.street;
+	const town = [pr.postcode, pr.city ?? pr.district].filter(Boolean).join(' ');
+	const parts = [street, town, pr.country].filter(Boolean);
+	return parts.length ? parts.join(', ') : null;
+}
+
 async function searchPhoton(
 	query: string,
 	near: SearchNear,
@@ -526,53 +592,71 @@ async function searchPhoton(
 		url.searchParams.set('lat', String(near.lat));
 		url.searchParams.set('lon', String(near.lng));
 	}
-	// Photon has no type filter, so lodging is filtered out of the response;
-	// ask for more rows than we show so the filter has something to keep.
-	url.searchParams.set('limit', kind === 'stay' ? '25' : '8');
+	// Names in English where OSM has one. Without this, searching "Acropolis
+	// Museum" saved "Mouseio Akropolis": Photon answers in the local script by
+	// default and the picked name is what lands on the board and in the
+	// database. Verified against the live endpoint, which rejects an unsupported
+	// value with a 400 listing what it takes: default, de, en, fr. So this is
+	// the one useful setting rather than the user's locale.
+	url.searchParams.set('lang', 'en');
+	// Photon has no type filter, so lodging is filtered out of the response, and
+	// a street with many segments floods the rows. Ask for more than we show so
+	// both the filter and the de-duplication below have something to keep.
+	url.searchParams.set('limit', kind === 'stay' ? '25' : '20');
 	const res = await fetch(url, {
 		headers: { 'User-Agent': 'Trippy-trip-planner' }
 	});
 	if (!res.ok) throw new Error(`photon ${res.status}`);
 	const data = (await res.json()) as {
-		features?: {
-			properties?: {
-				name?: string;
-				osm_key?: string;
-				osm_value?: string;
-				street?: string;
-				city?: string;
-				country?: string;
-			};
-			geometry?: { coordinates?: [number, number] };
-		}[];
+		features?: { properties?: PhotonProps; geometry?: { coordinates?: [number, number] } }[];
 	};
-	return (data.features ?? [])
-		.filter((f) => f.properties?.name)
-		.filter(
-			(f) =>
-				kind !== 'stay' ||
-				(f.properties?.osm_key === 'tourism' && OSM_LODGING.has(f.properties?.osm_value ?? ''))
-		)
-		.slice(0, 8)
-		.map((f) => {
-			const pr = f.properties ?? {};
-			const parts = [pr.street, pr.city, pr.country].filter(Boolean);
-			return {
-				id: null,
-				name: pr.name ?? 'Unknown',
-				category: osmCategory(pr.osm_key ?? '', pr.osm_value ?? ''),
-				address: parts.length ? parts.join(', ') : null,
-				url: null,
-				lat: f.geometry?.coordinates?.[1] ?? null,
-				lng: f.geometry?.coordinates?.[0] ?? null,
-				rating: null,
-				ratingCount: null,
-				priceLevel: null,
-				hours: null,
-				photo: null,
-				source: 'osm' as const
-			};
+
+	const rows: (PlaceResult & { street: boolean })[] = [];
+	const seen = new Set<string>();
+	for (const f of data.features ?? []) {
+		const pr = f.properties ?? {};
+		const name = photonLabel(pr);
+		if (!name) continue;
+		if (
+			kind === 'stay' &&
+			!(pr.osm_key === 'tourism' && OSM_LODGING.has(pr.osm_value ?? ''))
+		) {
+			continue;
+		}
+		const address = photonAddress(pr);
+		// Rows that read identically are one row as far as anybody choosing from
+		// a list is concerned. Searching an address returned eight of them: OSM
+		// splits a street into a segment per surface change, and each segment is
+		// a feature with the same name, the same city and different coordinates,
+		// so the list offered the same answer eight times with no way to tell
+		// which was meant. The first is kept, which is the best-ranked one.
+		const key = `${name}|${address ?? ''}`;
+		if (seen.has(key)) continue;
+		seen.add(key);
+		rows.push({
+			id: null,
+			name,
+			category: osmCategory(pr.osm_key ?? '', pr.osm_value ?? ''),
+			address,
+			url: null,
+			lat: f.geometry?.coordinates?.[1] ?? null,
+			lng: f.geometry?.coordinates?.[0] ?? null,
+			rating: null,
+			ratingCount: null,
+			priceLevel: null,
+			hours: null,
+			photo: null,
+			source: 'osm' as const,
+			street: pr.type === 'street'
 		});
+	}
+
+	// A building before the street it stands on. Photon ranks a whole street
+	// above the places on it often enough that the thing actually searched for
+	// fell off the end of the list. Stable, so the provider's ranking still
+	// decides everything else.
+	const ordered = [...rows.filter((r) => !r.street), ...rows.filter((r) => r.street)];
+	return ordered.slice(0, PHOTON_RESULTS).map(({ street: _street, ...row }) => row);
 }
 
 /**
@@ -599,6 +683,7 @@ export async function lookupPhoto(
 	lat?: number | null,
 	lng?: number | null
 ): Promise<string> {
+	assertPaidProviderAllowed('google place photo lookup');
 	const key = env.GOOGLE_SERVER_KEY;
 	if (!key) return NO_PHOTO;
 
@@ -632,9 +717,60 @@ export async function lookupPhoto(
 	return data.places?.[0]?.photos?.[0]?.name ?? NO_PHOTO;
 }
 
-/** Which backend is active, for the UI to label results. */
+/** Which backend is configured, for the UI to label results. */
 export function activeProvider(): 'google' | 'osm' {
 	return env.GOOGLE_SERVER_KEY ? 'google' : 'osm';
+}
+
+// --- Provider health --------------------------------------------------------
+
+/**
+ * Places' view of the shared health record in `provider-health.ts`.
+ *
+ * The recording mechanism moved there so Routing could use the same one rather
+ * than grow a second: both are the same Google key failing, and an operator
+ * reading `/api/health` should not have to learn two vocabularies. What stays
+ * here is the places-specific reading of it, because only this module knows
+ * that the fallback is OpenStreetMap.
+ */
+export type { ProviderFailure };
+
+export interface ProviderStatus {
+	/** What configuration says: Google when a server key is set. */
+	configured: 'google' | 'osm';
+	/** What is actually answering, which is OSM once Google has failed. */
+	serving: 'google' | 'osm';
+	/** Set when `serving` is not `configured`. */
+	lastFailure: ProviderFailure | null;
+}
+
+function noteGoogleFailure(op: string, err: unknown): void {
+	noteProviderFailure('places', op, err);
+}
+
+/**
+ * Configured vs. actually answering, for a health endpoint to report.
+ *
+ * Google counts as serving until it has failed, and counts as serving again as
+ * soon as one call succeeds; a single 403 should not pin the report to "osm"
+ * forever once the key is fixed. Unlike before, a failure recorded by an earlier
+ * process still counts: `tsx watch` restarts on every save, and forgetting the
+ * outage on restart was how this endpoint came to report green through one.
+ */
+export function providerStatus(): ProviderStatus {
+	const configured = activeProvider();
+	if (configured === 'osm') return { configured, serving: 'osm', lastFailure: null };
+	const { failing, lastFailure } = serviceHealth('places');
+	return {
+		configured,
+		serving: failing ? 'osm' : 'google',
+		lastFailure: failing ? lastFailure : null
+	};
+}
+
+/** Clears remembered failures, stored ones included. For tests. */
+export function resetProviderStatus(): void {
+	resetProviderHealth('all');
 }
 
 /**
@@ -663,12 +799,45 @@ const detailsCache = createPersistentCache<PlaceDetails | null>(
 );
 
 /**
+ * How long "no results" is worth keeping: ten minutes, not seven days.
+ *
+ * There is a real tension here. Never caching a miss means a query that
+ * genuinely matches nothing re-bills on every retry, and as-you-type search
+ * produces plenty of those. But an empty array is also exactly what a provider
+ * outage returns, and a week-long TTL turns a five-minute outage into a
+ * week-long one: two probe queries were pinned to `[]` in SQLite and stayed
+ * broken after the provider recovered, with no way to fix them short of
+ * deleting the database. Ten minutes keeps the anti-retry protection that
+ * matters (a member hammering the same fruitless query, a board reloading)
+ * while capping the blast radius of a bad answer at one coffee break.
+ */
+const EMPTY_RESULT_TTL_MS = 10 * 60 * 1000;
+
+const searchTtl = (results: PlaceResult[]) =>
+	results.length ? 7 * 24 * 60 * 60 * 1000 : EMPTY_RESULT_TTL_MS;
+
+/**
+ * Drops rows poisoned under the old policy: searches stored as `[]` with a
+ * seven-day TTL while the provider was failing. Runs once at startup because it
+ * is a single indexed-free DELETE over a small table, and because those rows
+ * are unreachable-by-design garbage under the policy above rather than data.
+ * Exported as `clearEmptySearchCache` for an operator who wants it on demand.
+ */
+export function clearEmptySearchCache(): number {
+	return purgeCachedValues('search', ['[]']);
+}
+
+clearEmptySearchCache();
+
+/**
  * Search for places. Uses Google Places when GOOGLE_SERVER_KEY is set,
  * otherwise the keyless OpenStreetMap (Photon) provider. Google falls back
- * to Photon if the request fails so discovery keeps working.
+ * to Photon if the request fails so discovery keeps working, and the failure is
+ * logged and reflected in `providerStatus()` rather than swallowed.
  *
  * Results are cached per normalised query and city: the same search typed twice
  * costs one request, and simultaneous identical searches share one in flight.
+ * An empty result is cached for minutes rather than days; see EMPTY_RESULT_TTL_MS.
  */
 export async function searchPlaces(
 	query: string,
@@ -686,34 +855,50 @@ export async function searchPlaces(
 	// The session token is deliberately *not* in the key: it changes every
 	// search, and keying on it would mean never reading the cache again.
 	const key = `${kind}|${q.toLowerCase().replace(/\s+/g, ' ')}|${nearText(near)}|${near.lat ?? ''},${near.lng ?? ''}`;
-	return searchCache.take(key, async () => {
-		// Charged only here, on a cache miss, so a repeat search served from cache
-		// costs the caller no quota. Throws through `take` when over the ceiling,
-		// which the route turns into a 429.
-		gate?.();
-		if (env.GOOGLE_SERVER_KEY) {
-			// Suggestions first, because inside a session they are free. They are
-			// prefix matching though, so they come up empty on the wordier queries
-			// ("cheap sushi near the station") that a text search still answers.
-			// Paying for a text search only once predictions have failed keeps that
-			// answer without paying for it on every ordinary lookup.
-			if (sessionToken) {
+	return searchCache.take(
+		key,
+		async () => {
+			// Charged only here, on a cache miss, so a repeat search served from cache
+			// costs the caller no quota. Throws through `take` when over the ceiling,
+			// which the route turns into a 429.
+			gate?.();
+			if (env.GOOGLE_SERVER_KEY) {
+				// Suggestions first, because inside a session they are free. They are
+				// prefix matching though, so they come up empty on the wordier queries
+				// ("cheap sushi near the station") that a text search still answers.
+				// Paying for a text search only once predictions have failed keeps that
+				// answer without paying for it on every ordinary lookup.
+				if (sessionToken) {
+					try {
+						const hits = await suggestGoogle(q, near, kind, sessionToken);
+						if (hits.length) {
+							noteProviderOk('places');
+							return hits;
+						}
+					} catch (err) {
+						// A blocked paid call is a bug in the caller, not an outage: it
+						// must not be absorbed into a quiet OSM answer.
+						if (err instanceof PaidProviderBlockedError) throw err;
+						// Fall through to the text search rather than to Photon: a failed
+						// suggestion says nothing about whether Google is reachable. Logged
+						// all the same, because this is where a bad key shows up first.
+						noteGoogleFailure('google places autocomplete', err);
+					}
+				}
 				try {
-					const hits = await suggestGoogle(q, near, kind, sessionToken);
-					if (hits.length) return hits;
-				} catch {
-					// Fall through to the text search rather than to Photon: a failed
-					// suggestion says nothing about whether Google is reachable.
+					const hits = await searchGoogle(q, near, kind);
+					noteProviderOk('places');
+					return hits;
+				} catch (err) {
+					if (err instanceof PaidProviderBlockedError) throw err;
+					noteGoogleFailure('google places text search', err);
+					return searchPhoton(q, near, kind);
 				}
 			}
-			try {
-				return await searchGoogle(q, near, kind);
-			} catch {
-				return searchPhoton(q, near, kind);
-			}
-		}
-		return searchPhoton(q, near, kind);
-	});
+			return searchPhoton(q, near, kind);
+		},
+		searchTtl
+	);
 }
 
 /**
@@ -730,10 +915,20 @@ export function placeDetailsCached(
 	sessionToken?: string,
 	gate?: () => void
 ): Promise<PlaceDetails | null> {
-	return detailsCache.take(id, () => {
+	return detailsCache.take(id, async () => {
 		// As with search: charged only on a miss, so re-opening a place already
 		// looked at is free and never blocked.
 		gate?.();
-		return placeDetails(id, sessionToken);
+		try {
+			const details = await placeDetails(id, sessionToken);
+			noteProviderOk('places');
+			return details;
+		} catch (err) {
+			if (err instanceof PaidProviderBlockedError) throw err;
+			// Rethrown, not swallowed: the caller decides what an unavailable
+			// detail means. Logged here so the reason is not lost on the way up.
+			noteGoogleFailure('google place details', err);
+			throw err;
+		}
 	});
 }

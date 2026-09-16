@@ -80,6 +80,29 @@ export function isAllowedSnsCertUrl(rawUrl: string): boolean {
 		return false;
 	}
 	if (url.protocol !== 'https:') return false;
+	if (!/^sns\.[a-z0-9-]+\.amazonaws\.com(\.cn)?$/.test(url.hostname)) return false;
+	// The path is pinned too. Every SNS signing certificate is served as
+	// `/SimpleNotificationService-<id>.pem`, so anything else on an SNS host (an
+	// API action, a redirect endpoint, a bucket-style path) is not a certificate
+	// and we have no business fetching it.
+	return /^\/SimpleNotificationService-[A-Za-z0-9]+\.pem$/.test(url.pathname);
+}
+
+/**
+ * Is this URL one we are willing to follow to confirm a subscription?
+ *
+ * Same host rule as the certificate, without the `.pem` path: a SubscribeURL is
+ * an SNS API URL, not a certificate. Kept here next to the host pattern so
+ * there is one definition of "really AWS SNS" rather than two that can drift.
+ */
+export function isAllowedSnsApiUrl(rawUrl: string): boolean {
+	let url: URL;
+	try {
+		url = new URL(rawUrl);
+	} catch {
+		return false;
+	}
+	if (url.protocol !== 'https:') return false;
 	return /^sns\.[a-z0-9-]+\.amazonaws\.com(\.cn)?$/.test(url.hostname);
 }
 
@@ -123,24 +146,104 @@ function publicKeyFromPem(pem: string) {
 export type CertFetcher = (url: string) => Promise<string>;
 
 const defaultFetchCert: CertFetcher = async (url) => {
-	const res = await fetch(url);
+	// `redirect: 'error'` is load-bearing. The host allowlist above is checked
+	// against the URL in the message, and a 302 from an SNS host to somewhere
+	// else would walk straight past it and let the response body (the public key
+	// we verify against) be chosen by whoever controlled the redirect. Refusing
+	// to follow any redirect keeps the URL we validated and the URL we fetch the
+	// same one.
+	const res = await fetch(url, { redirect: 'error' });
 	if (!res.ok) throw new Error(`cert fetch failed: ${res.status}`);
 	return res.text();
 };
 
 /**
+ * How old a signed message may be and still be acted on.
+ *
+ * A signature proves who wrote a message, never when. Without a freshness
+ * window, one genuine notification captured anywhere on its path (a proxy log,
+ * an operator's terminal, a misconfigured mirror) could be replayed at us
+ * forever, and each replay would verify perfectly. An hour is comfortably more
+ * than SNS's own delivery and retry latency, so a real notification is never
+ * refused, and it bounds the window in which a captured one is worth anything.
+ */
+export const MAX_MESSAGE_AGE_MS = 60 * 60 * 1000;
+
+/**
+ * Is the message's own `Timestamp` recent enough to act on?
+ *
+ * Fails closed: a missing or unparseable timestamp is refused rather than
+ * treated as "now". The field is inside the signed string, so an attacker
+ * cannot move it without breaking the signature, which is what makes it worth
+ * checking at all. Messages dated in the future are refused past a small skew
+ * allowance for the same reason a stale one is: a clock that disagrees is not
+ * evidence we can reason about.
+ */
+export function isFreshTimestamp(timestamp: string | undefined, now = Date.now()): boolean {
+	if (!timestamp) return false;
+	const sent = Date.parse(timestamp);
+	if (Number.isNaN(sent)) return false;
+	const age = now - sent;
+	// A minute of tolerance for clock skew between AWS and this host.
+	if (age < -60_000) return false;
+	return age <= MAX_MESSAGE_AGE_MS;
+}
+
+/**
+ * Message ids already acted on, so a replay inside the freshness window is a
+ * no-op rather than a second suppression.
+ *
+ * In memory, like the throttle counters: a restart forgets them, which at worst
+ * lets one captured message be applied twice, and applying the same bounce
+ * twice is idempotent anyway. The value is stopping a flood of replays of one
+ * captured complaint, which a per-process set does perfectly well without
+ * turning an unauthenticated endpoint into a write against SQLite.
+ */
+const seenMessageIds = new Map<string, number>();
+
+/**
+ * Record a message id, answering whether it is new. A message with no id is
+ * refused: `MessageId` is part of the signed string, so a genuine message
+ * always has one.
+ */
+export function rememberMessageId(messageId: string | undefined, now = Date.now()): boolean {
+	if (!messageId) return false;
+	// Anything older than the freshness window can never be accepted again, so
+	// remembering it is pointless; this keeps the map bounded without an LRU.
+	for (const [id, at] of seenMessageIds) {
+		if (now - at > MAX_MESSAGE_AGE_MS) seenMessageIds.delete(id);
+	}
+	if (seenMessageIds.has(messageId)) return false;
+	seenMessageIds.set(messageId, now);
+	return true;
+}
+
+/** Drop the replay memory. For tests, which must not inherit each other's ids. */
+export function resetSeenMessageIds(): void {
+	seenMessageIds.clear();
+}
+
+/**
  * True only when `message` carries a signature that verifies against a genuine
- * AWS SNS certificate. Every failure path, a missing field, a disallowed cert
- * host, an unfetchable certificate, a bad signature, an unknown message type,
- * answers false rather than throwing, so a caller can treat the boolean as the
- * whole decision.
+ * AWS SNS certificate and is recent enough to act on. Every failure path, a
+ * missing field, a disallowed cert host, an unfetchable certificate, a bad
+ * signature, a stale timestamp, an unknown message type, answers false rather
+ * than throwing, so a caller can treat the boolean as the whole decision.
+ *
+ * Replay is deliberately *not* handled here: a caller that only inspects a
+ * message should not have its id burned. `rememberMessageId` is the second gate
+ * and belongs at the point where a message is acted on.
  */
 export async function verifySnsSignature(
 	message: SnsMessage,
-	fetchCert: CertFetcher = defaultFetchCert
+	fetchCert: CertFetcher = defaultFetchCert,
+	now = Date.now()
 ): Promise<boolean> {
 	if (!message.Signature || !message.SigningCertURL) return false;
 	if (!isAllowedSnsCertUrl(message.SigningCertURL)) return false;
+	// Checked before the certificate is fetched: a stale message is refused
+	// without spending a network round trip on it.
+	if (!isFreshTimestamp(message.Timestamp, now)) return false;
 
 	const algorithm = verifyAlgorithm(message.SignatureVersion);
 	if (!algorithm) return false;
