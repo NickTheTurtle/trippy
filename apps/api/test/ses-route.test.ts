@@ -1,0 +1,181 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { existsSync, mkdirSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+
+/**
+ * The SES/SNS receiver route, as a request.
+ *
+ * The endpoint is unauthenticated by necessity, so what these cases pin is the
+ * order of the gates: nothing a caller sends is acted on until the signature
+ * verifies, and a verified message is acted on exactly once. Without the second
+ * gate, one genuine complaint captured off the wire could be re-POSTed to
+ * suppress an address repeatedly; without the first, anyone who finds the URL
+ * could suppress any address they liked and lock that person out of their own
+ * account.
+ *
+ * `verifySnsSignature` is stubbed here (its own maths is covered exhaustively
+ * in packages/server/test/sns.test.ts) so these cases are about the wiring, and
+ * so nothing in this file needs a network or a real AWS certificate.
+ */
+
+const tempRoot = join(tmpdir(), `trippy-ses-route-${process.pid}-${Date.now()}`);
+const dbPath = join(tempRoot, 'ses-route.test.db');
+mkdirSync(tempRoot, { recursive: true });
+process.env.TRIPPY_DB = dbPath;
+
+const verifySnsSignature = vi.fn(async () => true);
+
+vi.mock('@trippy/server/sns', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('@trippy/server/sns')>();
+	return { ...actual, verifySnsSignature };
+});
+
+let app: Awaited<typeof import('../src/routes/ses.ts')>['ses'];
+let suppressions: typeof import('@trippy/server/suppressions');
+let sns: typeof import('@trippy/server/sns');
+let db: Awaited<typeof import('@trippy/server/db')>['db'];
+
+beforeAll(async () => {
+	[{ ses: app }, suppressions, sns, { db }] = await Promise.all([
+		import('../src/routes/ses.ts'),
+		import('@trippy/server/suppressions'),
+		import('@trippy/server/sns'),
+		import('@trippy/server/db')
+	]);
+});
+
+beforeEach(() => {
+	db.prepare(`DELETE FROM mail_suppressions`).run();
+	sns.resetSeenMessageIds();
+	verifySnsSignature.mockReset();
+	verifySnsSignature.mockResolvedValue(true);
+	vi.stubGlobal(
+		'fetch',
+		vi.fn(async () => new Response('ok'))
+	);
+});
+
+afterAll(() => {
+	vi.unstubAllGlobals();
+	db.close();
+	for (const suffix of ['', '-wal', '-shm']) {
+		const file = `${dbPath}${suffix}`;
+		if (existsSync(file)) rmSync(file, { force: true });
+	}
+	if (existsSync(tempRoot)) rmSync(tempRoot, { recursive: true, force: true });
+});
+
+/** An SNS envelope carrying an SES complaint for one address. */
+function complaintEnvelope(email: string, messageId = `id-${Math.random()}`) {
+	return {
+		Type: 'Notification',
+		MessageId: messageId,
+		TopicArn: 'arn:aws:sns:us-east-1:123456789012:ses-bounces',
+		Timestamp: new Date().toISOString(),
+		SignatureVersion: '2',
+		Signature: 'whatever-the-stub-says',
+		SigningCertURL: 'https://sns.us-east-1.amazonaws.com/SimpleNotificationService-a1.pem',
+		Message: JSON.stringify({
+			notificationType: 'Complaint',
+			complaint: {
+				complaintFeedbackType: 'abuse',
+				complainedRecipients: [{ emailAddress: email }]
+			}
+		})
+	};
+}
+
+function post(body: unknown) {
+	return app.request('/notifications', {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: typeof body === 'string' ? body : JSON.stringify(body)
+	});
+}
+
+describe('the SES notification receiver', () => {
+	it('applies a verified complaint', async () => {
+		const res = await post(complaintEnvelope('angry@example.test'));
+		expect(res.status).toBe(200);
+		expect(suppressions.isSuppressed('angry@example.test')).toBe(true);
+	});
+
+	it('acts on nothing when the signature does not verify', async () => {
+		// The whole security property: an unsigned or forged POST from anyone who
+		// found the URL must not be able to suppress an address.
+		verifySnsSignature.mockResolvedValue(false);
+		const res = await post(complaintEnvelope('victim@example.test'));
+		expect(res.status).toBe(200);
+		expect(suppressions.isSuppressed('victim@example.test')).toBe(false);
+	});
+
+	it('acts on nothing when verification throws', async () => {
+		verifySnsSignature.mockRejectedValue(new Error('cert fetch exploded'));
+		await post(complaintEnvelope('victim@example.test'));
+		expect(suppressions.isSuppressed('victim@example.test')).toBe(false);
+	});
+
+	it('ignores a replay of a message it already applied', async () => {
+		const envelope = complaintEnvelope('angry@example.test', 'replay-me');
+		await post(envelope);
+		suppressions.unsuppress('angry@example.test');
+		// The identical, still perfectly signed, message arrives again.
+		await post(envelope);
+		expect(suppressions.isSuppressed('angry@example.test')).toBe(false);
+	});
+
+	it('refuses a verified message with no MessageId', async () => {
+		const envelope = complaintEnvelope('angry@example.test');
+		delete (envelope as Record<string, unknown>).MessageId;
+		await post(envelope);
+		expect(suppressions.isSuppressed('angry@example.test')).toBe(false);
+	});
+
+	it('confirms a subscription only through a real SNS URL', async () => {
+		const stub = vi.fn(async () => new Response('ok'));
+		vi.stubGlobal('fetch', stub);
+		await post({
+			Type: 'SubscriptionConfirmation',
+			MessageId: 'sub-1',
+			Token: 't',
+			Timestamp: new Date().toISOString(),
+			SubscribeURL: 'https://sns.us-east-1.amazonaws.com/?Action=ConfirmSubscription&Token=t'
+		});
+		expect(stub).toHaveBeenCalledOnce();
+
+		stub.mockClear();
+		await post({
+			Type: 'SubscriptionConfirmation',
+			MessageId: 'sub-2',
+			Token: 't',
+			Timestamp: new Date().toISOString(),
+			SubscribeURL: 'https://evil.example/?Action=ConfirmSubscription&Token=t'
+		});
+		// A verified message still must not be able to point us at any host it
+		// likes: that would be a request forgery with AWS's signature on it.
+		expect(stub).not.toHaveBeenCalled();
+	});
+
+	it('shrugs off a body that is not JSON', async () => {
+		const res = await post('not json at all');
+		expect(res.status).toBe(200);
+	});
+
+	it('shrugs off a verified envelope whose inner payload is rubbish', async () => {
+		const envelope = complaintEnvelope('angry@example.test');
+		envelope.Message = '{{{';
+		const res = await post(envelope);
+		expect(res.status).toBe(200);
+		expect(suppressions.isSuppressed('angry@example.test')).toBe(false);
+	});
+
+	it('acknowledges a verified type it does not handle', async () => {
+		const res = await post({
+			Type: 'UnsubscribeConfirmation',
+			MessageId: 'unsub-1',
+			Timestamp: new Date().toISOString()
+		});
+		expect(res.status).toBe(200);
+	});
+});
