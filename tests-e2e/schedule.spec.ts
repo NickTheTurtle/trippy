@@ -173,22 +173,31 @@ test.describe('adding an event', () => {
 				await page.keyboard.press('Escape');
 			};
 
-			// The morning, which the afternoon is then approached from.
+			// The morning, which the afternoon is then approached from. There is no
+			// name field: a block is named after the place it is at, so these two
+			// are the Acropolis and Plaka rather than "Morning" and "Afternoon".
 			await page.getByRole('button', { name: '+ Add', exact: true }).click();
-			await page.getByLabel('Name').fill('Morning');
 			await pickAda();
 			await page.getByLabel('Activity').click();
 			await page.getByRole('option', { name: 'Acropolis' }).click();
 			await page.getByRole('button', { name: copy.common.add, exact: true }).click();
-			await expect(page.getByRole('button', { name: /Morning/ })).toBeVisible();
+			// The block on the board, not the pin the map drops for the same place:
+			// the block's name carries the time it is at.
+			await expect(page.getByRole('button', { name: /^Acropolis, / })).toBeVisible();
 
 			// The afternoon. Its journey exists before it does, so the section is
 			// there to be edited while the block is still being described.
 			await page.getByRole('button', { name: '+ Add', exact: true }).click();
-			await page.getByLabel('Name').fill('Afternoon');
-			// The clock is a spinbutton, not a text box: its segments are typed into.
+			/* The clock is three spinbuttons, not a text box, and it reads in twelve
+			   hours: "2" is the hour and "p" is the afternoon, which is how the time
+			   is said. The letter is taken from whichever segment has focus, so this
+			   is the whole of 2 PM in two keys. */
 			await page.getByLabel('Start hour').click();
-			await page.keyboard.type('14');
+			await page.keyboard.type('2');
+			await page.getByLabel('Start meridiem').click();
+			await page.keyboard.type('p');
+			await expect(page.getByLabel('Start hour')).toHaveAttribute('aria-valuetext', '2');
+			await expect(page.getByLabel('Start meridiem')).toHaveAttribute('aria-valuetext', 'PM');
 			await pickAda();
 			await page.getByLabel('Activity').click();
 			await page.getByRole('option', { name: 'Plaka' }).click();
@@ -205,8 +214,11 @@ test.describe('adding an event', () => {
 			// that outlives the dialog, so wait for the page to stand still: a click
 			// aimed at a block mid-scroll lands on the track beside it.
 			await settled(page);
-			await page.getByRole('button', { name: /Afternoon/ }).click();
+			await page.getByRole('button', { name: /^Plaka, / }).click();
 			const saved = page.locator('dialog[open] .jrow');
+			// And it reopens on the clock it was typed on: 2 PM, not 14:45.
+			await expect(page.getByLabel('Start hour')).toHaveAttribute('aria-valuetext', '2');
+			await expect(page.getByLabel('Start meridiem')).toHaveAttribute('aria-valuetext', 'PM');
 			await expect(saved.getByLabel(/^Journey name/)).toHaveValue('Taxi up the hill');
 			await expect(saved.getByLabel(/^Minutes/)).toHaveValue('42');
 		} finally {
@@ -236,19 +248,23 @@ test.describe('the day window', () => {
 			await page.goto(`/trips/${fixture.tripId}/schedule?day=${startDate}&view=day`);
 
 			await page.getByRole('button', { name: '+ Add', exact: true }).click();
-			await page.getByLabel('Name').fill('Ordinary morning');
+			// Blocks are named by the server now, and the first line of the notes is
+			// where it looks when no place has been picked.
+			await page.getByLabel('Notes').fill('Ordinary morning');
 			await page.getByLabel('Start hour').click();
-			await page.keyboard.type('09');
+			await page.keyboard.type('9');
+			await expect(page.getByLabel('Start meridiem')).toHaveAttribute('aria-valuetext', 'AM');
 			await page.getByRole('button', { name: copy.common.add, exact: true }).click();
 			await expect(firstHour()).toHaveText('6 AM');
 
-			// 4:40, which the old fixed window drew at 6 AM.
+			// 4:40 AM, which the old fixed window drew at 6 AM.
 			await page.getByRole('button', { name: '+ Add', exact: true }).click();
-			await page.getByLabel('Name').fill('Airport run');
+			await page.getByLabel('Notes').fill('Airport run');
 			await page.getByLabel('Start hour').click();
-			await page.keyboard.type('04');
+			await page.keyboard.type('4');
 			await page.getByLabel('Start minute').click();
 			await page.keyboard.type('40');
+			await expect(page.getByLabel('Start meridiem')).toHaveAttribute('aria-valuetext', 'AM');
 			await page.getByRole('button', { name: copy.common.add, exact: true }).click();
 
 			// Back to the hour that holds it, and no further: the window is fitted
@@ -263,10 +279,7 @@ test.describe('the day window', () => {
 		}
 	});
 
-	test('the hours scroll inside the board while its title bar stays', async ({
-		page,
-		request
-	}) => {
+	test('the hours scroll inside the board while its title bar stays', async ({ page, request }) => {
 		const fixture = await createApiFixture(request);
 		const { startDate } = fixture.tripBody;
 		const box = page.locator('.sched .boardscroll');
@@ -277,9 +290,12 @@ test.describe('the day window', () => {
 			// A block late enough to be off the bottom of any box the day is drawn
 			// in, which is the whole point: it has to be reachable.
 			await page.getByRole('button', { name: '+ Add', exact: true }).click();
-			await page.getByLabel('Name').fill('Last orders');
+			await page.getByLabel('Notes').fill('Last orders');
+			// 10 PM: "1" waits to see whether it is one, ten, eleven or twelve.
 			await page.getByLabel('Start hour').click();
-			await page.keyboard.type('22');
+			await page.keyboard.type('10');
+			await page.getByLabel('Start meridiem').click();
+			await page.keyboard.type('p');
 			await page.getByRole('button', { name: copy.common.add, exact: true }).click();
 			const block = page.locator('.block', { hasText: 'Last orders' }).first();
 			await expect(block).toBeVisible();
@@ -325,9 +341,9 @@ test.describe('the day window', () => {
 			await page.goto(`/trips/${fixture.tripId}/schedule?day=${startDate}&view=day`);
 
 			await page.getByRole('button', { name: '+ Add', exact: true }).click();
-			await page.getByLabel('Name').fill('Sunrise swim');
+			await page.getByLabel('Notes').fill('Sunrise swim');
 			await page.getByLabel('Start hour').click();
-			await page.keyboard.type('09');
+			await page.keyboard.type('9');
 			await page.getByRole('button', { name: copy.common.add, exact: true }).click();
 			await expect(firstHour()).toHaveText('6 AM');
 
@@ -388,7 +404,7 @@ test.describe('the day window', () => {
 			await page.goto(`/trips/${fixture.tripId}/schedule?day=${startDate}&view=day`);
 
 			await page.getByRole('button', { name: '+ Add', exact: true }).click();
-			await page.getByLabel('Name').fill('Long lunch');
+			await page.getByLabel('Notes').fill('Long lunch');
 			await page.getByRole('button', { name: copy.common.add, exact: true }).click();
 
 			const block = page.locator('.block', { hasText: 'Long lunch' }).first();
@@ -450,7 +466,7 @@ test.describe('stays', () => {
 			await page.goto(`/trips/${fixture.tripId}/schedule?day=${startDate}&view=day`);
 
 			await page.getByRole('button', { name: '+ Add stay' }).click();
-			await page.getByLabel('Name').fill('Harbour rooms');
+			await page.getByLabel('Notes').fill('Harbour rooms');
 			await page.getByLabel('Check out').fill(day3);
 			await page.getByRole('button', { name: copy.common.add, exact: true }).click();
 

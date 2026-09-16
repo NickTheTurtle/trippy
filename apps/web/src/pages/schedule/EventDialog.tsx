@@ -6,7 +6,7 @@ import Modal, { ModalFooter, ModalForm } from '../../components/ui/Modal';
 import { useDeleteAction } from '../../components/ui/useDeleteAction';
 import Select, { type Option } from '../../components/ui/Select';
 import TimeField from '../../components/ui/TimeField';
-import { Field, FieldShell, TextArea } from '../../components/ui/Field';
+import { FieldShell, TextArea } from '../../components/ui/Field';
 import { copy } from '../../copy';
 import PeoplePicker from './PeoplePicker';
 import { useJourneys } from './Journeys';
@@ -16,7 +16,6 @@ import {
 	MODE_OPTIONS,
 	TYPE_OPTIONS,
 	dayLabel,
-	deriveTitle,
 	keepsPick,
 	placeLabel,
 	placeOptions,
@@ -27,8 +26,13 @@ import StayDates from './StayDates';
 import type { Cell, Crew, EventDraft, EventRow, LegRow, SavedPoi } from './types';
 
 /**
- * One event: rename, retype, retime, re-people, relocate, delete, and set the
- * journeys that arrive at it.
+ * One event: retype, retime, re-people, relocate, delete, and set the journeys
+ * that arrive at it.
+ *
+ * Not rename: a block is named from what it is, which is the place it is at,
+ * the first line of its notes, or its own type, and the server owns that order.
+ * The dialog is silent about the name, so a block named deliberately keeps the
+ * name it was given.
  *
  * Changing the type to free time clears the event's location on the server.
  * That is the point of free time rather than a side effect: nobody has promised
@@ -86,7 +90,6 @@ export default function EventDialog({
 	onClose: () => void;
 	onDone: () => void;
 }) {
-	const [title, setTitle] = useState(event.title);
 	const [type, setType] = useState<EventType>(event.type);
 	const [start, setStart] = useState(String(event.start_min));
 	const [end, setEnd] = useState(String(event.end_min));
@@ -158,10 +161,12 @@ export default function EventDialog({
 			id: event.id,
 			day: onDay,
 			end_day: staying ? checkOut : null,
-			// Clearing the name is now a real edit rather than an unfinished one, so
-			// the block shows the name the server will derive instead of holding on
-			// to the one that is being removed.
-			title: deriveTitle(title, placeable ? (spot?.name ?? null) : null, notes, type),
+			/* The name it already has, because this dialog no longer sends one: the
+			   name field is gone, the save is silent about the title, and the server
+			   leaves a stored name alone when it is not mentioned. Deriving a
+			   different one here would preview a rename that is not going to
+			   happen. */
+			title: event.title,
 			type,
 			start_min: staying ? STAY_CHECK_IN : startMin,
 			end_min: staying ? DAY_END : endMin,
@@ -171,10 +176,10 @@ export default function EventDialog({
 		});
 	}, [
 		event.id,
+		event.title,
 		onDay,
 		staying,
 		checkOut,
-		title,
 		notes,
 		type,
 		placeable,
@@ -200,15 +205,6 @@ export default function EventDialog({
 	 * wiped the spot the day is planned around, and every journey to it. */
 	const placeMoved = poi !== savedPick;
 
-	/* Sent only when it has actually changed, for the same reason.
-	 *
-	 * The name is optional now, so an empty one is a real instruction: clear it
-	 * and the server derives a name again from the place, the notes or the type.
-	 * That is only safe as long as the untouched case stays absent, because a
-	 * reader who came here to move the block must not have the name they chose
-	 * recomputed underneath them. Absent leaves it alone; empty re-derives. */
-	const titleMoved = title.trim() !== event.title;
-
 	const op = (body: Record<string, unknown>) =>
 		api(`${base}/events/${event.id}/op`, { method: 'POST', body });
 
@@ -231,7 +227,10 @@ export default function EventDialog({
 			// travel off them rather than off anything in the edit.
 			await op({
 				op: 'edit',
-				title: titleMoved ? title.trim() : undefined,
+				/* No title, ever. The name field is gone, so this dialog has nothing
+				   to say about the name: an absent title leaves the stored one alone,
+				   which is what keeps a name somebody deliberately chose from being
+				   recomputed by an edit that only moved the block. */
 				type,
 				notes: notes.trim(),
 				startMin: staying ? undefined : startMin,
@@ -277,11 +276,15 @@ export default function EventDialog({
 						    showing: the mode field comes and goes with the type, and the
 						    old flexbox row re-flowed everything each time it did.
 
-						    The place leads here as it does in the add dialog, and the
-						    wide half of the first row falls back to the name for a type
-						    that has no place, so the row is never left half empty. */}
+						    The place leads here as it does in the add dialog. With the
+						    name field gone, two rows are laid out for what is missing:
+						    free time has no place, so its type keeps the narrow half and
+						    the clock moves up beside it, and a journey's mode takes the
+						    half of the second row the people used to share, with the
+						    people running full width underneath. No row is left half
+						    empty for any of the five types. */}
 						<div className="grid grid-cols-12 gap-x-2.5 gap-y-3.5">
-							{placeable ? (
+							{placeable && (
 								<FieldShell label={placeText} optional className="col-span-8">
 									<Select
 										value={poi}
@@ -290,15 +293,6 @@ export default function EventDialog({
 										ariaLabel={placeText}
 									/>
 								</FieldShell>
-							) : (
-								<Field
-									label="Name"
-									className="col-span-8"
-									optional
-									autoFocus
-									value={title}
-									onChange={(e) => setTitle(e.target.value)}
-								/>
 							)}
 							<FieldShell label="Type" className="col-span-4">
 								<Select
@@ -324,7 +318,7 @@ export default function EventDialog({
 									onCheckOut={setCheckOut}
 								/>
 							) : (
-								<FieldShell label="When" className="col-span-6">
+								<FieldShell label="When" className={placeable ? 'col-span-6' : 'col-span-8'}>
 									<div className="tfpair">
 										<TimeField
 											value={startMin}
@@ -341,28 +335,25 @@ export default function EventDialog({
 									</div>
 								</FieldShell>
 							)}
+							{type === 'travel' && (
+								<FieldShell label="Mode" optional className="col-span-6">
+									<Select value={mode} onChange={setMode} options={MODE_OPTIONS} ariaLabel="Mode" />
+								</FieldShell>
+							)}
 							<PeoplePicker
 								people={people}
 								onChange={setPeople}
 								memberOptions={memberOptions}
 								crews={crews}
-								className={staying ? 'col-span-4' : 'col-span-6'}
+								className={
+									staying
+										? 'col-span-4'
+										: placeable && type !== 'travel'
+											? 'col-span-6'
+											: 'col-span-12'
+								}
 							/>
 
-							{type === 'travel' && (
-								<FieldShell label="Mode" optional className="col-span-4">
-									<Select value={mode} onChange={setMode} options={MODE_OPTIONS} ariaLabel="Mode" />
-								</FieldShell>
-							)}
-							{placeable && (
-								<Field
-									label="Name"
-									className={type === 'travel' ? 'col-span-8' : 'col-span-12'}
-									optional
-									value={title}
-									onChange={(e) => setTitle(e.target.value)}
-								/>
-							)}
 							<TextArea
 								label="Notes"
 								optional
