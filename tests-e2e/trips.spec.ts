@@ -72,13 +72,21 @@ test.describe('trips', () => {
 
 			// Native validation is off on purpose so the server's own wording is what
 			// the user sees. These two sentences are server-authored (not in copy),
-			// so they are asserted literally here.
+			// so they are asserted literally here. Each reads in the corner and is
+			// announced from inside the dialog, which is the only part of the
+			// document an open modal leaves non-inert.
 			await dialog.getByRole('button', { name: copy.common.add }).click();
+			await expect(
+				page.locator('.toast.bad').filter({ hasText: 'Pick a start date.' })
+			).toBeVisible();
 			await expect(dialog.getByRole('alert')).toHaveText('Pick a start date.');
 			await expect(dialog).toBeVisible();
 
 			await dialog.getByLabel(copy.tripForm.startLabel).fill('2027-10-01');
 			await dialog.getByRole('button', { name: copy.common.add }).click();
+			await expect(
+				page.locator('.toast.bad').filter({ hasText: 'Pick an end date.' })
+			).toBeVisible();
 			await expect(dialog.getByRole('alert')).toHaveText('Pick an end date.');
 			await expect(dialog).toBeVisible();
 		} finally {

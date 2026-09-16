@@ -6,7 +6,8 @@ import { useMutation } from '../hooks/useMutation';
 import FlipGrid from '../components/ui/FlipGrid';
 import { useTrip } from './TripShell';
 import Select from '../components/ui/Select';
-import FormError from '../components/ui/FormError';
+import LoadError from '../components/ui/LoadError';
+import { useToast } from '../components/ui/Toast';
 import EmptyState from '../components/ui/EmptyState';
 import type { DiscoverData, Poi, Stay } from '../lib/api-types';
 import CityList, { type CityRow } from './discover/CityList';
@@ -42,6 +43,7 @@ export default function Discover() {
 	const { trip, addCity, reloadTrip } = useTrip();
 	const base = `/trips/${trip.id}/discover`;
 	const { data, error, reload } = useApi<DiscoverData>(base);
+	const toast = useToast();
 	// Places, stays and their votes, plus the cities the sidebar lists.
 	useLiveSection(['pois', 'lodging', 'schedule', 'members', 'trip'], reload);
 
@@ -58,26 +60,28 @@ export default function Discover() {
 	// gets told rather than shown a change that never happened.
 	const votePlace = useMutation<[string]>(
 		(id) => api(`${base}/pois/${id}/vote`, { method: 'POST' }),
-		{ fallback: cd.errors.votePlace, onSuccess: reload }
+		{ fallback: cd.errors.votePlace, onSuccess: reload, onError: toast.error }
 	);
 	const voteStay = useMutation<[string]>(
 		(id) => api(`${base}/stays/${id}/vote`, { method: 'POST' }),
 		{
 			fallback: cd.errors.voteStay,
-			onSuccess: reload
+			onSuccess: reload,
+			onError: toast.error
 		}
 	);
 	const removeStay = useMutation<[string]>(
 		(id) => api(`${base}/stays/${id}`, { method: 'DELETE' }),
 		{
 			fallback: cd.errors.removeStay,
-			onSuccess: reload
+			onSuccess: reload,
+			onError: toast.error
 		}
 	);
 
-	const notice = votePlace.error || voteStay.error || removeStay.error;
-
-	if (!data) return error ? <FormError message={error} variant="banner" /> : null;
+	/* The reason goes to the corner, the page keeps a line saying it is not
+	   there. A popup over a blank screen explains itself and leaves nothing. */
+	if (!data) return error ? <LoadError message={error} onRetry={reload} /> : null;
 
 	if (data.cities.length === 0) {
 		return <NoCities isOrganizer={trip.role === 'organizer'} onAddCity={() => addCity(reload)} />;
@@ -172,8 +176,6 @@ export default function Discover() {
 			/>
 
 			<div className="min-w-0">
-				<FormError message={notice} variant="banner" />
-
 				<div className={`mb-2.5 flex flex-wrap items-center gap-4 ${narrow ? '' : 'min-h-phead'}`}>
 					{/* Four types, and on a phone a dropdown is a tap to open, a tap to
 					    choose and a menu over the grid you are filtering. Laid out as

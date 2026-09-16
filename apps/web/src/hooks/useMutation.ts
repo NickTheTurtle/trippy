@@ -22,6 +22,13 @@ export type MutationOptions = {
 	onSuccess?: () => void;
 	/** Shown when the failure is not an `ApiError` (a bug, not a refusal). */
 	fallback?: string;
+	/**
+	 * Ran with the message the failure resolved to, for a caller that reports it
+	 * somewhere other than beside its own form: a toast, mostly. The message is
+	 * still put in `error`, so a dialog can go on showing it in its footer while
+	 * this fires.
+	 */
+	onError?: (message: string) => void;
 };
 
 export type Mutation<A extends unknown[]> = {
@@ -78,13 +85,14 @@ export function useMutation<A extends unknown[] = []>(
 			// otherwise the list keeps drawing a row that no longer exists and
 			// every further action on it fails the same silent way.
 			if (err instanceof ApiError && err.status === 404) optionsRef.current.onSuccess?.();
-			if (alive.current) {
-				setError(
-					err instanceof ApiError
-						? err.message
-						: (optionsRef.current.fallback ?? copy.api.saveFallback)
-				);
-			}
+			const message =
+				err instanceof ApiError
+					? err.message
+					: (optionsRef.current.fallback ?? copy.api.saveFallback);
+			// Reported even when this component is going away: a dialog that closed
+			// mid-flight is exactly the case where nothing else will say so.
+			optionsRef.current.onError?.(message);
+			if (alive.current) setError(message);
 			return false;
 		} finally {
 			if (alive.current) setBusy(false);

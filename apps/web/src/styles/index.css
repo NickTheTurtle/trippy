@@ -306,6 +306,14 @@ textarea.input {
 	display: inline-flex;
 	align-items: center;
 	height: var(--control-h);
+	/* Sized by what is in it, and never squeezed under that. The field sits in a
+	   flex pair inside a grid cell, and `.input` sets `min-width: 0`, so it was
+	   free to shrink below its own segments: at 1280 the half-column cell gave
+	   it 101.8px for 107px of clock, and the meridiem hung 5px past the padding
+	   into the border, which is what "AM goes outside the box" was. The segments
+	   cannot shrink, so the box has to be the thing that holds its ground. */
+	flex: none;
+	width: max-content;
 	/* Stated, not inherited: `.field` sets a smaller size for its label, and a
 	   div with `font: inherit` took it, so the clock read a size under the text
 	   box beside it. */
@@ -336,6 +344,15 @@ textarea.input {
 .tfm {
 	text-align: left;
 }
+/* The meridiem is two letters rather than two digits, so it is sized for its
+   own widest value and set apart by a space, the way a clock is written: "9:30
+   AM". It is a segment like the others, so it lights up when it has focus and
+   the reader can see which part of the time an arrow key is about to move. */
+.tfap {
+	width: 1.9rem;
+	margin-left: 0.25rem;
+	text-align: left;
+}
 .tfseg:focus {
 	background: var(--color-accent);
 	color: #fff;
@@ -345,9 +362,13 @@ textarea.input {
 	color: var(--color-ink-faint);
 }
 /* A start and an end read as one answer, so they sit in one field with a word
-   between them rather than under two labels. */
+   between them rather than under two labels. The pair wraps rather than
+   clipping: the clocks are a fixed width now, so a cell too narrow for both has
+   to put the end time on a second line, and a wrapped answer is still readable
+   where a cut-off one is not. */
 .tfpair {
 	display: flex;
+	flex-wrap: wrap;
 	align-items: center;
 	gap: 0.5rem;
 }
@@ -543,13 +564,6 @@ select.input.compact {
 	}
 	.mfoot {
 		justify-content: stretch;
-	}
-	/* Pushes an error message to the left of the footer buttons, so a long one
-   wraps in place instead of shoving the buttons off the row. */
-	.mfoot .mfoot-note {
-		margin-right: auto;
-		min-width: 0;
-		overflow-wrap: anywhere;
 	}
 	.mfoot .btn {
 		flex: 1 1 auto;
@@ -1398,6 +1412,18 @@ html[data-page-nav='back']::view-transition-new(trippage) {
 	font-size: var(--text-meta);
 	color: var(--color-ink-faint);
 }
+/* A line about the last tick, at the top of the menu. Ordinary ink rather than
+   the faint grey the headings use: it is there because something the reader
+   asked for did not happen, and faint grey is how this menu writes the things
+   nobody needs to read. It sits on the menu's own surface with a rule under it
+   so it cannot be mistaken for a row that can be ticked. */
+.mnote {
+	padding: 0.45rem 0.5rem;
+	border-bottom: 1px solid var(--color-line);
+	font-size: var(--text-meta);
+	line-height: 1.35;
+	color: var(--color-ink-soft);
+}
 
 /* --- Maps ---------------------------------------------------------------- */
 
@@ -1552,4 +1578,104 @@ html[data-page-nav='back']::view-transition-new(trippage) {
 }
 .mapcard-warn svg {
 	flex: 0 0 auto;
+}
+
+/* --- Toasts -------------------------------------------------------------- */
+
+/* The corner stack. A popover rather than a z-index, because every dialog in
+   the app is a native showModal() dialog and therefore in the top layer, where
+   no stylesheet can reach it. See components/ui/Toast.tsx. The UA sheet gives
+   [popover] a border, padding, a background and centred inset, all of which
+   have to go: this is a container, not a panel. */
+.toasts {
+	position: fixed;
+	inset: auto 1rem 1rem auto;
+	width: min(24rem, calc(100vw - 2rem));
+	margin: 0;
+	border: 0;
+	padding: 0;
+	background: none;
+	overflow: visible;
+	/* Open for the whole session, so an empty stack must not swallow the clicks
+	   meant for the page under it. The rows take their own back. */
+	pointer-events: none;
+}
+.toastlist {
+	display: flex;
+	flex-direction: column;
+	align-items: stretch;
+	gap: 0.5rem;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+.toast {
+	display: flex;
+	align-items: flex-start;
+	gap: 0.5rem;
+	padding: 0.6rem 0.65rem 0.6rem 0.85rem;
+	border: 1px solid var(--color-line);
+	border-radius: var(--radius-md);
+	box-shadow: var(--shadow-card);
+	font-size: var(--text-body);
+	line-height: 1.35;
+	pointer-events: auto;
+	animation: toast-in 140ms ease-out;
+}
+.toast > span {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+.toast.ok {
+	background: var(--color-accent-soft);
+	border-color: var(--color-accent-soft);
+	color: var(--color-accent-ink);
+}
+.toast.bad {
+	background: var(--color-danger-soft);
+	border-color: var(--color-danger-soft);
+	color: var(--color-danger-ink);
+}
+/* Inherits the row's ink so the control reads as part of the message rather
+   than as a second, differently coloured thing sitting on it. */
+.tclose {
+	flex: 0 0 auto;
+	display: grid;
+	place-items: center;
+	width: 1.25rem;
+	height: 1.25rem;
+	margin-top: 0.05rem;
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: none;
+	color: inherit;
+	opacity: 0.65;
+	cursor: pointer;
+}
+.tclose:hover {
+	opacity: 1;
+}
+.tclose svg {
+	width: 0.75rem;
+	height: 0.75rem;
+}
+@keyframes toast-in {
+	from {
+		opacity: 0;
+		transform: translateY(0.4rem);
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.toast {
+		animation: none;
+	}
+}
+/* Narrow, the corner is the full width of the screen minus the page gutter:
+   a 24rem column pinned right would either overflow or leave a stripe of page
+   beside it that is too thin to be anything. */
+@media (max-width: 30rem) {
+	.toasts {
+		inset: auto 0.75rem 0.75rem 0.75rem;
+		width: auto;
+	}
 }

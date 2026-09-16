@@ -11,8 +11,11 @@ import type { ReactNode } from 'react';
  *
  * Two shapes, because the app has exactly two places a message like this
  * appears:
- *  - `footer`, the small line that sits beside the buttons in a dialog's
- *    `.mfoot`, which is where a failed submit belongs;
+ *  - `footer`, the small line that sits beside the button that failed, which is
+ *    the settle-up row: the reason is read next to the one control the user has
+ *    to try again. A dialog's failed save no longer uses it. That went to the
+ *    corner, because a line in a dialog footer is in the part of a tall dialog
+ *    the reader may have scrolled away from;
  *  - `banner`, the tinted block above a form or a page section, which is where
  *    a result the user should notice after the fact belongs.
  */
@@ -46,7 +49,7 @@ export default function FormError({
 
 	const classes =
 		variant === 'footer'
-			? `mfoot-note m-0 text-meta ${FOOTER_TONE[tone]}`
+			? `m-0 text-meta ${FOOTER_TONE[tone]}`
 			: `m-0 mb-4 rounded-lg px-3.5 py-2.5 text-body ${BANNER_TONE[tone]}`;
 
 	return (
