@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Link, useSearchParams } from 'react-router';
+import { Link, useNavigate, useSearchParams } from 'react-router';
 import { api, ApiError } from '../lib/api';
 import { useApi } from '../hooks/useApi';
 import { useLiveSection } from '../hooks/useTripEvents';
@@ -508,18 +508,46 @@ const Toolbar = memo(function Toolbar({
 /* The day stepper is the board's own title bar: it names the day being drawn
    and steps to the next one, so it belongs to the board rather than to the page
    toolbar, which is left holding only the controls that apply to the whole
-   schedule. */
+   schedule.
+
+   The day name is also the way to jump. A trip can be long - the Montreal one
+   runs from September 2024 to September 2026, which is 400 days - and a stepper
+   that moves one day at a time is no way to reach the middle of it. Rather than
+   add a second control beside the arrows, the label itself opens a native date
+   picker bounded by the first and last day the trip offers, which is the same
+   range the arrows walk. That keeps the row to three things at 390px, needs no
+   label of its own since the control is the date, and gives a phone the
+   platform's own picker. The input underneath is the picker; the button on top
+   is what stays readable as `Fri, Apr 17`. */
 const BoardHead = memo(function BoardHead({
 	label,
 	view,
+	day,
+	first,
+	last,
 	prev,
 	next
 }: {
 	label: string;
 	view: string;
+	day: string;
+	first: string;
+	last: string;
 	prev: string | null;
 	next: string | null;
 }) {
+	const navigate = useNavigate();
+	const picker = useRef<HTMLInputElement | null>(null);
+
+	// `showPicker` is what opens the calendar on a click; where it is missing,
+	// focusing the field still lets the keyboard and the platform take over.
+	const openPicker = () => {
+		const el = picker.current;
+		if (!el) return;
+		if (typeof el.showPicker === 'function') el.showPicker();
+		else el.focus();
+	};
+
 	return (
 		<div className="boardhead">
 			{prev ? (
@@ -531,7 +559,24 @@ const BoardHead = memo(function BoardHead({
 					‹
 				</button>
 			)}
-			<span className="curday">{label}</span>
+			<span className="curday">
+				<button type="button" className="daypick" onClick={openPicker} aria-label="Jump to a date">
+					{label}
+				</button>
+				<input
+					ref={picker}
+					className="daypickfield"
+					type="date"
+					value={day}
+					min={first}
+					max={last}
+					tabIndex={-1}
+					aria-hidden="true"
+					onChange={(e) => {
+						if (e.target.value) navigate(navUrl(e.target.value, view));
+					}}
+				/>
+			</span>
 			{next ? (
 				<Link className="navbtn" to={navUrl(next, view)} aria-label="Next day">
 					›
@@ -1750,6 +1795,9 @@ export default function Schedule() {
 						<BoardHead
 							label={dayLabel(data.day)}
 							view={view}
+							day={data.day}
+							first={data.days[0] ?? data.day}
+							last={data.days[data.days.length - 1] ?? data.day}
 							prev={dayStep(-1)}
 							next={dayStep(1)}
 						/>

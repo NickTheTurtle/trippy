@@ -69,6 +69,38 @@
 	font-size: 1.1rem;
 	min-width: 8rem;
 	text-align: center;
+	position: relative;
+	display: inline-flex;
+	justify-content: center;
+}
+/* The day name is the jump control, so it has to look like something you can
+   press without turning into a third button between the two arrows: the dotted
+   underline is the affordance, and the colour only moves on hover. */
+.sched .daypick {
+	font: inherit;
+	color: inherit;
+	background: none;
+	border: 0;
+	padding: 0 0.2rem 0.05rem;
+	cursor: pointer;
+	border-bottom: 1px dashed var(--color-ink-faint);
+}
+.sched .daypick:hover,
+.sched .daypick:focus-visible {
+	color: var(--color-accent-ink);
+	border-bottom-color: var(--color-accent);
+}
+/* The real picker, under the label it opens. It keeps the label's box so the
+   platform anchors the calendar to the day name rather than to the corner of
+   the card, and it takes no clicks of its own: the button on top does that. */
+.sched .daypickfield {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	opacity: 0;
+	pointer-events: none;
+	border: 0;
+	padding: 0;
 }
 /* The view switch shares `.pills` with Discover's type filter; see index.css.
    The links stay links because the schedule's view is addressable. */

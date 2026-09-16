@@ -3199,6 +3199,24 @@ Measured after: the header band falls from 221px to 176px at 390px, 414px and
 209 and the box 330 to 375, with the dates back on one line. At 1280px every
 number is unchanged, which was the constraint.
 
+**The day name is the way to jump.** The stepper moves one day at a time, which
+is right for a five day trip and useless on a long one: the Montreal trip runs
+from September 2024 to September 2026, and the schedule offers it as hundreds of
+day columns. Rather than put a second control between the arrows, the label
+itself opens a native date picker. It needs no label of its own, since the
+control is the date; the row stays three things wide at 390px; and a phone gets
+the platform's own calendar rather than something reimplemented. The visible
+piece is still a button reading `Fri, Apr 17`, with a dashed underline as the
+affordance, and the real `input[type=date]` sits underneath it at the same box,
+taking no clicks, so the platform anchors its calendar to the day name instead
+of to the corner of the card. `showPicker()` is what opens it; where that is
+missing the input is focused instead and the platform takes over.
+
+Its `min` and `max` are the first and last day the board offers, not the trip's
+own start and end. The two differ on a long trip, because the server caps how
+many days it will serve, and a picker that offered a day the arrows cannot walk
+to and the server will clamp away would be lying about where you can go.
+
 **One height, and the page's air belongs to the board.** The next report was
 that the board and the map could both be taller. Measured at 1280x900 before
 anything changed: the box started 458.5px down the page and came out 417.5px
