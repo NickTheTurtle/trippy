@@ -697,18 +697,19 @@ export default function Schedule() {
 
 	/* The day one step either way, or null at the ends.
 	 *
-	 * Steps through `data.days`, the days the trip actually offers, rather than
-	 * by the calendar: that is what bounds the walk, and it also skips the gap to
-	 * an event stranded outside the range instead of landing on a day the trip
-	 * has not got. The server clamps the same way, since the day is a url and a
-	 * url can arrive without passing through these buttons. */
-	const dayStep = (delta: number): string | null => {
-		const days = data.days;
-		const at = days.indexOf(data.day);
-		if (at < 0) return null;
-		const to = at + delta;
-		return to >= 0 && to < days.length ? (days[to] ?? null) : null;
-	};
+	 * The server decides this now, and that is the point rather than a
+	 * delegation for its own sake. `data.days` is a window around the day being
+	 * drawn, so walking it by index would stop at the edge of the window and
+	 * call it the end of the trip. It is the whole trip on every trip that
+	 * exists today, which is what makes the mistake invisible until the one trip
+	 * that is longer than the window.
+	 *
+	 * `prevDay` and `nextDay` are also the nearer of the in-range neighbour and
+	 * the nearest scheduled day, so they still jump the gap to an event left
+	 * outside the trip's dates by a shortening. An index walk cannot do that at
+	 * all once the window no longer holds both sides of the gap. `null` means
+	 * this really is an end, which is what disables the arrow. */
+	const dayStep = (delta: number): string | null => (delta < 0 ? data.prevDay : data.nextDay);
 
 	// --- Board pieces -------------------------------------------------------
 
