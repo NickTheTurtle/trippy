@@ -501,11 +501,13 @@ stranded by a shortened trip stays reachable. The bound is therefore what the
 trip offers, not what its dates claim, and stepping by index skips the gap to a
 stranded day instead of landing on a day that is not there.
 
-**The server clamps the same way**, because the day is a URL: it can be typed,
-bookmarked, or left behind by a trip whose dates were edited afterwards. Guarding
-only the buttons would answer all three with an empty board. The existing
-malformed-day fallback is unchanged and still comes first; the clamp only applies
-to days that parse.
+**The server used to clamp the same way**, because the day is a URL: it can be
+typed, bookmarked, or left behind by a trip whose dates were edited afterwards.
+Guarding only the buttons would answer all three with an empty board. The clamp
+itself is gone (see M3.6): answering with a day other than the one asked for, at
+200 and with no sign of the swap, turned out to be its own defect. The server now
+refuses a day the trip does not have and names the range; the buttons are bounded
+as before.
 
 **The 3-day view was removed.** It was a window three columns wide, which bought
 one thing: seeing tomorrow without leaving today. It cost a second clamp rule
@@ -646,6 +648,92 @@ reads as a bug.
 - **Estimated costs live here too** (see M5): planning what a trip will cost is the
   same job as preparing for it, and splitting them across two tabs meant bouncing
   between them. `/costs` 307-redirects here.
+
+### M3.6: How far a trip reaches, and what a day outside it gets
+
+The schedule read served 400 days and clamped everything else onto the last of
+them. The Montreal trip runs 2024-09-09 to 2026-09-12, which is 734 days, so the
+last eleven months were not served at all: the arrows, the date picker and a
+typed url all bottomed out at 2025-10-13, and a request for 2026-05-01 came back
+`200` drawing 2025-10-13. The url said one thing and the board drew another with
+nothing in the payload to say so.
+
+**The cap was never a cost control**, which is worth stating because this project
+has had a billing hole driven by row count before. It was a loop guard, written
+as `for (let d = from, i = 0; d <= to && i < 400; ...)` with the comment "guard
+against a reversed or absurd range walking forever": the day list was built by
+walking the calendar, and a walk needs a stopping rule. Nothing paid keys off the
+day count. Routing is called for the one day being drawn, and cover photos are
+per city, so 400 and 4000 cost the same at the provider.
+
+**The reach is now answered without the list.** A trip's reach is what it always
+was, the date range union anything scheduled outside it, but it now comes from
+the trip's two dates and a `MIN`/`MAX` over its events, so it costs the same on a
+weekend and on a decade. The stepper's neighbours come from the same place:
+`prevDay` and `nextDay` are the nearer of the day inside the range and the
+nearest day carrying something, which is what skips the gap to an event stranded
+by a shortened trip. The payload carries `firstDay`, `lastDay`, `dayCount`,
+`prevDay` and `nextDay` alongside `days`.
+
+**`days` is now a window, not the truth.** It is still the full list for every
+real trip, because the window is 4000 days, but it no longer decides anything:
+every day the client needs to navigate is its own field. That is the difference
+between raising the cap and removing it. Raising it would have been the same bug
+at a different trip length; a list that no statement of reach depends on can be
+shortened, or dropped, without making a day unreachable. The window is centred on
+the day being drawn rather than anchored at the first day, so a trip long enough
+to exceed it still lists the days either side of the reader, and it slides back
+off the end rather than being truncated there, so a window taken at the last day
+of a very long trip is the same size as one taken in the middle.
+
+**One code path, not a threshold.** A trip shorter than the window gets its whole
+self, and gets it because the clamps collapse, not because there is a branch
+testing its length. The alternative considered was to keep the whole trip below
+some threshold and window only above it. That was rejected: two behaviors are two
+things to reason about, and the divergence would only ever appear on the trips
+that are hardest to test by looking at the app. Measured before and after against
+a copy of the real database, the short trips are byte-identical:
+
+| trip | dates | days before | days after | identical |
+| --- | --- | --- | --- | --- |
+| Athens escape marathon | 2026-04-16..2026-04-20 | 5 | 5 | yes |
+| China, autumn | 2026-10-24..2026-11-08 | 16 | 16 | yes |
+| Test 2 | 2026-09-10..2026-09-10 | 1 | 1 | yes |
+| Pin Trip | 2026-09-08..2026-09-08 | 1 | 1 | yes |
+| Montreal | 2024-09-09..2026-09-12 | 400 | 734 | no, and by design |
+
+Montreal's new list has the old one as an exact prefix. The one-day trips are in
+the table deliberately: window arithmetic fails first at a length of 1, where
+`from` and `to` must both land on the single day.
+
+**A day the trip does not have is refused, with the reason machine-readable.**
+Silently serving a different day is what put the url and the board out of step,
+so the read now answers `400` with `{ error, code, firstDay, lastDay }` and three
+distinguishable codes:
+
+- `not_a_date`: the day in the url is not a date at all.
+- `outside_trip`: a real date, before or after everything the trip reaches. This
+  is the client error the brief calls for: outside the trip is not a place you
+  can be.
+- `day_not_offered`: a real date inside the reach, on neither the trip's dates
+  nor anything scheduled. Only a trip shortened under an event has these, and the
+  distinction matters: the stranded day itself is still served, the empty days
+  between it and the range are not.
+
+A day inside the trip is never an error, and is never affected by the window. The
+window decides what `days` lists, never which day the board draws.
+
+`firstDay` and `lastDay` ride on the refusal so the client can send the reader
+somewhere real instead of parsing the range back out of the sentence. **That half
+is not built**: the board currently renders the refusal in its error banner,
+which is honest but is not the end state. The client should redirect an
+out-of-range day to `firstDay` or `lastDay` and rewrite the url with it.
+
+**Trip length is bounded at the other end, at 366 days**, in the trip form: a new
+or lengthened trip may not exceed a year, and an existing longer trip is
+grandfathered so it can still be renamed and re-dated. The read makes no use of
+that number. It has to keep serving Montreal's 734 days, and a read that assumed
+the write bound would be the 400-day bug again with a friendlier number.
 
 ### M5: Estimated Costs (inside Preparation)
 
@@ -4360,6 +4448,13 @@ than for reuse, which is the right trade while there is exactly one consumer.
 **`GET /schedule` computes travel on the way out**, which is the one read in the
 app that talks to a provider. See 4.2 for why routing sits here and not in
 persistence.
+
+**`GET /schedule` refuses a day the trip does not have** rather than clamping it
+onto one the trip does. It answers `{ error, code, firstDay, lastDay }` at 400,
+with `code` one of `not_a_date`, `outside_trip` or `day_not_offered`. The success
+payload carries `firstDay`, `lastDay`, `dayCount`, `prevDay` and `nextDay`, all
+of which are computed without listing the days, so `days` is a window over a long
+trip rather than the statement of what exists. See M3.6.
 
 **One `/op` endpoint for the four event mutations** (move, resize, edit, delete)
 rather than four REST verbs. The board fires all of them from one drag handler
