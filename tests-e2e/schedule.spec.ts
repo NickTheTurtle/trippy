@@ -240,9 +240,9 @@ test.describe('the day window', () => {
 			await page.getByLabel('Start hour').click();
 			await page.keyboard.type('09');
 			await page.getByRole('button', { name: copy.common.add, exact: true }).click();
-			await expect(firstHour()).toHaveText('6:00');
+			await expect(firstHour()).toHaveText('6 AM');
 
-			// 4:40, which the old fixed window drew at 6:00.
+			// 4:40, which the old fixed window drew at 6 AM.
 			await page.getByRole('button', { name: '+ Add', exact: true }).click();
 			await page.getByLabel('Name').fill('Airport run');
 			await page.getByLabel('Start hour').click();
@@ -253,9 +253,9 @@ test.describe('the day window', () => {
 
 			// Back to the hour that holds it, and no further: the window is fitted
 			// to the day rather than opened to a full twenty-four on every day.
-			await expect(firstHour()).toHaveText('4:00');
+			await expect(firstHour()).toHaveText('4 AM');
 			const block = page.locator('.block', { hasText: 'Airport run' }).first();
-			// 4:40 measured from the window's own 4:00, at one pixel a minute. The
+			// 4:40 measured from the window's own 4 AM, at one pixel a minute. The
 			// clamped board drew it at 0, on top of the six o'clock line.
 			await expect(block).toHaveCSS('top', '40px');
 		} finally {
@@ -329,10 +329,10 @@ test.describe('the day window', () => {
 			await page.getByLabel('Start hour').click();
 			await page.keyboard.type('09');
 			await page.getByRole('button', { name: copy.common.add, exact: true }).click();
-			await expect(firstHour()).toHaveText('6:00');
+			await expect(firstHour()).toHaveText('6 AM');
 
 			const block = page.locator('.block', { hasText: 'Sunrise swim' }).first();
-			// 9:00 measured from the window's 6:00. Asserting it before taking hold
+			// 9:00 measured from the window's 6 AM. Asserting it before taking hold
 			// means the board has finished settling after the add, so the grab is
 			// not aimed at where the block was a moment ago.
 			await expect(block).toHaveCSS('top', '180px');
@@ -365,13 +365,13 @@ test.describe('the day window', () => {
 			// there, so what is asserted is that it went past six, not the minute it
 			// happened to reach.
 			await page.mouse.move(grabX, boxTop + 6, { steps: 8 });
-			await expect(firstHour()).toHaveText(/^[0-5]:00$/);
+			await expect(firstHour()).toHaveText(/^([1-5]|12) AM$/);
 			expect(await screenY()).toBeGreaterThanOrEqual(boxTop - 1);
 
 			await page.mouse.up();
 			// Settled on an hour that holds it, which is where a saved day starts,
 			// and the block is still the one being read: it kept its own time.
-			await expect(firstHour()).toHaveText(/^[0-5]:00$/);
+			await expect(firstHour()).toHaveText(/^([1-5]|12) AM$/);
 			await expect(block).toBeVisible();
 		} finally {
 			fixture.teardown();
@@ -409,9 +409,13 @@ test.describe('the day window', () => {
 			await page.mouse.up();
 
 			// An hour longer, kept once the write comes back.
-			await expect(page.getByRole('button', { name: /Long lunch, 9:00 to 11:00/ })).toBeVisible();
+			await expect(
+				page.getByRole('button', { name: /Long lunch, 9:00 AM to 11:00 AM/ })
+			).toBeVisible();
 			await page.reload();
-			await expect(page.getByRole('button', { name: /Long lunch, 9:00 to 11:00/ })).toBeVisible();
+			await expect(
+				page.getByRole('button', { name: /Long lunch, 9:00 AM to 11:00 AM/ })
+			).toBeVisible();
 		} finally {
 			fixture.teardown();
 		}

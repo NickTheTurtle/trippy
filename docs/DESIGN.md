@@ -2879,6 +2879,65 @@ full-bleed header stop short of the right edge (see "The header reaches the righ
 edge") stays gone; this box is a descendant, and the page keeps the browser's
 default gutter behaviour.
 
+## The board reads its clock as AM/PM
+
+**The board was the only 24-hour surface left in the app.** Discover already
+showed a venue's hours the way the provider gives them, "9:00 AM - 5:00 PM", and
+the schedule next to it said "19:00". That is one trip described two ways on two
+tabs, and the owner read the board as the one that was wrong. So every wall-clock
+time the board draws is now twelve-hour with a meridiem: blocks, their accessible
+names, journey legs, the agenda, the hour gutter and the map card.
+
+**Through `Intl`, not through arithmetic.** A hand-rolled twelve-hour clock is
+four lines and gets both ends of the day wrong: `h % 12` prints "0:00 AM" for
+midnight and "0:00 PM" for noon, and neither is a time anyone writes. The
+formatter is asked for `hour12` and it answers "12:00 AM" and "12:00 PM", which
+is the only reason this is worth a helper rather than a template string.
+
+**The minute is already local, so the format is done in UTC.** The board's unit
+is minutes past midnight in the destination's own zone, which the API has already
+resolved. Letting `Intl` apply the reader's zone on top of that would shift a
+time that is in the right zone already, so a fixed UTC instant is built from the
+minute and formatted in UTC. The conversion stays where it belongs, and this
+stays presentation.
+
+**One helper, three shapes**, all in `pages/schedule/shared.ts`:
+
+- `clock(min)` is a single time, "7:00 PM".
+- `clockRange(from, to)` says the meridiem once when both ends share it, so a
+  block reads "9:00 - 11:00 AM" rather than spending a third of a narrow line
+  repeating a word that has not changed. A range that crosses noon or midnight
+  keeps both, because there the meridiem is the information.
+- `hourLabel(h)` is an hour line, "6 AM". Minuteless because an hour line is
+  always on the hour, and ":00" under every one of them is nineteen repetitions
+  of nothing. It is also what keeps the gutter still: "6 AM" is no wider than the
+  "6:00" it replaces, so the 56px gutter and its 48px label did not move and the
+  grid did not reflow.
+
+**`en-US` is named rather than inferred**, the same way `dayLabel` and core's
+date helpers already name it. This is the deliberate part: for an app whose whole
+premise is crossing time zones, a hard-coded twelve-hour clock is a parochial
+default, and it is recorded here as one.
+
+**What it would take to make it a preference.** The account already stores a
+`homeTz` and nothing else about how times are shown, so a clock preference is a
+new column, a new field on the profile form, and a way for these three functions
+to read it. The functions are the easy part: they are the only place on the board
+that decides what a time looks like, so a preference reaches the whole board by
+being threaded into one module. The work is the setting, not the formatting, and
+the honest version of it is locale-aware rather than a two-value toggle: a reader
+who wants a 24-hour clock generally wants their own date order and their own
+wording with it, which is a decision for the app's copy as a whole and not for
+one page. Until that is wanted, `undefined` in place of `'en-US'` is the smallest
+step and it is one line.
+
+**The typed time fields are still 24-hour.** `TimeField` is two numeric segments
+with an hour that runs to 24, because the board ends at midnight and 24:00 is the
+end of a day where 0:00 is the start of one. Reading it as twelve-hour needs a
+third segment for the meridiem and changes what the arrow keys and typed digits
+mean, which is an input contract rather than a format. It is left alone here so
+the display change is separable from it.
+
 ## Shared UI conventions
 
 These exist so five pages don't each invent their own version. Reach for them
