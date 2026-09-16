@@ -82,6 +82,13 @@ export default function Pretrip() {
 	// being divided.
 	const shownTotal = totalFor(data.budget.items, viewAs, data.memberCount);
 
+	/**
+	 * Whether the header row has any figures to carry. It is the estimates with
+	 * something in them and nothing else, and it decides both what the row holds
+	 * and, narrow, whether the row exists at all.
+	 */
+	const figures = section === 'costs' && data.budget.items.length > 0;
+
 	// Both task lists take the same handlers; they differ only in which rows
 	// they hold and whose box each row leads with.
 	const taskProps = {
@@ -172,11 +179,14 @@ export default function Pretrip() {
 				    of their own above the table only pushed the numbers further from
 				    the rows they add up.
 
-				    Narrow, the button has gone up beside the dropdown, so on Tasks and
-				    Packing the row has nothing left in it and is not rendered at all:
-				    reserving the height there only opened a gap under a dropdown that
-				    had already said which section you are in. */}
-				{(!narrow || section === 'costs') && (
+				    Narrow, the button has gone up beside the dropdown, so the row is
+				    rendered only when it still has something in it, which at this width
+				    means the estimates' two figures. It used to be rendered on the estimates
+				    whether or not there were any, and an empty flex row is not free: it
+				    carries `mb-4`, so on a trip with no estimates the card below it
+				    started 16px lower than the identical card on Tasks and Packing and
+				    the empty panel visibly stepped down as you switched sections. */}
+				{(!narrow || figures) && (
 					<div
 						className={`mb-4 flex flex-wrap items-center justify-between gap-4 ${narrow ? '' : 'min-h-phead'}`}
 					>
@@ -184,7 +194,7 @@ export default function Pretrip() {
 							{/* No estimates, no figures: a trip total of zero reads as a
 							    costed trip that comes to nothing rather than as an empty
 							    table. */}
-							{section === 'costs' && data.budget.items.length > 0 && (
+							{figures && (
 								<>
 									<Stat label={cp.tripTotal} value={fmt(grand)} />
 									<Stat
