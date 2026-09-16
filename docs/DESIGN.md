@@ -327,13 +327,35 @@ already exist, and cannot be deleted by somebody tidying up. `editCrew` and
 a row that looks like the others but does nothing when clicked is worse than one
 that plainly is not a control.
 
-**Picking Everyone empties the field rather than filling it.** An event with
-nobody on it already means the whole group, which is why the picker's trigger
-reads "Everyone" when the selection is empty. Ticking all twenty names would
-look identical today and part company the moment somebody joins, so
-`PeoplePicker` collapses a full selection back to none. The two Everyones then
-say the same thing, and the one that survives a new arrival is the one that gets
-stored.
+**Everyone is stored as nothing and shown as everything.** An event with nobody
+on it already means the whole group, which is why the picker's trigger reads
+"Everyone" when the stored list is empty. That empty list is the representation
+worth keeping: it still means everyone the moment somebody joins the trip, where
+a frozen roster of today's ids would silently leave the new arrival out of an
+event that was meant to include them. So `PeoplePicker` collapses a full
+selection back to none before saving, and `PUT /events/:eventId/people` stores
+exactly the list it is handed.
+
+Storing it that way is not a reason to **show** it that way, and for a while the
+picker did both. Opening an ordinary event showed twenty empty checkboxes for an
+event that applied to all twenty people, which reads as nobody; and ticking
+names one at a time cleared the lot on the last tick, because that is the moment
+the selection collapses. Both are the same mistake, a storage form leaking into
+the display. `PeoplePicker` is now the only place the two forms meet: it expands
+empty to every name ticked on the way in, and collapses a full set back to empty
+on the way out. Unticking one name therefore writes out everyone-except-them
+explicitly, and reticking them empties the field again.
+
+Three consequences worth naming. A name that has left the trip is dropped from
+the display and written out on the next edit, because a stored id the menu
+cannot offer could never be unticked and would hold the count permanently short
+of the roster, putting "Everyone" out of reach. A stored list naming only people
+who have left is therefore the empty list by another route, and reads as
+Everyone. And unticking the last remaining name returns to Everyone rather than
+to nobody, which is not a bug but the schema showing through: an event with no
+people is defined as an event for the whole group, so a one-member trip cannot
+distinguish the two and no trip can express "nobody". Free time, not an empty
+participant list, is how the schedule says somebody is not involved.
 
 **Deriving the legs** (`packages/core/src/travel.ts`, `planLegs`). For each
 person, walk their own events in order and pair each consecutive two. Bucket the
