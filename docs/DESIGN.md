@@ -3293,6 +3293,21 @@ so measuring it straight after a change reads where it was, not where it is
 going, and `scrollIntoView` then does nothing because the stale rect is still on
 screen.
 
+**A peeking panel has a floor, not just a fraction.** `40vw` alone is a fraction
+of the viewport and knows nothing of what it holds. The panel gives the "When"
+field seven of twelve columns, and the start and end times measure 242px
+together, so at a 1200px viewport the cell is 253px and the pair is on one line,
+while from 1100px, where peeking begins, to about 1180 the cell is 230 to 239 and
+the end time drops to a second row. `.tfpair` wraps rather than clips by design,
+which made this a quiet cosmetic failure across a band of ordinary laptop widths
+rather than anything that looked broken. The width is now
+`min(var(--mw), max(40vw, 30rem), calc(100vw - 2rem))`: 30rem is just above the
+461px panel at which the cell reaches 242, so the pair holds one line wherever
+the panel peeks, and a 1100px viewport still leaves the board 590px beside it.
+Sizing the floor off the contents is the same move `.agendawhen` and `.tfseg`
+make, and it belongs on the panel because it is the panel, not the field, that
+was too narrow.
+
 **A block that moves takes its journeys with it.** A journey is anchored to its
 arrival, so its place on the clock is the gap in front of that block. Whenever
 the board is showing an event somewhere the server has not agreed to yet, under
@@ -4332,7 +4347,8 @@ one edge of a wide screen reads as an accident rather than a decision, and it
 made the app look unsure where its own dialogs live.
 
 So `peek` is now the only thing that moves a dialog. It gives up the dim,
-narrows the panel to 40vw and stands it at the edge `dock` names, for a dialog
+narrows the panel to 40vw, floored at 30rem so the fields it holds still fit
+(5.0.15), and stands it at the edge `dock` names, for a dialog
 whose edits are drawn live on the page (5.0.15), where dimming or covering the
 preview would defeat the point. It is also the one case where the page stays
 scrollable while a dialog is open. Docking being a consequence of peeking rather

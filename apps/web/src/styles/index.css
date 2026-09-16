@@ -365,7 +365,9 @@ textarea.input {
    between them rather than under two labels. The pair wraps rather than
    clipping: the clocks are a fixed width now, so a cell too narrow for both has
    to put the end time on a second line, and a wrapped answer is still readable
-   where a cut-off one is not. */
+   where a cut-off one is not. That is a last resort, not a layout: a cell this
+   narrow is a sign the panel around it is too small, which is why `.modal.peek`
+   carries a floor rather than leaning on this. */
 .tfpair {
 	display: flex;
 	flex-wrap: wrap;
@@ -470,8 +472,21 @@ select.input.compact {
 .modal.docked.left {
 	margin: auto auto auto 1rem;
 }
+/* Narrower than a centred dialog, because it stands beside the board rather
+   than over it, but not narrower than what it holds. `40vw` alone ignored the
+   contents: measured, the "When" pair needs 242px and the panel gives it seven
+   of twelve columns, so the pair fit at a 1200px viewport (cell 253px) and
+   wrapped the end time onto a second line from 1100, where peeking begins, up
+   to about 1180: 40vw there is 440 to 472px and the cell falls to 230. That
+   band is ordinary laptop width, and the wrap was the `.tfpair` fallback doing
+   its job on a panel that should never have been that narrow.
+
+   The floor is 30rem, just above the 461px at which the cell reaches 242px, so
+   the pair is on one line wherever the panel peeks at all. Peeking needs a
+   1100px viewport, which leaves the board 590px beside a 30rem panel, and
+   `calc(100vw - 2rem)` is still the last word either way. */
 .modal.peek {
-	width: min(var(--mw), 40vw, calc(100vw - 2rem));
+	width: min(var(--mw), max(40vw, 30rem), calc(100vw - 2rem));
 }
 .modal.peek::backdrop {
 	background: transparent;
