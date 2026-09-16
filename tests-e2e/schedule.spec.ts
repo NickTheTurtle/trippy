@@ -225,6 +225,57 @@ test.describe('adding an event', () => {
 			fixture.teardown();
 		}
 	});
+
+	/*
+	 * Everyone is stored as nobody, so asking for nobody is asking for everyone.
+	 * The picker cannot grant it, and the thing being guarded here is that it
+	 * says so rather than swallowing the click: the Everyone crew sits at the top
+	 * of the menu and is the row most likely to be pressed.
+	 */
+	test('Everyone cannot be emptied, and the menu says why instead of ignoring the click', async ({
+		page,
+		request
+	}) => {
+		const fixture = await createApiFixture(request);
+		const { startDate } = fixture.tripBody;
+		try {
+			await seedMembers(request, fixture, ['Ada']);
+			await signIn(page, fixture.sessionCookie);
+			await page.goto(`/trips/${fixture.tripId}/schedule?day=${startDate}&view=day`);
+
+			await page.getByRole('button', { name: '+ Add', exact: true }).click();
+			const participants = page.getByLabel('Participants');
+			await expect(participants).toHaveText(/Everyone/);
+			await participants.click();
+
+			const everyone = page.getByRole('option', { name: 'Everyone', exact: true });
+			const ada = page.getByRole('option', { name: 'Ada', exact: true });
+			await expect(everyone).toHaveAttribute('aria-selected', 'true');
+			await expect(ada).toHaveAttribute('aria-selected', 'true');
+
+			// The click that used to do nothing at all.
+			await everyone.click();
+			await expect(page.getByRole('status')).toHaveText(/means everyone/);
+			// Nobody is not a pick, so the ticks stay and the trigger still reads
+			// the group.
+			await expect(ada).toHaveAttribute('aria-selected', 'true');
+			await expect(participants).toHaveText(/Everyone/);
+
+			// Naming somebody is a pick, so the line goes: unticking Ada leaves the
+			// rest of the trip named explicitly.
+			await ada.click();
+			await expect(page.getByRole('status')).toHaveCount(0);
+			await expect(participants).not.toHaveText(/Everyone/);
+
+			// And unticking the last name left asks for nobody again, by the other
+			// route, which lands back on everyone with the same line said.
+			await page.getByRole('option', { name: /^E2E User/ }).click();
+			await expect(page.getByRole('status')).toHaveText(/means everyone/);
+			await expect(participants).toHaveText(/Everyone/);
+		} finally {
+			fixture.teardown();
+		}
+	});
 });
 
 /**
