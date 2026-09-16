@@ -278,11 +278,17 @@ export default function EventDialog({
 
 						    The place leads here as it does in the add dialog. With the
 						    name field gone, two rows are laid out for what is missing:
-						    free time has no place, so its type keeps the narrow half and
-						    the clock moves up beside it, and a journey's mode takes the
-						    half of the second row the people used to share, with the
-						    people running full width underneath. No row is left half
-						    empty for any of the five types.
+						    free time has no place, so its type moves down to share the
+						    clock's row, and a journey's mode takes the rest of the
+						    second row the people used to share, with the people running
+						    full width underneath. No row is left half empty for any of
+						    the five types.
+
+						    The clock takes seven of the twelve columns rather than six,
+						    which is what the pair actually measures: two fixed-width
+						    clocks, a gap either side of "to", and 242px in all. Six
+						    columns is 232px, and the difference used to come out of the
+						    meridiem. Whatever shares the row takes the other five.
 
 						    The clock and whatever shares its row take the whole width
 						    below `sm`: two clocks of three segments each do not fit in
@@ -300,7 +306,7 @@ export default function EventDialog({
 							)}
 							<FieldShell
 								label="Type"
-								className={placeable ? 'col-span-4' : 'col-span-12 sm:col-span-4'}
+								className={placeable ? 'col-span-4' : 'col-span-12 sm:col-span-5'}
 							>
 								<Select
 									value={type}
@@ -325,10 +331,7 @@ export default function EventDialog({
 									onCheckOut={setCheckOut}
 								/>
 							) : (
-								<FieldShell
-									label="When"
-									className={placeable ? 'col-span-12 sm:col-span-6' : 'col-span-12 sm:col-span-8'}
-								>
+								<FieldShell label="When" className="col-span-12 sm:col-span-7">
 									<div className="tfpair">
 										<TimeField
 											value={startMin}
@@ -346,7 +349,7 @@ export default function EventDialog({
 								</FieldShell>
 							)}
 							{type === 'travel' && (
-								<FieldShell label="Mode" optional className="col-span-12 sm:col-span-6">
+								<FieldShell label="Mode" optional className="col-span-12 sm:col-span-5">
 									<Select value={mode} onChange={setMode} options={MODE_OPTIONS} ariaLabel="Mode" />
 								</FieldShell>
 							)}
@@ -359,7 +362,7 @@ export default function EventDialog({
 									staying
 										? 'col-span-4'
 										: placeable && type !== 'travel'
-											? 'col-span-12 sm:col-span-6'
+											? 'col-span-12 sm:col-span-5'
 											: 'col-span-12'
 								}
 							/>
