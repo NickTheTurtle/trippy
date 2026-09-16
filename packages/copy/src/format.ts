@@ -79,8 +79,22 @@ export function formatDay(iso: string, options: { year?: boolean } = {}): string
 	});
 }
 
-/** "Apr 16 – 20" for a day range, using an en dash because it is a real range. */
-export function formatDayRange(start: string, end: string): string {
+/**
+ * "Apr 16 – 20" for a day range, using an en dash because it is a real range.
+ *
+ * **Not `formatDayRange` in `@trippy/core/tz`**, which is a different string:
+ * that one always carries the year ("Apr 16 – 20, 2026") and collapses a
+ * same-day range to the one date, because it labels a whole trip. This one
+ * never carries a year and is for a chip beside something that has already
+ * said which year it is in.
+ *
+ * The two were both called `formatDayRange`, one exported from core and one
+ * from here, so importing the wrong module produced a plausible-looking label
+ * with a silently different shape and nothing to catch it. One name per
+ * behaviour: the year-bearing one keeps the plain name, and the short one says
+ * that it is short.
+ */
+export function formatDayRangeShort(start: string, end: string): string {
 	const from = new Date(`${start}T00:00:00Z`);
 	const to = new Date(`${end}T00:00:00Z`);
 	if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return `${start} – ${end}`;
@@ -100,7 +114,7 @@ export function nightsBetween(checkIn: string | null, checkOut: string | null): 
 export function formatNights(checkIn: string | null, checkOut: string | null): string | null {
 	const n = nightsBetween(checkIn, checkOut);
 	if (n === null || !checkIn || !checkOut) return null;
-	return `${formatDayRange(checkIn, checkOut)} · ${n} ${n === 1 ? 'night' : 'nights'}`;
+	return `${formatDayRangeShort(checkIn, checkOut)} · ${n} ${n === 1 ? 'night' : 'nights'}`;
 }
 
 /**
