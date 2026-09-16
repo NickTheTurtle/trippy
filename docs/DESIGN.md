@@ -1336,7 +1336,25 @@ they are centred with the same padding in the same unpadded card and only the
 drawing is missing; before this they were left-aligned and a third of the
 height, which made one page show two unrelated-looking empty treatments.
 
-**`discover/NoCities` stays its own panel.** It is a first-run page rather than
+**An empty panel starts at the same y on every section of a page.** The sizing
+above made the panel the same shape everywhere; it did not stop it moving.
+Narrow, Preparation rendered its header row on the estimates whether or not
+there were any estimates to head, and an empty flex row is not free: it carries
+`mb-4`, so at 390px the empty card on Estimated costs began 16px below the
+identical card on Tasks and Packing and the panel stepped down as you switched
+sections. Expenses had the same shape of bug and a bigger number, 53.6px, from
+its figure band plus that margin above an empty ledger while Balances and Settle
+up opened straight onto their card.
+
+The rule both now follow: **narrow, a header row is rendered only when it has
+something in it.** Wide, both pages still reserve the band, because the Add
+button lives in it there and reserving is what keeps the sections aligned.
+Discover needed nothing: its header holds the type filter, which is the same
+control on all four views.
+
+Note this was a page bug, not a component one. `EmptyState` measured 340 x 273.8
+on all three Preparation sections before and after; only its y moved.
+ It is a first-run page rather than
 a hole in a list: it has a heading, a sentence and the trip's single call to
 action, and it is the only thing on the screen. Folding it into `EmptyState`
 would mean opting out of the drawing, the centring and the caption-only shape,
