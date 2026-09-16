@@ -4047,7 +4047,21 @@ and leaves what is on screen alone.
 `LoadError` announces once per distinct reason, guarded by a ref. A re-render is
 not a second failure, and React's development mode mounts every component twice,
 which without the guard put the same sentence in the corner two times over on
-the live dev server.
+the live dev server. A retry that fails the same way is not re-announced either:
+the error is still in the corner, because errors do not expire, and a second
+identical one reads as a second, different problem. A retry that fails
+_differently_ does announce, and one that succeeds unmounts the panel, so the
+next failure after it starts from a clean guard.
+
+**The retry reloads the document, and that is the honest cheap option here.**
+`useApi` returns `reload`, which refetches only the endpoint that failed, and it
+is the obvious thing to pass. It is not passed anywhere yet, because a refetch
+that succeeds leaves the error it raised sitting in the corner: errors do not
+expire and `toast.error` hands the caller no way to take one back. A document
+reload has no such problem. The page whose own load failed has no state to lose,
+and the reload clears the corner too, so what is on screen is always the latest
+answer. `LoadError` takes an `onRetry` for the day the toast API can retract a
+message; until then the default is the one that stays truthful.
 
 **The auth card raises its own.** The log in, register, forgot and reset pages
 each call `toast.error` in their own catch rather than handing a string to
