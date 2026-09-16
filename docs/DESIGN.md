@@ -863,6 +863,58 @@ works end to end without email, so a missing key must not turn inviting
 somebody into an error. This is load-bearing beyond convenience: it is what
 lets the E2E suite and a fresh clone register accounts without an SES identity.
 
+#### 4.6.1 The suppression list: what we refuse to mail, and for how long
+
+Open sign-up means every registration mails an address a stranger typed, so
+typos and deliberate garbage are routine, and a real recipient can always press
+"this is spam". AWS watches the bounce and complaint rates of a *sending
+identity*, not of an app, at roughly 5% and 0.1%. The identity here is the
+owner's whole `dxu.info` domain, so one badly behaved app suspends mail for
+everything on it. `mail_suppressions` is the record that stops a known-bad
+address being mailed twice, and `sendMail` consults it before it chooses a
+provider at all.
+
+The policy turns on one distinction, and the reason it matters is the same
+reason the feature is dangerous:
+
+- A **complaint** suppresses permanently. Someone told their provider our mail
+  was spam. Sending more is precisely the behavior that raises the metric AWS
+  suspends for, and no amount of elapsed time makes the complaint less true.
+- A **permanent bounce** suppresses permanently. The mailbox does not exist. It
+  will never deliver, and every retry is another hard bounce on the identity.
+- A **transient bounce** suppresses for 24 hours and then lifts by itself. A
+  full mailbox, greylisting, or an hour of downtime at the recipient's provider
+  is not evidence about the address, it is evidence about a moment. Blacklisting
+  permanently on one would be the worst failure mode this feature has: the user
+  is locked out of their own account with no way back, because the password
+  reset mail they need is exactly the mail we would be refusing to send. A day
+  is long enough that we do not retry into a full mailbox an hour later (SES
+  counts each of those), and short enough that someone who cleared their inbox
+  is not stuck.
+- `Undetermined`, and any bounce type SES adds later, is treated as transient.
+  We only suppress forever on evidence SES is sure about.
+
+Five soft bounces escalate to a permanent one. A mailbox that has been
+"temporarily" unavailable on five separate occasions is not coming back, and the
+retries are not free. That is deliberately the cheaper mistake: escalation is
+visible and reversible, an unbounded retry loop against the identity is not.
+
+**Nothing here is a life sentence, and nothing is invisible.** The row survives
+its own expiry, so `list()` shows an operator the address, the reason, the SES
+subtype, the soft counter and whether it is blocking right now; `unsuppress()`
+lifts any of it. And `sendMail` answers `suppressed`, a distinct `MailResult`
+from `skipped` (no provider configured) and `failed` (a provider refused), so a
+caller counting outcomes can tell a deliberate non-send from a broken
+deployment, and the log line names the address and the subject. A user who
+cannot receive their reset link is a support question with an answer, not a
+silent black hole.
+
+Schema-wise this is `expires_at INTEGER` (NULL meaning permanent) and
+`soft_count INTEGER NOT NULL DEFAULT 0`, added with the guarded `addColumn`
+helper. NULL as the default is what makes the migration safe: every row written
+before these columns existed was a hard bounce or a complaint, and NULL is
+exactly "permanent", so no existing row changes meaning.
+
 ### 4.7 Emailed links: confirming an address, and forgetting a password
 
 Both flows are one credential in two requests, and both keep that credential in
