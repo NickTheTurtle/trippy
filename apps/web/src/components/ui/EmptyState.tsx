@@ -52,9 +52,7 @@ export default function EmptyState({
 	// a caller can hand it a `.card` with no padding of its own and a long
 	// caption still never touches the card's edge.
 	return (
-		<div
-			className={`flex flex-col items-center gap-3 px-5 py-12 text-center ${className}`.trim()}
-		>
+		<div className={`flex flex-col items-center gap-3 px-5 py-12 text-center ${className}`.trim()}>
 			{graphic && <EmptyMark />}
 			<p className="muted m-0 text-body">{message}</p>
 			{action}
