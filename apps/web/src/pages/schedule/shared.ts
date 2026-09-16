@@ -264,26 +264,19 @@ export function placeLabel(type: EventType): string {
 }
 
 /**
- * What an unnamed block will end up called.
+ * What a block being added will end up called.
  *
- * Picking a place is how a block is usually added, so the name is optional and
- * the server names the ones that arrive without one: the place, else the first
- * line of the notes, else the type's own noun. This mirrors that order so the
- * preview on the board shows the name that is about to be saved rather than a
- * placeholder the reader never asked for.
+ * There is no name field any more: a block is described by the place it is at,
+ * the notes written about it and the type it is, and the server names it from
+ * those in that order. This mirrors that order so the preview on the board
+ * shows the name that is about to be saved rather than a placeholder the reader
+ * never asked for.
  *
  * It is a mirror and nothing more. The server derives the stored name and wins
  * every disagreement; this only has to be close enough that the block does not
  * appear to rename itself the moment it is saved.
  */
-export function deriveTitle(
-	typed: string,
-	placeName: string | null,
-	notes: string,
-	type: EventType
-): string {
-	const named = typed.trim();
-	if (named) return named;
+export function deriveTitle(placeName: string | null, notes: string, type: EventType): string {
 	if (placeName) return placeName;
 	const line = notes.split('\n').find((l) => l.trim());
 	if (line) return line.trim();

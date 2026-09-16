@@ -336,6 +336,15 @@ textarea.input {
 .tfm {
 	text-align: left;
 }
+/* The meridiem is two letters rather than two digits, so it is sized for its
+   own widest value and set apart by a space, the way a clock is written: "9:30
+   AM". It is a segment like the others, so it lights up when it has focus and
+   the reader can see which part of the time an arrow key is about to move. */
+.tfap {
+	width: 1.9rem;
+	margin-left: 0.25rem;
+	text-align: left;
+}
 .tfseg:focus {
 	background: var(--color-accent);
 	color: #fff;

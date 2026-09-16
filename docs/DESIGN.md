@@ -2709,17 +2709,18 @@ would have fallen back to, and the two can never drift. It costs `km` on the leg
 wire shape, which the board was already computing.
 
 **A time is typed, not picked.** The start and end were dropdowns of every
-quarter-hour, which is 72 rows: setting 14:45 meant opening a list, scrolling
+quarter-hour, which is 72 rows: setting 2:45 PM meant opening a list, scrolling
 most of the way down it and hitting one row among seventy, and the reader
 already knew the answer before they opened it. `TimeField` is the macOS shape,
-two segments in one box: digits replace, arrows step, and the caret moves to the
-minutes by itself once the hour can take no more digits, so "1445" lands on
-14:45. Two segments rather than a free text box because a free box has to parse
-what it is given and can be wrong ("2pm", "1430", "half two"), while a segment
-holding a number has no input to refuse. It carries minutes past midnight, the
-unit the board and the server already speak, so nothing parses a clock. The hour
-runs to 24 rather than wrapping to 0, because midnight is the end of the board
-and not the start of it.
+segments in one box: digits replace, arrows step, and the caret moves on by
+itself once a segment can take no more, so "245p" lands on 2:45 PM. Segments
+rather than a free text box because a free box has to parse what it is given and
+can be wrong ("2pm", "1430", "half two"), while a segment holding one thing has
+no input to refuse. It carries minutes past midnight, the unit the board and the
+server already speak, so nothing parses a clock. The value runs to 24:00 rather
+than wrapping to 0, because midnight is the end of the board and not the start
+of it; what that end reads as on a twelve-hour clock is under "The typed time
+fields read twelve hours" below.
 
 Each segment is a fixed width, wide enough for two of the widest digits, and
 that is the whole of what holds the colon still. It used to be a floor rather
@@ -3067,12 +3068,58 @@ wording with it, which is a decision for the app's copy as a whole and not for
 one page. Until that is wanted, `undefined` in place of `'en-US'` is the smallest
 step and it is one line.
 
-**The typed time fields are still 24-hour.** `TimeField` is two numeric segments
-with an hour that runs to 24, because the board ends at midnight and 24:00 is the
-end of a day where 0:00 is the start of one. Reading it as twelve-hour needs a
-third segment for the meridiem and changes what the arrow keys and typed digits
-mean, which is an input contract rather than a format. It is left alone here so
-the display change is separable from it.
+**The typed time fields read twelve hours.** `TimeField` is three segments now,
+hour, minute and meridiem, because the board around it reads twelve: a block
+saying "2:45 PM" that opened an editor saying "14:45" was the one place the app
+spoke a different clock from itself. The value is unchanged and deliberately so.
+It is still minutes past midnight, so this is how a time is read and typed
+rather than what it is, and no caller of the field moved.
+
+The rules the segments follow:
+
+- The hour is 1 to 12 and unpadded, the minute is always two digits: "9:30 AM",
+  never "09:30 AM". That is the pair `clock()` already prints on every block, so
+  the editor and the board are written the same way rather than nearly the same
+  way.
+- Both midnights read 12, which is why the hour is computed around the wrap
+  rather than as `h % 12`. A hand-rolled twelve-hour clock prints a bare "0:15
+  AM" and the mistake is invisible until somebody is standing outside a closed
+  door.
+- "1" and "0" are the only digits that wait for a second one, since only they
+  can still be the front of an hour; everything else stands alone and moves the
+  caret on, so "2", "4", "5", "p" is the whole of 2:45 PM.
+- A or P is taken from whichever segment has focus, because "2p" is how anyone
+  says two in the afternoon and stopping to aim at a third segment for one
+  letter is the work a typed clock exists to avoid. Setting the meridiem it
+  already has is a no-op rather than a toggle, which is what stops a stray "A"
+  from moving a time.
+- **The end of the day stays 24:00 and reads "12:00 AM".** The board ends at
+  midnight, an event may end there, and that value is the one the board and the
+  server already hold, so it was not given up to make the twelve-hour reading
+  tidier. It reads as the same "12:00 AM" `clock()` prints for it, and it is
+  only ever seen as the far end of a span that started earlier the same day.
+  Typed digits resolve the other way: "12" with AM is the start of the day,
+  because digits alone cannot tell the two midnights apart and the start is the
+  one a reader typing a time means. The end of the day is then reached by
+  stepping the hour up from 11 PM, where the existing clamp holds it, or simply
+  by leaving a block that already ends there alone.
+
+**The event dialogs have no name field.** Names are derived server-side from the
+place, the first non-blank line of the notes, then the type's own noun, so the
+field was asking for something the reader had already said by picking a place or
+writing a line about it. With it gone, the dialogs stop sending `title`
+altogether rather than sending an empty one: absent means "leave the stored name
+alone", so a block somebody deliberately named keeps its name through an edit
+that only moved it, while an empty string would have re-derived one underneath
+them. The wire contract is untouched; the client just has nothing to say about
+the name.
+
+Two rows were re-laid out around the hole it left, since the grid is 12 columns
+and a row with one control in it reads as a mistake. Free time has no place
+picker, so its Type keeps the narrow third of the first row and the clock moves
+up beside it, with the people running full width underneath. A journey's Mode
+takes the half of the second row the people used to share, for the same reason.
+Every one of the five types now fills every row it draws.
 
 ## Shared UI conventions
 
