@@ -46,9 +46,13 @@ export default function Trips() {
 				))}
 
 				{/* Only after a successful load, so an empty grid mid-fetch does not
-				    briefly claim the user has no trips. */}
+				    briefly claim the user has no trips. In a card, like every other
+				    empty state: the drawing is filled with the card colour, so on the
+				    bare page background its body and wings showed as white cut-outs. */}
 				{!loading && !error && data?.trips.length === 0 && (
-					<EmptyState graphic className="col-span-full" message={copy.common.nothingAdded} />
+					<div className="card col-span-full">
+						<EmptyState graphic message={copy.common.nothingAdded} />
+					</div>
 				)}
 			</section>
 
