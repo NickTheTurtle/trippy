@@ -248,6 +248,35 @@ function outsideTripMessage(trip: Trip): string {
 	return `That date is outside the trip, which runs ${trip.start_date} to ${trip.end_date}.`;
 }
 
+/** What a participant list of nothing but strangers is told. */
+const STRANGERS_MESSAGE = "Nobody in that list is on this trip. Pick from the trip's members.";
+
+/**
+ * Whether a named participant list resolves to nobody the trip has.
+ *
+ * An empty list is not this. Empty is how "everyone" is written, on the wire
+ * and in storage alike: `event_people` holds no rows for such an event and the
+ * roster is put back on the way out, which is the only form that survives
+ * somebody joining the trip later. The client says everyone by sending `[]`,
+ * so refusing `[]` would refuse the commonest save there is. "Nobody" is
+ * therefore not a state this model can hold, and free time, not an empty list,
+ * is how the schedule says somebody is not involved.
+ *
+ * A list that names people and names only strangers is a different thing: a
+ * real mistake, and the one genuinely wrong participant payload that can be
+ * expressed here. Ids from another trip, or ids of people who have since left,
+ * were quietly dropped by `writePeople` and the event then read back as
+ * everyone, which is the opposite of what was asked for. Caught here rather
+ * than at the persistence boundary because this is the layer that still has
+ * somewhere to put the reason, and because a partial list must keep working:
+ * four members and one stale id still saves the four, exactly as before.
+ */
+function allStrangers(trip: Trip, people: string[]): boolean {
+	if (!people.length) return false;
+	const members = new Set(trip.memberList.map((m) => m.id));
+	return !people.some((id) => members.has(id));
+}
+
 schedule.post('/events', async (c) => {
 	const trip = c.get('trip');
 	const b = await body(c);
@@ -303,6 +332,9 @@ schedule.post('/events', async (c) => {
 	}
 	const end = stay ? 24 * 60 : start + duration;
 
+	const people = strList(b.people);
+	if (allStrangers(trip, people)) return fail(c, 400, STRANGERS_MESSAGE);
+
 	const id = createEvent(trip.id, c.get('user').id, {
 		day,
 		endDay,
@@ -317,7 +349,7 @@ schedule.post('/events', async (c) => {
 		lng: place?.lng ?? null,
 		notes: str(b.notes) || null,
 		travelMode: str(b.travelMode) || null,
-		people: strList(b.people)
+		people
 	});
 	if (!id) return fail(c, 403, 'Could not add that event.');
 	return c.json({ id }, 201);
@@ -329,12 +361,12 @@ schedule.put('/events/:eventId/people', async (c) => {
 	const eventId = c.req.param('eventId');
 	if (foreignEvent(trip.id, eventId)) return fail(c, 404, goneMessage('event'));
 
-	return okOr(
-		c,
-		setEventPeople(eventId, trip.id, c.get('user').id, strList((await body(c)).people)),
-		403,
-		'Not allowed'
-	);
+	// Empty still means everyone here, as it does on create: this is the save the
+	// people picker makes every time the whole group is on a block.
+	const people = strList((await body(c)).people);
+	if (allStrangers(trip, people)) return fail(c, 400, STRANGERS_MESSAGE);
+
+	return okOr(c, setEventPeople(eventId, trip.id, c.get('user').id, people), 403, 'Not allowed');
 });
 
 /**
