@@ -2011,7 +2011,60 @@ has its own Add control a few pixels away.
 Explicit `width` and `height` on the `svg` rather than Tailwind size classes.
 The utility classes are only emitted for values already used elsewhere in the
 tree, so a new one silently does nothing and the drawing stretches to fill its
-container.
+container. The two classes it does carry, `max-w-full h-auto`, are standard
+utilities and exist only as a floor: they let the drawing shrink, keeping its
+ratio, if it is ever handed less than its 220px.
+
+**One empty state, one size, on every page.** The block was already identical
+everywhere (`py-12`, one 280px drawing, one caption), but the panel behind it
+was not, because each caller framed it differently: Discover and Preparation put
+it inside a `card px-5 py-5` and Expenses and the estimates inside a `card p-0`,
+so the same panel measured 354.8px on two tabs of a trip and 314.8px on two
+others, and the trips index had no card at all, which left the drawing's
+surface-filled body as white cut-outs on the page background. Moving between
+tabs the drawing jumped.
+
+The rule that removes it: **the empty state is the whole panel.** It carries its
+own `px-5 py-12`, and a caller hands it a `.card` with no padding, so nothing
+about the page it is on can change its size. Padding stays on the cards that
+hold real rows, which is why the two Expenses tabs and the Preparation task card
+set it only when there is something in them.
+
+The drawing went from 280px to 220px at the same time. At 390px it sat in a
+300px column with ten pixels to spare, which is an advert for a fly rather than
+a quiet note that a list is empty.
+
+**The two computed states in Expenses keep the caption and drop the drawing.**
+"Everyone is even" and "Nothing to settle" are answers the app worked out, not
+lists you have failed to fill, and the fly with nowhere to go is the wrong
+picture of a settled ledger. They are the same component with `graphic` off, so
+they are centred with the same padding in the same unpadded card and only the
+drawing is missing; before this they were left-aligned and a third of the
+height, which made one page show two unrelated-looking empty treatments.
+
+**An empty panel starts at the same y on every section of a page.** The sizing
+above made the panel the same shape everywhere; it did not stop it moving.
+Narrow, Preparation rendered its header row on the estimates whether or not
+there were any estimates to head, and an empty flex row is not free: it carries
+`mb-4`, so at 390px the empty card on Estimated costs began 16px below the
+identical card on Tasks and Packing and the panel stepped down as you switched
+sections. Expenses had the same shape of bug and a bigger number, 53.6px, from
+its figure band plus that margin above an empty ledger while Balances and Settle
+up opened straight onto their card.
+
+The rule both now follow: **narrow, a header row is rendered only when it has
+something in it.** Wide, both pages still reserve the band, because the Add
+button lives in it there and reserving is what keeps the sections aligned.
+Discover needed nothing: its header holds the type filter, which is the same
+control on all four views.
+
+Note this was a page bug, not a component one. `EmptyState` measured 340 x 273.8
+on all three Preparation sections before and after; only its y moved.
+ It is a first-run page rather than
+a hole in a list: it has a heading, a sentence and the trip's single call to
+action, and it is the only thing on the screen. Folding it into `EmptyState`
+would mean opting out of the drawing, the centring and the caption-only shape,
+which is the whole component.
 
 Deliberately not applied to the expenses list, the estimated-costs table, or the
 trips page. Those are tables and a top-level index rather than a section of a
@@ -4966,12 +5019,14 @@ still on screen describing a state the app is no longer in.
 failed was doing two jobs: saying why, and leaving something on the screen. A
 toast alone only does the first, and a corner popup floating over a blank page
 explains itself and then takes the explanation away. So `LoadError` splits it.
-The server's sentence goes to the corner, where it does not expire, and the page
-keeps an `EmptyState` reading "Could not load this page." The panel deliberately
-does not repeat the server's wording: the same sentence twice on one screen
-reads as two separate failures. It uses `EmptyState` without its drawing, since
-the fly is a joke about a list nobody has filled in and a joke over a server
-failure is the wrong tone.
+The server's sentence goes to the corner, where it stays long enough to be read,
+and the page keeps an `EmptyState` reading "Could not load this page." The panel
+deliberately does not repeat the server's wording: the same sentence twice on one
+screen reads as two separate failures. It uses `EmptyState` without its drawing,
+since the fly is a joke about a list nobody has filled in and a joke over a
+server failure is the wrong tone. The split is also what lets the toast expire:
+the page keeps saying it is broken for as long as it is broken, so the corner
+does not have to.
 
 Two pages, Account and the trip list, can hold an error while still showing
 content, because a reload that fails leaves the previous data in place. There
@@ -4982,8 +5037,9 @@ and leaves what is on screen alone.
 effect raises the toast when the panel appears and retracts it in its cleanup,
 so a retry that works leaves nothing behind: `useApi` clears `error` on success,
 the panel unmounts, and the sentence describing a state the app is no longer in
-goes with it. Errors never expire on their own, so without the retraction the
-corner would keep insisting the page was broken after it had loaded.
+goes with it. An error outlives most of the conditions that raise one, so
+without the retraction the corner would keep insisting the page was broken for
+some seconds after it had loaded.
 
 That also replaced the ref that used to guard against announcing twice. React's
 development mode mounts every component twice, and the first mount's cleanup now
@@ -4992,11 +5048,13 @@ out at a single row with no key to keep in sync. The key was the fragile part: a
 guard that outlives the mount has to be cleared by hand on every retraction, or
 the next genuine failure with the same wording goes unannounced.
 
-A retry that fails the same way is deliberately not re-announced. `error` holds
-the same string, the effect does not re-run, and the sentence is still sitting in
-the corner unexpired, so a second copy would read as a second, separate problem.
-A retry that fails _differently_ does announce, and retracts the stale reason in
-the same pass.
+A retry that fails the same way is not re-announced. `error` holds the same
+string and the effect does not re-run, so a second copy cannot appear under the
+first and read as a second, separate problem. `useApi` does not clear `error`
+before refetching, which is what makes that true, and it is also why the panel
+stays on the page: the corner's sentence may have expired by then, and the page
+is the thing still saying the load failed. A retry that fails _differently_
+announces and retracts the stale reason in the same pass.
 
 **The retry refetches, it does not reload the document.** `useApi` returns
 `reload`, which asks the one endpoint that failed again and keeps the rest of the
@@ -5017,15 +5075,33 @@ The rule: a _result_ goes to the corner, a _refusal attached to a control_ stays
 beside the control. `useMutation` supports both at once through `onError`, which
 reports the resolved message without taking it out of `error`.
 
-**Errors do not expire; successes do.** A success repeats something the user
-just watched happen, so it costs nothing to lose after 4.5 seconds. An error is
-the only account of why something did not happen, it frequently carries wording
-the server chose, and it can arrive while a modal is open, where it cannot be
-dismissed at all (see below). A timer there deletes the answer before the reader
-can reach it. Errors leave on a click, or when a fifth toast pushes the oldest
-out. The stack is capped rather than scrolled: a corner holds the last few things
-that happened, and a column tall enough to scroll is covering the page it reports
-on.
+**Errors expire too, just later.** A success repeats something the user just
+watched happen, so it costs nothing to lose after 4.5 seconds. An error is the
+only account of why something did not happen, it frequently carries wording the
+server chose, and it can arrive while a modal is open, where it cannot be
+dismissed at all (see below), so it is given 12 seconds rather than 4.5: time to
+be found and read, not time to be glanced at.
+
+They used to be permanent, and that read as correct until you watched the corner
+over a working session. A refusal you have already understood and acted on is
+still there, and the only way to be rid of it is to aim at a small button, so the
+corner silted up with sentences about states the app had already left, each one
+looking exactly like something that had just happened. Permanence also put every
+message one click away from a reader who never wanted to click.
+
+Three things make the timer safe. The clock stops while the pointer or the caret
+is on the stack, so a message being read is never taken away mid-sentence. A
+form or dialog re-announces a repeated failure, because `useMutation.run` clears
+`error` at the top of every attempt, so the string goes empty and comes back and
+the effect runs again even if the first sentence has expired. And the message is
+never the only account of a broken page: `LoadError` leaves a panel on the page
+itself, which matters because `useApi` does _not_ clear its error on retry, so a
+reload that fails identically is reported by that panel rather than by a second
+toast.
+
+The stack stays capped at four rather than scrolled, for the burst that outruns
+the clocks: a corner holds the last few things that happened, and a column tall
+enough to scroll is covering the page it reports on.
 
 **The viewport is a popover, because dialogs are in the top layer.** Every
 dialog in the app is a native `showModal()` dialog, which puts it in the top
@@ -5098,6 +5174,102 @@ action, it is the whole of the page's content when it fires, and a corner popup
 over a blank screen explains itself and then leaves nothing behind. The two
 event dialogs keep showing their own save failures in their own footers, which
 is beside the form that caused them and already above the board.
+
+## A page that is loading says so, and a form refuses before the server has to
+
+**Every first fetch now shows the same line.** Six pages had six answers to the
+same moment. Discover, Expenses, People and Preparation returned `null`, so
+opening a trip flashed the header over a blank body and looked, for as long as
+the round trip took, like a page that had failed. Account printed "Loading..."
+in a muted paragraph of its own, and the trip list printed nothing at all. They
+share one `Loading` component now, and the pages that could fail pair it with
+`LoadError`, so the three outcomes of a first fetch (waiting, failed, empty) are
+told apart by three different things on screen instead of by one blank area.
+
+It is a line of text, not a spinner and not a skeleton, for three reasons. A
+skeleton has to be drawn per page to be worth anything, and a grey rectangle of
+the wrong shape is a worse lie than an honest sentence; these pages differ too
+much (a card grid, a ledger, a checklist) for one skeleton to fit. A spinner
+says only "something is happening", which is the one thing a reader already
+assumes, and it has to be sized and centred somewhere, which is a layout
+decision repeated per page. A line of text is announced to a screen reader,
+which the other two are not without extra work: `Loading` is a `role="status"`,
+so a blind reader is told the page is coming rather than being handed silence.
+It reuses `EmptyState` without the drawing, so the waiting state and the empty
+state occupy the same place on the page and it does not jump when one replaces
+the other; the fly is a joke about a list nobody has filled in, and it is not
+funny twice a second.
+
+`Schedule.tsx` has the same `return null` and is not changed here: another
+session holds that file tonight. It is reported rather than fixed.
+
+**A form answers what it can answer itself.** Submitting the log in page with
+both fields empty made a network round trip and came back "Wrong email or
+password.", which is slow and is also a lie: nothing was wrong with the
+password, there was no password. The auth pages mark their fields `required`, so
+an empty submit is stopped at the form without asking the server what it thinks
+of the empty string. The server keeps every one of its checks; this only removes
+the submits that could never have succeeded.
+
+The rule this follows: the client refuses what is true of the input alone
+(missing, malformed, too long), and never what depends on data only the server
+holds (whether this password is right, whether this email is taken). The second
+kind cannot be checked here without either being wrong or leaking who has an
+account.
+
+**That refusal is ours, not the browser's.** The four auth forms were the last
+place in the app still answering in a different voice. `required` and
+`type="email"` left on meant a missing field or a mistyped address produced the
+browser's own bubble: OS wording, OS styling, anchored to the input, gone again
+on its own, on the same page where a wrong password arrives as a corner toast.
+So the same submit could be answered two ways depending on which of the two
+things was wrong with it. `ModalForm` had already turned the browser off for
+every dialog for this reason; `AuthShell` now does the same. The form is
+`noValidate`, and `firstProblem` walks the controls in document order and
+returns the first one that is empty or, for an `<input type="email">`, fails
+`isValidEmail`. The sentence goes to the corner and the focus goes to the field,
+so the message says what is wrong and the caret says where.
+
+Three things about it are deliberate. The email rule is `isValidEmail` from
+core, the same shape the server and every other client check use, rather than
+the browser's stricter and differently-worded idea of an address: a rule
+enforced one way here and another way there is the bug that function exists to
+prevent. The inputs keep their `required` and their `type="email"`, because that
+is what assistive technology and password managers read, and `noValidate`
+suppresses only the browser's own UI. And the check reports through the page's
+own `useErrorSlot` rather than one of its own, so a form refused locally and
+then refused by the server leaves one sentence in the corner rather than two
+from two different owners.
+
+Only presence and address shape are checked. Password length is not, even though
+the register page says "At least 8 characters": the server owns that rule, its
+wording is the answer, and a second copy of the number here is a thing to keep
+in sync for no gain.
+
+**A refusal is cleared by the next attempt.** Auth failures live in the corner
+now rather than in the card, and a toast does not know that the form under it
+has been submitted again, so the previous "Wrong email or password." sat there
+while the new attempt was in flight and then looked like its answer. Each auth
+page takes one error slot from `useErrorSlot`, dismisses the toast it raised at
+the top of the submit, and raises a fresh one in the catch. One slot per form,
+so the corner holds the current answer and never a stale one alongside it. This
+needed `toast.push` to return the id it had been discarding.
+
+**A trip is bounded at a year.** The Montreal demo trip runs from September 2024
+to September 2026, which the schedule turns into 400 day columns stepped one
+click at a time. `TripFormDialog` refuses a span longer than 366 days, in the
+dialog, before the request. 366 rather than 365 so that a full leap year is a
+legal trip, and a year rather than something rounder because the number has to
+be defensible to somebody who really is away that long: past a year the day
+stepper is the wrong instrument regardless.
+
+Two things this does not do. It does not strand the trips that already exist:
+an over-long trip can still be edited as long as the edit does not lengthen it,
+because the alternative is a trip whose name cannot be corrected. And it is a
+client rule only, so it is a courtesy and not an invariant; the durable version
+belongs next to the other date checks in `validateDates`, which has no maximum,
+and is reported for the owner of that file. The stepper itself needs a date
+picker either way, since a 400-day trip already exists.
 
 ## The header reaches the right edge
 
@@ -5378,6 +5550,88 @@ and in the same five columns beside the clock's seven, so the two dialogs read
 alike and the row is full rather than half empty. An unpicked mode is sent as
 absent, not as an empty string: absent means "let the router decide", which is
 the right default for a journey nobody has an opinion about.
+## A card says what it can do
+
+**A Discover card carries a pencil.** Pressing the cover of a place or a stay
+has always opened its editor, and both card components said so in a comment,
+which is the wrong place to say it: nothing on the card looked like a control,
+so the only way to discover the app's main editing gesture was to press a
+picture and find out. Enumerating a card's controls found one name, the vote
+pill; the body button's name is whatever text the card happens to contain, which
+is a title, a rating and an opening time, not an action. The footer now holds a
+third control beside Vote and Open: the shared `IconButton` with the pencil
+every other list in the app already uses, labelled "Edit <name>". The body
+button stays exactly as it was, because the large target is genuinely the nicer
+way to open the editor once you know it is there.
+
+**Deleting stays in the editor.** It is one click further, it keeps the
+confirmation that already guards it, and a trash button on every tile of a
+fourteen-tile grid would be the loudest thing on the page. That is the same
+reasoning `RemoveCardButton` carries for the city rows, where the button is
+revealed by hovering its row rather than drawn on all of them at once.
+
+## When the drawing appears on an empty panel
+
+`EmptyState` has two shapes and they differ only by the drawn bug. The rule for
+choosing between them is about what the panel is standing in for:
+
+- **A list you add to gets the drawing**, with the house caption "Nothing added
+  yet". The space is already reserved for rows, and a single grey sentence in
+  the corner of it reads as a rendering failure rather than as an empty list.
+- **An answer the app computed gets the caption alone.** "Everyone is even" and
+  "Nothing to settle" on the Expenses tabs are results, not absences: the
+  ledger did its arithmetic and this is what it came to. The fly with nowhere
+  to land is a joke about an empty list, and it is the wrong picture of a
+  settled account. `LoadError` follows the same rule for the same reason: a
+  joke over a server failure is the wrong tone.
+
+Both shapes keep the same padding, centring and size, so a trip whose three
+Expenses tabs are all empty does not step up and down as you move between them.
+
+One edge had been reading against the rule: with "View as" set to somebody who
+has no rows in the ledger, the list is filtered to nothing rather than empty, so
+it is a computed state, yet it showed the drawing and "Nothing added yet", which
+is false of a ledger that has rows in it. It now takes the computed shape and
+says who it found nothing for, in the second person for the reader's own name,
+which is how the rest of the app addresses them. Its sentence is the one string
+here not yet in `@trippy/copy`; it is inline with a `COPY:` note naming the key
+it wants.
+## The console keeps only what somebody has to read
+
+A development console that prints the same expected failure on every page load
+is a console nobody reads, and a real error goes into it unnoticed. A recent
+audit of this app lost time to exactly that. Two things were in there.
+
+**`net::ERR_ABORTED`, two or three per navigation, was ours.** `useApi` starts
+its GET in an effect and aborts it in the effect's cleanup. React's StrictMode
+runs every effect, then its cleanup, then the effect again, synchronously, in
+development: so the first pass put a real request on the wire and the cleanup
+killed it mid-flight, which the browser reports in red and which also sent each
+section's GET twice. The request now starts a microtask late, so the discarded
+first pass is cancelled before it reaches the network. A request that has
+genuinely started is still aborted the moment its path is superseded; that is a
+real cancellation and is still worth doing.
+
+Measured on the e2e harness, signed in, over three navigations (the trip list, a
+trip's Discover, then Expenses): six `net::ERR_ABORTED` lines before, two after.
+Both survivors are `/api/auth/me`, aborted by the session probe in `auth.tsx`,
+which is outside this change's files and is left for its owner; the same
+microtask applies there.
+
+**The red 401 on `/auth/me` is not ours to remove, and is not what it looked
+like.** It is printed by the browser's network stack for any 4xx, before any of
+our code runs, and no `catch` touches it (`auth.tsx` has caught this 401 as an
+expected answer all along). The client cannot skip the request: the session
+cookie is httpOnly, so asking is the only way to know. Measured on the running
+dev server, it is every **signed-out** load that prints it and no signed-in one,
+which is the opposite of what it was reported as.
+
+The fix is one line in the API and is filed for its owner: `GET /auth/me`
+should answer **200 with `{ user: null }`** when nobody is signed in. "Is
+anybody signed in?" is a question with a legitimate negative answer; 401 is for
+a request that needed a session and did not have one. Working around it from the
+client (remembering "no session" in storage, or not asking) would trade a
+cosmetic line for a real bug, since a cookie can arrive from another tab.
 
 ## Implementation status
 

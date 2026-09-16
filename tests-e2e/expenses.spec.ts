@@ -29,6 +29,13 @@ const DATE_LABEL = 'Date';
 const spentDay = (iso: string) =>
 	formatDay(iso, { year: iso.slice(0, 4) !== String(new Date().getFullYear()) });
 
+/**
+ * The caption a ledger filtered to somebody with no rows carries. Written out
+ * rather than read from `copy` because the string is still awaiting clearance
+ * into `@trippy/copy`; it moves to `ce.noneForMember` once it lands there.
+ */
+const NONE_FOR_MEMBER = (who: string) => `Nothing here for ${who}`;
+
 /** Opens a custom Select by its accessible name and chooses one option. */
 async function chooseInSelect(scope: Locator, triggerName: string, option: string) {
 	await scope.getByRole('button', { name: triggerName }).click();
@@ -565,6 +572,36 @@ test.describe('expenses', () => {
 			);
 			expect(after?.spent_on).toBe(spentOn);
 			expect(after?.amount_cents).toBe(4500);
+		} finally {
+			fixture.teardown();
+		}
+	});
+
+	test('a ledger filtered to somebody with no rows says so, without the drawing', async ({
+		page,
+		request
+	}) => {
+		const fixture = await createApiFixture(request);
+		try {
+			const members = await seedMembers(request, fixture, ['Alice', 'Bob']);
+			// An expense Alice is not on: the ledger has a row, but not one of hers.
+			await addExpense(request, fixture, fixture.tripId, {
+				description: 'Taxi for two',
+				amount: 30,
+				payerId: fixture.userId,
+				participantIds: [fixture.userId, members['Bob']]
+			});
+			await signIn(page, fixture.sessionCookie);
+			await page.goto(`/trips/${fixture.tripId}/expenses`);
+
+			await expect(page.getByText('Taxi for two')).toBeVisible();
+
+			await chooseInSelect(page.locator('body'), copy.viewAs.label, 'Alice');
+
+			// A computed nothing, so it names who it found nothing for and shows no
+			// graphic. "Nothing added yet" would be false of a ledger with a row in it.
+			await expect(page.getByText(NONE_FOR_MEMBER('Alice'), { exact: true })).toBeVisible();
+			await expect(page.getByText(copy.common.nothingAdded, { exact: true })).toHaveCount(0);
 		} finally {
 			fixture.teardown();
 		}

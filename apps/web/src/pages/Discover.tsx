@@ -7,6 +7,7 @@ import FlipGrid from '../components/ui/FlipGrid';
 import { useTrip } from './TripShell';
 import Select from '../components/ui/Select';
 import LoadError from '../components/ui/LoadError';
+import Loading from '../components/ui/Loading';
 import { useToast } from '../components/ui/Toast';
 import EmptyState from '../components/ui/EmptyState';
 import type { DiscoverData, Poi, Stay } from '../lib/api-types';
@@ -79,9 +80,11 @@ export default function Discover() {
 		}
 	);
 
-	/* The reason goes to the corner, the page keeps a line saying it is not
-	   there. A popup over a blank screen explains itself and leaves nothing. */
-	if (!data) return error ? <LoadError message={error} onRetry={reload} /> : null;
+	/* Three states before there is a page: still loading, failed, or here. The
+	   reason for a failure goes to the corner and the page keeps a line saying
+	   it is not there; a popup over a blank screen explains itself and leaves
+	   nothing. The first fetch says it is loading rather than flashing blank. */
+	if (!data) return error ? <LoadError message={error} onRetry={reload} /> : <Loading />;
 
 	if (data.cities.length === 0) {
 		return <NoCities isOrganizer={trip.role === 'organizer'} onAddCity={() => addCity(reload)} />;
@@ -206,8 +209,11 @@ export default function Discover() {
 				{stays.length + places.length === 0 ? (
 					// The grid is skipped entirely rather than emptied: a centred panel
 					// inside a column track would sit under the first column instead of
-					// under the whole area it is standing in for.
-					<div className="card px-5 py-5">
+					// under the whole area it is standing in for. The card carries no
+					// padding of its own, because the empty state is the whole panel and
+					// brings its own; padding here made this card taller than the same
+					// panel on Expenses.
+					<div className="card">
 						<EmptyState graphic message={copy.common.nothingAdded} />
 					</div>
 				) : (

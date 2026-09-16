@@ -5,6 +5,7 @@ import { useApi } from '../hooks/useApi';
 import Cover from '../components/Cover';
 import EmptyState from '../components/ui/EmptyState';
 import LoadError from '../components/ui/LoadError';
+import Loading from '../components/ui/Loading';
 import TripFormDialog from '../components/TripFormDialog';
 import { PlusIcon } from '../components/ui/icons';
 import { copy } from '../copy';
@@ -45,14 +46,22 @@ export default function Trips() {
 					<LoadError message={error} onRetry={reload} panel={!data} className="col-span-full" />
 				)}
 
+				{/* The first fetch says so rather than leaving an empty grid that a
+				    reader cannot tell from a person with no trips. */}
+				{loading && !data && <Loading className="col-span-full" />}
+
 				{data?.trips.map((t) => (
 					<TripCard key={t.id} trip={t} />
 				))}
 
 				{/* Only after a successful load, so an empty grid mid-fetch does not
-				    briefly claim the user has no trips. */}
+				    briefly claim the user has no trips. In a card, like every other
+				    empty state: the drawing is filled with the card colour, so on the
+				    bare page background its body and wings showed as white cut-outs. */}
 				{!loading && !error && data?.trips.length === 0 && (
-					<EmptyState graphic className="col-span-full" message={copy.common.nothingAdded} />
+					<div className="card col-span-full">
+						<EmptyState graphic message={copy.common.nothingAdded} />
+					</div>
 				)}
 			</section>
 
