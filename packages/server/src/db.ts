@@ -823,3 +823,36 @@ db.exec(`
 		created_at INTEGER NOT NULL
 	);
 `);
+
+/**
+ * One row per data backfill that must run exactly once on an existing database.
+ *
+ * A schema migration here is a column or a table, and both are idempotent by
+ * construction: `ALTER TABLE ... ADD COLUMN` is guarded by a PRAGMA check and
+ * `CREATE TABLE IF NOT EXISTS` does nothing twice. A backfill is neither. It
+ * rewrites rows, it can be expensive, and it belongs to the module that owns
+ * the rows rather than to this file, which is why the marker lives here and the
+ * work does not.
+ *
+ * Additive like everything else: a new table, no existing row touched, and a
+ * database that has never seen a backfill simply has none recorded.
+ */
+db.exec(`
+	CREATE TABLE IF NOT EXISTS schema_backfills (
+		name    TEXT PRIMARY KEY,
+		done_at INTEGER NOT NULL
+	);
+`);
+
+/** Has this one-time backfill already run against this database? */
+export function backfillDone(name: string): boolean {
+	return !!db.prepare(`SELECT 1 FROM schema_backfills WHERE name = ?`).get(name);
+}
+
+/** Record a one-time backfill as done, so it never runs a second time. */
+export function markBackfillDone(name: string): void {
+	db.prepare(`INSERT OR REPLACE INTO schema_backfills (name, done_at) VALUES (?, ?)`).run(
+		name,
+		Date.now()
+	);
+}
