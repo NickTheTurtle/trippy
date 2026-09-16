@@ -62,9 +62,14 @@ const SUCCESS_MS = 4500;
 const MAX = 4;
 
 type ToastApi = {
-	/** Ignores an empty message, so callers can pass state straight in. */
-	success: (message: string) => void;
-	error: (message: string) => void;
+	/**
+	 * Ignores an empty message, so callers can pass state straight in. Returns
+	 * the new toast's id, which is what a caller needs to take one back down: a
+	 * form that is submitted twice should replace its own last refusal rather
+	 * than stack a second copy of it under the first.
+	 */
+	success: (message: string) => number;
+	error: (message: string) => number;
 	dismiss: (id: number) => void;
 };
 
@@ -86,13 +91,16 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 	}, []);
 
 	const push = useCallback((tone: ToastTone, message: string) => {
-		if (!message) return;
+		// Nothing was raised, so there is no id to hand back. Ids start at 1, so
+		// zero is safely dismissable and never matches a live toast.
+		if (!message) return 0;
 		const id = nextId.current++;
 		// Oldest out first. A cap rather than a scroll: a corner is for the last
 		// few things that happened, and a column tall enough to need scrolling is
 		// covering the page it is reporting on.
 		setToasts((list) => [...list, { id, tone, message }].slice(-MAX));
 		setPromotions((n) => n + 1);
+		return id;
 	}, []);
 
 	const api = useMemo<ToastApi>(
@@ -116,6 +124,36 @@ export function useToast(): ToastApi {
 	const api = useContext(ToastContext);
 	if (!api) throw new Error('useToast outside ToastProvider');
 	return api;
+}
+
+/**
+ * One error slot for one form.
+ *
+ * A form that can be submitted again needs the corner to hold its *latest*
+ * answer and nothing else. Without this, a refusal stayed up (errors do not
+ * expire, by design), so a second attempt stacked an identical message under
+ * the first, and a third attempt that finally succeeded left the old refusal
+ * sitting there while the app navigated away from it: a stale message that
+ * reads exactly like a fresh failure.
+ *
+ * So: clear the slot when a submit starts, fill it when one fails.
+ */
+export function useErrorSlot(): { show: (message: string) => void; clear: () => void } {
+	const toast = useToast();
+	const id = useRef(0);
+	return useMemo(
+		() => ({
+			show: (message: string) => {
+				toast.dismiss(id.current);
+				id.current = toast.error(message);
+			},
+			clear: () => {
+				toast.dismiss(id.current);
+				id.current = 0;
+			}
+		}),
+		[toast]
+	);
 }
 
 function ToastViewport({

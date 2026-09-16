@@ -5,6 +5,7 @@ import { useMutation } from '../hooks/useMutation';
 import { useAuth } from '../auth';
 import Select from '../components/ui/Select';
 import LoadError from '../components/ui/LoadError';
+import Loading from '../components/ui/Loading';
 import { useToast } from '../components/ui/Toast';
 import { Field, FieldShell } from '../components/ui/Field';
 import { copy } from '../copy';
@@ -37,7 +38,7 @@ export default function Account() {
 			    nothing else on the page: a reload that fails under a loaded form is
 			    a result, not a missing page. */}
 			{error && <LoadError message={error} panel={!data} />}
-			{loading && !data && <p className="muted">{ca.loading}</p>}
+			{loading && !data && <Loading />}
 
 			{data && (
 				<>

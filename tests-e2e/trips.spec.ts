@@ -9,6 +9,13 @@ import { signIn } from './fixtures/session';
  * rename and delete start from a seeded trip and drive the header controls.
  */
 
+/**
+ * The form's own refusal of an over-long range. Written out rather than read
+ * from `copy` because the string is still awaiting clearance into
+ * `@trippy/copy`; it moves to `copy.tripForm.tooLong` once it lands there.
+ */
+const TOO_LONG = 'A trip can run for at most a year.';
+
 test.describe('trips', () => {
 	test('the empty trips list shows the shared graphic and no action button', async ({
 		page,
@@ -86,6 +93,38 @@ test.describe('trips', () => {
 		}
 	});
 
+	test('a trip longer than a year is refused by the form, before any request', async ({
+		page,
+		request
+	}) => {
+		const user = await registerUser(request);
+		try {
+			await signIn(page, user.sessionCookie);
+			await page.goto('/trips');
+
+			await page.getByRole('button', { name: copy.common.add }).click();
+			const dialog = page.getByRole('dialog');
+			await dialog.getByLabel(copy.tripForm.nameLabel).fill('The long way round');
+			// Two years, which is what produced a schedule of four hundred day
+			// columns and no way to reach the middle of them.
+			await dialog.getByLabel(copy.tripForm.startLabel).fill('2027-01-01');
+			await dialog.getByLabel(copy.tripForm.endLabel).fill('2029-01-01');
+			await dialog.getByRole('button', { name: copy.common.add }).click();
+
+			// The form says so itself; the dialog stays open on the range to fix.
+			await expect(dialog.getByRole('alert')).toHaveText(TOO_LONG);
+			await expect(dialog).toBeVisible();
+			await expect(page).toHaveURL(/\/trips$/);
+
+			// A year exactly is fine, and lands.
+			await dialog.getByLabel(copy.tripForm.endLabel).fill('2027-12-01');
+			await dialog.getByRole('button', { name: copy.common.add }).click();
+			await expect(page).toHaveURL(/\/trips\/[^/]+\/discover$/);
+		} finally {
+			user.teardown();
+		}
+	});
+
 	test('an organizer can rename a trip from the edit dialog', async ({ page, request }) => {
 		const fixture = await createApiFixture(request);
 		try {
@@ -118,10 +157,7 @@ test.describe('trips', () => {
 			await page.getByRole('button', { name: copy.tripShell.editTrip }).click();
 			// Delete is reached from inside the edit dialog, which closes to make way
 			// for a single confirmation rather than stacking two modals.
-			await page
-				.getByRole('dialog')
-				.getByRole('button', { name: copy.common.delete })
-				.click();
+			await page.getByRole('dialog').getByRole('button', { name: copy.common.delete }).click();
 
 			const confirm = page.getByRole('dialog');
 			await expect(confirm.getByText(copy.ui.confirmDialog.undone)).toBeVisible();

@@ -1,12 +1,35 @@
 import { useState, type ReactNode } from 'react';
 import { useMutation } from '../hooks/useMutation';
 import { CURRENCY_CODES } from '../lib/currencies';
+import { nightsBetween } from '../lib/format';
 import Modal, { ModalFooter, ModalForm } from './ui/Modal';
 import CurrencyPicker from './ui/CurrencyPicker';
 import { Field } from './ui/Field';
 import { copy } from '../copy';
 
 const c = copy.tripForm;
+
+/**
+ * The longest range this form will write, in days, counting both endpoints.
+ *
+ * A year, because the schedule draws one column per day and steps through them
+ * a day at a time: a trip entered as 2024 to 2026 produced four hundred columns
+ * and no way to reach the middle of them, which is how this bound came to be
+ * needed. The real fix is a date picker on the schedule's day stepper, and a
+ * matching rule in `validateDates` on the server so that no other writer can
+ * create one either. Until both exist, the form is where a typed year can be
+ * caught, and one year is generous for a group trip while still being a range
+ * anyone can navigate.
+ */
+const MAX_DAYS = 366;
+
+/** Days from start to end inclusive, or null when the range is not a real one. */
+function spanDays(start: string, end: string): number | null {
+	if (!start || !end) return null;
+	if (start === end) return 1;
+	const nights = nightsBetween(start, end);
+	return nights === null ? null : nights + 1;
+}
 
 export type TripFormValues = {
 	name: string;
@@ -68,14 +91,34 @@ export default function TripFormDialog({
 
 	const save = useMutation(() => onSubmit({ name, startDate, endDate, currency }), { fallback });
 
+	/**
+	 * The range this dialog opened on, so an existing over-long trip can still be
+	 * renamed or re-dated. The bound is new; the trips in the database are not,
+	 * and a rule that locked somebody out of editing a trip they already have is
+	 * a worse bug than the one it fixes. It refuses only a range that is both
+	 * over the bound and longer than what was there before.
+	 */
+	const wasSpan = spanDays(initial?.startDate ?? '', initial?.endDate ?? '') ?? 0;
+
+	function submit(e: React.FormEvent) {
+		e.preventDefault();
+		const span = spanDays(startDate, endDate);
+		if (span !== null && span > MAX_DAYS && span > wasSpan) {
+			// COPY: pending owner clearance, wanted as `copy.tripForm.tooLong`.
+			return save.setError('A trip can run for at most a year.');
+		}
+		void save.run();
+	}
+
 	return (
 		<Modal open title={title} size="sm" onClose={onClose}>
 			{/* Nothing here is marked `required` and native validation is off: every
 			    rule (a missing date, end-before-start, which `min` below can only
 			    hint at) belongs to the server, whose wording is the one the user
 			    should see. A native constraint would block the submit and that
-			    message would never arrive. */}
-			<ModalForm onSubmit={save.submit}>
+			    message would never arrive. The one exception is the length bound,
+			    which the server does not have yet and which `submit` checks here. */}
+			<ModalForm onSubmit={submit}>
 				<div className="mbody flex flex-col gap-3">
 					<Field label={c.nameLabel} value={name} onChange={(e) => setName(e.target.value)} />
 					<div className="flex flex-wrap gap-2.5">

@@ -5,6 +5,7 @@ import { useApi } from '../hooks/useApi';
 import Cover from '../components/Cover';
 import EmptyState from '../components/ui/EmptyState';
 import LoadError from '../components/ui/LoadError';
+import Loading from '../components/ui/Loading';
 import TripFormDialog from '../components/TripFormDialog';
 import { PlusIcon } from '../components/ui/icons';
 import { copy } from '../copy';
@@ -42,6 +43,10 @@ export default function Trips() {
 				{/* The reason goes to the corner. The panel only appears when the grid
 				    is empty, so a failed reload does not push the trips down. */}
 				{error && <LoadError message={error} panel={!data} className="col-span-full" />}
+
+				{/* The first fetch says so rather than leaving an empty grid that a
+				    reader cannot tell from a person with no trips. */}
+				{loading && !data && <Loading className="col-span-full" />}
 
 				{data?.trips.map((t) => (
 					<TripCard key={t.id} trip={t} />

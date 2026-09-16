@@ -78,6 +78,42 @@ test.describe('auth and session', () => {
 		}
 	});
 
+	test('an empty log in is refused by the form, and a stale refusal does not survive the next try', async ({
+		page,
+		request
+	}) => {
+		const fixture = await createApiFixture(request);
+		try {
+			await page.goto('/login');
+
+			// Nothing typed: the browser's own constraint stops the submit, so no
+			// request is made and the server never gets to answer "Wrong email or
+			// password" to a form that has not been filled in.
+			let posted = 0;
+			page.on('request', (r) => {
+				if (r.method() === 'POST' && r.url().includes('/auth/login')) posted += 1;
+			});
+			await page.getByRole('button', { name: copy.auth.login.submitLabel }).click();
+			await expect(page.locator('.toast.bad')).toHaveCount(0);
+			expect(posted).toBe(0);
+			await expect(page).toHaveURL(/\/login$/);
+
+			// A real refusal does reach the corner.
+			await page.getByLabel(copy.auth.login.emailLabel).fill(fixture.email);
+			await page.getByLabel(copy.auth.login.passwordLabel).fill('not-the-password');
+			await page.getByRole('button', { name: copy.auth.login.submitLabel }).click();
+			await expect(page.locator('.toast.bad')).toHaveCount(1);
+
+			// A second attempt replaces that refusal rather than stacking a second
+			// copy of it: errors do not expire, so without this the corner keeps a
+			// message that reads like a fresh failure.
+			await page.getByRole('button', { name: copy.auth.login.submitLabel }).click();
+			await expect(page.locator('.toast.bad')).toHaveCount(1);
+		} finally {
+			fixture.teardown();
+		}
+	});
+
 	test('a wrong password shows one generic message that does not reveal the email', async ({
 		page,
 		request

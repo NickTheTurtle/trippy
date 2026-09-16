@@ -4,6 +4,7 @@ import { useApi } from '../hooks/useApi';
 import { useLiveSection } from '../hooks/useTripEvents';
 import { useTrip } from './TripShell';
 import LoadError from '../components/ui/LoadError';
+import Loading from '../components/ui/Loading';
 import { useToast } from '../components/ui/Toast';
 import SectionNav from '../components/ui/SectionNav';
 import { useNarrowLayout } from '../hooks/useMediaQuery';
@@ -49,9 +50,11 @@ export default function People() {
 		reloadTrip();
 	}
 
-	/* The reason goes to the corner, the page keeps a line saying it is not
-	   there. A popup over a blank screen explains itself and leaves nothing. */
-	if (!data) return error ? <LoadError message={error} /> : null;
+	/* Three states before there is a page: still loading, failed, or here. The
+	   reason for a failure goes to the corner and the page keeps a line saying
+	   it is not there; a popup over a blank screen explains itself and leaves
+	   nothing. The first fetch says it is loading rather than flashing blank. */
+	if (!data) return error ? <LoadError message={error} /> : <Loading />;
 
 	const crews = section === 'crews';
 	const sections = [
