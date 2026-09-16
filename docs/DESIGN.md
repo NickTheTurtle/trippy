@@ -5255,6 +5255,12 @@ first pass is cancelled before it reaches the network. A request that has
 genuinely started is still aborted the moment its path is superseded; that is a
 real cancellation and is still worth doing.
 
+Measured on the e2e harness, signed in, over three navigations (the trip list, a
+trip's Discover, then Expenses): six `net::ERR_ABORTED` lines before, two after.
+Both survivors are `/api/auth/me`, aborted by the session probe in `auth.tsx`,
+which is outside this change's files and is left for its owner; the same
+microtask applies there.
+
 **The red 401 on `/auth/me` is not ours to remove, and is not what it looked
 like.** It is printed by the browser's network stack for any 4xx, before any of
 our code runs, and no `catch` touches it (`auth.tsx` has caught this 401 as an
