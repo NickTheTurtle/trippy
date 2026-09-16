@@ -178,7 +178,10 @@ test.describe('adding an event', () => {
 			// are the Acropolis and Plaka rather than "Morning" and "Afternoon".
 			await page.getByRole('button', { name: '+ Add', exact: true }).click();
 			await pickAda();
-			await page.getByLabel('Activity').click();
+			// Exactly "Activity", which is the place picker. An unnamed block is now
+			// previewed under its type's own noun, so the draft on the board answers
+			// to the same word with its time after it.
+			await page.getByRole('button', { name: 'Activity', exact: true }).click();
 			await page.getByRole('option', { name: 'Acropolis' }).click();
 			await page.getByRole('button', { name: copy.common.add, exact: true }).click();
 			// The block on the board, not the pin the map drops for the same place:
@@ -199,7 +202,7 @@ test.describe('adding an event', () => {
 			await expect(page.getByLabel('Start hour')).toHaveAttribute('aria-valuetext', '2');
 			await expect(page.getByLabel('Start meridiem')).toHaveAttribute('aria-valuetext', 'PM');
 			await pickAda();
-			await page.getByLabel('Activity').click();
+			await page.getByRole('button', { name: 'Activity', exact: true }).click();
 			await page.getByRole('option', { name: 'Plaka' }).click();
 
 			const journey = page.locator('dialog[open] .jrow');
@@ -545,6 +548,58 @@ test.describe('stays', () => {
 
 			await page.goto(`/trips/${fixture.tripId}/schedule?day=${startDate}&view=day`);
 			await expect(chip).toBeVisible();
+		} finally {
+			fixture.teardown();
+		}
+	});
+});
+
+/**
+ * The add dialog, which is where a block gets the two things it could only be
+ * given after the fact.
+ *
+ * A journey's mode used to be settable only by saving the block and reopening
+ * it, and an unnamed block used to be previewed as "New event" and then renamed
+ * by the server the moment it was saved. Both are about the dialog agreeing
+ * with what is stored, so both are checked against the board after the save
+ * rather than against the form.
+ */
+test.describe('add event', () => {
+	test('a journey keeps the mode it was added with, and an unnamed block is called what it is', async ({
+		page,
+		request
+	}) => {
+		const fixture = await createApiFixture(request);
+		const { startDate } = fixture.tripBody;
+		try {
+			await signIn(page, fixture.sessionCookie);
+			await page.goto(`/trips/${fixture.tripId}/schedule?day=${startDate}&view=day`);
+
+			await page.getByRole('button', { name: '+ Add', exact: true }).click();
+			const dialog = page.getByRole('dialog');
+
+			// The mode field belongs to journeys and to nothing else.
+			await expect(dialog.getByRole('button', { name: 'Mode' })).toHaveCount(0);
+			await dialog.getByRole('button', { name: 'Type' }).click();
+			await page.getByRole('option', { name: 'Travel' }).click();
+			await dialog.getByRole('button', { name: 'Mode' }).click();
+			await page.getByRole('option', { name: 'Ferry' }).click();
+
+			// No place and no notes, so the name is the type's own noun. The preview
+			// says so before the save, which is the half that used to be wrong.
+			await expect(page.getByRole('button', { name: /^Travel, / })).toBeVisible();
+
+			await page.getByRole('button', { name: copy.common.add, exact: true }).click();
+			await expect(dialog).toHaveCount(0);
+
+			// And still says so after it, rather than the block renaming itself.
+			const block = page.getByRole('button', { name: /^Travel, 9:00 AM to 10:00 AM/ });
+			await expect(block).toBeVisible();
+
+			// The mode reached the server on the create, so reopening the block finds
+			// it already set rather than empty.
+			await block.click();
+			await expect(page.getByRole('button', { name: 'Mode' })).toContainText('Ferry');
 		} finally {
 			fixture.teardown();
 		}

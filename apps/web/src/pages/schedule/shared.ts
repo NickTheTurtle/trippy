@@ -1,4 +1,9 @@
-import { EVENT_TYPES, TRANSPORT_MODES, type EventType } from '@trippy/core/types';
+import {
+	EVENT_TYPE_LABELS,
+	EVENT_TYPES,
+	TRANSPORT_MODES,
+	type EventType
+} from '@trippy/core/types';
 import type { Option } from '../../components/ui/Select';
 import type { Cell, SavedPoi } from './types';
 
@@ -176,22 +181,14 @@ export function heightPx(from: number, to: number, start: number): number {
 
 /* --- Vocabulary ----------------------------------------------------------- */
 
-const TYPE_LABELS: Record<EventType, string> = {
-	activity: 'Activity',
-	food: 'Food',
-	stay: 'Stay',
-	travel: 'Travel',
-	freetime: 'Free time'
-};
-
 /** Rendered straight from core's list, so a new type cannot be missed here. */
 export const TYPE_OPTIONS: Option[] = EVENT_TYPES.map((t) => ({
 	value: t,
-	label: TYPE_LABELS[t]
+	label: EVENT_TYPE_LABELS[t]
 }));
 
 export function typeLabel(t: string): string {
-	return TYPE_LABELS[t as EventType] ?? t;
+	return EVENT_TYPE_LABELS[t as EventType] ?? t;
 }
 
 const MODE_LABELS: Record<string, string> = {
@@ -275,13 +272,20 @@ export function placeLabel(type: EventType): string {
  * It is a mirror and nothing more. The server derives the stored name and wins
  * every disagreement; this only has to be close enough that the block does not
  * appear to rename itself the moment it is saved.
+ *
+ * Which is why the last line is the type's own noun and not "New event". The
+ * server ends on the noun, so a block previewed as "New event" renamed itself
+ * to "Activity" as soon as the save came back. That was rare while the dialogs
+ * still had a Name field; with the field gone it is what happens every time
+ * somebody adds a block without picking a place or writing a note. A column of
+ * identical "New event"s says nothing about a day either, and the noun at least
+ * says what kind of thing is there.
  */
 export function deriveTitle(placeName: string | null, notes: string, type: EventType): string {
 	if (placeName) return placeName;
 	const line = notes.split('\n').find((l) => l.trim());
 	if (line) return line.trim();
-	if (type === 'travel' || type === 'freetime') return typeLabel(type);
-	return 'New event';
+	return typeLabel(type);
 }
 
 /**
