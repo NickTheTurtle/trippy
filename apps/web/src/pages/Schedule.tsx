@@ -538,6 +538,7 @@ const BoardHead = memo(function BoardHead({
 }) {
 	const navigate = useNavigate();
 	const picker = useRef<HTMLInputElement | null>(null);
+	const typing = useRef<number | null>(null);
 
 	// `showPicker` is what opens the calendar on a click; where it is missing,
 	// focusing the field still lets the keyboard and the platform take over.
@@ -546,6 +547,40 @@ const BoardHead = memo(function BoardHead({
 		if (!el) return;
 		if (typeof el.showPicker === 'function') el.showPicker();
 		else el.focus();
+	};
+
+	useEffect(() => () => window.clearTimeout(typing.current ?? undefined), []);
+
+	/* The field is uncontrolled, and synced instead.
+	 *
+	 * As a controlled input it cannot be typed into at all: React restores the
+	 * value after every change, so each segment entered is wiped before the next
+	 * one arrives. Keeping the day in the DOM node and writing it back only when
+	 * the board has moved, and only while the field is not the thing being
+	 * typed into, leaves the calendar opening on the day being drawn without
+	 * fighting the keyboard for the field. */
+	useEffect(() => {
+		const el = picker.current;
+		if (el && document.activeElement !== el) el.value = day;
+	}, [day]);
+
+	/* A picked day is a day the board can draw.
+	 *
+	 * The range guard is not belt and braces: a date outside `min` and `max`
+	 * reaches here whenever the field is typed into rather than picked, and
+	 * following it would put a day in the url that the server then clamps away,
+	 * leaving the address bar naming one day and the board drawing another.
+	 *
+	 * The delay is for the same path. A calendar pick arrives as a single
+	 * change with the field unfocused, so it lands at once. Typing arrives a
+	 * segment at a time, and every part-typed date is itself a complete date:
+	 * entering 05/01/2026 walks through 2024-05-09 and 2024-06-09 on the way,
+	 * and without the wait the board jumps to each of them and re-renders the
+	 * field back to the day it landed on, so the rest of what you type is thrown
+	 * away and the date can never be finished. */
+	const jump = (value: string) => {
+		if (!value || value < first || value > last || value === day) return;
+		navigate(navUrl(value, view));
 	};
 
 	return (
@@ -567,13 +602,17 @@ const BoardHead = memo(function BoardHead({
 					ref={picker}
 					className="daypickfield"
 					type="date"
-					value={day}
+					defaultValue={day}
 					min={first}
 					max={last}
 					tabIndex={-1}
 					aria-hidden="true"
 					onChange={(e) => {
-						if (e.target.value) navigate(navUrl(e.target.value, view));
+						const value = e.target.value;
+						window.clearTimeout(typing.current ?? undefined);
+						if (document.activeElement === picker.current)
+							typing.current = window.setTimeout(() => jump(value), 600);
+						else jump(value);
 					}}
 				/>
 			</span>

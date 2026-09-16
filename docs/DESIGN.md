@@ -3217,6 +3217,31 @@ own start and end. The two differ on a long trip, because the server caps how
 many days it will serve, and a picker that offered a day the arrows cannot walk
 to and the server will clamp away would be lying about where you can go.
 
+**Typing into it needed the field to stop being controlled.** Exercising the
+jump on the long trip turned up two faults in the first cut, both on the path
+where the date is typed rather than picked, which is where a browser without
+`showPicker` lands. As a controlled input the field cannot be typed into at all:
+React restores the value after every change, so each segment is wiped before the
+next one arrives and nothing is ever entered. The field is uncontrolled now,
+with the day written back to the node when the board moves and only while the
+field is not the thing being typed into, so the calendar still opens on the day
+being drawn.
+
+The second fault is that every part-typed date is itself a complete date.
+Entering 05/01/2026 walks through 2024-05-09 and 2024-06-09 on the way, and each
+one fired a navigation, so the board jumped mid-entry, re-rendered the field
+back to where it had landed, and threw away the rest of what was being typed. A
+change with the field focused now waits 600ms for the entry to settle; a
+calendar pick arrives with the field unfocused and lands at once, measured at 18
+to 26ms. A value outside `min` and `max` is ignored rather than followed, since
+following it put a day in the url that the server then clamped away, leaving the
+address bar naming one day and the board drawing another.
+
+What that leaves is worth naming: a date inside the trip but past the served
+range is refused silently. The calendar will not select it, and a typed one does
+nothing. That is the honest behaviour available without a string to explain it,
+and the real fix is the cap itself rather than an apology for it.
+
 **One height, and the page's air belongs to the board.** The next report was
 that the board and the map could both be taller. Measured at 1280x900 before
 anything changed: the box started 458.5px down the page and came out 417.5px
