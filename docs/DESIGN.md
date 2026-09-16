@@ -3089,6 +3089,21 @@ being clipped: it sits 7px clear of the bottom of the box, inside the 16px the
 grid already carries past its last rule. Top clipping and the missing label were
 two bugs, not one.
 
+**The schedule toolbar has two rows on a phone, and they are chosen ones.** The
+row carries three things: the `Day | Agenda` pills, the "View as" person filter
+and `+ Add`. Measured, they hold one line down to 484px and wrap at 480px, and
+what the wrap produced was not two rows so much as two leftovers: the pills alone
+with 200px of nothing beside them, then the filter with `+ Add` jammed against
+it. Below 480px the row is therefore laid out on purpose as a two-column grid.
+The pills take the top left and `+ Add` the top right, which keeps the
+convention that a section's action sits on the section's own row; "View as"
+spans the second row with its select stretched to the full width, which is the
+one control here that gains from being wide, since it holds people's names. The
+breakpoint is the measured one, so no width that fits today is broken in two.
+`.tools`, the wrapper that grouped the filter with the button, is
+`display: contents` at that width: it carries no styling of its own, so it loses
+nothing by not generating a box, and its children become grid items directly.
+
 ## The board reads its clock as AM/PM
 
 **The board was the only 24-hour surface left in the app.** Discover already

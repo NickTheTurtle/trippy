@@ -757,6 +757,56 @@
 	}
 }
 
+/* The toolbar's second line, laid out rather than fallen into.
+ *
+ * Measured: the row holds a one-line layout down to 484px and wraps at 480,
+ * which is where this takes over, so no width that fits today is broken into
+ * two by it. What the wrap gave was a first line holding only the view switch
+ * with two hundred pixels of nothing beside it, and a second line holding the
+ * "view as" control with the page's primary action jammed against it, which is
+ * the "looks weird" of the report: nothing wrong with either line except that
+ * neither was chosen.
+ *
+ * Two lines is still the right answer at 390px, so these are the two lines:
+ * what you are looking at and the button that adds to it on the first, who you
+ * are looking as on the second, with the select taking the rest of that line
+ * so it is a comfortable target rather than a 9.5rem box with a gap after it.
+ * `+ Add` keeps the top line and the right edge it holds at every other width,
+ * which is also the convention that a section's action button rides on the
+ * section's own row.
+ *
+ * `.tools` becomes `display: contents` so its two children can take their own
+ * places in this grid. It carries no role and no styling of its own, so it has
+ * nothing to lose by not generating a box. */
+@media (max-width: 480px) {
+	.sched .toolbar {
+		display: grid;
+		grid-template-columns: 1fr auto;
+		align-items: center;
+		column-gap: 0.8rem;
+		row-gap: 0.6rem;
+	}
+	.sched .toolbar .tools {
+		display: contents;
+	}
+	.sched .toolbar .pills {
+		grid-area: 1 / 1;
+		/* The column is the flexible one, so without this the switch would
+		   stretch to fill it and read as a wide empty box with two words in it. */
+		justify-self: start;
+	}
+	.sched .toolbar .btn.primary {
+		grid-area: 1 / 2;
+	}
+	.sched .toolbar .viewas {
+		grid-area: 2 / 1 / 3 / 3;
+	}
+	.sched .toolbar .viewas .sel {
+		flex: 1;
+		width: auto;
+	}
+}
+
 /* --- Reduced motion ------------------------------------------------------
  *
  * Last in the file deliberately: these rules have the same specificity as the
