@@ -47,7 +47,8 @@ export interface PlannerEvent {
 	 * That convention stops at the persistence boundary: core has no roster to
 	 * expand against and cannot get one without becoming impure, so a caller
 	 * expands the empty list to the trip's members before calling `planLegs`
-	 * (see `toPlanner` in `packages/server/src/persistence/schedule.ts`).
+	 * (see `toPlannerEvent` in `packages/core/src/plan.ts`, which is where both
+	 * the server and the client do it).
 	 * Passing the stored form straight through means every event belongs to
 	 * nobody and the day plans no journeys at all.
 	 */
