@@ -94,6 +94,23 @@
 
 /* --- Board shell --------------------------------------------------------- */
 
+/* The page's trailing air, handed back to the board.
+ *
+ * Every page keeps 96px under its last section, which is right for a page that
+ * ends where its content ends. This one is built to end at the bottom of the
+ * screen: the board card reaches the fold by design, so that air did nothing
+ * but push the page past the fold and grow a second scrollbar around a board
+ * that already has its own. `--tailpull` is measured in `Schedule.tsx` and is
+ * never more than the air that is really there, so a board too tall for the
+ * screen still scrolls the page down to its last row.
+ *
+ * Not on a phone, where the map is under the board rather than beside it: the
+ * page has to scroll there whatever this does, and the air under the map is the
+ * end of the page doing its job. */
+.sched {
+	margin-bottom: calc(-1 * var(--tailpull, 0px));
+}
+
 .sched .split {
 	display: grid;
 	grid-template-columns: 1fr 420px;
@@ -103,8 +120,12 @@
 .sched .boardcol {
 	min-width: 0;
 }
+/* The card around the board. Its bottom padding is half its top one, because
+   the box inside it ends flush with its own last row and the air under the
+   card is measured into the box's height: every pixel kept here is a pixel of
+   the day that is not drawn. */
 .sched .board {
-	padding: 1rem 1rem 1rem 0;
+	padding: 1rem 1rem 0.5rem 0;
 	overflow: visible;
 }
 /* The board's viewport, whichever board is in it.
@@ -560,6 +581,32 @@
 	position: sticky;
 	top: 80px;
 }
+/* Beside the board, the map is as tall as the board.
+ *
+ * `.gmapbox` is 420px wherever it appears, which is a sensible figure for a
+ * card in a column of cards and the wrong one here: the board next to it is
+ * measured against the screen, so the map was ending 138px above it and
+ * leaving a column of nothing under it. Stretching the row and letting the map
+ * fill its card means the two columns end together at every window height,
+ * with one derivation behind both rather than a number each.
+ *
+ * Only where the map is a column. Under the board on a phone it is a card in a
+ * scrolling page again, and 420px is right again. */
+@media (min-width: 901px) {
+	.sched .split {
+		align-items: stretch;
+	}
+	.sched .mapwrap {
+		display: flex;
+		flex-direction: column;
+	}
+	.sched .mapwrap .gmapbox,
+	.sched .mapwrap .mapbox {
+		flex: 1;
+		min-height: 0;
+		height: auto;
+	}
+}
 /* The agenda is a board in its own right now, so it takes the board card's
    padding and only makes up the left gutter the day grid uses for its hours. */
 .sched .agenda {
@@ -616,6 +663,11 @@
 }
 
 @media (max-width: 900px) {
+	.sched {
+		/* The map is under the board here, so the page scrolls whatever this
+		   does, and the air under the last card is the end of the page. */
+		margin-bottom: 0;
+	}
 	.sched .split {
 		grid-template-columns: 1fr;
 	}

@@ -119,8 +119,16 @@ const EDGE_PX = 72;
 const EDGE_RATE = 150;
 /** The shortest day viewport worth scrolling inside, on a short screen. */
 const MIN_VIEW_H = 320;
-/** Breathing room under the board, so it does not sit on the bottom edge. */
-const VIEW_GAP = 24;
+/**
+ * Breathing room under the board card, so it does not sit on the bottom edge
+ * of the screen.
+ *
+ * This is the whole of the guess in the height. What the card keeps for itself
+ * under the box is measured off the card, and what the page keeps under the
+ * card is measured off the document, so neither is repeated here as a number
+ * that could drift out of step with the stylesheet.
+ */
+const VIEW_AIR = 8;
 /**
  * The room the scroll box leaves above the first hour line, for the label that
  * hangs over it. Set in `schedule.css` as `.boardscroll`'s `padding-top`, and
@@ -675,25 +683,57 @@ export default function Schedule() {
 		return () => ro.disconnect();
 	}, []);
 
-	/* The day's viewport: the box the hours scroll inside, with the day's title
-	   bar, its stepper and the lodging band standing still above it.
+	/* The board's viewport: the box every view scrolls inside, with the day's
+	   title bar, its stepper and the lodging band standing still above it, and
+	   the map beside it stretched to the same height by the grid.
 
 	   Its height is whatever is left between its own top and the bottom of the
-	   screen. Measured rather than stated, because the board's top depends on a
-	   toolbar that wraps at narrow widths and a lodging band holding anything
-	   from nothing to three stays. The measurement is taken in document
+	   screen, less what is drawn under it. Measured rather than stated, because
+	   the board's top depends on a toolbar that wraps at narrow widths and a
+	   lodging band holding anything from nothing to three stays, and because
+	   what sits under the box is the card's own padding, which belongs to the
+	   stylesheet rather than to this file. The measurement is taken in document
 	   coordinates (`rect.top + scrollY`), which is where the box sits whatever
-	   the page has been scrolled to: reading the viewport-relative top would make
-	   the height grow as the page scrolls, which would grow the page, which would
-	   let it scroll further. */
+	   the page has been scrolled to: reading the viewport-relative top would
+	   make the height grow as the page scrolls, which would grow the page,
+	   which would let it scroll further.
+
+	   The page's own trailing air is pulled back up in the same pass. The page
+	   keeps 96px under its last section, which is right for a page that ends
+	   where its content ends and wrong for this one, which is built to finish
+	   at the bottom of the screen: all that air did was push the board past the
+	   fold and grow a second scrollbar around a board that has its own. What is
+	   pulled is measured and bounded by the air that is actually there, so a
+	   board too tall for the screen still scrolls the page to its last row
+	   rather than having its end cut off. */
 	const scrollRef = useRef<HTMLDivElement>(null);
+	const rootRef = useRef<HTMLDivElement>(null);
+	const pullRef = useRef(0);
 	const [viewH, setViewH] = useState(0);
 	useLayoutEffect(() => {
 		const el = scrollRef.current;
 		if (!el) return;
 		const fit = () => {
-			const docTop = el.getBoundingClientRect().top + window.scrollY;
-			setViewH(Math.max(MIN_VIEW_H, window.innerHeight - docTop - VIEW_GAP));
+			const card = el.parentElement;
+			const root = rootRef.current;
+			if (!card || !root) return;
+			const box = el.getBoundingClientRect();
+			const docTop = box.top + window.scrollY;
+			// What the card draws under the box, which is its padding today.
+			const cardTail = Math.max(0, card.getBoundingClientRect().bottom - box.bottom);
+			setViewH(Math.max(MIN_VIEW_H, window.innerHeight - docTop - cardTail - VIEW_AIR));
+
+			const doc = document.documentElement;
+			const pull = pullRef.current;
+			// Both measured with the current pull already applied, so one pass
+			// lands on the fixed point rather than creeping towards it.
+			const over = doc.scrollHeight - window.innerHeight;
+			const air = doc.scrollHeight - (root.getBoundingClientRect().bottom + window.scrollY);
+			const want = Math.round(Math.min(Math.max(0, pull + over), pull + air));
+			if (Math.abs(want - pull) > 1) {
+				pullRef.current = want;
+				root.style.setProperty('--tailpull', `${want}px`);
+			}
 		};
 		fit();
 		window.addEventListener('resize', fit);
@@ -1674,7 +1714,7 @@ export default function Schedule() {
 	}
 
 	return (
-		<div className="sched">
+		<div className="sched" ref={rootRef}>
 			<Toolbar
 				view={view}
 				day={data.day}
