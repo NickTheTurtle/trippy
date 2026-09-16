@@ -174,7 +174,7 @@ export default function Discover() {
 			<div className="min-w-0">
 				<FormError message={notice} variant="banner" />
 
-				<div className={`mb-2.5 flex flex-wrap items-center gap-4 ${narrow ? '' : 'min-h-phead'}`}>
+				<div className={`mb-4 flex flex-wrap items-center gap-4 ${narrow ? '' : 'min-h-phead'}`}>
 					{/* Four types, and on a phone a dropdown is a tap to open, a tap to
 					    choose and a menu over the grid you are filtering. Laid out as
 					    pills they are one tap and they never cover the thing they

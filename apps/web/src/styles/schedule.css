@@ -26,7 +26,11 @@
 	align-items: center;
 	justify-content: space-between;
 	gap: 1rem;
-	margin-bottom: 1.2rem;
+	/* 1rem is the gap every trip page puts between its header row and the first
+	   card below it (Tailwind's `mb-4`), and this row is this page's header. It
+	   sat at 1.2rem, which read as the calendar being spaced differently from
+	   the rest of the app because it was. */
+	margin-bottom: 1rem;
 	flex-wrap: wrap;
 }
 .sched .navbtn {
@@ -526,6 +530,19 @@
 }
 .sched .agendarow.tight .agendameta {
 	color: var(--color-warn);
+}
+
+/* Stacked, the toolbar is a row above the content rather than a header beside a
+ * column, and that is the shape every other trip page takes below Tailwind's
+ * `lg`: the section dropdown, then 1.5rem, then the card it introduces, which
+ * is the grid's own `gap-6`. The calendar had 1rem there and read tighter than
+ * the rest of the app on a phone for no reason other than the rule it did not
+ * share. Above this width the column layout returns everywhere and the gap goes
+ * back to the 1rem a header row takes over its own body. */
+@media (max-width: 1023.98px) {
+	.sched .toolbar {
+		margin-bottom: 1.5rem;
+	}
 }
 
 @media (max-width: 900px) {

@@ -3593,6 +3593,20 @@ that the switch sits at the left edge under 70% of the toolbar's width, that the
 document does not scroll sideways, that 520px gets the same two lines in the same
 order, and that at 1440px all three return to one line.
 
+**Every trip page holds the same gap between its header row and its body.**
+Measured in Chrome on the same seeded trip, the four column pages put 16px
+between the row of controls and the first card at desktop width, and 24px
+between the section dropdown and the card once the layout stacks, which is the
+grid's own `gap-6`. Two pages did not. Discover's type row carried `mb-2.5`, so
+it sat 6px tighter than the identical row on Preparation, Expenses and People.
+The calendar's toolbar carried `margin-bottom: 1.2rem`, so it was 3px loose on a
+desktop and, once stacked, 8px tighter than every other page, which is what "the
+margins are off on narrower screens" turned out to be.
+
+Both now follow the convention: Discover takes `mb-4`, and the toolbar is 1rem
+with the column layout and 1.5rem once the page stacks, matching the `lg`
+breakpoint the other pages already switch on.
+
 **The brand mark is a tree of choices, not a glyph.** The header used to sit a
 Unicode `◍` next to the wordmark and the tab still shipped the SvelteKit logo
 in Svelte orange, both leftovers from the port. A text glyph is drawn by
