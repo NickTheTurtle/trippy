@@ -1,14 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
-
-/**
- * The wording shown when a map cannot draw.
- *
- * It belongs in `@trippy/copy` with the rest of the app's words. It is held
- * here for the moment only because that file is the owner's and is not to be
- * edited by an agent; the intended home is `copy.ui.tripMap.failed`, and moving
- * it is a one-line change once that string exists.
- */
-const MAP_FAILED = 'Could not draw the map.';
+import { copy } from '../copy';
 
 /**
  * Keeps a broken map inside its own box.
@@ -45,7 +36,7 @@ export default class MapBoundary extends Component<{ children: ReactNode }, { fa
 		if (!this.state.failed) return this.props.children;
 		return (
 			<div className="mapbox grid place-items-center">
-				<p className="muted m-0 px-6 text-center text-body">{MAP_FAILED}</p>
+				<p className="muted m-0 px-6 text-center text-body">{copy.ui.tripMap.failed}</p>
 			</div>
 		);
 	}
