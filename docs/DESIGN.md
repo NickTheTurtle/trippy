@@ -970,6 +970,56 @@ configured.** See §4.6: the E2E suite and a fresh clone register through this
 route, and a deployment that cannot send mail should not be one where nobody
 can sign up.
 
+#### 4.7.1 Trusting a POST from Amazon: the SES bounce receiver
+
+`/api/ses/notifications` is mounted outside `requireUser`, because SNS holds no
+session and a session gate would reject every real notification. That makes it
+the one write endpoint in the app any stranger can reach, and what it writes is
+the suppression list, so an unverified endpoint is not a small bug: anyone who
+found the URL could POST a forged "complaint" for any address and stop us
+mailing that person, locking them out of their own account with a denial of
+service we inflicted on ourselves.
+
+A shared secret in the query string was rejected: it leaks into proxy and
+access logs, cannot be rotated per message, and is copied verbatim by anyone who
+sees it once. The defence is the asymmetric signature AWS already attaches.
+
+Four gates, all failing closed, in this order:
+
+1. **Certificate URL allowlist.** HTTPS only, host matching
+   `sns.<region>.amazonaws.com` (or the `.com.cn` China variant), and the path
+   pinned to `/SimpleNotificationService-<id>.pem`. Checked *before* anything is
+   fetched, so the endpoint can never be turned into a request against a server
+   of the attacker's choosing. A valid signature proves nothing if the attacker
+   also chose the key it is checked against, which is exactly what a permissive
+   URL rule would allow.
+2. **No redirects.** The certificate fetch uses `redirect: 'error'`. A 302 from
+   a genuine SNS host to somewhere else would step straight past the allowlist
+   and let the response body, the public key, be chosen by whoever controlled
+   the redirect. The URL we validated and the URL we fetch stay the same one.
+3. **Signature.** The canonical string is rebuilt from the fixed field subset
+   for the message's `Type`, in AWS's order, and verified with SHA1 or SHA256
+   per `SignatureVersion`. An unknown `Type` has no defined signed string, so
+   there is nothing to verify and the answer is no.
+4. **Freshness and replay.** A signature says *who* wrote a message, never
+   *when* or *how many times* it may be delivered. A genuine notification
+   captured anywhere on its path would otherwise verify forever. Messages older
+   than an hour (comfortably beyond SNS delivery and retry latency) are refused,
+   as are messages dated more than a minute into the future, and a missing or
+   unparseable `Timestamp` is refused rather than read as "now". Inside that
+   window, `MessageId` is remembered per process so a replay is a no-op. The
+   memory is in-process on purpose: applying the same bounce twice is idempotent
+   anyway, so the only thing worth stopping is a flood, and a durable store here
+   would hand an unauthenticated caller a write to SQLite.
+
+The `SubscribeURL` for a subscription confirmation is checked against the same
+host rule before it is followed, even though the message already verified: a
+signed message must still not be able to aim us at an arbitrary host.
+
+Everything answers a bare `200` with no body, verified or not. SNS is the only
+legitimate caller and it wants an acknowledgement, not a diagnosis; anything
+more would let the endpoint be probed for which addresses or topics it knows.
+
 ### 4.8 Who is on a trip
 
 A person on the trip is a **display name**, and an **email only if they are
