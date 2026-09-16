@@ -3242,6 +3242,18 @@ range is refused silently. The calendar will not select it, and a typed one does
 nothing. That is the honest behaviour available without a string to explain it,
 and the real fix is the cap itself rather than an apology for it.
 
+**A one day trip has nothing to jump to.** Where the first day the board offers
+is also the last, the picker can only re-pick the day already drawn, so the day
+name goes back to being a day name: no button, no field, no dashed underline and
+nothing in the tab order. Suppressing only the underline would have been worse
+than leaving it alone, since a keyboard would still land on a plain-looking
+thing and find nothing there. The visible text is identical either way.
+
+The test is `first === last` rather than any count of days, because two days is
+already enough to jump between. Confirmed on a two day trip built for the
+purpose: the button, the field and the underline all survive, and picking the
+second day lands on it.
+
 **One height, and the page's air belongs to the board.** The next report was
 that the board and the map could both be taller. Measured at 1280x900 before
 anything changed: the box started 458.5px down the page and came out 417.5px

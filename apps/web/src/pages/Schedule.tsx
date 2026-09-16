@@ -583,6 +583,17 @@ const BoardHead = memo(function BoardHead({
 		navigate(navUrl(value, view));
 	};
 
+	/* A one day trip has nothing to jump to.
+	 *
+	 * When the first day the board offers is also the last, the picker can only
+	 * ever re-pick the day already drawn, so the day name goes back to being a
+	 * day name: no button, no field, no affordance and nothing in the tab order.
+	 * Leaving it focusable but plain would be worse than leaving it as it was,
+	 * since a keyboard would still land on it and find nothing there. The text
+	 * is identical either way. Two days is enough to jump, so the test is on the
+	 * ends being equal rather than on any count of days. */
+	const jumpable = first !== last;
+
 	return (
 		<div className="boardhead">
 			{prev ? (
@@ -595,26 +606,37 @@ const BoardHead = memo(function BoardHead({
 				</button>
 			)}
 			<span className="curday">
-				<button type="button" className="daypick" onClick={openPicker} aria-label="Jump to a date">
-					{label}
-				</button>
-				<input
-					ref={picker}
-					className="daypickfield"
-					type="date"
-					defaultValue={day}
-					min={first}
-					max={last}
-					tabIndex={-1}
-					aria-hidden="true"
-					onChange={(e) => {
-						const value = e.target.value;
-						window.clearTimeout(typing.current ?? undefined);
-						if (document.activeElement === picker.current)
-							typing.current = window.setTimeout(() => jump(value), 600);
-						else jump(value);
-					}}
-				/>
+				{jumpable ? (
+					<>
+						<button
+							type="button"
+							className="daypick"
+							onClick={openPicker}
+							aria-label="Jump to a date"
+						>
+							{label}
+						</button>
+						<input
+							ref={picker}
+							className="daypickfield"
+							type="date"
+							defaultValue={day}
+							min={first}
+							max={last}
+							tabIndex={-1}
+							aria-hidden="true"
+							onChange={(e) => {
+								const value = e.target.value;
+								window.clearTimeout(typing.current ?? undefined);
+								if (document.activeElement === picker.current)
+									typing.current = window.setTimeout(() => jump(value), 600);
+								else jump(value);
+							}}
+						/>
+					</>
+				) : (
+					label
+				)}
 			</span>
 			{next ? (
 				<Link className="navbtn" to={navUrl(next, view)} aria-label="Next day">
