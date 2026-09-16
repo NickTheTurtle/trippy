@@ -3,7 +3,7 @@ import { api } from '../lib/api';
 import { useApi } from '../hooks/useApi';
 import { useLiveSection } from '../hooks/useTripEvents';
 import { useTrip } from './TripShell';
-import FormError from '../components/ui/FormError';
+import LoadError from '../components/ui/LoadError';
 import { useToast } from '../components/ui/Toast';
 import SectionNav from '../components/ui/SectionNav';
 import { useNarrowLayout } from '../hooks/useMediaQuery';
@@ -49,9 +49,9 @@ export default function People() {
 		reloadTrip();
 	}
 
-	/* The load, not a result: with no roster there is no page to put a corner
-	   popup beside. */
-	if (!data) return error ? <FormError message={error} variant="banner" /> : null;
+	/* The reason goes to the corner, the page keeps a line saying it is not
+	   there. A popup over a blank screen explains itself and leaves nothing. */
+	if (!data) return error ? <LoadError message={error} /> : null;
 
 	const crews = section === 'crews';
 	const sections = [

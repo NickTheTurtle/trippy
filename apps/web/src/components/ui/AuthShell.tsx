@@ -1,5 +1,4 @@
 import type { ReactNode } from 'react';
-import FormError from './FormError';
 import { copy } from '../../copy';
 
 /** The card, heading and blurb every signed-out page sits in. */
@@ -24,14 +23,18 @@ function AuthCard({
 }
 
 /**
- * The frame shared by log in and register: centred card, heading, error slot,
- * and the alternate-action line underneath. Both pages are the same shape, so
- * the shape lives here and each page supplies only its fields.
+ * The frame shared by log in and register: centred card, heading, and the
+ * alternate-action line underneath. Both pages are the same shape, so the shape
+ * lives here and each page supplies only its fields.
+ *
+ * No error slot. A refusal from the server is a result like any other and goes
+ * to the corner, which each page raises in its own catch rather than through a
+ * prop here: the same wrong password twice is two refusals, and a prop holding
+ * one string cannot say that a second time.
  */
 export function AuthShell({
 	title,
 	blurb,
-	error,
 	onSubmit,
 	submitting,
 	submitLabel,
@@ -40,7 +43,6 @@ export function AuthShell({
 }: {
 	title: string;
 	blurb: string;
-	error: string | null;
 	onSubmit: () => void;
 	submitting: boolean;
 	submitLabel: string;
@@ -49,8 +51,6 @@ export function AuthShell({
 }) {
 	return (
 		<AuthCard title={title} blurb={blurb}>
-			<FormError message={error} variant="banner" />
-
 			<form
 				className="flex flex-col gap-3.5"
 				onSubmit={(e) => {

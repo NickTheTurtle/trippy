@@ -7,7 +7,7 @@ import { formatMoney } from '../lib/format';
 import { useTrip } from './TripShell';
 import { useNarrowLayout } from '../hooks/useMediaQuery';
 import SectionNav from '../components/ui/SectionNav';
-import FormError from '../components/ui/FormError';
+import LoadError from '../components/ui/LoadError';
 import { useToast } from '../components/ui/Toast';
 import Stat from '../components/ui/Stat';
 import type { Task, PretripData, Draft, TaskDraft } from './pretrip/types';
@@ -54,8 +54,9 @@ export default function Pretrip() {
 		onError: toast.error
 	});
 
-	/* The load, not a result: with no data the page is this message. */
-	if (!data) return error ? <FormError message={error} variant="banner" /> : null;
+	/* The reason goes to the corner, the page keeps a line saying it is not
+	   there. A popup over a blank screen explains itself and leaves nothing. */
+	if (!data) return error ? <LoadError message={error} /> : null;
 
 	const doneCount = data.tasks.filter((t) => t.done).length;
 	const packedCount = data.packing.filter((t) => t.done).length;

@@ -4,7 +4,7 @@ import { useApi } from '../hooks/useApi';
 import { useMutation } from '../hooks/useMutation';
 import { useAuth } from '../auth';
 import Select from '../components/ui/Select';
-import FormError from '../components/ui/FormError';
+import LoadError from '../components/ui/LoadError';
 import { useToast } from '../components/ui/Toast';
 import { Field, FieldShell } from '../components/ui/Field';
 import { copy } from '../copy';
@@ -33,9 +33,10 @@ export default function Account() {
 				<h1 className="text-title">{ca.heading}</h1>
 			</header>
 
-			{/* The load, not a result: with no data there is nothing else on the
-			    page, so this one stays where the page is. */}
-			{error && <FormError message={error} variant="banner" />}
+			{/* The reason goes to the corner. The panel only appears when there is
+			    nothing else on the page: a reload that fails under a loaded form is
+			    a result, not a missing page. */}
+			{error && <LoadError message={error} panel={!data} />}
 			{loading && !data && <p className="muted">{ca.loading}</p>}
 
 			{data && (
