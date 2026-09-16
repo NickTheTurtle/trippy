@@ -730,6 +730,25 @@ the client would immediately try to edit.
 
 Legs that cross zones recompute local arrival correctly.
 
+**`geo.ts` keeps only what somebody calls.** `estimateTravelBetween` was a
+two-line composition of `haversineKm` and `estimateTravel` with exactly one
+caller, its own test, so the test was the only thing keeping it alive. A helper
+whose only user is the test that proves it works is not shared code, it is a
+second definition of the estimator waiting to drift from the first, and the
+estimator is a thing the schedule reads as a fact about a real journey. Deleted;
+`estimateTravel(haversineKm(...))` at a call site says the same thing and reads
+the same way.
+
+`estimateTravel` itself stays for now because `providers/routing.ts` still calls
+it as its offline fallback. That fallback and `guessLeg` in `travel.ts` are two
+estimators for one question, and unifying them retires the rest of `geo.ts`
+except `haversineKm`. That is a separate change and is in flight elsewhere.
+
+`isCurrency` in `currency.ts` went the same way: a membership test against
+`FALLBACK_RATES` that nothing in the tree ever asked. Currency validation is
+done against `CURRENCY_CODES` where it is done at all, and a second answer to
+"is this a currency" is one that can disagree.
+
 ### 4.3 Maps
 
 - **Mapbox GL JS** (or Google Maps JS). Day-scoped route + numbered pins.
@@ -2035,6 +2054,24 @@ trip was one that could not use half the app. `createTrip` and `updateTrip` now
 reject a blank date, the two date fields lost their "(optional)" suffix, and
 `formatDayRange` takes two days rather than two nullables, which is what deleted
 the placeholder string outright.
+
+**One name per day-range string.** There were two exported functions called
+`formatDayRange`: `packages/core/src/tz.ts` renders "Apr 16 – 20, 2026", always
+with the year and collapsing a same-day range to the one date, and it is what
+the server writes into `trips.dates`; `packages/copy/src/format.ts` renders
+"Apr 16 – 20", never with a year, and it is what the mobile trip card and
+`formatNights` use. Different modules, so nothing ever complained, and an import
+from the wrong one produced a plausible label with a silently different shape,
+on a field that is a fact about somebody's trip.
+
+They are not one function with an option, because they are not the same
+function underneath: the core one formats in `en-US` explicitly so a stored
+label does not depend on the host's locale, and the copy one formats in the
+reader's locale because it is drawn in the reader's UI. Collapsing them would
+have to pick one of those and be wrong for the other caller. So the name was
+made to carry the difference instead: the year-bearing one keeps `formatDayRange`
+and the short one became `formatDayRangeShort`. Each now names the other in its
+doc comment, so the next person to reach for one is told the other exists.
 
 Existing dateless rows are anchored by migration to the day the trip was
 created, as a single-day trip. That invents no travel plan, it is traceable to
@@ -4439,6 +4476,120 @@ A leg is placed by its **arrival**: `start = B.start - mins`. If that lands
 before `A.end`, the journey does not fit, and the leg is returned `tight` and
 drawn filling the gap rather than shrunk to it (4.2, `placeLeg`). Shrinking it
 would make an impossible day look fine.
+
+#### 7.2.1 Per-person conflicts (`packages/core/src/conflicts.ts`)
+
+`placeLeg`'s `tight` flag answers a question about a **journey**: does this leg
+fit in the gap it was drawn into. It cannot answer the question the owner asked
+("warn me if events overlap for one person"), because a leg only exists where
+the planner drew one, and the worst case, the same person on two events at the
+same instant, produces no leg at all. So `findConflicts` is a second, separate
+pass over the same day, run per person rather than per leg.
+
+```ts
+findConflicts(events: readonly ConflictEvent[], options?: ConflictOptions): ScheduleConflict[]
+```
+
+It returns one entry per pair of events, each naming every person the pair
+catches, and it is `kind: 'overlap'` (the times intersect) or `kind: 'travel'`
+(different places, and the gap is shorter than the journey). No sentences: the
+client owns the wording, and copy lives in `apps/web/src/copy.ts`.
+
+The decisions, and why each went the way it did:
+
+- **Roster overlap is not layout overlap, but it is the same predicate.**
+  `layoutDay` already computes overlaps, so sharing was considered seriously.
+  The machinery does not transfer: layout clusters events by time *regardless of
+  who is on them*, over everything drawable, to decide column widths, and two
+  events overlapping there is the normal case (a split), not a fault. What does
+  transfer is the geometric fact, so `rangesOverlap` is now exported from
+  `layout.ts` and used by both. One copy of the boundary rule, two questions.
+- **An event with nobody on it conflicts with nothing.** Storage writes
+  "Everyone" as an empty list (M3.1), and the expansion back to the roster
+  happens where there is a roster to expand against: `toPlanner` on the server,
+  the board's attendee resolution on the client. `ConflictEvent.people` is
+  therefore read as the exact set, the same contract `PlannerEvent.people`
+  already has. Reading empty as everyone inside core would put that rule in a
+  second place, and would mean any caller that passed the stored form straight
+  through got the whole roster on every unassigned event; since most events are
+  left on Everyone, that is a warning on nearly every pair on the day. The
+  failure mode chosen is silence, not noise.
+- **Parties expand before they arrive.** A crew is only a saved selection of
+  people (M3.1), so a party of four is four ids on the event and all four are
+  checked. Nothing here knows what a crew is.
+- **A stay takes no part at all.** A stay covers nights, is drawn as a band
+  above the day, and the minute it carries (`STAY_CHECK_IN`) is a drawing
+  anchor, not a promise to be in the room. `staysCovering` (nights) versus
+  `staysOnBoard` (days) already encodes that. Counting it would report last
+  night's hotel as colliding with every event of the next morning. It is dropped
+  before the walk rather than skipped inside it, so it also cannot interrupt a
+  travel chain it is not part of.
+- **A `travel` event is the transit, so nothing is checked *into* one.** The
+  walk to the airport is inside the flight block by convention, and asking
+  whether you can reach the middle of your own flight is not a question. Where
+  it lands is a different matter: a located travel event starts the next chain
+  (mirroring `landsAt` in `planLegs`), so a stop nobody can reach after the
+  ferry docks is still flagged. A travel event does count for **overlap**: being
+  on a ferry during a museum booking is a real double booking.
+- **Free time breaks the chain and collides with nothing.** It is the explicit
+  absence of a plan, so nobody promised to be anywhere: a journey measured
+  across it would be inventing a fact, and warning that it clashes with an
+  activity would be warning about the arrangement working.
+- **Tracks are not a concept here.** Two events at the same time with different
+  people are a split, the normal way a day runs. The conflict is one *person*
+  being on both, so a group of one and a group of twelve need no separate rule.
+- **Times are compared as instants.** A trip crosses zones, so two wall clocks
+  on the same day are not comparable: flying west, the later-looking clock time
+  can be the earlier instant. `ConflictEvent` carries `day`, `startMin`/`endMin`
+  and the city's `tz`, and `zonedMinutesToUtc` (new in `tz.ts`) resolves each to
+  an instant before anything is ordered or subtracted. The offset is resolved
+  from the zone at that instant, so DST is handled rather than assumed away; an
+  absent zone reads as UTC, which is consistent within a day but is why a caller
+  that knows the zones must pass them.
+- **Zero gap is not a conflict.** Overlap is the open-interval test, so
+  back-to-back events touching at a boundary are fine, and a travel conflict
+  needs `required > available` strictly: arriving exactly on time is arriving on
+  time. Two stops within 30 m are the same place (`SAME_PLACE_KM`, the same
+  threshold `planLegs` declines to draw a leg for), so no journey is required
+  between them however the estimator rounds.
+- **The travel estimate is an input, never computed here.** `options.travelMins`
+  is a callback `(from, to, km) => number | null`; the board passes the leg's
+  `resolvedMins`, which is the user's override, else the provider's answer, else
+  the straight-line guess. Omitting it reports overlaps only, and returning null
+  reports nothing for that pair. Deriving a number inside the detector would let
+  it warn about a journey with one duration while the board draws it with
+  another, and would bake in whichever estimator was handy, including the one
+  currently wrong: `providers/routing.ts` takes its minutes from `estimateTravel`
+  (a flat 30 km/h with no flight tier) while taking its label from `guessMode`,
+  so a 1000 km leg is labelled a flight and given about 43 hours of driving.
+  That defect is tracked separately; nothing here depends on it.
+- **An overlapping pair is reported once.** A pair already flagged as an overlap
+  is not also flagged as an impossible journey: one mistake, one warning, and
+  the overlap is the more useful of the two.
+- **A block with no coordinates breaks the chain.** This is the owner's explicit
+  instruction, in his words: *"if an event is after another event without a
+  location, it should just have no travel time instead of falling through to an
+  event that does."* Falling through measures a journey from the last place
+  anybody named, across a stretch where nobody knows where the group actually
+  is, and then draws the result as a fact; no estimate is more honest than a
+  confident wrong one. Free time already worked this way and this makes the two
+  consistent: both are blocks that fail to say where a person is.
+
+  **This is deliberately ahead of `main`.** `planLegs` on `main` still passes
+  such a block over; the change that makes it break is sitting in an unmerged
+  topic PR and will land. The detector encodes the instructed behaviour now, so
+  that when those PRs merge it does not spend a window warning about travel
+  between two events the planner has already decided are not connected. Nobody
+  should "correct" this back to match `main`; `main` is the stale side.
+
+  Location-less means **both** coordinates absent: `lat != null && lng != null`,
+  exactly `isAnchor`'s test, so one coordinate without the other is half a point
+  and names nowhere. The test is `!= null` rather than truthiness because 0 is a
+  real coordinate, and an event on the equator is located.
+
+Output is aggregated by the pair of events and ordered by the first event's
+instant, so three people late for the same dinner are one warning naming three
+people, and two runs over the same day return the same list in the same order.
 
 ### 7.3 Time-zone rendering
 

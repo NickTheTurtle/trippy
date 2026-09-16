@@ -35,13 +35,3 @@ export function estimateTravel(km: number): TravelEstimate {
 	if (dist < 8) return { mode: 'transit', mins: Math.max(8, Math.round((dist / 16) * 60) + 6) };
 	return { mode: 'drive', mins: Math.max(10, Math.round((dist / 30) * 60) + 5) };
 }
-
-/** Estimated travel between two coordinates. */
-export function estimateTravelBetween(
-	lat1: number,
-	lng1: number,
-	lat2: number,
-	lng2: number
-): TravelEstimate {
-	return estimateTravel(haversineKm(lat1, lng1, lat2, lng2));
-}
