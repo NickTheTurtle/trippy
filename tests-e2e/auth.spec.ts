@@ -86,26 +86,42 @@ test.describe('auth and session', () => {
 		try {
 			await page.goto('/login');
 
-			// Nothing typed: the browser's own constraint stops the submit, so no
-			// request is made and the server never gets to answer "Wrong email or
-			// password" to a form that has not been filled in.
+			// Nothing typed: the form answers this itself, in the corner, and no
+			// request is made, so the server never gets to answer "Wrong email or
+			// password" to a form that has not been filled in. The browser's own
+			// bubble used to do the refusing here and said it in a different voice
+			// from every other failure in the app.
 			let posted = 0;
 			page.on('request', (r) => {
 				if (r.method() === 'POST' && r.url().includes('/auth/login')) posted += 1;
 			});
 			await page.getByRole('button', { name: copy.auth.login.submitLabel }).click();
-			await expect(page.locator('.toast.bad')).toHaveCount(0);
+			await expect(page.locator('.toast.bad').getByRole('alert')).toHaveText(
+				copy.ui.form.missing
+			);
 			expect(posted).toBe(0);
 			await expect(page).toHaveURL(/\/login$/);
 
+			// An address that is not one is the same kind of answer: ours, in the
+			// corner, before the request. One slot, so it replaces the sentence
+			// above rather than stacking under it.
+			await page.getByLabel(copy.auth.login.emailLabel).fill('nope');
+			await page.getByLabel(copy.auth.login.passwordLabel).fill('not-the-password');
+			await page.getByRole('button', { name: copy.auth.login.submitLabel }).click();
+			await expect(page.locator('.toast.bad')).toHaveCount(1);
+			await expect(page.locator('.toast.bad').getByRole('alert')).toHaveText(
+				copy.ui.form.badEmail
+			);
+			expect(posted).toBe(0);
+
 			// A real refusal does reach the corner.
 			await page.getByLabel(copy.auth.login.emailLabel).fill(fixture.email);
-			await page.getByLabel(copy.auth.login.passwordLabel).fill('not-the-password');
 			await page.getByRole('button', { name: copy.auth.login.submitLabel }).click();
 			await expect(page.locator('.toast.bad')).toHaveCount(1);
 
 			// A second attempt replaces that refusal rather than stacking a second
-			// copy of it: errors do not expire, so without this the corner keeps a
+			// copy of it: an error is on screen long enough to still be there when
+			// the next attempt is made, so without this the corner would keep a
 			// message that reads like a fresh failure.
 			await page.getByRole('button', { name: copy.auth.login.submitLabel }).click();
 			await expect(page.locator('.toast.bad')).toHaveCount(1);
