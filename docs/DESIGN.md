@@ -4529,10 +4529,26 @@ The decisions, and why each went the way it did:
 - **An overlapping pair is reported once.** A pair already flagged as an overlap
   is not also flagged as an impossible journey: one mistake, one warning, and
   the overlap is the more useful of the two.
-- **A block with no coordinates is passed over, not a break.** It says when
-  somebody is busy, not where they are, so it does not unsay where they were,
-  and the gap either side of it is still the real gap. This matches `planLegs`
-  on this branch.
+- **A block with no coordinates breaks the chain.** This is the owner's explicit
+  instruction, in his words: *"if an event is after another event without a
+  location, it should just have no travel time instead of falling through to an
+  event that does."* Falling through measures a journey from the last place
+  anybody named, across a stretch where nobody knows where the group actually
+  is, and then draws the result as a fact; no estimate is more honest than a
+  confident wrong one. Free time already worked this way and this makes the two
+  consistent: both are blocks that fail to say where a person is.
+
+  **This is deliberately ahead of `main`.** `planLegs` on `main` still passes
+  such a block over; the change that makes it break is sitting in an unmerged
+  topic PR and will land. The detector encodes the instructed behaviour now, so
+  that when those PRs merge it does not spend a window warning about travel
+  between two events the planner has already decided are not connected. Nobody
+  should "correct" this back to match `main`; `main` is the stale side.
+
+  Location-less means **both** coordinates absent: `lat != null && lng != null`,
+  exactly `isAnchor`'s test, so one coordinate without the other is half a point
+  and names nowhere. The test is `!= null` rather than truthiness because 0 is a
+  real coordinate, and an event on the equator is located.
 
 Output is aggregated by the pair of events and ordered by the first event's
 instant, so three people late for the same dinner are one warning naming three

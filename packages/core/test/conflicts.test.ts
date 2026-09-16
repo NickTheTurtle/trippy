@@ -164,13 +164,58 @@ describe('travel fit', () => {
 		expect(findConflicts([a, b])).toEqual([]);
 	});
 
-	it('passes over a block with no location instead of breaking the chain', () => {
+	it('breaks the chain at a block with no location', () => {
+		// The owner's rule: an event after a location-less one gets no travel time
+		// rather than falling through to the last event that had a place. There is
+		// no journey here, so there is nothing to warn about.
 		const a = ev({ people: ['ann'], startMin: 540, endMin: 600 });
 		const busy = ev({ people: ['ann'], startMin: 600, endMin: 620, lat: null, lng: null });
 		const b = at(P.pier, { people: ['ann'], startMin: 630, endMin: 720 });
-		const out = findConflicts([a, busy, b], { travelMins: flat(45) });
+		expect(findConflicts([a, busy, b], { travelMins: flat(45) })).toEqual([]);
+	});
+
+	it('warns about that same pair once the block in the middle is gone', () => {
+		// The regression guard for the rule above: without the location-less block
+		// the two events either side are a journey that does not fit, so the
+		// silence in the previous test is the break doing its job rather than the
+		// detector missing a real conflict.
+		const a = ev({ people: ['ann'], startMin: 540, endMin: 600 });
+		const b = at(P.pier, { people: ['ann'], startMin: 630, endMin: 720 });
+		const out = findConflicts([a, b], { travelMins: flat(45) });
 		expect(out).toHaveLength(1);
-		expect(out[0]).toMatchObject({ firstEventId: a.id, secondEventId: b.id });
+		expect(out[0]).toMatchObject({
+			kind: 'travel',
+			firstEventId: a.id,
+			secondEventId: b.id,
+			requiredMins: 45,
+			availableMins: 30
+		});
+	});
+
+	it('treats half a coordinate as no location', () => {
+		const a = ev({ people: ['ann'], startMin: 540, endMin: 600 });
+		const half = ev({ people: ['ann'], startMin: 600, endMin: 620, lng: null });
+		const b = at(P.pier, { people: ['ann'], startMin: 630, endMin: 720 });
+		expect(findConflicts([a, half, b], { travelMins: flat(45) })).toEqual([]);
+	});
+
+	it('treats a zero coordinate as a real place', () => {
+		// Latitude 0 is the equator, not a missing value, so the chain runs
+		// through it and the journey off it is checked like any other.
+		const a = ev({ people: ['ann'], startMin: 540, endMin: 600, lat: 0, lng: 0 });
+		const b = at(P.pier, { people: ['ann'], startMin: 630, endMin: 720 });
+		const out = findConflicts([a, b], { travelMins: flat(45) });
+		expect(out).toHaveLength(1);
+		expect(out[0]).toMatchObject({ kind: 'travel', firstEventId: a.id, secondEventId: b.id });
+	});
+
+	it('still reports an overlap with a block that has no location', () => {
+		// Breaking the travel chain is about where somebody is. It says nothing
+		// about when they are busy, and two commitments at once are still two
+		// commitments at once.
+		const a = ev({ people: ['ann'], startMin: 540, endMin: 660 });
+		const busy = ev({ people: ['ann'], startMin: 600, endMin: 620, lat: null, lng: null });
+		expect(kinds(findConflicts([a, busy], { travelMins: flat(45) }))).toEqual(['overlap']);
 	});
 
 	it('breaks the chain at free time', () => {

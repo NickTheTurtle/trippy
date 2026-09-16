@@ -174,6 +174,18 @@ function isCommitment(e: ConflictEvent): boolean {
 	return e.type !== 'stay';
 }
 
+/**
+ * Whether an event says where its people are.
+ *
+ * Both halves or neither: one coordinate without the other is half a point and
+ * names nowhere, so it counts as location-less. Exactly the test `isAnchor`
+ * makes in `planLegs` (`e.lat != null && e.lng != null`), so the two cannot
+ * disagree about which blocks are on the travel chain.
+ *
+ * `!= null` and not a truthiness check, because 0 is a real coordinate: the
+ * equator and the prime meridian are both places, and an event at latitude 0 is
+ * located. `undefined` is caught along with `null` by the same test.
+ */
 function located(e: ConflictEvent): boolean {
 	return e.lat != null && e.lng != null;
 }
@@ -280,10 +292,15 @@ export function findConflicts(
 		   - Free time breaks the chain outright. Nobody has said where the person
 		     will be when it ends, so a journey measured across it would be
 		     inventing a fact.
-		   - A block with no coordinates is passed over rather than treated as a
-		     break, matching `planLegs`: it says when somebody is busy, not where
-		     they are, so it does not unsay where they were. The gap either side of
-		     it is still the real gap.
+		   - A block with no coordinates breaks it too, for the same reason and on
+		     the owner's explicit instruction: "if an event is after another event
+		     without a location, it should just have no travel time instead of
+		     falling through to an event that does". Falling through measures a
+		     journey from the last place anybody named, across a stretch where
+		     nobody knows where the group actually is, and then states the result
+		     as a fact. No answer is more honest than a confident wrong one, and
+		     warning that such a journey does not fit would be warning about a
+		     journey the planner itself has decided is not there.
 		   - A stay is skipped without breaking the chain. It is not on the clock,
 		     so it neither ends a journey nor interrupts one. */
 		let prev: Stamped | null = null;
@@ -297,7 +314,10 @@ export function findConflicts(
 				prev = null;
 				continue;
 			}
-			if (!located(e)) continue;
+			if (!located(e)) {
+				prev = null;
+				continue;
+			}
 			if (prev) {
 				const from = prev.ev;
 				// An overlap is already reported as an overlap. Reporting the same
