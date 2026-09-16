@@ -235,7 +235,10 @@ export default function AddEventDialog({
 								<Select value={poi} onChange={setPoi} options={poiOptions} ariaLabel={placeText} />
 							</FieldShell>
 						)}
-						<FieldShell label="Type" className="col-span-4">
+						<FieldShell
+							label="Type"
+							className={placeable ? 'col-span-4' : 'col-span-12 sm:col-span-4'}
+						>
 							<Select
 								value={type}
 								onChange={(v) => {
