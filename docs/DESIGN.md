@@ -706,6 +706,27 @@ long it takes.
    across a day is a worse lie than a flight with airport time added, so the
    fallback changes mode rather than reporting a number nobody would believe.
 
+**There is exactly one estimator, and it answers both halves of the question.**
+`guessLeg` / `minsByMode` in `packages/core/src/travel.ts` decide the label and
+the minutes together. This is worth stating because it was not true and the
+failure was silent: `routing.ts` took its *minutes* from a second estimate in
+`geo.ts` (mode-blind above 8 km, 30 km/h, no flight tier) and its *label* from a
+third copy of the thresholds, so a 1000 km leg was labelled `flight` and given
+2605 minutes, roughly 43 hours of driving, and that number was persisted to
+`travel_legs.auto_mins`. A chosen mode had the same bug in a quieter form: a
+ferry across a bay was priced as the drive around it, because the estimate was
+computed without knowing the mode and then relabelled.
+
+The estimator kept is the one in `travel.ts`, not because its constants are
+better tuned but because everything else already used it: persistence
+(`fallbackEstimate`), the web board and the replan path all call `guessLeg`, so
+the router was the only disagreeing voice, and the number it produced was the
+one that reached the database. It also has a per-mode pace table, which is what
+makes "honour the mode the traveller chose" mean something. The duplicate in
+`geo.ts` has been deleted rather than deprecated; a deprecated second estimator
+is just a slower way to have this bug again. `geo.ts` keeps `haversineKm`, which
+is a distance, not a duration.
+
 **Routing happens in the API route, not in persistence** (`dayLegs` in
 `apps/api/src/routes/schedule.ts`), for two reasons: a write should not wait on a
 provider before it is allowed to succeed, and a read that cannot reach one should
