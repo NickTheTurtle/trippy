@@ -1,5 +1,6 @@
 import type { SplitMode } from '@trippy/core/split';
-import { formatMoney, formatTimestamp } from '../../lib/format';
+import { formatMoney } from '../../lib/format';
+import { formatSpentOn } from './day';
 import { WarningIcon } from '../../components/ui/icons';
 import Avatar from '../../components/ui/Avatar';
 import Tag from '../../components/ui/Tag';
@@ -88,14 +89,18 @@ export default function ExpenseRow({
 						)}
 					</span>
 					<span className="muted truncate text-meta">
+						{/* The day the money moved, not the day the row was typed in. The
+						    two are usually the same, and when they are not it is because
+						    somebody is entering a week of receipts after getting home,
+						    which is exactly when the difference matters. */}
 						{/* The description of a settlement already names both sides, so
 						    repeating the payer and calling it a one-way split is noise. */}
 						{settled ? (
-							formatTimestamp(e.created_at)
+							formatSpentOn(e.spent_on)
 						) : (
 							<>
 								{e.payer_name} {credit ? c.received : c.paid} ·{' '}
-								{splitLabel(e.split_mode, e.participants)} · {formatTimestamp(e.created_at)}
+								{splitLabel(e.split_mode, e.participants)} · {formatSpentOn(e.spent_on)}
 							</>
 						)}
 					</span>

@@ -1,6 +1,7 @@
 import Modal, { ModalFooter } from '../../components/ui/Modal';
 import { useDeleteAction } from '../../components/ui/useDeleteAction';
-import { formatMoney, formatTimestamp } from '../../lib/format';
+import { formatMoney } from '../../lib/format';
+import { formatSpentOn } from './day';
 import type { Expense } from './types';
 import { copy } from '../../copy';
 
@@ -41,7 +42,7 @@ export default function PaymentDialog({
 					{e.converted && (
 						<p className="muted m-0 text-meta">≈ {formatMoney(e.home_cents, home)}</p>
 					)}
-					<p className="muted m-0 text-meta">{formatTimestamp(e.created_at)}</p>
+					<p className="muted m-0 text-meta">{formatSpentOn(e.spent_on)}</p>
 				</div>
 				<ModalFooter onClose={onClose} start={del.button} />
 			</Modal>

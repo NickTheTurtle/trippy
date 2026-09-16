@@ -136,6 +136,8 @@ export type ExpenseBody = {
 	participantIds: string[];
 	/** Share counts (shares) or major-unit amounts (exact), keyed by user id. */
 	weights?: Record<string, number>;
+	/** The day it happened, `YYYY-MM-DD`. Omitted means the server picks today. */
+	spentOn?: string;
 	version?: number;
 };
 
@@ -150,6 +152,7 @@ export type ExpensesResponse = {
 		home_cents: number;
 		shares: Record<string, number>;
 		settlement: number;
+		spent_on: string;
 		version: number;
 	}[];
 	balances: { id: string; name: string; netCents: number; former: boolean }[];

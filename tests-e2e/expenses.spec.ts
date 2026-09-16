@@ -1,7 +1,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { apiURL, createApiFixture, registerUser } from './fixtures/api';
 import { addExpense, expensesData, invite, seedMembers } from './fixtures/seed';
-import { copy, formatMoney } from './fixtures/copy';
+import { copy, formatDay, formatMoney } from './fixtures/copy';
 import { signIn, signedInContext } from './fixtures/session';
 
 /**
@@ -17,6 +17,17 @@ import { signIn, signedInContext } from './fixtures/session';
 
 const ce = copy.expenses;
 const usd = (cents: number) => formatMoney(cents, 'USD');
+
+/**
+ * The expense form's date label. Written out rather than read from `copy`
+ * because the string is still awaiting clearance into `@trippy/copy`; it moves
+ * to `ce.addDialog.dateLabel` the moment it lands there.
+ */
+const DATE_LABEL = 'Date';
+
+/** How the ledger writes a stored day: the year appears only once it is past. */
+const spentDay = (iso: string) =>
+	formatDay(iso, { year: iso.slice(0, 4) !== String(new Date().getFullYear()) });
 
 /** Opens a custom Select by its accessible name and chooses one option. */
 async function chooseInSelect(scope: Locator, triggerName: string, option: string) {
@@ -504,6 +515,58 @@ test.describe('expenses', () => {
 		} finally {
 			fixture.teardown();
 			bob.teardown();
+		}
+	});
+
+	test('an expense keeps the day it happened, through adding and through editing', async ({
+		page,
+		request
+	}) => {
+		const fixture = await createApiFixture(request);
+		try {
+			await signIn(page, fixture.sessionCookie);
+			await page.goto(`/trips/${fixture.tripId}/expenses`);
+
+			// A trip you log after you get home: the day the money moved is not the
+			// day the row is typed in, and before this field existed every expense
+			// was stamped with today whatever the traveller meant.
+			const spentOn = '2026-01-05';
+			await page.getByRole('button', { name: ce.addExpense, exact: true }).click();
+			const dialog = page.getByRole('dialog');
+			await dialog.getByLabel(ce.addDialog.descriptionLabel).fill('Airport taxi');
+			await dialog.getByLabel(ce.addDialog.amountLabel).fill('40');
+			// 'Date' is the one label on this form still awaiting a copy key; see the
+			// note beside the field in EditExpense.
+			await dialog.getByLabel(DATE_LABEL).fill(spentOn);
+			await dialog.getByRole('button', { name: copy.common.add, exact: true }).click();
+			await expect(dialog).toBeHidden();
+
+			// The row says the day it happened, not today.
+			const row = page.getByRole('listitem').filter({ hasText: 'Airport taxi' });
+			await expect(row).toContainText(spentDay(spentOn));
+			expect(
+				(await expensesData(request, fixture)).expenses.find(
+					(e) => e.description === 'Airport taxi'
+				)?.spent_on
+			).toBe(spentOn);
+
+			// Re-opening shows the stored day rather than today, and an edit that
+			// never touches the field leaves it where it was.
+			await row.getByRole('button').first().click();
+			const edit = page.getByRole('dialog');
+			await expect(edit.getByLabel(DATE_LABEL)).toHaveValue(spentOn);
+			await edit.getByLabel(ce.addDialog.amountLabel).fill('45');
+			await edit.getByRole('button', { name: copy.common.save, exact: true }).click();
+			await expect(edit).toBeHidden();
+
+			await expect(row).toContainText(spentDay(spentOn));
+			const after = (await expensesData(request, fixture)).expenses.find(
+				(e) => e.description === 'Airport taxi'
+			);
+			expect(after?.spent_on).toBe(spentOn);
+			expect(after?.amount_cents).toBe(4500);
+		} finally {
+			fixture.teardown();
 		}
 	});
 });
