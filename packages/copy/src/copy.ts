@@ -497,6 +497,10 @@ export const copy = {
 		searchDropdown: { busyLabel: 'Searching...' },
 		currencyPicker: { noMatches: 'No currencies matched that.' },
 		select: { placeholder: 'Select...', ariaLabel: 'Select' },
+		form: {
+			missing: 'Fill in every field.',
+			badEmail: 'Enter a valid email address.'
+		},
 		multiSelect: {
 			placeholder: 'Anyone',
 			ariaLabel: 'Assign people',

@@ -1,4 +1,6 @@
 import type { ReactNode } from 'react';
+import { isValidEmail } from '@trippy/core/validate';
+import type { ErrorSlot } from './Toast';
 import { copy } from '../../copy';
 
 /** The card, heading and blurb every signed-out page sits in. */
@@ -38,10 +40,38 @@ function AuthCard({
  * which costs a round trip and points at the wrong thing. Anything the server
  * does own (how long a password must be, whether an address is already taken)
  * is still left to it, and arrives in the corner.
+ *
+ * Those two rules used to be enforced by the browser, which meant the one part
+ * of the auth flow that still spoke in a different voice: an OS bubble, in the
+ * OS styling, anchored to the input and gone again on its own, next to an app
+ * where every other refusal is a corner toast. The dialogs already turned that
+ * off in `ModalForm` for the same reason. The form is `noValidate` and the
+ * check below is ours, so a missing field and a mistyped address are told in
+ * the same place, and in the same words, as a wrong password. The inputs keep
+ * their `required` and their `type="email"`: that is what assistive technology
+ * and password managers read, and `noValidate` suppresses only the browser's
+ * own UI.
+ *
+ * It reports through the page's own error slot rather than one of its own, so
+ * a form that is refused locally and then refused by the server leaves one
+ * sentence in the corner rather than two from two different owners.
  */
+function firstProblem(form: HTMLFormElement): { field: HTMLInputElement; message: string } | null {
+	for (const el of form.elements) {
+		if (!(el instanceof HTMLInputElement)) continue;
+		if (el.required && !el.value.trim()) return { field: el, message: copy.ui.form.missing };
+		// The same shape the server and every other client check use, rather
+		// than the browser's stricter and differently-worded idea of an address.
+		if (el.type === 'email' && !isValidEmail(el.value))
+			return { field: el, message: copy.ui.form.badEmail };
+	}
+	return null;
+}
+
 export function AuthShell({
 	title,
 	blurb,
+	failure,
 	onSubmit,
 	submitting,
 	submitLabel,
@@ -50,6 +80,8 @@ export function AuthShell({
 }: {
 	title: string;
 	blurb: string;
+	/** The page's own corner slot, so one form never holds two refusals. */
+	failure: ErrorSlot;
 	onSubmit: () => void;
 	submitting: boolean;
 	submitLabel: string;
@@ -60,8 +92,16 @@ export function AuthShell({
 		<AuthCard title={title} blurb={blurb}>
 			<form
 				className="flex flex-col gap-3.5"
+				noValidate
 				onSubmit={(e) => {
 					e.preventDefault();
+					const problem = firstProblem(e.currentTarget);
+					if (problem) {
+						failure.show(problem.message);
+						// The sentence says what is wrong; the focus says where.
+						problem.field.focus();
+						return;
+					}
 					onSubmit();
 				}}
 			>

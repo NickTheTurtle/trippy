@@ -44,6 +44,7 @@ export default function Login() {
 		<AuthShell
 			title={c.title}
 			blurb={c.blurb}
+			failure={failure}
 			onSubmit={submit}
 			submitting={submitting}
 			submitLabel={c.submitLabel}
@@ -64,13 +65,6 @@ export default function Login() {
 				type="email"
 				name="email"
 				autoComplete="email"
-				// Both fields are `required`, so an empty form never leaves the
-				// browser. The server's answer to one is "Wrong email or password",
-				// which is true of a blank box only in the least useful sense: it
-				// costs a round trip to say so and it points at the wrong problem.
-				// Native validation is the right tool here precisely because these
-				// two rules are not the server's to own, unlike the trip form's
-				// dates, where the server's wording is the answer.
 				required
 				value={email}
 				onChange={(e) => setEmail(e.target.value)}

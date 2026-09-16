@@ -5184,16 +5184,44 @@ session holds that file tonight. It is reported rather than fixed.
 both fields empty made a network round trip and came back "Wrong email or
 password.", which is slow and is also a lie: nothing was wrong with the
 password, there was no password. The auth pages mark their fields `required`, so
-the browser stops an empty submit at the field itself, in the reader's own
-language, without asking the server what it thinks of the empty string. The
-server keeps every one of its checks; this only removes the submits that could
-never have succeeded.
+an empty submit is stopped at the form without asking the server what it thinks
+of the empty string. The server keeps every one of its checks; this only removes
+the submits that could never have succeeded.
 
 The rule this follows: the client refuses what is true of the input alone
 (missing, malformed, too long), and never what depends on data only the server
 holds (whether this password is right, whether this email is taken). The second
 kind cannot be checked here without either being wrong or leaking who has an
 account.
+
+**That refusal is ours, not the browser's.** The four auth forms were the last
+place in the app still answering in a different voice. `required` and
+`type="email"` left on meant a missing field or a mistyped address produced the
+browser's own bubble: OS wording, OS styling, anchored to the input, gone again
+on its own, on the same page where a wrong password arrives as a corner toast.
+So the same submit could be answered two ways depending on which of the two
+things was wrong with it. `ModalForm` had already turned the browser off for
+every dialog for this reason; `AuthShell` now does the same. The form is
+`noValidate`, and `firstProblem` walks the controls in document order and
+returns the first one that is empty or, for an `<input type="email">`, fails
+`isValidEmail`. The sentence goes to the corner and the focus goes to the field,
+so the message says what is wrong and the caret says where.
+
+Three things about it are deliberate. The email rule is `isValidEmail` from
+core, the same shape the server and every other client check use, rather than
+the browser's stricter and differently-worded idea of an address: a rule
+enforced one way here and another way there is the bug that function exists to
+prevent. The inputs keep their `required` and their `type="email"`, because that
+is what assistive technology and password managers read, and `noValidate`
+suppresses only the browser's own UI. And the check reports through the page's
+own `useErrorSlot` rather than one of its own, so a form refused locally and
+then refused by the server leaves one sentence in the corner rather than two
+from two different owners.
+
+Only presence and address shape are checked. Password length is not, even though
+the register page says "At least 8 characters": the server owns that rule, its
+wording is the answer, and a second copy of the number here is a thing to keep
+in sync for no gain.
 
 **A refusal is cleared by the next attempt.** Auth failures live in the corner
 now rather than in the card, and a toast does not know that the form under it

@@ -219,7 +219,9 @@ export function DialogError({ message }: { message: string }) {
  *
  * So: clear the slot when a submit starts, fill it when one fails.
  */
-export function useErrorSlot(): { show: (message: string) => void; clear: () => void } {
+export type ErrorSlot = { show: (message: string) => void; clear: () => void };
+
+export function useErrorSlot(): ErrorSlot {
 	const toast = useToast();
 	const id = useRef<number | null>(null);
 	return useMemo(
