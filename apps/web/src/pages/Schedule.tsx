@@ -25,9 +25,11 @@ import {
 	DRAFT_ID,
 	MIN_EVENT_MINS,
 	PX_PER_MIN,
+	clock,
+	clockRange,
 	dayLabel,
 	heightPx,
-	hhmm,
+	hourLabel,
 	hoursFrom,
 	modeLabel,
 	topPx,
@@ -865,7 +867,7 @@ export default function Schedule() {
 				className={cls}
 				role="button"
 				tabIndex={0}
-				aria-label={`${ev.title}, ${hhmm(ev.start_min)} to ${hhmm(ev.end_min)}. Open, or drag to reschedule.`}
+				aria-label={`${ev.title}, ${clock(ev.start_min)} to ${clock(ev.end_min)}. Open, or drag to reschedule.`}
 				style={{
 					...box,
 					top: `${topPx(from, boardStart)}px`,
@@ -890,7 +892,7 @@ export default function Schedule() {
 			>
 				<div className="bt">{ev.title}</div>
 				<div className="bmeta">
-					{bud.showTime && <span>{bud.compact ? hhmm(from) : `${hhmm(from)}-${hhmm(to)}`}</span>}
+					{bud.showTime && <span>{bud.compact ? clock(from) : clockRange(from, to)}</span>}
 				</div>
 				<div className="bwho">
 					{ev.people.length === 0 || ev.people.length === members.length ? (
@@ -983,7 +985,7 @@ export default function Schedule() {
 				className={cls}
 				role="button"
 				tabIndex={0}
-				aria-label={`${name}, ${hhmm(leg.startMin)} to ${hhmm(leg.endMin)}. Open.`}
+				aria-label={`${name}, ${clock(leg.startMin)} to ${clock(leg.endMin)}. Open.`}
 				title={legTitle(leg)}
 				style={{
 					left: `${box.left * 100}%`,
@@ -1013,7 +1015,7 @@ export default function Schedule() {
 				</div>
 				{!thin && (
 					<div className="bmeta">
-						{bud.showTime && <span>{`${hhmm(leg.startMin)}-${hhmm(leg.endMin)}`}</span>}
+						{bud.showTime && <span>{clockRange(leg.startMin, leg.endMin)}</span>}
 						<span>{leg.resolvedMins}m</span>
 					</div>
 				)}
@@ -1088,9 +1090,9 @@ export default function Schedule() {
 							style={{ top: `${(h * 60 - boardStart) * PX_PER_MIN}px` }}
 						>
 							{/* The last line is where the day stops, not an hour of it:
-							    labelling it would put "24:00" on the board, and on a board
-							    dragged fully open the same midnight twice. */}
-							{h * 60 < DAY_END && <span>{h}:00</span>}
+							    labelling it would put a second "12 AM" on a board dragged
+							    fully open, directly under the one the day started on. */}
+							{h * 60 < DAY_END && <span>{hourLabel(h)}</span>}
 						</div>
 					))}
 				</div>
@@ -1151,7 +1153,7 @@ export default function Schedule() {
 			key: ev.id,
 			start: ev.start_min,
 			title: ev.title,
-			meta: `${typeLabel(ev.type)} · ${hhmm(ev.start_min)}-${hhmm(ev.end_min)}`,
+			meta: `${typeLabel(ev.type)} · ${clockRange(ev.start_min, ev.end_min)}`,
 			tight: false,
 			open: () => openBlock(ev.id)
 		})),
@@ -1177,7 +1179,7 @@ export default function Schedule() {
 								className={row.tight ? 'agendarow tight' : 'agendarow'}
 								onClick={row.open}
 							>
-								<span className="agendawhen">{hhmm(row.start)}</span>
+								<span className="agendawhen">{clock(row.start)}</span>
 								<span className="agendawhat">{row.title}</span>
 								<span className="agendameta">
 									{row.meta}
@@ -1283,7 +1285,7 @@ export default function Schedule() {
 						title: e.title,
 						lat: e.lat,
 						lng: e.lng,
-						subtitle: `${typeLabel(e.type)} · ${hhmm(e.start_min)}-${hhmm(e.end_min)}`,
+						subtitle: `${typeLabel(e.type)} · ${clockRange(e.start_min, e.end_min)}`,
 						detail: [peopleLabel(e.people), ...shown],
 						warn: legs.some((l) => l.tight) ? copy.viewAs.travelWarning : undefined
 					};
