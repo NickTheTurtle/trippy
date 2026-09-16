@@ -4240,6 +4240,20 @@ corner would put the answer as far from the question as the screen allows. It
 also fires while a modal is open, which is exactly where a toast cannot be
 dismissed.
 
+**The schedule's board writes toast; its load failure does not.** The day board
+has one write path, `act`, and the gestures go through it: a drag that
+lands, a resize that lands. It used to set a `notice` string drawn as a line
+above the board, which is the wrong place twice over. The line was above the
+fold only by luck, since the board is now a scroll box that fills the screen; and
+a refusal usually arrives while the reader is looking at the block they just
+moved, not at the top of the page. It is `toast.error` now, which also puts it in
+the top layer, so a dialog opened afterwards cannot bury it. The load failure
+that `useApi` reports is deliberately left inline: it is not the result of an
+action, it is the whole of the page's content when it fires, and a corner popup
+over a blank screen explains itself and then leaves nothing behind. The two
+event dialogs keep showing their own save failures in their own footers, which
+is beside the form that caused them and already above the board.
+
 ## The header reaches the right edge
 
 The sticky header is full-bleed and its centred `.container` holds the content,
