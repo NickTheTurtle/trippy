@@ -3,9 +3,8 @@ import { api } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
 import Modal, { ModalFooter, ModalForm } from '../../components/ui/Modal';
 import { useDeleteAction } from '../../components/ui/useDeleteAction';
-import { Field, FieldShell } from '../../components/ui/Field';
-import Select from '../../components/ui/Select';
-import { currencyOptions } from '../../lib/currencies';
+import { Field } from '../../components/ui/Field';
+import CurrencyPicker from '../../components/ui/CurrencyPicker';
 import { parseMoneyToCents } from '../../lib/format';
 import type { Stay } from '../../lib/api-types';
 import { LinkField, NotesField } from './place-fields';
@@ -115,14 +114,13 @@ export default function EditStayDialog({
 									onChange={(e) => setPrice(e.target.value)}
 									inputClassName="w-full"
 								/>
-								<FieldShell label={c.currencyLabel}>
-									<Select
-										options={currencyOptions(currencies)}
-										value={cur}
-										onChange={setCur}
-										ariaLabel={c.currencyLabel}
-									/>
-								</FieldShell>
+								<CurrencyPicker
+									label={c.currencyLabel}
+									codes={currencies}
+									value={cur}
+									onChange={setCur}
+									ariaLabel={c.currencyLabel}
+								/>
 							</div>
 							<div className="grid grid-cols-2 gap-3">
 								<Field

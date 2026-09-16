@@ -6,7 +6,8 @@ import { formatMoney } from '../lib/format';
 import { useTrip } from './TripShell';
 import { useNarrowLayout } from '../hooks/useMediaQuery';
 import SectionNav, { type SectionItem } from '../components/ui/SectionNav';
-import FormError from '../components/ui/FormError';
+import LoadError from '../components/ui/LoadError';
+import Loading from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
 import Stat from '../components/ui/Stat';
 import ViewAsBar, { shareLabel } from '../components/ui/ViewAsBar';
@@ -19,6 +20,21 @@ import PaymentDialog from './expenses/PaymentDialog';
 import { copy } from '../copy';
 
 const ce = copy.expenses;
+
+/**
+ * What one expense did to one member's balance, in home-currency cents:
+ * positive when the trip ended up owing them for it, negative when they owe
+ * their share of it.
+ *
+ * This is the server's own balance arithmetic read one row at a time: it adds
+ * the payer the whole converted total and charges every participant their
+ * share, exactly as `balances()` does over the ledger, so the signs here sum to
+ * the figures the balances panel shows. A settlement falls out of the same
+ * rule, since it is stored as the payer covering the recipient in full: the
+ * person who handed money over goes up, the one who received it goes down.
+ */
+const netFor = (e: Expense, userId: string) =>
+	(e.payer_id === userId ? e.home_cents : 0) - (e.shares[userId] ?? 0);
 
 /**
  * Expenses: the ledger, the balances it nets out to, and the transfers that
@@ -41,7 +57,11 @@ export default function Expenses() {
 	const [viewAs, setViewAs] = useState('');
 	const narrow = useNarrowLayout();
 
-	if (!data) return error ? <FormError message={error} variant="banner" /> : null;
+	/* Three states before there is a page: still loading, failed, or here. The
+	   reason for a failure goes to the corner and the page keeps a line saying
+	   it is not there; a popup over a blank screen explains itself and leaves
+	   nothing. The first fetch says it is loading rather than flashing blank. */
+	if (!data) return error ? <LoadError message={error} onRetry={reload} /> : <Loading />;
 
 	// Compared in whole cents, so a balance is either zero or it is not; the old
 	// 0.01 epsilon existed only because the figure arrived as a float.
@@ -58,13 +78,14 @@ export default function Expenses() {
 	const perPerson = data.members.length ? Math.round(spent / data.members.length) : spent;
 	const mine = viewAs ? spend.reduce((n, e) => n + (e.shares[viewAs] ?? 0), 0) : 0;
 
-	// Read as one person, the ledger keeps the rows that charge them, plus the
-	// payments they made. A row somebody else paid and nobody split with them
-	// costs them nothing, and a list of zeroes is not an answer.
+	// Read as one person, the ledger keeps the rows that moved their balance:
+	// anything they were charged a share of, and anything they paid for. A row
+	// somebody else paid and nobody split with them left them where they were,
+	// and a list of zeroes is not an answer. Paying for a row they take no share
+	// of is the whole of what a credit is, so it stays even though their share
+	// of it is nothing.
 	const shown = viewAs
-		? data.expenses.filter(
-				(e) => e.shares[viewAs] !== undefined || (e.settlement === 1 && e.payer_id === viewAs)
-			)
+		? data.expenses.filter((e) => e.shares[viewAs] !== undefined || e.payer_id === viewAs)
 		: data.expenses;
 
 	const sections: SectionItem[] = [
@@ -128,19 +149,28 @@ export default function Expenses() {
 			<div className="min-w-0">
 				{section === 'expenses' && (
 					<>
-						<Head
-							left={
-								<div className="flex min-w-0 flex-wrap items-end gap-6">
-									<Stat label={ce.tripTotal} value={fmt(spent)} />
-									<Stat
-										label={viewAs ? shareLabel(data.members, viewAs, data.me) : ce.perPerson}
-										value={fmt(viewAs ? mine : perPerson)}
-									/>
-								</div>
-							}
-						>
-							{!narrow && addExpense}
-						</Head>
+						{/* Narrow the row carries the two figures alone, because the Add
+						    has gone up beside the section dropdown. An empty ledger has no
+						    figures worth printing, and the row is not free: its band and
+						    its `mb-4` pushed the empty panel 53.6px below where the same
+						    panel sits on Balances and Settle up, so switching sections on
+						    a trip with nothing in it stepped the card up and down. Wide it
+						    always renders, because the Add button lives in it. */}
+						{(!narrow || data.expenses.length > 0) && (
+							<Head
+								left={
+									<div className="flex min-w-0 flex-wrap items-end gap-6">
+										<Stat label={ce.tripTotal} value={fmt(spent)} />
+										<Stat
+											label={viewAs ? shareLabel(data.members, viewAs, data.me) : ce.perPerson}
+											value={fmt(viewAs ? mine : perPerson)}
+										/>
+									</div>
+								}
+							>
+								{!narrow && addExpense}
+							</Head>
+						)}
 						<div className="card overflow-hidden p-0">
 							{data.expenses.length > 0 && (
 								<ViewAsBar
@@ -151,7 +181,26 @@ export default function Expenses() {
 								/>
 							)}
 							{shown.length === 0 ? (
-								<EmptyState graphic message={copy.common.nothingAdded} />
+								// Two different nothings. An empty ledger is a list nobody has
+								// added to yet, so it gets the drawing and the house caption.
+								// A ledger with rows in it, filtered by "View as" to none of
+								// them, is a computed answer: the drawing would say the trip
+								// has no expenses, which is false, and "Nothing added yet"
+								// would be a second false statement beside it.
+								// COPY: pending owner clearance, wanted as
+								// `copy.expenses.noneForMember: (who: string) => \`Nothing here for ${who}\``.
+								<EmptyState
+									graphic={data.expenses.length === 0}
+									message={
+										data.expenses.length === 0
+											? copy.common.nothingAdded
+											: `Nothing here for ${
+													viewAs === data.me
+														? 'you'
+														: (data.members.find((m) => m.id === viewAs)?.name ?? '')
+												}`
+									}
+								/>
 							) : (
 								<ul className="m-0 flex list-none flex-col gap-3 px-5 py-5">
 									{shown.map((e) => (
@@ -159,7 +208,7 @@ export default function Expenses() {
 											key={e.id}
 											expense={e}
 											home={data.currency}
-											share={viewAs && e.settlement !== 1 ? (e.shares[viewAs] ?? 0) : undefined}
+											net={viewAs ? netFor(e, viewAs) : undefined}
 											// A settlement has nothing to edit, so its dialog states the
 											// payment and offers only the delete.
 											onOpen={() =>
@@ -175,7 +224,9 @@ export default function Expenses() {
 
 				{section === 'balances' && (
 					<>
-						<div className="card px-5 py-5">
+						{/* Empty, the card is unpadded: the empty state is the panel and
+						    carries its own padding, the same as on the list tab. */}
+						<div className={`card ${unsettled === 0 ? '' : 'px-5 py-5'}`}>
 							{unsettled === 0 ? (
 								<EmptyState message={ce.allEven} />
 							) : (
@@ -226,11 +277,15 @@ export default function Expenses() {
 
 				{section === 'settle' && (
 					<>
-						<div className="card px-5 py-5">
+						<div className={`card ${data.settlement.length === 0 ? '' : 'px-5 py-5'}`}>
 							{data.settlement.length === 0 ? (
 								<EmptyState message={ce.nothingToSettle} />
 							) : (
-								<ul className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-1.5 p-0">
+								<ul className="m-0 flex list-none flex-col gap-1.5 p-0">
+									{/* One column at every width. A transfer reads as a sentence
+									    ("A pays B $30"), and sentences side by side are harder to
+									    scan than a single list, which is what a phone was already
+									    getting out of the old auto-fill grid. */}
 									{data.settlement.map((t) => (
 										<SettleRow
 											key={t.fromId + t.toId}
@@ -292,7 +347,10 @@ export default function Expenses() {
  * they open straight onto their card rather than reserving an empty band to
  * keep the three sections aligned: dead space at the top of two of the three
  * sections cost more than the alignment was worth. Narrow, the button has gone
- * up beside the section dropdown and this row carries the figures alone.
+ * up beside the section dropdown and this row carries the figures alone, so an
+ * empty ledger does not render it at all: there is nothing left to put in it,
+ * and the band was the only reason the empty panel sat lower there than the
+ * identical panel on the other two sections.
  */
 function Head({ left, children }: { left: React.ReactNode; children: React.ReactNode }) {
 	return (

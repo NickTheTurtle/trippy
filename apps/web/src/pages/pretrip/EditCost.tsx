@@ -6,7 +6,7 @@ import { useDeleteAction } from '../../components/ui/useDeleteAction';
 import { Field, FieldShell } from '../../components/ui/Field';
 import Select from '../../components/ui/Select';
 import MultiSelect from '../../components/ui/MultiSelect';
-import { currencyOptions } from '../../lib/currencies';
+import CurrencyPicker from '../../components/ui/CurrencyPicker';
 import { crewGroups, memberOptions } from '../../lib/people';
 import type { Draft } from './types';
 import type { Crew } from '../people/types';
@@ -113,14 +113,14 @@ export default function EditCost({
 								value={amount}
 								onChange={(e) => setAmount(e.target.value)}
 							/>
-							<FieldShell className="col-span-3" label={c.currencyLabel}>
-								<Select
-									options={currencyOptions(currencies)}
-									value={cur}
-									onChange={setCur}
-									ariaLabel={c.currencyLabel}
-								/>
-							</FieldShell>
+							<CurrencyPicker
+								className="col-span-3"
+								label={c.currencyLabel}
+								codes={currencies}
+								value={cur}
+								onChange={setCur}
+								ariaLabel={c.currencyLabel}
+							/>
 							<FieldShell className="col-span-5" label={c.categoryLabel}>
 								<Select
 									options={categories.map((x) => ({ value: x, label: cap(x) }))}

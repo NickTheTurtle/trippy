@@ -1,5 +1,6 @@
 import type { SplitMode } from '@trippy/core/split';
-import { formatMoney, formatTimestamp } from '../../lib/format';
+import { formatMoney } from '../../lib/format';
+import { formatSpentOn } from './day';
 import { WarningIcon } from '../../components/ui/icons';
 import Avatar from '../../components/ui/Avatar';
 import Tag from '../../components/ui/Tag';
@@ -10,20 +11,30 @@ const c = copy.expenses.row;
 
 const splitLabel = (mode: SplitMode, n: number): string => c.splitLabel(mode, n);
 
+/**
+ * The colours the balances panel already gives a signed figure, so a row and
+ * the balance it feeds into speak the same visual language. Zero stays neutral:
+ * a row that left someone exactly where they were is neither.
+ */
+const netTone = (cents: number) =>
+	cents > 0 ? 'text-accent-ink' : cents < 0 ? 'text-danger-ink' : '';
+
 /** One line of the ledger: who paid, how it was split, and what it cost. */
 export default function ExpenseRow({
 	expense: e,
 	home,
-	share,
+	net,
 	onOpen
 }: {
 	expense: Expense;
 	home: string;
 	/**
-	 * Home-currency cents this row charges the person the ledger is being read
-	 * as. Undefined when it is being read as the whole trip.
+	 * Home-currency cents this row moved the balance of the person the ledger is
+	 * being read as: positive when it left the trip owing them, negative when it
+	 * charged them. Undefined when the ledger is being read as the whole trip,
+	 * where a shared cost has no direction.
 	 */
-	share?: number;
+	net?: number;
 	/**
 	 * Pressing the row opens it: the edit dialog for an expense, and for a
 	 * settlement, which cannot be edited, the question of deleting it.
@@ -78,24 +89,31 @@ export default function ExpenseRow({
 						)}
 					</span>
 					<span className="muted truncate text-meta">
+						{/* The day the money moved, not the day the row was typed in. The
+						    two are usually the same, and when they are not it is because
+						    somebody is entering a week of receipts after getting home,
+						    which is exactly when the difference matters. */}
 						{/* The description of a settlement already names both sides, so
 						    repeating the payer and calling it a one-way split is noise. */}
 						{settled ? (
-							formatTimestamp(e.created_at)
+							formatSpentOn(e.spent_on)
 						) : (
 							<>
 								{e.payer_name} {credit ? c.received : c.paid} ·{' '}
-								{splitLabel(e.split_mode, e.participants)} · {formatTimestamp(e.created_at)}
+								{splitLabel(e.split_mode, e.participants)} · {formatSpentOn(e.spent_on)}
 							</>
 						)}
 					</span>
 				</span>
 				<span
-					className={`ml-auto flex flex-col items-end text-right font-semibold ${credit ? 'text-accent-ink' : ''}`}
+					className={`ml-auto flex flex-col items-end text-right font-semibold ${net === undefined ? (credit ? 'text-accent-ink' : '') : netTone(net)}`}
 				>
-					{/* Read as one person, the figure that matters is their share, so it
-				    takes the row's headline and the whole amount goes underneath it. */}
-					{share === undefined ? (
+					{/* Read as one person, the figure that matters is what the row did to
+					    their balance, so it takes the row's headline and the whole amount
+					    goes underneath it. The sign, not the colour, carries that: `+`
+					    for money the trip owes them back, a minus for money it charged
+					    them, both written the way the balances panel writes them. */}
+					{net === undefined ? (
 						<>
 							{formatMoney(e.amount_cents, e.currency)}
 							{e.converted && (
@@ -106,10 +124,17 @@ export default function ExpenseRow({
 						</>
 					) : (
 						<>
-							{formatMoney(share, home)}
-							<span className="muted text-micro font-medium">
-								{c.ofTotal(formatMoney(e.home_cents, home))}
+							<span>
+								{net > 0 ? '+' : ''}
+								{formatMoney(net, home)}
 							</span>
+							{/* A settlement moved its whole amount one way, so the total
+							    underneath would only repeat the figure above it. */}
+							{!settled && (
+								<span className="muted text-micro font-medium">
+									{c.ofTotal(formatMoney(e.home_cents, home))}
+								</span>
+							)}
 						</>
 					)}
 				</span>

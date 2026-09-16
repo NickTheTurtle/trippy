@@ -1,6 +1,6 @@
 import { Hono, type Context } from 'hono';
 import { requireMember } from '../middleware';
-import { body, int, num, optStr, record, str, strList } from '../parse';
+import { body, int, isoDay, num, optStr, record, str, strList } from '../parse';
 import { fail, goneMessage, okOr } from '../respond';
 import type { Env } from '../types';
 import {
@@ -32,6 +32,53 @@ interface ParsedExpense {
 	parts: { userId: string; weight: number }[];
 	/** The version the editor had on screen, or null when not tracking. */
 	version: number | null;
+	/**
+	 * The day the expense happened, or null when the body said nothing about it.
+	 *
+	 * Null is passed straight through rather than filled in here, because the two
+	 * writers answer it differently on purpose: adding falls back to today,
+	 * editing keeps the day already on the row. Deciding it in the route would
+	 * flatten that distinction and drag backdated expenses forward.
+	 */
+	spentOn: string | null;
+}
+
+/**
+ * The range a spent-on day has to fall in.
+ *
+ * `1200-01-01` and `3000-01-01` are real calendar days, so `isoDay` accepts
+ * them and they are stored exactly as typed. They are never a date anyone meant
+ * to enter for a group trip: they are a slipped keystroke or a date picker
+ * feeding a two-digit year in. Persistence cannot refuse them (it has no error
+ * channel and would rather keep the expense than lose it), so the refusal
+ * belongs here where there is a status code to send. The window is wide enough
+ * that nobody entering a genuine past or planned expense meets it.
+ */
+const DAY_MIN = '2000-01-01';
+const DAY_MAX = '2100-12-31';
+
+/**
+ * Reads the day an expense happened from a request body.
+ *
+ * Three cases, and only the first two are the same thing:
+ *
+ *  - absent (`undefined` / `null`) and blank: the body says nothing about the
+ *    day, so the answer is null and the writer decides. On POST that means
+ *    today; on PUT it means the day already stored.
+ *  - a real day in range: used as sent.
+ *  - anything else (`2026-13-45`, `not-a-date`, a number, a year out of range):
+ *    a message, which the caller turns into a 400.
+ */
+function parseSpentOn(raw: unknown): { day: string | null } | { error: string } {
+	if (raw === undefined || raw === null) return { day: null };
+	if (typeof raw === 'string' && raw.trim() === '') return { day: null };
+
+	const day = isoDay(raw);
+	if (!day) return { error: 'Pick a valid date.' };
+	if (day < DAY_MIN || day > DAY_MAX) {
+		return { error: `Pick a date between ${DAY_MIN.slice(0, 4)} and ${DAY_MAX.slice(0, 4)}.` };
+	}
+	return { day };
 }
 
 /**
@@ -103,6 +150,9 @@ async function parseExpense(
 		}
 	}
 
+	const spentOn = parseSpentOn(b.spentOn);
+	if ('error' in spentOn) return { error: spentOn.error };
+
 	return {
 		description,
 		cents,
@@ -110,7 +160,8 @@ async function parseExpense(
 		payerId: str(b.payerId),
 		splitMode,
 		parts,
-		version: int(b.version)
+		version: int(b.version),
+		spentOn: spentOn.day
 	};
 }
 
@@ -161,7 +212,8 @@ expenses.post('/', async (c) => {
 		parsed.cents,
 		parsed.currency,
 		parsed.parts,
-		parsed.splitMode
+		parsed.splitMode,
+		parsed.spentOn
 	);
 	if (!id) return fail(c, 400, 'Could not add that expense.');
 	return c.json({ id }, 201);
@@ -182,7 +234,8 @@ expenses.put('/:expenseId', async (c) => {
 		parsed.currency,
 		parsed.parts,
 		parsed.splitMode,
-		parsed.version
+		parsed.version,
+		parsed.spentOn
 	);
 	if (!result.ok) {
 		return result.reason === 'conflict'

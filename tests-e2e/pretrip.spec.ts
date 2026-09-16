@@ -184,8 +184,14 @@ async function addCost(
 	await dialog.getByLabel(cp.costDialog.labelField).fill(opts.label);
 	await dialog.getByLabel(cp.costDialog.amountLabel).fill(opts.amount);
 	if (opts.currency) {
-		await dialog.getByRole('button', { name: cp.costDialog.currencyLabel }).click();
-		await dialog.getByRole('option', { name: opts.currency, exact: true }).click();
+		// The currency field is a typeahead, not a listbox: type the code and take
+		// the top match, which a code prefix always wins. The rows read "EUR Euro",
+		// so they are not addressable by the bare code.
+		const box = dialog.getByRole('combobox', { name: cp.costDialog.currencyLabel });
+		await box.click();
+		await box.fill(opts.currency);
+		await expect(dialog.getByRole('option').first()).toContainText(opts.currency);
+		await page.keyboard.press('Enter');
 	}
 	if (opts.forMember) {
 		await dialog.getByRole('button', { name: cp.costDialog.forLabel }).click();

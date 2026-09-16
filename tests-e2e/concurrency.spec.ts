@@ -550,7 +550,12 @@ test.describe('concurrency: two accounts on one trip', () => {
 
 			// Bob saves onto a row that no longer exists: a clean error, no orphan.
 			await dialog.getByRole('button', { name: copy.common.save, exact: true }).click();
-			await expect(dialog.getByRole('alert')).toBeVisible();
+			// The reason is a corner toast now. The matching node inside the dialog
+			// is the announcement for a screen reader, which an open modal makes
+			// inert and therefore unreachable from the corner, so both are checked:
+			// the visible one and the one that is only spoken.
+			await expect(view.page.locator('.toast.bad')).toBeVisible();
+			await expect(dialog.getByRole('alert')).toHaveCount(1);
 
 			const data = await expensesData(request, fixture);
 			expect(data.expenses).toHaveLength(0);

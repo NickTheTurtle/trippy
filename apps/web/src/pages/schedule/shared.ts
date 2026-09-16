@@ -1,4 +1,9 @@
-import { EVENT_TYPES, TRANSPORT_MODES, type EventType } from '@trippy/core/types';
+import {
+	EVENT_TYPE_LABELS,
+	EVENT_TYPES,
+	TRANSPORT_MODES,
+	type EventType
+} from '@trippy/core/types';
 import type { Option } from '../../components/ui/Select';
 import type { Cell, SavedPoi } from './types';
 
@@ -79,10 +84,81 @@ export function rangeLabel(from: string, to: string): string {
 	return `${short(from)} to ${short(to)}`;
 }
 
-export function hhmm(min: number): string {
-	const h = Math.floor(min / 60);
-	const m = min % 60;
-	return `${h}:${String(m).padStart(2, '0')}`;
+/* --- The clock ------------------------------------------------------------
+ *
+ * Every wall-clock time the board shows is drawn here, so the app has one
+ * answer to "what does a time look like" rather than one per call site.
+ *
+ * The board speaks minutes past midnight in the destination's own zone: the
+ * minute is already local to the city being read, so there is no conversion
+ * left to do here and none is attempted. Formatting is done in UTC for exactly
+ * that reason, since letting `Intl` apply the reader's zone would shift a time
+ * that is already in the right one.
+ *
+ * `en-US` is named rather than left to the reader's locale, the same way
+ * `dayLabel` above and core's date helpers already name it. A locale-driven
+ * clock would be the better end state, but it has to arrive with the rest of
+ * the app's wording, not on its own on one page: see docs/DESIGN.md.
+ */
+
+/** Minutes past midnight as an instant on a fixed UTC day, for `Intl`. */
+const at = (min: number) => new Date(Date.UTC(2000, 0, 1, 0, ((min % 1440) + 1440) % 1440));
+
+const CLOCK = new Intl.DateTimeFormat('en-US', {
+	timeZone: 'UTC',
+	hour: 'numeric',
+	minute: '2-digit',
+	hour12: true
+});
+
+const HOUR = new Intl.DateTimeFormat('en-US', {
+	timeZone: 'UTC',
+	hour: 'numeric',
+	hour12: true
+});
+
+/**
+ * A time on the board, e.g. "7:00 PM". Midnight reads "12:00 AM" and noon
+ * "12:00 PM", which is the whole reason this goes through `Intl` rather than
+ * through arithmetic on the hour: a hand-rolled twelve-hour clock prints a bare
+ * "0:00 AM" for both ends of the day and the mistake is invisible until
+ * somebody is standing outside a closed restaurant.
+ *
+ * The board's last minute is 1440, midnight at the *end* of the day, and it
+ * reads "12:00 AM" like any other midnight. Nothing is lost: it is only ever
+ * shown as the far end of a range that started earlier the same day.
+ */
+export function clock(min: number): string {
+	return CLOCK.format(at(min));
+}
+
+/**
+ * A span, e.g. "9:00 - 11:00 AM" or "11:30 AM - 1:00 PM".
+ *
+ * The meridiem is said once when both ends share it. Blocks are narrow and
+ * "9:00 AM - 11:00 AM" spends a third of the line repeating a word that has not
+ * changed, which is also how anyone would write it down.
+ *
+ * A range that crosses noon or midnight keeps both, because there the meridiem
+ * is the information.
+ */
+export function clockRange(from: number, to: number): string {
+	const a = clock(from);
+	const b = clock(to);
+	const meridiem = a.slice(-2);
+	return meridiem === b.slice(-2) ? `${a.slice(0, -3)} - ${b}` : `${a} - ${b}`;
+}
+
+/**
+ * An hour line's label, e.g. "6 AM", "12 PM", "11 PM".
+ *
+ * Minuteless because an hour line is always on the hour, and ":00" under every
+ * one of them is nineteen repetitions of nothing. It also keeps the label
+ * inside the gutter it has always had: "6 AM" is narrower than "6:00 AM" and no
+ * wider than the "6:00" it replaces, so the grid does not move.
+ */
+export function hourLabel(hour: number): string {
+	return HOUR.format(at(hour * 60));
 }
 
 /** Shift an ISO day, in UTC so a DST boundary cannot move it. */
@@ -105,22 +181,14 @@ export function heightPx(from: number, to: number, start: number): number {
 
 /* --- Vocabulary ----------------------------------------------------------- */
 
-const TYPE_LABELS: Record<EventType, string> = {
-	activity: 'Activity',
-	food: 'Food',
-	stay: 'Stay',
-	travel: 'Travel',
-	freetime: 'Free time'
-};
-
 /** Rendered straight from core's list, so a new type cannot be missed here. */
 export const TYPE_OPTIONS: Option[] = EVENT_TYPES.map((t) => ({
 	value: t,
-	label: TYPE_LABELS[t]
+	label: EVENT_TYPE_LABELS[t]
 }));
 
 export function typeLabel(t: string): string {
-	return TYPE_LABELS[t as EventType] ?? t;
+	return EVENT_TYPE_LABELS[t as EventType] ?? t;
 }
 
 const MODE_LABELS: Record<string, string> = {
@@ -190,6 +258,34 @@ export function placeOptions(
  */
 export function placeLabel(type: EventType): string {
 	return type === 'travel' ? 'Ends at' : typeLabel(type);
+}
+
+/**
+ * What a block being added will end up called.
+ *
+ * There is no name field any more: a block is described by the place it is at,
+ * the notes written about it and the type it is, and the server names it from
+ * those in that order. This mirrors that order so the preview on the board
+ * shows the name that is about to be saved rather than a placeholder the reader
+ * never asked for.
+ *
+ * It is a mirror and nothing more. The server derives the stored name and wins
+ * every disagreement; this only has to be close enough that the block does not
+ * appear to rename itself the moment it is saved.
+ *
+ * Which is why the last line is the type's own noun and not "New event". The
+ * server ends on the noun, so a block previewed as "New event" renamed itself
+ * to "Activity" as soon as the save came back. That was rare while the dialogs
+ * still had a Name field; with the field gone it is what happens every time
+ * somebody adds a block without picking a place or writing a note. A column of
+ * identical "New event"s says nothing about a day either, and the noun at least
+ * says what kind of thing is there.
+ */
+export function deriveTitle(placeName: string | null, notes: string, type: EventType): string {
+	if (placeName) return placeName;
+	const line = notes.split('\n').find((l) => l.trim());
+	if (line) return line.trim();
+	return typeLabel(type);
 }
 
 /**

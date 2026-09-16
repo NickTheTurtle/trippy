@@ -22,14 +22,22 @@
  *
  * The trail is dashed and dimmed so the fly is what the eye lands on. Drawn at
  * one weight they read as a single object competing with itself.
+ *
+ * Sized in one place, in px, and capped: 220px wide on every page, shrinking
+ * only if it is ever given less room than that. It used to be 280, which on a
+ * 390px phone left ten pixels between the drawing and the card's edge and made
+ * an empty list look like an advert for a fly. The cap rather than a percentage
+ * is what keeps it the same size in a 858px card and in a 300px one; a relative
+ * width would make the drawing a different size on every page, which is the
+ * thing this component exists to avoid.
  */
 export default function EmptyMark() {
 	return (
 		<svg
 			viewBox="0 0 200 130"
-			width="280"
-			height="182"
-			className="text-ink-faint"
+			width="220"
+			height="143"
+			className="h-auto max-w-full text-ink-faint"
 			fill="none"
 			stroke="currentColor"
 			strokeLinecap="round"

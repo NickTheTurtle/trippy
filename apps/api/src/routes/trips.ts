@@ -17,6 +17,7 @@ import {
 	type CityInput
 } from '@trippy/server/trips';
 import { backfillTripListPhotos } from '@trippy/server/photos';
+import { photoGate } from '../provider-quota';
 import { discover } from './discover';
 import { schedule } from './schedule';
 import { expenses } from './expenses';
@@ -37,7 +38,7 @@ trips.use('*', requireUser);
  */
 trips.get('/', async (c) => {
 	const userId = c.get('user').id;
-	await backfillTripListPhotos(userId);
+	await backfillTripListPhotos(userId, undefined, photoGate(userId));
 	return c.json({ trips: listTripsForUser(userId) });
 });
 

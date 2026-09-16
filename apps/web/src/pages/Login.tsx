@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, Navigate, useLocation } from 'react-router';
 import { AuthShell } from '../components/ui/AuthShell';
 import { Field } from '../components/ui/Field';
+import { useErrorSlot } from '../components/ui/Toast';
 import { useAuth } from '../auth';
 import { copy } from '../copy';
 
@@ -10,10 +11,10 @@ const c = copy.auth.login;
 export default function Login() {
 	const { status, logIn } = useAuth();
 	const location = useLocation();
+	const failure = useErrorSlot();
 
 	const [email, setEmail] = useState('');
 	const [password, setPassword] = useState('');
-	const [error, setError] = useState<string | null>(null);
 	const [submitting, setSubmitting] = useState(false);
 
 	// Set by RequireAuth when it turned a deep link away. Sending the user back
@@ -27,13 +28,14 @@ export default function Login() {
 	if (status === 'authenticated') return <Navigate to={next} replace />;
 
 	async function submit() {
+		// The last attempt's refusal is not this attempt's answer.
+		failure.clear();
 		setSubmitting(true);
-		setError(null);
 		try {
 			await logIn(email, password);
 			// No navigate here on purpose. See the redirect above.
 		} catch (err) {
-			setError(err instanceof Error ? err.message : c.fallback);
+			failure.show(err instanceof Error ? err.message : c.fallback);
 			setSubmitting(false);
 		}
 	}
@@ -42,7 +44,7 @@ export default function Login() {
 		<AuthShell
 			title={c.title}
 			blurb={c.blurb}
-			error={error}
+			failure={failure}
 			onSubmit={submit}
 			submitting={submitting}
 			submitLabel={c.submitLabel}
@@ -63,6 +65,7 @@ export default function Login() {
 				type="email"
 				name="email"
 				autoComplete="email"
+				required
 				value={email}
 				onChange={(e) => setEmail(e.target.value)}
 			/>
@@ -71,6 +74,7 @@ export default function Login() {
 				type="password"
 				name="password"
 				autoComplete="current-password"
+				required
 				value={password}
 				onChange={(e) => setPassword(e.target.value)}
 			/>

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, Navigate, useSearchParams } from 'react-router';
 import { AuthNotice, AuthShell } from '../components/ui/AuthShell';
 import { Field } from '../components/ui/Field';
+import { useErrorSlot } from '../components/ui/Toast';
 import { api } from '../lib/api';
 import { copy } from '../copy';
 
@@ -10,10 +11,10 @@ const c = copy.auth.reset;
 export default function Reset() {
 	const [params] = useSearchParams();
 	const token = params.get('token') ?? '';
+	const failure = useErrorSlot();
 
 	const [password, setPassword] = useState('');
 	const [done, setDone] = useState(false);
-	const [error, setError] = useState<string | null>(null);
 	const [submitting, setSubmitting] = useState(false);
 
 	// Nothing on this page works without a token, and a bare /reset is somebody
@@ -21,13 +22,14 @@ export default function Reset() {
 	if (!token) return <Navigate to="/forgot" replace />;
 
 	async function submit() {
+		// The last attempt's refusal is not this attempt's answer.
+		failure.clear();
 		setSubmitting(true);
-		setError(null);
 		try {
 			await api('/auth/reset', { method: 'POST', body: { token, password } });
 			setDone(true);
 		} catch (err) {
-			setError(err instanceof Error ? err.message : c.fallback);
+			failure.show(err instanceof Error ? err.message : c.fallback);
 			setSubmitting(false);
 		}
 	}
@@ -48,7 +50,7 @@ export default function Reset() {
 		<AuthShell
 			title={c.title}
 			blurb={c.blurb}
-			error={error}
+			failure={failure}
 			onSubmit={submit}
 			submitting={submitting}
 			submitLabel={c.submitLabel}
@@ -63,6 +65,7 @@ export default function Reset() {
 				type="password"
 				name="password"
 				autoComplete="new-password"
+				required
 				hint={c.passwordHint}
 				value={password}
 				onChange={(e) => setPassword(e.target.value)}

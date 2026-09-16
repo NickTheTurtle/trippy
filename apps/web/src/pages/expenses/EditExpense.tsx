@@ -3,15 +3,16 @@ import { splitByWeight, type SplitMode } from '@trippy/core/split';
 import { api } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
 import { currencySymbol, formatMoney } from '../../lib/format';
-import { currencyOptions } from '../../lib/currencies';
 import Modal, { ModalFooter, ModalForm } from '../../components/ui/Modal';
 import { useDeleteAction } from '../../components/ui/useDeleteAction';
 import Select from '../../components/ui/Select';
+import CurrencyPicker from '../../components/ui/CurrencyPicker';
 import { FieldShell } from '../../components/ui/Field';
 import { IconButton, LinkButton } from '../../components/ui/buttons';
 import { MinusIcon, PlusIcon } from '../../components/ui/icons';
 import { CheckBox } from '../../components/ui/CheckBox';
 import type { Expense, Member } from './types';
+import { today } from './day';
 import { copy } from '../../copy';
 
 const c = copy.expenses.addDialog;
@@ -56,6 +57,11 @@ export default function EditExpense({
 		onDelete
 	});
 	const [amount, setAmount] = useState(expense ? (expense.amount_cents / 100).toFixed(2) : '');
+	// An existing expense opens on the day it was stored against, so saving an
+	// edit cannot quietly drag a backdated row forward to today. A new one opens
+	// on today, which is the common case and is also what the server would fall
+	// back to if this field were left empty.
+	const [spentOn, setSpentOn] = useState(expense?.spent_on ?? today());
 	const [currency, setCurrency] = useState(expense?.currency ?? home);
 	// A new expense is paid by you until you say otherwise. `members[0]` is the
 	// organizer, because the roster is ordered by role, so defaulting to it
@@ -182,6 +188,9 @@ export default function EditExpense({
 					description,
 					amount: Number(amount),
 					currency,
+					// Sent on every save, including an edit that never touched the
+					// field, so the day on screen is the day that is stored.
+					spentOn,
 					payerId,
 					splitMode,
 					participantIds: chosen.map((m) => m.id),
@@ -222,12 +231,27 @@ export default function EditExpense({
 					    On a phone the proportions themselves change: at a third of a
 					    337px modal the currency Select had room for "U...". */}
 						<div className="grid grid-cols-12 gap-x-2.5 gap-y-3.5">
-							<FieldShell className="col-span-12" label={c.descriptionLabel}>
+							<FieldShell className="col-span-12 sm:col-span-8" label={c.descriptionLabel}>
 								<input
 									autoFocus
 									required
 									value={description}
 									onChange={(e) => setDescription(e.target.value)}
+									className="input"
+								/>
+							</FieldShell>
+							{/* What it was and when it was, on one line; how much, in what,
+							    and by whom on the next. Not marked `required`: an empty box
+							    is a defined answer on the wire (the server keeps the stored
+							    day, or uses today when adding), and a native constraint here
+							    would block the submit before the server could say so.
+							    COPY: pending owner clearance, wanted as
+							    `copy.expenses.addDialog.dateLabel: 'Date'`. */}
+							<FieldShell className="col-span-12 sm:col-span-4" label="Date">
+								<input
+									type="date"
+									value={spentOn}
+									onChange={(e) => setSpentOn(e.target.value)}
 									className="input"
 								/>
 							</FieldShell>
@@ -242,14 +266,14 @@ export default function EditExpense({
 									className="input"
 								/>
 							</FieldShell>
-							<FieldShell className="col-span-6 sm:col-span-3" label={c.currencyLabel}>
-								<Select
-									options={currencyOptions(currencies)}
-									value={currency}
-									onChange={setCurrency}
-									ariaLabel={c.currencyLabel}
-								/>
-							</FieldShell>
+							<CurrencyPicker
+								className="col-span-6 sm:col-span-3"
+								label={c.currencyLabel}
+								codes={currencies}
+								value={currency}
+								onChange={setCurrency}
+								ariaLabel={c.currencyLabel}
+							/>
 							<FieldShell
 								className="col-span-12 sm:col-span-5"
 								label={income ? c.receivedByLabel : c.paidByLabel}

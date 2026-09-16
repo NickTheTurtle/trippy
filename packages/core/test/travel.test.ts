@@ -160,16 +160,58 @@ describe('planLegs', () => {
 		expect(planLegs([a, b])).toHaveLength(0);
 	});
 
-	it('plans across an event with no coordinates, which says when but not where', () => {
+	it('breaks the chain at an event with no location, rather than planning across it', () => {
 		const a = at(P.hotel, { startMin: 540, endMin: 600, people: ['u1'] });
 		const nowhere = ev({ startMin: 610, endMin: 650, people: ['u1'], lat: null, lng: null });
 		const b = at(P.market, { startMin: 660, endMin: 720, people: ['u1'] });
-		const legs = planLegs([a, nowhere, b]);
-		// Adding a block nobody has given an address yet must not delete the
-		// travel time either side of it.
+		// A block with no address does not say where its people are, so a journey
+		// from the last known place to the next one would be a guess presented as
+		// a fact. This reverses the earlier rule, which passed such a block over
+		// and planned hotel -> market straight across it.
+		expect(planLegs([a, nowhere, b])).toHaveLength(0);
+	});
+
+	it('resumes planning after a location-less event, from the next place that is known', () => {
+		const a = at(P.hotel, { startMin: 540, endMin: 600, people: ['u1'] });
+		const nowhere = ev({ startMin: 610, endMin: 650, people: ['u1'], lat: null, lng: null });
+		const b = at(P.market, { startMin: 660, endMin: 720, people: ['u1'] });
+		const c = at(P.museum, { startMin: 780, endMin: 840, people: ['u1'] });
+		const legs = planLegs([a, nowhere, b, c]);
+		// Only the break is lost: the rest of the day still plans normally.
 		expect(legs).toHaveLength(1);
-		expect(legs[0].fromEventId).toBe(a.id);
-		expect(legs[0].toEventId).toBe(b.id);
+		expect(legs[0].fromEventId).toBe(b.id);
+		expect(legs[0].toEventId).toBe(c.id);
+	});
+
+	it('breaks the chain at a location-less stay, rather than starting a leg from nowhere', () => {
+		const stay = ev({
+			type: 'stay',
+			startMin: 21 * 60,
+			endMin: 24 * 60,
+			people: ['u1'],
+			lat: null,
+			lng: null
+		});
+		const morning = at(P.museum, { startMin: 600, endMin: 660, people: ['u1'] });
+		// Nobody knows where the unbooked bed is, so there is no morning journey
+		// out of it to draw.
+		expect(planLegs([morning], stay)).toHaveLength(0);
+	});
+
+	it('still plans out of a located stay when a later block has no location', () => {
+		const stay = at(P.hotel, {
+			type: 'stay',
+			startMin: 21 * 60,
+			endMin: 24 * 60,
+			people: ['u1']
+		});
+		const morning = at(P.museum, { startMin: 600, endMin: 660, people: ['u1'] });
+		const nowhere = ev({ startMin: 700, endMin: 760, people: ['u1'], lat: null, lng: null });
+		const legs = planLegs([morning, nowhere], stay);
+		// The break is after the first leg, so the first leg survives it.
+		expect(legs).toHaveLength(1);
+		expect(legs[0].fromEventId).toBe(stay.id);
+		expect(legs[0].toEventId).toBe(morning.id);
 	});
 
 	it("starts the morning from last night's stay, for the people who slept there", () => {
@@ -247,14 +289,35 @@ describe('planLegs', () => {
 		expect(planLegs([at(P.hotel, { people: ['u1'] })])).toHaveLength(0);
 	});
 
-	it('ignores an event nobody is on', () => {
+	it('ignores an event nobody is named on, because core reads the ids literally', () => {
 		const a = at(P.hotel, { startMin: 540, endMin: 600, people: ['u1'] });
+		// Located, so the only reason it is not on u1's chain is that u1 is not on
+		// it. An empty array is nobody here: the server expands "Everyone" to the
+		// roster before the planner ever sees it.
 		const orphan = at(P.park, { startMin: 620, endMin: 640, people: [] });
 		const b = at(P.museum, { startMin: 660, endMin: 720, people: ['u1'] });
 		const legs = planLegs([a, orphan, b]);
 		expect(legs).toHaveLength(1);
 		expect(legs[0].fromEventId).toBe(a.id);
 		expect(legs[0].toEventId).toBe(b.id);
+	});
+
+	it('plans nothing at all for a day where no event names anybody', () => {
+		// The contract this pins: `people: []` is nobody, not everybody. A caller
+		// that stores "Everyone" as an empty array has to expand it to the roster
+		// first, or it gets a day with no journeys on it.
+		const a = at(P.hotel, { startMin: 540, endMin: 600, people: [] });
+		const b = at(P.museum, { startMin: 660, endMin: 720, people: [] });
+		expect(planLegs([a, b])).toHaveLength(0);
+	});
+
+	it('plans the whole group once an expanded roster is passed in', () => {
+		// The same day as above, expanded by the caller the way the server does.
+		const a = at(P.hotel, { startMin: 540, endMin: 600, people: ['u1', 'u2'] });
+		const b = at(P.museum, { startMin: 660, endMin: 720, people: ['u1', 'u2'] });
+		const legs = planLegs([a, b]);
+		expect(legs).toHaveLength(1);
+		expect(legs[0].people).toEqual(['u1', 'u2']);
 	});
 });
 

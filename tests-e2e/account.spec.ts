@@ -35,7 +35,9 @@ test.describe('account', () => {
 			await page.getByRole('option', { name: 'America/New York', exact: true }).click();
 			await profile.getByRole('button', { name: copy.common.save }).click();
 
-			await expect(profile.getByText(ca.profile.saved)).toBeVisible();
+			// The confirmation is a corner toast, so it is on the page rather than in
+			// the card: the save outlives the form, which remounts on a new email.
+			await expect(page.locator('.toast.ok').filter({ hasText: ca.profile.saved })).toBeVisible();
 
 			// A reload reseeds the fields from what was stored, so surviving it is the
 			// proof the change persisted rather than lingering in form state.
@@ -50,6 +52,105 @@ test.describe('account', () => {
 			expect(body.profile.name).toBe('Nova Traveler');
 			expect(body.profile.email).toBe(newEmail);
 			expect(body.profile.homeTz).toBe('America/New_York');
+		} finally {
+			user.teardown();
+		}
+	});
+
+	/**
+	 * The corner popups, driven from the one page that can raise both tones a few
+	 * seconds apart: the profile save succeeds and the password save is refused.
+	 */
+	test('results stack in the corner, an error outlives a success and then goes too', async ({
+		page,
+		request
+	}) => {
+		const user = await registerUser(request);
+		try {
+			await signIn(page, user.sessionCookie);
+			await page.goto('/account');
+
+			const profile = page
+				.locator('section')
+				.filter({ has: page.getByRole('heading', { name: ca.profile.heading }) });
+			const password = page
+				.locator('section')
+				.filter({ has: page.getByRole('heading', { name: ca.password.heading }) });
+
+			await profile.getByRole('button', { name: copy.common.save }).click();
+			const ok = page.locator('.toast.ok');
+			await expect(ok).toHaveCount(1);
+			// Politely for a success, so it waits its turn rather than cutting in.
+			await expect(ok.locator('span[role="status"]')).toBeVisible();
+
+			await password.getByLabel(ca.password.currentLabel).fill('not-the-password');
+			await password.getByLabel(/^New password/).fill('Another-Pass-2026!');
+			await password.getByLabel(ca.password.confirmLabel).fill('Another-Pass-2026!');
+			await password.getByRole('button', { name: copy.common.save }).click();
+
+			// Both at once: the second does not replace the first.
+			const bad = page.locator('.toast.bad');
+			await expect(bad).toHaveCount(1);
+			await expect(bad.locator('span[role="alert"]')).toBeVisible();
+			await expect(page.locator('.toast')).toHaveCount(2);
+
+			// The success goes on its own clock. The refusal is still there well
+			// after it: an error is the only account of why the save did not happen,
+			// so it is given time to be found and read.
+			await expect(ok).toHaveCount(0, { timeout: 8000 });
+			await expect(bad).toHaveCount(1);
+
+			// It can be taken away by hand.
+			await bad.getByRole('button').click();
+			await expect(page.locator('.toast')).toHaveCount(0);
+
+			// And it goes on its own if it is left alone, which is the half that
+			// used to be missing: a refusal that had been read and acted on stayed
+			// in the corner until somebody aimed at its button.
+			await password.getByRole('button', { name: copy.common.save }).click();
+			await expect(bad).toHaveCount(1);
+			await expect(bad).toHaveCount(0, { timeout: 16000 });
+		} finally {
+			user.teardown();
+		}
+	});
+
+	/**
+	 * A failed load is now two things at once: the server's reason in the corner,
+	 * which is given time to be read, and a line left on the page so the screen is
+	 * not blank once that sentence has gone. Driven on two unrelated pages,
+	 * because the panel sits in a different layout on each.
+	 */
+	test('a page that cannot load says so on the page and why in the corner', async ({
+		page,
+		request
+	}) => {
+		const user = await registerUser(request);
+		const reason = 'Could not reach the trips service.';
+		try {
+			await signIn(page, user.sessionCookie);
+
+			for (const path of ['/account', '/trips']) {
+				await page.route(
+					(u) => u.pathname === `/api${path}`,
+					(route) => route.fulfill({ status: 500, json: { error: reason } })
+				);
+				await page.goto(path);
+
+				// The page keeps a statement of its own, and does not repeat the
+				// server's sentence underneath it.
+				await expect(page.getByText(copy.api.loadFailed)).toBeVisible();
+				const bad = page.locator('.toast.bad').filter({ hasText: reason });
+				await expect(bad).toHaveCount(1);
+				await expect(bad.getByRole('alert')).toHaveText(reason);
+
+				// Long enough to be read, so it is still there six seconds later.
+				await page.waitForTimeout(6000);
+				await expect(bad).toHaveCount(1);
+				await bad.getByRole('button').click();
+				await expect(page.locator('.toast')).toHaveCount(0);
+				await page.unrouteAll();
+			}
 		} finally {
 			user.teardown();
 		}

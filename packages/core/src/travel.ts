@@ -38,7 +38,20 @@ export interface PlannerEvent {
 	endMin: number;
 	lat: number | null;
 	lng: number | null;
-	/** User ids assigned to the event. */
+	/**
+	 * Exactly the user ids travelling to and from this event. No id here means
+	 * nobody, never everybody.
+	 *
+	 * The storage layer writes "Everyone" as an empty list, because a stored
+	 * roster copy would part company with the trip the moment somebody joined.
+	 * That convention stops at the persistence boundary: core has no roster to
+	 * expand against and cannot get one without becoming impure, so a caller
+	 * expands the empty list to the trip's members before calling `planLegs`
+	 * (see `toPlannerEvent` in `packages/core/src/plan.ts`, which is where both
+	 * the server and the client do it).
+	 * Passing the stored form straight through means every event belongs to
+	 * nobody and the day plans no journeys at all.
+	 */
 	people: string[];
 }
 
@@ -77,7 +90,7 @@ export interface PlannedLeg {
  * is inside the error of a geocoded street address and well inside the width of
  * a hotel.
  */
-const SAME_PLACE_KM = 0.03;
+export const SAME_PLACE_KM = 0.03;
 
 /** The people key half of a leg key: sorted ids, so it does not depend on write order. */
 export function peopleKey(people: readonly string[]): string {
@@ -150,6 +163,10 @@ export function guessLeg(km: number): { mode: TransportMode; mins: number } {
  * both sides, and the next journey starts from whatever the person is committed
  * to after it.
  *
+ * A block with no coordinates is excluded for the same reason rather than a
+ * weaker one: it does not say where its people are, so a journey measured
+ * across it is a guess drawn as a fact. It breaks the chain too.
+ *
  * A `travel` event is excluded here for a different reason, and only on this
  * side: it IS a journey, entered by hand, so planning a second journey *to* it
  * would be planning how to get to the middle of the flight you are already on.
@@ -191,6 +208,10 @@ function landsAt(e: PlannerEvent): boolean {
  * The result is ordered by arrival time, then by key, so two runs over the same
  * day produce the same list in the same order and a diff against what is stored
  * is a set comparison rather than a merge.
+ *
+ * Every `people` list, on the events and on the origins alike, is read as the
+ * exact set of travellers. An empty one is nobody, so a caller whose storage
+ * writes "Everyone" as an empty list must expand it first; see `PlannerEvent`.
  */
 export function planLegs(
 	events: readonly PlannerEvent[],
@@ -237,17 +258,22 @@ export function planLegs(
 				continue;
 			}
 			if (!isAnchor(e)) {
-				// Free time ends the current chain: nobody has promised to be
-				// anywhere, so the next journey is planned from whatever comes after
-				// it rather than across it.
+				// Anything left here is a non-travel block that cannot be an end of a
+				// journey, and both reasons for that now break the chain.
 				//
-				// A block with no location is different, and is passed over rather
-				// than treated as a break. It says when someone is busy, not where
-				// they are, so it does not unsay where they were: the journey from
-				// the last known place to the next one is still real, and breaking
-				// on it would mean adding a nameless placeholder to a day silently
-				// deleted the travel times around it.
-				if (e.type === 'freetime') prev = null;
+				// Free time breaks it because nobody has promised to be anywhere, so
+				// planning a journey out of it would be inventing a fact.
+				//
+				// A block with no location breaks it for the same reason. This
+				// reverses the earlier rule, which passed such a block over on the
+				// grounds that it says when someone is busy rather than where they
+				// are, and so left the journey either side of it spanning it. The
+				// trouble is what that journey then claims: an estimate measured
+				// from the last known place, drawn on the day as a fact, for a
+				// stretch where nobody knows where the group actually is. A missing
+				// estimate is more honest than a wrong one, so the chain stops here
+				// and picks up again at the next place somebody has named.
+				prev = null;
 				continue;
 			}
 			if (prev) {

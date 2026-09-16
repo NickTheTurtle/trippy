@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, Navigate, useSearchParams } from 'react-router';
 import { AuthNotice, AuthShell } from '../components/ui/AuthShell';
 import { Field } from '../components/ui/Field';
+import { useErrorSlot } from '../components/ui/Toast';
 import { useAuth } from '../auth';
 import { copy } from '../copy';
 
@@ -10,6 +11,7 @@ const c = copy.auth.register;
 export default function Register() {
 	const { status, register } = useAuth();
 	const [params] = useSearchParams();
+	const failure = useErrorSlot();
 
 	// An invite link carries the address it was sent to, so the one field that
 	// has to match exactly for the invite to be consumed is filled in already.
@@ -17,7 +19,6 @@ export default function Register() {
 	const [email, setEmail] = useState(params.get('email') ?? '');
 	const [password, setPassword] = useState('');
 	const [pending, setPending] = useState(false);
-	const [error, setError] = useState<string | null>(null);
 	const [submitting, setSubmitting] = useState(false);
 
 	// Handles both arriving signed in and a successful sign up. A brand new
@@ -25,15 +26,16 @@ export default function Register() {
 	if (status === 'authenticated') return <Navigate to="/trips" replace />;
 
 	async function submit() {
+		// The last attempt's refusal is not this attempt's answer.
+		failure.clear();
 		setSubmitting(true);
-		setError(null);
 		try {
 			// 'pending' means the account does not exist yet and a confirmation link
 			// is in the post. The signed-in case redirects above, so only this one
 			// needs anything rendered for it.
 			if ((await register(name, email, password)) === 'pending') setPending(true);
 		} catch (err) {
-			setError(err instanceof Error ? err.message : c.fallback);
+			failure.show(err instanceof Error ? err.message : c.fallback);
 			setSubmitting(false);
 		}
 	}
@@ -44,7 +46,7 @@ export default function Register() {
 		<AuthShell
 			title={c.title}
 			blurb={c.blurb}
-			error={error}
+			failure={failure}
 			onSubmit={submit}
 			submitting={submitting}
 			submitLabel={c.submitLabel}
@@ -62,6 +64,7 @@ export default function Register() {
 				type="text"
 				name="name"
 				autoComplete="name"
+				required
 				value={name}
 				onChange={(e) => setName(e.target.value)}
 			/>
@@ -70,6 +73,7 @@ export default function Register() {
 				type="email"
 				name="email"
 				autoComplete="email"
+				required
 				value={email}
 				onChange={(e) => setEmail(e.target.value)}
 			/>
@@ -78,6 +82,7 @@ export default function Register() {
 				type="password"
 				name="password"
 				autoComplete="new-password"
+				required
 				hint={c.passwordHint}
 				value={password}
 				onChange={(e) => setPassword(e.target.value)}

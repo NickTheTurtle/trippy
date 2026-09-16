@@ -4,6 +4,7 @@ import {
 	retryAfterMs,
 	PROVIDER_LIMIT,
 	PROVIDER_IP_LIMIT,
+	PHOTO_LIMIT,
 	ROUTING_LIMIT
 } from '@trippy/server/throttle';
 import { clientIp } from './client-ip';
@@ -83,6 +84,24 @@ export function routingGate(userId: string): () => boolean {
 	return () => {
 		if (retryAfterMs(key) > 0) return false;
 		recordFailure(key, Date.now(), ROUTING_LIMIT);
+		return true;
+	};
+}
+
+/**
+ * A gate for the cover-photo backlog, which is billed Places traffic that
+ * nobody asked for by name.
+ *
+ * Shaped like `routingGate` rather than `billingGate` for the same reason: a
+ * missing picture must not turn a page load into an error, so it returns false
+ * and the drain stops. Per-user only; a household behind one address should not
+ * lose its pictures because somebody else in the house opened a board first.
+ */
+export function photoGate(userId: string): () => boolean {
+	const key = `photo:user:${userId}`;
+	return () => {
+		if (retryAfterMs(key) > 0) return false;
+		recordFailure(key, Date.now(), PHOTO_LIMIT);
 		return true;
 	};
 }

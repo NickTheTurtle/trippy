@@ -223,6 +223,122 @@ describe('legs follow the events', () => {
 	});
 });
 
+/**
+ * "Everyone" is stored as no rows in `event_people`, so the roster has to be
+ * put back before the planner sees the day. Until it was, a trip whose events
+ * were all left on the default planned no journeys whatsoever.
+ */
+describe('an event left on Everyone travels with the whole trip', () => {
+	it('plans the day when no event names anybody, instead of planning nothing', () => {
+		add({ startMin: 540, endMin: 600, people: [], ...HOTEL });
+		add({ startMin: 660, endMin: 720, people: [], ...MUSEUM });
+		const legs = schedule.legsForDay(tripId, DAY);
+		expect(legs).toHaveLength(1);
+		expect(legs[0].people).toEqual([alice, bob].sort());
+	});
+
+	it('mixes Everyone with a named subset without merging the two journeys', () => {
+		add({ startMin: 540, endMin: 600, people: [], ...HOTEL });
+		add({ startMin: 660, endMin: 720, people: [alice], ...MUSEUM });
+		add({ startMin: 780, endMin: 840, people: [], ...PARK });
+		const legs = schedule.legsForDay(tripId, DAY);
+		// Alice detours via the museum, Bob goes straight to the park: three
+		// journeys, and Bob's is his own.
+		expect(legs).toHaveLength(3);
+		expect(legs.map((l) => l.people.join(',')).sort()).toEqual([alice, alice, bob].sort());
+	});
+
+	it("expands last night's stay too, so the morning starts for everybody on it", () => {
+		add({
+			day: '2026-09-30',
+			type: 'stay',
+			startMin: 21 * 60,
+			endMin: 24 * 60,
+			people: [],
+			...HOTEL
+		});
+		add({ startMin: 600, endMin: 660, people: [], ...MUSEUM });
+		const legs = schedule.legsForDay(tripId, DAY);
+		expect(legs).toHaveLength(1);
+		expect(legs[0].people).toEqual([alice, bob].sort());
+		// Out of the stay, so anchored to midnight rather than to a checkout.
+		expect(legs[0].startMin).toBeLessThan(600);
+	});
+
+	it('follows the roster rather than a copy of it, when somebody joins later', () => {
+		add({ startMin: 540, endMin: 600, people: [], ...HOTEL });
+		const second = add({ startMin: 660, endMin: 720, people: [], ...MUSEUM });
+		const carol = auth.createUser('carol@example.test', 'Carol', 'hunter2hunter2').id;
+		db.prepare(`INSERT INTO memberships (trip_id, user_id, role) VALUES (?, ?, 'member')`).run(
+			tripId,
+			carol
+		);
+		// Any write reconciles the day; nothing about the events themselves changed.
+		expect(schedule.setEventPeople(second, tripId, alice, [])).toBe(true);
+		expect(schedule.legsForDay(tripId, DAY)[0].people).toEqual([alice, bob, carol].sort());
+	});
+
+	it('leaves out a member who has since left, rather than travelling with a ghost', () => {
+		const first = add({ startMin: 540, endMin: 600, people: [alice, bob], ...HOTEL });
+		const second = add({ startMin: 660, endMin: 720, people: [alice, bob], ...MUSEUM });
+		// Bob leaves. His rows in `event_people` are the stale ids the planner
+		// must not read as travellers.
+		db.prepare(`DELETE FROM memberships WHERE trip_id = ? AND user_id = ?`).run(tripId, bob);
+		const stillNamed = db
+			.prepare(`SELECT COUNT(*) AS n FROM event_people WHERE event_id = ?`)
+			.get(first);
+		expect(stillNamed).toMatchObject({ n: 2 });
+		schedule.recomputeLegs(tripId, DAY);
+
+		const legs = schedule.legsForDay(tripId, DAY);
+		expect(legs).toHaveLength(1);
+		expect(legs[0].toEventId).toBe(second);
+		expect(legs[0].people).toEqual([alice]);
+	});
+
+	it('plans nothing for a trip with nobody left on it, rather than throwing', () => {
+		add({ startMin: 540, endMin: 600, people: [], ...HOTEL });
+		add({ startMin: 660, endMin: 720, people: [], ...MUSEUM });
+		db.prepare(`DELETE FROM memberships WHERE trip_id = ?`).run(tripId);
+		schedule.recomputeLegs(tripId, DAY);
+		expect(schedule.legsForDay(tripId, DAY)).toEqual([]);
+	});
+
+	it('reconciles days nobody has written since the expansion changed the plan', () => {
+		add({ startMin: 540, endMin: 600, people: [], ...HOTEL });
+		add({ startMin: 660, endMin: 720, people: [], ...MUSEUM });
+		// What a database written by the old planner looks like: a day whose legs
+		// were never stored, because the old planner found none.
+		db.prepare(`DELETE FROM travel_legs WHERE trip_id = ? AND day = ?`).run(tripId, DAY);
+		expect(schedule.legsForDay(tripId, DAY)).toEqual([]);
+
+		expect(schedule.reconcileAllLegs()).toBeGreaterThan(0);
+		expect(schedule.legsForDay(tripId, DAY)).toHaveLength(1);
+	});
+});
+
+describe('a block with no location breaks the chain', () => {
+	it('plans no journey across an event nobody has given an address', () => {
+		add({ startMin: 540, endMin: 600, people: [alice], ...HOTEL });
+		add({ startMin: 610, endMin: 650, people: [alice] });
+		add({ startMin: 660, endMin: 720, people: [alice], ...MUSEUM });
+		// Where Alice is between 10:10 and 10:50 is unknown, so an estimate from
+		// the hotel would be a guess drawn as a fact.
+		expect(schedule.legsForDay(tripId, DAY)).toEqual([]);
+	});
+
+	it('still lets a located hand-entered journey carry the chain', () => {
+		add({ startMin: 540, endMin: 600, people: [alice], ...HOTEL });
+		add({ type: 'travel', startMin: 600, endMin: 650, people: [alice], ...PARK });
+		add({ startMin: 660, endMin: 720, people: [alice], ...MUSEUM });
+		const legs = schedule.legsForDay(tripId, DAY);
+		// Nothing is planned into the middle of the journey somebody typed, and
+		// the leg out of where it lands is unaffected by the new break rule.
+		expect(legs).toHaveLength(1);
+		expect(legs[0].startMin).toBeLessThan(660);
+	});
+});
+
 describe('a stay is a range of nights', () => {
 	const THIRD = '2026-10-03';
 

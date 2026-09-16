@@ -1,7 +1,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { apiURL, createApiFixture, registerUser } from './fixtures/api';
 import { addExpense, expensesData, invite, seedMembers } from './fixtures/seed';
-import { copy, formatMoney } from './fixtures/copy';
+import { copy, formatDay, formatMoney } from './fixtures/copy';
 import { signIn, signedInContext } from './fixtures/session';
 
 /**
@@ -17,6 +17,24 @@ import { signIn, signedInContext } from './fixtures/session';
 
 const ce = copy.expenses;
 const usd = (cents: number) => formatMoney(cents, 'USD');
+
+/**
+ * The expense form's date label. Written out rather than read from `copy`
+ * because the string is still awaiting clearance into `@trippy/copy`; it moves
+ * to `ce.addDialog.dateLabel` the moment it lands there.
+ */
+const DATE_LABEL = 'Date';
+
+/** How the ledger writes a stored day: the year appears only once it is past. */
+const spentDay = (iso: string) =>
+	formatDay(iso, { year: iso.slice(0, 4) !== String(new Date().getFullYear()) });
+
+/**
+ * The caption a ledger filtered to somebody with no rows carries. Written out
+ * rather than read from `copy` because the string is still awaiting clearance
+ * into `@trippy/copy`; it moves to `ce.noneForMember` once it lands there.
+ */
+const NONE_FOR_MEMBER = (who: string) => `Nothing here for ${who}`;
 
 /** Opens a custom Select by its accessible name and chooses one option. */
 async function chooseInSelect(scope: Locator, triggerName: string, option: string) {
@@ -169,9 +187,12 @@ test.describe('expenses', () => {
 			await dialog.getByLabel(ce.addDialog.weightLabel(true, 'Alice')).fill('30');
 			await dialog.getByRole('button', { name: copy.common.add, exact: true }).click();
 
-			await expect(dialog.getByRole('alert')).toHaveText(
-				'Amounts add up to 70.00, but the total is 100.00.'
-			);
+			// The refusal reads in the corner, and is announced from inside the
+			// dialog, which is the only part of the document a modal leaves
+			// non-inert. Both carry the server's wording.
+			const reason = 'Amounts add up to 70.00, but the total is 100.00.';
+			await expect(page.locator('.toast.bad').filter({ hasText: reason })).toBeVisible();
+			await expect(dialog.getByRole('alert')).toHaveText(reason);
 			await expect(dialog).toBeVisible();
 		} finally {
 			fixture.teardown();
@@ -501,6 +522,88 @@ test.describe('expenses', () => {
 		} finally {
 			fixture.teardown();
 			bob.teardown();
+		}
+	});
+
+	test('an expense keeps the day it happened, through adding and through editing', async ({
+		page,
+		request
+	}) => {
+		const fixture = await createApiFixture(request);
+		try {
+			await signIn(page, fixture.sessionCookie);
+			await page.goto(`/trips/${fixture.tripId}/expenses`);
+
+			// A trip you log after you get home: the day the money moved is not the
+			// day the row is typed in, and before this field existed every expense
+			// was stamped with today whatever the traveller meant.
+			const spentOn = '2026-01-05';
+			await page.getByRole('button', { name: ce.addExpense, exact: true }).click();
+			const dialog = page.getByRole('dialog');
+			await dialog.getByLabel(ce.addDialog.descriptionLabel).fill('Airport taxi');
+			await dialog.getByLabel(ce.addDialog.amountLabel).fill('40');
+			// 'Date' is the one label on this form still awaiting a copy key; see the
+			// note beside the field in EditExpense.
+			await dialog.getByLabel(DATE_LABEL).fill(spentOn);
+			await dialog.getByRole('button', { name: copy.common.add, exact: true }).click();
+			await expect(dialog).toBeHidden();
+
+			// The row says the day it happened, not today.
+			const row = page.getByRole('listitem').filter({ hasText: 'Airport taxi' });
+			await expect(row).toContainText(spentDay(spentOn));
+			expect(
+				(await expensesData(request, fixture)).expenses.find(
+					(e) => e.description === 'Airport taxi'
+				)?.spent_on
+			).toBe(spentOn);
+
+			// Re-opening shows the stored day rather than today, and an edit that
+			// never touches the field leaves it where it was.
+			await row.getByRole('button').first().click();
+			const edit = page.getByRole('dialog');
+			await expect(edit.getByLabel(DATE_LABEL)).toHaveValue(spentOn);
+			await edit.getByLabel(ce.addDialog.amountLabel).fill('45');
+			await edit.getByRole('button', { name: copy.common.save, exact: true }).click();
+			await expect(edit).toBeHidden();
+
+			await expect(row).toContainText(spentDay(spentOn));
+			const after = (await expensesData(request, fixture)).expenses.find(
+				(e) => e.description === 'Airport taxi'
+			);
+			expect(after?.spent_on).toBe(spentOn);
+			expect(after?.amount_cents).toBe(4500);
+		} finally {
+			fixture.teardown();
+		}
+	});
+
+	test('a ledger filtered to somebody with no rows says so, without the drawing', async ({
+		page,
+		request
+	}) => {
+		const fixture = await createApiFixture(request);
+		try {
+			const members = await seedMembers(request, fixture, ['Alice', 'Bob']);
+			// An expense Alice is not on: the ledger has a row, but not one of hers.
+			await addExpense(request, fixture, fixture.tripId, {
+				description: 'Taxi for two',
+				amount: 30,
+				payerId: fixture.userId,
+				participantIds: [fixture.userId, members['Bob']]
+			});
+			await signIn(page, fixture.sessionCookie);
+			await page.goto(`/trips/${fixture.tripId}/expenses`);
+
+			await expect(page.getByText('Taxi for two')).toBeVisible();
+
+			await chooseInSelect(page.locator('body'), copy.viewAs.label, 'Alice');
+
+			// A computed nothing, so it names who it found nothing for and shows no
+			// graphic. "Nothing added yet" would be false of a ledger with a row in it.
+			await expect(page.getByText(NONE_FOR_MEMBER('Alice'), { exact: true })).toBeVisible();
+			await expect(page.getByText(copy.common.nothingAdded, { exact: true })).toHaveCount(0);
+		} finally {
+			fixture.teardown();
 		}
 	});
 });
