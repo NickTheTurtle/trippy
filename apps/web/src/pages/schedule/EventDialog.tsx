@@ -282,7 +282,11 @@ export default function EventDialog({
 						    the clock moves up beside it, and a journey's mode takes the
 						    half of the second row the people used to share, with the
 						    people running full width underneath. No row is left half
-						    empty for any of the five types. */}
+						    empty for any of the five types.
+
+						    The clock and whatever shares its row take the whole width
+						    below `sm`: two clocks of three segments each do not fit in
+						    half of a 390px dialog. */}
 						<div className="grid grid-cols-12 gap-x-2.5 gap-y-3.5">
 							{placeable && (
 								<FieldShell label={placeText} optional className="col-span-8">
@@ -318,7 +322,10 @@ export default function EventDialog({
 									onCheckOut={setCheckOut}
 								/>
 							) : (
-								<FieldShell label="When" className={placeable ? 'col-span-6' : 'col-span-8'}>
+								<FieldShell
+									label="When"
+									className={placeable ? 'col-span-12 sm:col-span-6' : 'col-span-12 sm:col-span-8'}
+								>
 									<div className="tfpair">
 										<TimeField
 											value={startMin}
@@ -336,7 +343,7 @@ export default function EventDialog({
 								</FieldShell>
 							)}
 							{type === 'travel' && (
-								<FieldShell label="Mode" optional className="col-span-6">
+								<FieldShell label="Mode" optional className="col-span-12 sm:col-span-6">
 									<Select value={mode} onChange={setMode} options={MODE_OPTIONS} ariaLabel="Mode" />
 								</FieldShell>
 							)}
@@ -349,7 +356,7 @@ export default function EventDialog({
 									staying
 										? 'col-span-4'
 										: placeable && type !== 'travel'
-											? 'col-span-6'
+											? 'col-span-12 sm:col-span-6'
 											: 'col-span-12'
 								}
 							/>

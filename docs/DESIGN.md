@@ -3121,6 +3121,10 @@ up beside it, with the people running full width underneath. A journey's Mode
 takes the half of the second row the people used to share, for the same reason.
 Every one of the five types now fills every row it draws.
 
+Below `sm` the clock takes the whole row and so does whatever shared it. The
+meridiem made the pair wide enough that half of a 390px dialog clipped the end
+time mid-digit, which reads as a different time rather than as a truncation.
+
 ## Shared UI conventions
 
 These exist so five pages don't each invent their own version. Reach for them

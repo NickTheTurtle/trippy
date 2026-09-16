@@ -224,7 +224,11 @@ export default function AddEventDialog({
 					    added and the name now follows from it: there is no name field,
 					    so the first row is the place and the type. Free time has no
 					    place at all, so its type keeps the narrow half of the row and
-					    the clock moves up beside it rather than leaving a hole. */}
+					    the clock moves up beside it rather than leaving a hole.
+
+					    The clock and whatever shares its row take the whole width
+					    below `sm`: two clocks of three segments each do not fit in
+					    half of a 390px dialog. */}
 					<div className="grid grid-cols-12 gap-x-2.5 gap-y-3.5">
 						{placeable && (
 							<FieldShell label={placeText} optional className="col-span-8">
@@ -252,7 +256,10 @@ export default function AddEventDialog({
 								onCheckOut={setCheckOut}
 							/>
 						) : (
-							<FieldShell label="When" className={placeable ? 'col-span-6' : 'col-span-8'}>
+							<FieldShell
+								label="When"
+								className={placeable ? 'col-span-12 sm:col-span-6' : 'col-span-12 sm:col-span-8'}
+							>
 								<div className="tfpair">
 									<TimeField
 										value={startAt}
@@ -274,7 +281,9 @@ export default function AddEventDialog({
 							onChange={setPeople}
 							memberOptions={memberOptions}
 							crews={crews}
-							className={staying ? 'col-span-4' : placeable ? 'col-span-6' : 'col-span-12'}
+							className={
+								staying ? 'col-span-4' : placeable ? 'col-span-12 sm:col-span-6' : 'col-span-12'
+							}
 						/>
 
 						<TextArea
