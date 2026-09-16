@@ -443,6 +443,46 @@ model exists to record. The trip's places, stays, expenses, tasks and people are
 all untouched; only the scheduled blocks were lost, and only after the owner
 confirmed they were disposable.
 
+#### Empty means everyone, and the one list of people that is refused
+
+An event assigned to the whole group is stored as **no `event_people` rows at
+all**, and that is deliberate rather than incidental. It is the only form that
+survives somebody joining the trip: a frozen list of today's ids would quietly
+leave the next member out of every block that was on "everyone" when they
+arrived. The same emptiness is the wire form. `PeoplePicker` normalizes a full
+roster back to `[]` before it sends, so `people: []` is what both the create
+(`POST .../schedule/events`) and the replace (`PUT .../schedule/events/:id/people`)
+carry every time the whole group is on a block. Empty is displayed as every name
+ticked, because empty ticks read as nobody, but it is stored and sent empty.
+
+The consequence worth writing down is that **"nobody" is not representable, by
+design**. There is no third state between "these named people" and "everybody",
+in the database or on the wire, and asking for one would be a schema change plus
+a migration. The owner considered adding that state, in order to reject an
+event with nobody on it outright, and **declined it**: the two payloads are the
+same bytes, so denying the one would deny the other, and the product would lose
+its commonest save to protect against a state nothing can store. Free time, not
+an empty participant list, remains how the schedule says somebody is not
+involved. This is settled; please do not relitigate it by adding a flag column.
+
+What *is* refused, at the API and on both write paths, is a list that **names
+people and names nobody this trip has**. That payload is a genuine mistake, and
+until now it was silently rewarded: `writePeople` filters to the roster before
+writing, so a body of ids from another trip, or of people who have since left,
+wrote zero rows and the event came back as everyone. The opposite of what was
+asked for, with no way to notice. It now answers `400` with
+`{"error":"Nobody in that list is on this trip. Pick from the trip's members."}`,
+the same envelope every other refusal in the API uses.
+
+The boundary is exactly there and no wider. A **partial** list still succeeds
+with the members it names: four members and one stale id saves the four, because
+a roster changes under an open dialog and dropping the person who left is the
+right answer. Only the all-unknown case fails, because that is the only one
+where the caller's intent cannot be honoured at all. The check lives in
+`routes/schedule.ts` rather than in `writePeople`, since the route is the layer
+that still has somewhere to put the reason, and pushing it down would turn every
+partial list into a refusal too.
+
 ### M3.3: The toolbar is bounded at both ends
 
 Two controls decide which board you are looking at, and both were unbounded in
