@@ -1702,20 +1702,24 @@ export default function Schedule() {
 						/>
 						{anchor && stayBands(anchor)}
 						{anchor ? (
-							view === 'agenda' ? (
-								agendaBoard()
-							) : (
-								/* The day's viewport. The stepper and the lodging band are
-								   outside it on purpose: they name the hours, so they stay
-								   while the hours scroll. */
-								<div
-									className="boardscroll"
-									ref={scrollRef}
-									style={viewH ? { maxHeight: `${viewH}px` } : undefined}
-								>
-									{dayBoard(anchor, { lanePx: laneW || 560, measure: true })}
-								</div>
-							)
+							/* The board's viewport, whichever board is in it. The stepper and
+							   the lodging band are outside it on purpose: they name the day,
+							   so they stay while the day scrolls. The agenda used to be left
+							   out of it, on the reasoning that a list that short did not need
+							   a box; a full day of a busy trip is forty rows, and the agenda
+							   then scrolled the title and the stepper off the top exactly as
+							   the hours used to. It is the same box because it is the same
+							   complaint, and `max-height` costs a short day nothing: no
+							   overflow, no scrollbar. */
+							<div
+								className={view === 'agenda' ? 'boardscroll list' : 'boardscroll'}
+								ref={scrollRef}
+								style={viewH ? { maxHeight: `${viewH}px` } : undefined}
+							>
+								{view === 'agenda'
+									? agendaBoard()
+									: dayBoard(anchor, { lanePx: laneW || 560, measure: true })}
+							</div>
 						) : null}
 					</div>
 				</div>
