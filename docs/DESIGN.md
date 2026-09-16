@@ -675,6 +675,23 @@ the per-person amounts are still typed as positive magnitudes and checked agains
 Validation is doubled: the client disables Save when `exact` amounts don't add up, and the
 server independently re-checks and fails the action.
 
+**Read as one person, the ledger is signed.** With "View as" set to a member, a row shows
+what it did to that person's balance rather than the gross share it charged them: the
+payer's converted total, minus their own share. That is the arithmetic `balances()` runs
+over the whole ledger, read one row at a time, so the signed rows add up to exactly the
+figure the balances panel gives that member. A settlement needs no special case, because it
+is stored as the payer covering the recipient in full: whoever handed the money over goes
+up, whoever received it goes down. The list also keeps a row the viewer paid but takes no
+share of, which the older share-only reading dropped even though it is the plainest credit
+they have. With "Everyone" selected there is no sign at all: a shared cost has no direction
+from the group's point of view. The `+` and the minus carry the meaning and the accent and
+danger colours only repeat it, which is the balances panel's treatment rather than a second
+visual language.
+
+**Settle up is one column at every width.** A transfer reads as a sentence ("A pays B $30")
+and sentences side by side are harder to scan than a list, so the auto-fill grid that gave a
+phone one column and a desktop three now gives every width one.
+
 ---
 
 ## 4. Cross-cutting Technical Design
