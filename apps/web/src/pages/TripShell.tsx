@@ -87,6 +87,7 @@ export default function TripShell() {
 	// Breakpoints the header reads to decide how many faces to show; see `faces`.
 	const wideHeader = useMediaQuery('(min-width: 1024px)');
 	const mediumHeader = useMediaQuery('(min-width: 640px)');
+	const roomyHeader = useMediaQuery('(min-width: 400px)');
 
 	// The header carries the name, the dates, the member avatars and the city
 	// strip, so it follows all three of those topics.
@@ -120,8 +121,12 @@ export default function TripShell() {
 	 * that. So it gives up faces as the width tightens rather than holding a
 	 * fixed 299px and squeezing the title into nothing. The count has to be
 	 * computed rather than styled, since hiding faces in CSS would leave "+N"
-	 * lying about how many were left out. */
-	const faces = wideHeader ? 8 : mediumHeader ? 5 : 3;
+	 * lying about how many were left out.
+	 *
+	 * Below 400px it gives up one more: the dates now share that row, and
+	 * measured at 360px the third face is what pushes them onto a second
+	 * line. */
+	const faces = wideHeader ? 8 : mediumHeader ? 5 : roomyHeader ? 3 : 2;
 	const extra = trip.members.length - faces;
 
 	return (
@@ -130,21 +135,35 @@ export default function TripShell() {
 				<div className="container">
 					<Link
 						to="/trips"
-						className="inline-block pt-5 pb-2.5 text-body text-ink-faint hover:text-accent"
+						className="inline-block pt-3 pb-1.5 text-body text-ink-faint hover:text-accent sm:pt-5 sm:pb-2.5"
 					>
 						{c.backToTrips}
 					</Link>
 
-					<div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
-						{/* A real basis, not just `min-w-0`: a title that can shrink to
-						    nothing never pushes the roster onto its own line, and the
-						    header collapsed to one letter per line on a phone. */}
-						<div className="min-w-0 flex-1 basis-72">
-							<h1 className="text-title [overflow-wrap:anywhere]">{trip.name}</h1>
-							<p className="muted">{trip.dates}</p>
-						</div>
+					{/* Title, dates, roster: two rows on a phone and two columns above it.
+					    Measured, the header band was 221px of a 390px screen and the
+					    board below it was on its floor. The roster used to drop onto a
+					    row of its own as soon as the title needed the width, which left
+					    the dates on one line with nothing beside them and the faces on
+					    the next with nothing beside them either: two rows to say what
+					    fits on one. Below 640px the dates and the roster share the
+					    second row, which is 37px of the day given back.
 
-						<div className="flex shrink-0 items-center">
+					    The grid replaces a `flex-wrap` with a 288px basis. The basis
+					    existed to stop a shrinking title dragging the roster onto its
+					    own line; a `minmax(0, 1fr)` column cannot do that in the first
+					    place, and it keeps a long name wrapping inside its own column
+					    rather than squeezing the faces. The title keeps its size at
+					    every width: it is what says which trip this is, and a page
+					    title shrunk to a section heading on the screen where the
+					    context is smallest reads as a mistake. */}
+					<div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 sm:items-start sm:gap-x-4 sm:gap-y-0">
+						<h1 className="col-span-2 text-title [overflow-wrap:anywhere] sm:col-span-1">
+							{trip.name}
+						</h1>
+						<p className="muted col-start-1">{trip.dates}</p>
+
+						<div className="col-start-2 row-start-2 flex shrink-0 items-center justify-self-end sm:row-span-2 sm:row-start-1 sm:self-start">
 							{trip.members.slice(0, faces).map((m, i) => (
 								<Avatar key={`${m}-${i}`} title={m} label={m[0]} />
 							))}

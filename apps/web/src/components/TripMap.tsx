@@ -148,6 +148,7 @@ export default function TripMap({ tracks }: { tracks: MapTrack[] }) {
 
 	useEffect(() => {
 		let cancelled = false;
+		let ro: ResizeObserver | null = null;
 		import('leaflet').then((mod) => {
 			if (cancelled || !elRef.current) return;
 			const L = mod.default;
@@ -164,10 +165,19 @@ export default function TripMap({ tracks }: { tracks: MapTrack[] }) {
 			map.on('click', () => layerRef.current?.hide(true));
 			mapRef.current = map;
 			draw();
+			/* Leaflet reads the size of its container once and caches it, so a box
+			   that is sized from the page rather than from a stylesheet, as the
+			   schedule's is, leaves it drawing into a size that no longer exists:
+			   tiles short of the bottom edge and a centre that is no longer the
+			   centre. It has to be told. `invalidateSize` keeps the centre where
+			   the reader left it and only fills in what the new size exposes. */
+			ro = new ResizeObserver(() => map.invalidateSize({ animate: false }));
+			ro.observe(elRef.current);
 		});
 
 		return () => {
 			cancelled = true;
+			ro?.disconnect();
 			overlays.current = [];
 			layerRef.current?.destroy();
 			layerRef.current = null;

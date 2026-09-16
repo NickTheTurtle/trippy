@@ -69,6 +69,38 @@
 	font-size: 1.1rem;
 	min-width: 8rem;
 	text-align: center;
+	position: relative;
+	display: inline-flex;
+	justify-content: center;
+}
+/* The day name is the jump control, so it has to look like something you can
+   press without turning into a third button between the two arrows: the dotted
+   underline is the affordance, and the colour only moves on hover. */
+.sched .daypick {
+	font: inherit;
+	color: inherit;
+	background: none;
+	border: 0;
+	padding: 0 0.2rem 0.05rem;
+	cursor: pointer;
+	border-bottom: 1px dashed var(--color-ink-faint);
+}
+.sched .daypick:hover,
+.sched .daypick:focus-visible {
+	color: var(--color-accent-ink);
+	border-bottom-color: var(--color-accent);
+}
+/* The real picker, under the label it opens. It keeps the label's box so the
+   platform anchors the calendar to the day name rather than to the corner of
+   the card, and it takes no clicks of its own: the button on top does that. */
+.sched .daypickfield {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	opacity: 0;
+	pointer-events: none;
+	border: 0;
+	padding: 0;
 }
 /* The view switch shares `.pills` with Discover's type filter; see index.css.
    The links stay links because the schedule's view is addressable. */
@@ -94,6 +126,23 @@
 
 /* --- Board shell --------------------------------------------------------- */
 
+/* The page's trailing air, handed back to the board.
+ *
+ * Every page keeps 96px under its last section, which is right for a page that
+ * ends where its content ends. This one is built to end at the bottom of the
+ * screen: the board card reaches the fold by design, so that air did nothing
+ * but push the page past the fold and grow a second scrollbar around a board
+ * that already has its own. `--tailpull` is measured in `Schedule.tsx` and is
+ * never more than the air that is really there, so a board too tall for the
+ * screen still scrolls the page down to its last row.
+ *
+ * Not on a phone, where the map is under the board rather than beside it: the
+ * page has to scroll there whatever this does, and the air under the map is the
+ * end of the page doing its job. */
+.sched {
+	margin-bottom: calc(-1 * var(--tailpull, 0px));
+}
+
 .sched .split {
 	display: grid;
 	grid-template-columns: 1fr 420px;
@@ -103,11 +152,15 @@
 .sched .boardcol {
 	min-width: 0;
 }
+/* The card around the board. Its bottom padding is half its top one, because
+   the box inside it ends flush with its own last row and the air under the
+   card is measured into the box's height: every pixel kept here is a pixel of
+   the day that is not drawn. */
 .sched .board {
-	padding: 1rem 1rem 1rem 0;
+	padding: 1rem 1rem 0.5rem 0;
 	overflow: visible;
 }
-/* The day's own viewport.
+/* The board's viewport, whichever board is in it.
  *
  * The grid is as tall as the day it draws, around nineteen hours at a pixel a
  * minute, so on every screen it is taller than the screen. Scrolling the page to
@@ -131,6 +184,69 @@
 	max-height: 70vh;
 	overflow-x: hidden;
 	overflow-y: auto;
+	/* Room for the hour label that hangs above the first rule.
+	 *
+	 * An hour is written across its own line rather than under it, so the label
+	 * sits about ten pixels higher than the rule it names. That used to overflow
+	 * a box that did not clip; this one does, and the first hour of every day
+	 * came out sliced in half lengthways, which is the "the time is cut off" of
+	 * the report. The padding is on the scroller rather than on the grid because
+	 * the grid's own children are positioned against its padding box and would
+	 * not have moved. It scrolls away with the first hour, so nothing below is
+	 * pushed off the bottom. Paired with `BOARD_PAD_PX` in `Schedule.tsx`, which
+	 * is what the drag uses to keep the block it is holding inside the box. */
+	padding-top: 12px;
+	/* The board is a card, not a window frame, and the platform scrollbar it
+	   grew when the hours moved inside it arrived with stepper arrows and a
+	   white track hard against the card's edge. This is the same bar in the
+	   page's own language: a soft pill in the line colour, thickening under the
+	   pointer. It stays visible rather than fading, because inside a card with
+	   no other edge to read it is the only thing that says the hours go on.
+
+	   The standard properties are quarantined below rather than written here,
+	   because a browser that has both takes the standard pair and drops the
+	   `::-webkit-` rules, and Chromium's `thin` bar comes with the stepper
+	   arrows this is trying to be rid of. Firefox, which has no `::-webkit-`
+	   scrollbar at all, picks them up instead. */
+}
+@supports not selector(::-webkit-scrollbar) {
+	.sched .boardscroll {
+		scrollbar-width: thin;
+		scrollbar-color: color-mix(in srgb, var(--color-ink-faint) 55%, transparent) transparent;
+	}
+}
+.sched .boardscroll::-webkit-scrollbar {
+	width: 10px;
+}
+.sched .boardscroll::-webkit-scrollbar-track {
+	background: transparent;
+}
+.sched .boardscroll::-webkit-scrollbar-button {
+	/* Chromium still draws stepper arrows once the bar is styled at all. */
+	display: none;
+}
+.sched .boardscroll::-webkit-scrollbar-thumb {
+	/* Drawn into the content box of a transparent border, which is what insets
+	   a 6px pill inside a 10px bar without a second element to pad it. */
+	background-color: color-mix(in srgb, var(--color-ink-faint) 55%, transparent);
+	background-clip: content-box;
+	border: 2px solid transparent;
+	border-radius: 999px;
+}
+.sched .boardscroll::-webkit-scrollbar-thumb:hover {
+	background-color: var(--color-ink-faint);
+}
+/* The agenda in the same box.
+ *
+ * It holds a list rather than a grid, so the two things the grid needed from
+ * the box it does not: there is no hour label hanging above the first row to
+ * leave room for, and nothing is positioned absolutely, so the rows simply
+ * stack and the box clips them. The padding goes instead where a list wants it,
+ * a little air under the last row so the final row does not sit on the edge of
+ * the card when the list is scrolled to its end. */
+.sched .boardscroll.list {
+	padding-top: 0;
+	padding-bottom: 0.4rem;
 }
 /* The board's title bar: the day it is drawing, and the way to the next one.
    Centred over the board rather than left-aligned in the toolbar, because it
@@ -497,6 +613,32 @@
 	position: sticky;
 	top: 80px;
 }
+/* Beside the board, the map is as tall as the board.
+ *
+ * `.gmapbox` is 420px wherever it appears, which is a sensible figure for a
+ * card in a column of cards and the wrong one here: the board next to it is
+ * measured against the screen, so the map was ending 138px above it and
+ * leaving a column of nothing under it. Stretching the row and letting the map
+ * fill its card means the two columns end together at every window height,
+ * with one derivation behind both rather than a number each.
+ *
+ * Only where the map is a column. Under the board on a phone it is a card in a
+ * scrolling page again, and 420px is right again. */
+@media (min-width: 901px) {
+	.sched .split {
+		align-items: stretch;
+	}
+	.sched .mapwrap {
+		display: flex;
+		flex-direction: column;
+	}
+	.sched .mapwrap .gmapbox,
+	.sched .mapwrap .mapbox {
+		flex: 1;
+		min-height: 0;
+		height: auto;
+	}
+}
 /* The agenda is a board in its own right now, so it takes the board card's
    padding and only makes up the left gutter the day grid uses for its hours. */
 .sched .agenda {
@@ -553,6 +695,11 @@
 }
 
 @media (max-width: 900px) {
+	.sched {
+		/* The map is under the board here, so the page scrolls whatever this
+		   does, and the air under the last card is the end of the page. */
+		margin-bottom: 0;
+	}
 	.sched .split {
 		grid-template-columns: 1fr;
 	}
@@ -691,6 +838,94 @@
 	}
 	.sched .schedule .jmode {
 		flex: 1 1 auto;
+	}
+}
+
+/* The toolbar's second line, laid out rather than fallen into.
+ *
+ * Measured: the row holds a one-line layout down to 484px and wraps at 480,
+ * which is where this takes over, so no width that fits today is broken into
+ * two by it. What the wrap gave was a first line holding only the view switch
+ * with two hundred pixels of nothing beside it, and a second line holding the
+ * "view as" control with the page's primary action jammed against it, which is
+ * the "looks weird" of the report: nothing wrong with either line except that
+ * neither was chosen.
+ *
+ * Two lines is still the right answer at 390px, so these are the two lines:
+ * what you are looking at and the button that adds to it on the first, who you
+ * are looking as on the second, with the select taking the rest of that line
+ * so it is a comfortable target rather than a 9.5rem box with a gap after it.
+ * `+ Add` keeps the top line and the right edge it holds at every other width,
+ * which is also the convention that a section's action button rides on the
+ * section's own row.
+ *
+ * `.tools` becomes `display: contents` so its two children can take their own
+ * places in this grid. It carries no role and no styling of its own, so it has
+ * nothing to lose by not generating a box. */
+@media (max-width: 480px) {
+	.sched .toolbar {
+		display: grid;
+		grid-template-columns: 1fr auto;
+		align-items: center;
+		column-gap: 0.8rem;
+		row-gap: 0.6rem;
+	}
+	.sched .toolbar .tools {
+		display: contents;
+	}
+	.sched .toolbar .pills {
+		grid-area: 1 / 1;
+		/* The column is the flexible one, so without this the switch would
+		   stretch to fill it and read as a wide empty box with two words in it. */
+		justify-self: start;
+	}
+	.sched .toolbar .btn.primary {
+		grid-area: 1 / 2;
+	}
+	.sched .toolbar .viewas {
+		grid-area: 2 / 1 / 3 / 3;
+	}
+	.sched .toolbar .viewas .sel {
+		flex: 1;
+		width: auto;
+	}
+
+	/* The rest of this block is about how much of the phone the chrome above
+	   the day is allowed to eat, which is what "collapses uncomfortably" turned
+	   out to be. Measured at 390px, 583px of the 900px screen stood above the
+	   first hour: 65 of page header, 175 of trip title, dates and roster, 45 of
+	   tabs, then 249 that belongs to this page. The board got the 320px floor,
+	   which is not a day, it is a slot.
+	 *
+	 * The lodging band was the single worst row. It is indented 56px to line up
+	 * with the day grid's hour gutter, which is worth having beside a wide
+	 * board and not worth 56px of a phone: with the indent the stay chip and
+	 * `+ Add stay` no longer fit on one line, so the band wrapped to two and
+	 * cost 39px. Flush left it is one row again, which also puts the action
+	 * back on its section's own row. Measured, the indent is what breaks it:
+	 * the band fits at 430px with the indent and not at 390px.
+	 *
+	 * The rest is rhythm. The gaps here were set for a page with room around
+	 * it; each one trimmed is a strip of the day drawn instead, and the day is
+	 * what the reader came for. Worth 24px between them at every narrow width.
+	 *
+	 * Together: 63px back at 390px, board box 320 to 363, and 360px gets the
+	 * same 63 with the floor taking part of it. The "View as" label stays. It
+	 * is the one label here that is not repeating its control: the select shows
+	 * a name, and the name alone does not say that the board is being read
+	 * through that person's eyes. */
+	.sched .toolbar {
+		margin-bottom: 0.7rem;
+	}
+	.sched .board {
+		padding-top: 0.6rem;
+	}
+	.sched .boardhead {
+		margin-bottom: 0.6rem;
+		padding-bottom: 0.6rem;
+	}
+	.sched .stayband {
+		margin-left: 0;
 	}
 }
 

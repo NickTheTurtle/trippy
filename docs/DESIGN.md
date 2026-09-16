@@ -3114,9 +3114,20 @@ labels and moves the hours.
 So the hours move on their own. `.boardscroll` is a box between the lodging band
 and the bottom of the screen; the grid scrolls inside it, and the stepper and the
 band stand outside it and stay. The hour gutter is inside, because it is the
-axis: pinning it would pin the times to rows that had moved away from them. The
-day view alone gets the box. The agenda is a list of the day's rows, short by
-construction, and boxing a list only makes two scrollbars out of one.
+axis: pinning it would pin the times to rows that had moved away from them.
+
+**The agenda is in the same box.** It was left out at first, on the reasoning
+that a list of the day's rows is short by construction and boxing a list only
+makes two scrollbars out of one. That held for the seeded days and not for a real
+one: a full day is forty rows, and the owner hit a day where the agenda ran past
+the bottom of the screen and took the day's title and stepper with it, which is
+the complaint the box was built to answer. So both boards now render inside one
+`.boardscroll`, with the same measured height, the same 320px floor and the same
+`70vh` fallback: one mechanism, not two. A `list` modifier drops the 12px of
+head room the hour labels need, since a list has no label hanging above its first
+row, and adds a little air under the last one. Nothing is imposed on a short
+agenda, because the box is a `max-height`: a nine-row day measures 321px tall in
+a box that would allow 500, so it does not scroll and shows no bar at all.
 
 **The height is measured, not stated.** The box's top depends on a toolbar that
 wraps at narrow widths and a lodging band that may hold nothing or three stays,
@@ -3174,6 +3185,261 @@ made the board a trap at exactly the width with nowhere else to swipe.
 full-bleed header stop short of the right edge (see "The header reaches the right
 edge") stays gone; this box is a descendant, and the page keeps the browser's
 default gutter behaviour.
+
+#### What the box cost, and what it was not
+
+Three reports arrived together once the box was live: the drag had gone slow, the
+scrollbar looked bad, and the time was cut off. They are three separate things,
+and only two of them are the box's fault.
+
+**The slow drag was not forced layout.** The obvious suspect was the box being
+measured per pointer move, `getBoundingClientRect` and `scrollY` read in the same
+frame as a style write. Measured against the running dev server, it was not: the
+drag read a rect about 1.5 times a move and spent roughly 0.3ms each in Layout
+and Recalc Style. What it did instead was commit a render of the entire page on
+every move, because the drag lives in the page's state: 41 blocks, twenty legs,
+the axis, the toolbar, the router links and the map's track assembly, about
+10ms of script per move and 13.5KB of `JSON.stringify` per move on the map's
+account alone. The board is therefore split into `memo` components at module
+scope, each taking primitives or identity-stable props (`left` and `width` rather
+than the layout object that is rebuilt every render, a member count rather than
+the member array, precomputed strings for a leg), the map's tracks are a
+`useMemo`, and the handlers they are given are `useCallback`s so the memo holds.
+A move now costs about 5.4ms with a p95 move-to-commit of 8ms, down from 18ms.
+
+**The ref stays the truth, and state is a frame behind it.** Pointer moves write
+`dragRef` synchronously and mark the board dirty; the edge-travel rAF loop makes
+the single `setDrag` for the frame. Coalescing state is safe only because nothing
+that has to be exact reads state: pointer-up, the click-versus-drag guard and the
+resize all read the ref, so a resize with one move between down and up still
+lands on the minute it was released at.
+
+**The scrollbar is the page's, not the platform's.** Inside a card, the native
+bar arrived with stepper arrows and a white track hard against the card's edge. It
+is now a 6px pill inset in a 10px bar, `--color-ink-faint` at 55 percent and full
+strength under the pointer, on a transparent track. It does not fade, because in a
+card with no other edge to read it is the only thing that says the hours go on.
+The standard `scrollbar-width` and `scrollbar-color` are quarantined in an
+`@supports not selector(::-webkit-scrollbar)` block: a browser that has both
+prefers the standard pair and drops the `::-webkit-` rules, and Chromium's `thin`
+bar brings the arrows back. Firefox, which has no `::-webkit-` scrollbar, takes
+them instead. The root gutter decision is untouched.
+
+**The time was cut off at the top, and the gutter was innocent.** An hour is
+written across its own rule rather than under it, so `.hourline span` sits at
+`top: -0.6rem` and the first label of the day hangs about 9.6px above the grid.
+The old page did not clip and the box does, so the first hour came out sliced in
+half lengthways: 8.8px of it, measured, at every width. The gutter was never the
+problem, since "6 AM" measures about 29px inside its 48px box, so the gutter is
+unchanged and the scroller leaves 12px above the first hour instead. The padding
+is on the scroller rather than on `.daygrid`, because the grid's children are
+positioned against its padding box and would not have moved, and because the grid
+carries an inline pixel height. `BOARD_PAD_PX` repeats it in `Schedule.tsx`, where
+the drag's clamp has to add it to keep the held block inside the box.
+
+**Both midnights are named.** The closing rule of the day used to be left bare, on
+the reasoning that a board dragged fully open would otherwise carry two "12 AM"s,
+one under the other. Measured, they are a day and 1440px apart with twenty-three
+named hours between them, and the box is capped at 70vh, so a screen has to be
+over about 2050px tall before both are even on screen at once. What the bare rule
+cost was paid on every ordinary board instead: the day ran 11 PM, blank, and
+stopped without saying where. Each midnight is true where it sits, one opening the
+day and one closing it, so both are written. The closing label is not what was
+being clipped: it sits 7px clear of the bottom of the box, inside the 16px the
+grid already carries past its last rule. Top clipping and the missing label were
+two bugs, not one.
+
+**The schedule toolbar has two rows on a phone, and they are chosen ones.** The
+row carries three things: the `Day | Agenda` pills, the "View as" person filter
+and `+ Add`. Measured, they hold one line down to 484px and wrap at 480px, and
+what the wrap produced was not two rows so much as two leftovers: the pills alone
+with 200px of nothing beside them, then the filter with `+ Add` jammed against
+it. Below 480px the row is therefore laid out on purpose as a two-column grid.
+The pills take the top left and `+ Add` the top right, which keeps the
+convention that a section's action sits on the section's own row; "View as"
+spans the second row with its select stretched to the full width, which is the
+one control here that gains from being wide, since it holds people's names. The
+breakpoint is the measured one, so no width that fits today is broken in two.
+`.tools`, the wrapper that grouped the filter with the button, is
+`display: contents` at that width: it carries no styling of its own, so it loses
+nothing by not generating a box, and its children become grid items directly.
+
+**Two rows were still not the answer on their own: the chrome was.** The verdict
+on that layout was that the header still "collapses uncomfortably" at narrow
+widths, so the whole stack above the day was measured rather than the toolbar
+alone. At 390x900, 583px of the 900px screen stood above the first hour: 65px of
+page header, 175px of trip title, dates and roster, 45px of tabs, and 249px
+belonging to this page (toolbar 84 plus its 19px margin, day title row 45,
+lodging band 75, card padding 16 and the gaps between). The board was left on
+its 320px floor, which is not a day, it is a slot. The accumulation was the
+complaint, not any single row.
+
+Three things changed, all inside the schedule's own 249px. The lodging band is
+indented 56px to line up with the hour gutter, which is worth having beside a
+wide board and not worth 56px of a phone: with the indent the stay chip and
+`+ Add stay` no longer fit on one line, so the band wrapped to two rows and cost
+39px. Flush left below 480px it is one row again, which also restores the
+convention that the section's action rides on its own row. Measured, the indent
+is exactly what breaks it, since the band still fits at 430px with it and not at
+390px. The vertical rhythm around the toolbar, the card's top padding and the
+day title's rule were set for a page with room around it; trimmed at that width
+they give back another 24px. And the height measurement now re-runs on
+`document.fonts.ready`: the web font is narrower than the fallback, so the band
+comes back to one row after the first paint, and because the box absorbs what
+the band gives back, the card's own height does not change and the observer
+watching it never fires. That stale measurement was worth another 34px.
+
+Together the chrome falls from 583px to 520px at 390px and the board box grows
+from 320 to 363, an hour and a half more of the day for no loss of control. At
+360px the same 63px comes back, with the floor taking part of it (320 to 330);
+at 414 and 430 the band already fitted, so the rhythm alone gives 24px (339 to
+363); at 1280 nothing moves.
+
+What was considered and not done: dropping the "View as" label at narrow widths.
+It is the one label in that row that does not repeat its control. The select
+shows a name, and a name on its own does not say that the whole board is being
+read through that person's eyes. `+ Add stay` keeps its noun by the owner's
+ruling, and it is not what was forcing the wrap; the 56px indent was.
+
+**The trip header pairs the dates with the roster on a phone.** Trimming the
+schedule's own chrome left the trip header as the largest thing above the day:
+176px of the 475px still standing above the board at 390px, measured as a 53px
+back link, a 33px title, 25px of dates and a 32px roster row, plus the gaps.
+Its `flex-wrap` layout gave the title a 288px basis so that a shrinking title
+could never drag the roster onto its own line, but below 640px the basis is
+wider than the screen, so the roster always dropped anyway. The result was two
+rows each holding one short thing: dates with empty space beside them, then
+faces with empty space beside them.
+
+A two column grid says it once. The title spans both columns, and below 640px
+the dates take the first column while the roster and its button sit right
+aligned in the second; above 640px the roster spans both rows beside the title,
+which is exactly the old desktop layout. `minmax(0, 1fr)` on the title column
+removes the reason the 288px basis existed, since a grid column cannot push a
+sized neighbour out of its track, and a long name wraps inside its own column
+rather than squeezing the faces. The back link's padding, set for a page with
+room around it, is halved below 640px.
+
+The face count gives up one more below 400px. The strip is the trip at a
+glance and the People tab is the roster, so it already sheds faces as the width
+tightens; measured at 360px the third face is precisely what pushes the dates
+onto a second line, and the count stays computed rather than styled so that
+"+N" keeps telling the truth.
+
+The title keeps `--text-title` at every width. It is what says which trip this
+is, and a page title shrunk to the size of a section heading on the screen with
+the least context around it reads as a mistake rather than as a choice. A long
+name wrapping to two lines at 360px is the honest outcome.
+
+Measured after: the header band falls from 221px to 176px at 390px, 414px and
+430px, and the board box grows from 363 to 408. At 360px the band goes 254 to
+209 and the box 330 to 375, with the dates back on one line. At 1280px every
+number is unchanged, which was the constraint.
+
+**The day name is the way to jump.** The stepper moves one day at a time, which
+is right for a five day trip and useless on a long one: the Montreal trip runs
+from September 2024 to September 2026, and the schedule offers it as hundreds of
+day columns. Rather than put a second control between the arrows, the label
+itself opens a native date picker. It needs no label of its own, since the
+control is the date; the row stays three things wide at 390px; and a phone gets
+the platform's own calendar rather than something reimplemented. The visible
+piece is still a button reading `Fri, Apr 17`, with a dashed underline as the
+affordance, and the real `input[type=date]` sits underneath it at the same box,
+taking no clicks, so the platform anchors its calendar to the day name instead
+of to the corner of the card. `showPicker()` is what opens it; where that is
+missing the input is focused instead and the platform takes over.
+
+Its `min` and `max` are the first and last day the board offers, not the trip's
+own start and end. The two differ on a long trip, because the server caps how
+many days it will serve, and a picker that offered a day the arrows cannot walk
+to and the server will clamp away would be lying about where you can go.
+
+**Typing into it needed the field to stop being controlled.** Exercising the
+jump on the long trip turned up two faults in the first cut, both on the path
+where the date is typed rather than picked, which is where a browser without
+`showPicker` lands. As a controlled input the field cannot be typed into at all:
+React restores the value after every change, so each segment is wiped before the
+next one arrives and nothing is ever entered. The field is uncontrolled now,
+with the day written back to the node when the board moves and only while the
+field is not the thing being typed into, so the calendar still opens on the day
+being drawn.
+
+The second fault is that every part-typed date is itself a complete date.
+Entering 05/01/2026 walks through 2024-05-09 and 2024-06-09 on the way, and each
+one fired a navigation, so the board jumped mid-entry, re-rendered the field
+back to where it had landed, and threw away the rest of what was being typed. A
+change with the field focused now waits 600ms for the entry to settle; a
+calendar pick arrives with the field unfocused and lands at once, measured at 18
+to 26ms. A value outside `min` and `max` is ignored rather than followed, since
+following it put a day in the url that the server then clamped away, leaving the
+address bar naming one day and the board drawing another.
+
+What that leaves is worth naming: a date inside the trip but past the served
+range is refused silently. The calendar will not select it, and a typed one does
+nothing. That is the honest behaviour available without a string to explain it,
+and the real fix is the cap itself rather than an apology for it.
+
+**A one day trip has nothing to jump to.** Where the first day the board offers
+is also the last, the picker can only re-pick the day already drawn, so the day
+name goes back to being a day name: no button, no field, no dashed underline and
+nothing in the tab order. Suppressing only the underline would have been worse
+than leaving it alone, since a keyboard would still land on a plain-looking
+thing and find nothing there. The visible text is identical either way.
+
+The test is `first === last` rather than any count of days, because two days is
+already enough to jump between. Confirmed on a two day trip built for the
+purpose: the button, the field and the underline all survive, and picking the
+second day lands on it.
+
+**One height, and the page's air belongs to the board.** The next report was
+that the board and the map could both be taller. Measured at 1280x900 before
+anything changed: the box started 458.5px down the page and came out 417.5px
+tall, the map was a flat 420px in a 422px card beside a 557px column, and the
+document was 989px against a 900px screen. So the box's formula was not the
+conservative one it looked like. Above the box sit the page header, the trip
+title and dates, the tabs, the toolbar, the day title and the lodging band, and
+under it the card's padding; all of that is real, and only about 24px of the
+total was guesswork. Two other things were wasting the screen. The page keeps
+96px of trailing air under its last section, which on a page built to end at the
+bottom of the screen only bought a second scrollbar around a board that already
+has its own. And the map was a fixed 420px in a column 135px taller than itself.
+
+The derivation is now shared and stated once: **screen height, less the box's own
+top in document coordinates, less the card's measured tail, less 8px of air,
+floored at 320px**. The 8px is the whole of the guess; the card's tail and the
+page's tail are measured rather than assumed, and `VIEW_AIR` replaces the flat
+24px gap that stood in for both. The day grid, the agenda list and the map all
+take that one number: the first two because they are the same box, the map
+because the split stretches its column and the map fills it. `.board`'s bottom
+padding went from 1rem to 0.5rem on the principle that a pixel kept there is a
+pixel of the day not drawn.
+
+The page's air is handed back through `--tailpull`, a negative bottom margin on
+`.sched` measured in the same pass that sizes the box. It is bounded by the air
+that is actually there and floored at zero, so a board too tall for the screen
+still scrolls the page down to its last row rather than losing it; and because
+both the overflow and the air are read with the current pull already applied,
+one pass lands on the fixed point instead of creeping toward it. It is written
+straight onto the node rather than held in state, so it cannot start a render
+loop. Below 901px it is off: the map sits under the board there, the page is
+meant to scroll, and pulling the tail up would only crowd it.
+
+After: the box is 424.5px, the map card 557px on the day board and 489px on the
+shorter agenda card, and the document is 900px against a 900px screen, so the
+second scrollbar is gone. The board gained 7px, which is honestly all the slack
+there was at that size; the map gained 135px, and that is the visible win. At
+390px nothing moves: the 320px floor binds, the map keeps its 420px under the
+board, and the page still scrolls, which is correct on a phone where the map is
+the next thing down rather than the thing beside.
+
+**Leaflet has to be told.** The fallback map caches its container size, so a
+container that grows under it leaves the new space blank until something fires a
+window resize. Measured with the observer removed: growing the card from 383px
+to 828px left the tiles ending 356px above the bottom of the box, six tiles for
+a box that wants twelve. A `ResizeObserver` on the map element calling
+`invalidateSize` closes it, and the same growth then fills the box with tiles
+past its bottom edge. The Google map, which is what runs when a maps key is
+configured, watches its own container and needs no equivalent.
 
 ## The board reads its clock as AM/PM
 
@@ -4312,6 +4578,20 @@ row they just ticked, inside a menu that is itself fixed above the dialog. The
 corner would put the answer as far from the question as the screen allows. It
 also fires while a modal is open, which is exactly where a toast cannot be
 dismissed.
+
+**The schedule's board writes toast; its load failure does not.** The day board
+has one write path, `act`, and the gestures go through it: a drag that
+lands, a resize that lands. It used to set a `notice` string drawn as a line
+above the board, which is the wrong place twice over. The line was above the
+fold only by luck, since the board is now a scroll box that fills the screen; and
+a refusal usually arrives while the reader is looking at the block they just
+moved, not at the top of the page. It is `toast.error` now, which also puts it in
+the top layer, so a dialog opened afterwards cannot bury it. The load failure
+that `useApi` reports is deliberately left inline: it is not the result of an
+action, it is the whole of the page's content when it fires, and a corner popup
+over a blank screen explains itself and then leaves nothing behind. The two
+event dialogs keep showing their own save failures in their own footers, which
+is beside the form that caused them and already above the board.
 
 ## The header reaches the right edge
 
