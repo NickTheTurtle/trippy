@@ -4,9 +4,8 @@ import { useMutation } from '../../hooks/useMutation';
 import { parseMoneyToCents } from '../../lib/format';
 import Modal, { ModalFooter, ModalForm } from '../../components/ui/Modal';
 import { LinkButton } from '../../components/ui/buttons';
-import { Field, FieldShell } from '../../components/ui/Field';
-import Select from '../../components/ui/Select';
-import { currencyOptions } from '../../lib/currencies';
+import { Field } from '../../components/ui/Field';
+import CurrencyPicker from '../../components/ui/CurrencyPicker';
 import SearchDropdown from '../../components/ui/SearchDropdown';
 import Cover from '../../components/Cover';
 import type { PlaceHit, PlaceHitDetails } from '../../lib/api-types';
@@ -446,14 +445,13 @@ export default function AddDialog({
 									onChange={(e) => setPrice(e.target.value)}
 									inputClassName="w-full"
 								/>
-								<FieldShell label={c.currencyLabel}>
-									<Select
-										options={currencyOptions(currencies)}
-										value={cur}
-										onChange={setCur}
-										ariaLabel={c.currencyLabel}
-									/>
-								</FieldShell>
+								<CurrencyPicker
+									label={c.currencyLabel}
+									codes={currencies}
+									value={cur}
+									onChange={setCur}
+									ariaLabel={c.currencyLabel}
+								/>
 							</div>
 						) : (
 							<Field

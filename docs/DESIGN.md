@@ -850,6 +850,24 @@ ledger underneath it used the locked one, so a euro dinner's "≈ $X" and the
 trip's total spend disagreed with the balances they were supposed to explain.
 The only rows that still convert live are those with no stored rate to use.
 
+**The currency field is a typeahead, not a dropdown.** The offline table is
+twenty codes, but every field is filled from whatever the server sends, and once
+live rates land that is roughly a hundred and sixty. A `Select` over that many
+unlabelled three-letter codes can only be scrolled, so all five currency fields
+(expense, estimate, stay price in both the add and the edit dialog, and the
+trip's home currency) are `CurrencyPicker`, a thin wrapper around the existing
+`SearchDropdown`. It needed one prop there, `openOnEmpty`: a local list is
+complete, so an empty query is all of it rather than none, which is the opposite
+of what a remote search wants. Rows carry the code and its English name and a
+query matches either, so "yen" and "jpy" find the same row. The names live in
+`apps/web/src/lib/currencies.ts` rather than beside `FALLBACK_RATES`, because
+they are display labels and they cover codes that table has never heard of,
+which must not read as currencies the app can convert offline. A code with no
+name shows as the code alone: a guessed name is worse than none, since half the
+point of it is to be searched for. The input shows the chosen code whenever it
+is not focused and becomes the query while it is, with the code as the
+placeholder behind it, so the field never hides what is selected.
+
 **Changing a password signs the other devices out.** A session here is a bearer
 credential with a 30 day life and no link back to the password it was issued
 against, so without this the usual reason to change a password (somebody else
