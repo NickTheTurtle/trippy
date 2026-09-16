@@ -15,7 +15,11 @@ const child = spawn(process.execPath, [cli, 'test'], {
 	cwd: here,
 	env: {
 		...process.env,
-		E2E_TRIPPY_DB: dbPath
+		E2E_TRIPPY_DB: dbPath,
+		// Belt to the Playwright config's braces: whatever this harness spawns,
+		// directly or indirectly, must not call a paid provider. See the note in
+		// playwright.config.ts.
+		TRIPPY_OFFLINE_PROVIDERS: '1'
 	}
 });
 
