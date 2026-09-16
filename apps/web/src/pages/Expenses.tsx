@@ -181,7 +181,26 @@ export default function Expenses() {
 								/>
 							)}
 							{shown.length === 0 ? (
-								<EmptyState graphic message={copy.common.nothingAdded} />
+								// Two different nothings. An empty ledger is a list nobody has
+								// added to yet, so it gets the drawing and the house caption.
+								// A ledger with rows in it, filtered by "View as" to none of
+								// them, is a computed answer: the drawing would say the trip
+								// has no expenses, which is false, and "Nothing added yet"
+								// would be a second false statement beside it.
+								// COPY: pending owner clearance, wanted as
+								// `copy.expenses.noneForMember: (who: string) => \`Nothing here for ${who}\``.
+								<EmptyState
+									graphic={data.expenses.length === 0}
+									message={
+										data.expenses.length === 0
+											? copy.common.nothingAdded
+											: `Nothing here for ${
+													viewAs === data.me
+														? 'you'
+														: (data.members.find((m) => m.id === viewAs)?.name ?? '')
+												}`
+									}
+								/>
 							) : (
 								<ul className="m-0 flex list-none flex-col gap-3 px-5 py-5">
 									{shown.map((e) => (

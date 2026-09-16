@@ -5231,11 +5231,14 @@ choosing between them is about what the panel is standing in for:
 Both shapes keep the same padding, centring and size, so a trip whose three
 Expenses tabs are all empty does not step up and down as you move between them.
 
-One known edge reads against the rule and is deliberately left for now: with
-"View as" set to somebody who has no rows in the ledger, the list is filtered to
-nothing rather than empty, so it is a computed state, and it still shows the
-drawing and "Nothing added yet", which is not true of a ledger with rows in it.
-Fixing it needs a sentence that does not exist in `@trippy/copy` yet.
+One edge had been reading against the rule: with "View as" set to somebody who
+has no rows in the ledger, the list is filtered to nothing rather than empty, so
+it is a computed state, yet it showed the drawing and "Nothing added yet", which
+is false of a ledger that has rows in it. It now takes the computed shape and
+says who it found nothing for, in the second person for the reader's own name,
+which is how the rest of the app addresses them. Its sentence is the one string
+here not yet in `@trippy/copy`; it is inline with a `COPY:` note naming the key
+it wants.
 
 ## Implementation status
 
