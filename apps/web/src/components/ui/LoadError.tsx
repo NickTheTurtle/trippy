@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import EmptyState from './EmptyState';
 import { useToast } from './Toast';
 import { copy } from '../../copy';
@@ -29,16 +29,12 @@ export default function LoadError({
 	/** The resolved failure, already defaulted by `useApi`. */
 	message: string;
 	/**
-	 * How to ask again. Left unset, the panel reloads the document, which is a
-	 * real second attempt: a page whose own load failed has no state to lose by
-	 * it, and the reload also clears the corner, so the answer on screen is
-	 * always the latest one.
+	 * How to ask again. `useApi` returns `reload`, which refetches only the
+	 * endpoint that failed and keeps the rest of the app alive, so it is what
+	 * the pages pass.
 	 *
-	 * `useApi` returns `reload`, which refetches only the endpoint that failed
-	 * and is the cheaper path. It is not wired anywhere yet on purpose: a
-	 * refetch that succeeds leaves the error it raised sitting in the corner,
-	 * since errors do not expire and `toast.error` gives the caller no handle to
-	 * take one back. Passing `reload` here wants that handle first.
+	 * Unset, no button is drawn. A button offering another try with nothing
+	 * behind it is worse than the line on its own.
 	 */
 	onRetry?: () => void;
 	/**
@@ -50,21 +46,27 @@ export default function LoadError({
 	className?: string;
 }) {
 	const toast = useToast();
-	/* Announced once per distinct reason. A re-render is not a second failure,
-	   and React's development mode mounts every component twice, which would
-	   otherwise put the same sentence in the corner two times over.
-	   
-	   A retry that fails the same way is deliberately not re-announced either.
-	   Errors do not expire, so the sentence is still in the corner, and a second
-	   identical one would read as a second, different problem. A retry that
-	   fails *differently* does announce, because that is news; and a retry that
-	   succeeds unmounts this panel, so the next failure after it starts clean. */
-	const announced = useRef<string | null>(null);
+	/* The corner carries the reason for exactly as long as the reason is true.
+	   Raised when this panel appears, taken back when it goes, which is what
+	   makes a retry that works leave nothing behind: `useApi` clears `error` on
+	   success, the panel unmounts, and the cleanup retracts the sentence that
+	   described a state the app is no longer in. Errors never expire on their
+	   own, so without this the corner would keep insisting the page is broken
+	   after it had loaded.
 
+	   Keying the effect on the message is also what makes it announce once.
+	   React's development mode mounts every component twice; the first mount's
+	   cleanup retracts its own toast before the second raises one, so the double
+	   mount nets out at a single row with no guard to keep.
+
+	   A retry that fails the same way does not re-announce: `error` holds the
+	   same string, the effect does not re-run, and the sentence is still sitting
+	   in the corner unexpired, so a second copy would read as a second, separate
+	   problem. A retry that fails *differently* does announce, because the
+	   message changes, and the stale reason is retracted in the same pass. */
 	useEffect(() => {
-		if (announced.current === message) return;
-		announced.current = message;
-		toast.error(message);
+		const id = toast.error(message);
+		return () => toast.dismiss(id);
 	}, [message, toast]);
 
 	if (!panel) return null;
@@ -73,13 +75,11 @@ export default function LoadError({
 			message={copy.api.loadFailed}
 			className={className}
 			action={
-				<button
-					type="button"
-					className="btn mt-1"
-					onClick={() => (onRetry ? onRetry() : window.location.reload())}
-				>
-					{copy.api.retry}
-				</button>
+				onRetry ? (
+					<button type="button" className="btn mt-1" onClick={onRetry}>
+						{copy.api.retry}
+					</button>
+				) : undefined
 			}
 		/>
 	);

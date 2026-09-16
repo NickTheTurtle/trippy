@@ -36,7 +36,7 @@ export default function Account() {
 			{/* The reason goes to the corner. The panel only appears when there is
 			    nothing else on the page: a reload that fails under a loaded form is
 			    a result, not a missing page. */}
-			{error && <LoadError message={error} panel={!data} />}
+			{error && <LoadError message={error} onRetry={reload} panel={!data} />}
 			{loading && !data && <p className="muted">{ca.loading}</p>}
 
 			{data && (

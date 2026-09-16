@@ -81,7 +81,7 @@ export default function Discover() {
 
 	/* The reason goes to the corner, the page keeps a line saying it is not
 	   there. A popup over a blank screen explains itself and leaves nothing. */
-	if (!data) return error ? <LoadError message={error} /> : null;
+	if (!data) return error ? <LoadError message={error} onRetry={reload} /> : null;
 
 	if (data.cities.length === 0) {
 		return <NoCities isOrganizer={trip.role === 'organizer'} onAddCity={() => addCity(reload)} />;

@@ -62,10 +62,21 @@ const SUCCESS_MS = 4500;
 const MAX = 4;
 
 type ToastApi = {
-	/** Ignores an empty message, so callers can pass state straight in. */
-	success: (message: string) => void;
-	error: (message: string) => void;
-	dismiss: (id: number) => void;
+	/**
+	 * Ignores an empty message, so callers can pass state straight in. Returns
+	 * the new toast's id, or null when there was nothing to say.
+	 */
+	success: (message: string) => number | null;
+	error: (message: string) => number | null;
+	/**
+	 * Takes a message back. The same call the dismiss button makes, so a caller
+	 * whose condition has passed can retract its own toast: an error that is no
+	 * longer true is a lie about the current state, and errors do not expire on
+	 * their own. Unknown and already-gone ids are a silent no-op, which is what
+	 * lets a caller retract on unmount without first checking whether the reader
+	 * got there first.
+	 */
+	dismiss: (id: number | null) => void;
 };
 
 const ToastContext = createContext<ToastApi | null>(null);
@@ -81,18 +92,20 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 	   it has to climb back to the front of the top layer. */
 	const [promotions, setPromotions] = useState(0);
 
-	const dismiss = useCallback((id: number) => {
+	const dismiss = useCallback((id: number | null) => {
+		if (id === null) return;
 		setToasts((list) => list.filter((t) => t.id !== id));
 	}, []);
 
 	const push = useCallback((tone: ToastTone, message: string) => {
-		if (!message) return;
+		if (!message) return null;
 		const id = nextId.current++;
 		// Oldest out first. A cap rather than a scroll: a corner is for the last
 		// few things that happened, and a column tall enough to need scrolling is
 		// covering the page it is reporting on.
 		setToasts((list) => [...list, { id, tone, message }].slice(-MAX));
 		setPromotions((n) => n + 1);
+		return id;
 	}, []);
 
 	const api = useMemo<ToastApi>(

@@ -43,7 +43,7 @@ export default function Expenses() {
 
 	/* The reason goes to the corner, the page keeps a line saying it is not
 	   there. A popup over a blank screen explains itself and leaves nothing. */
-	if (!data) return error ? <LoadError message={error} /> : null;
+	if (!data) return error ? <LoadError message={error} onRetry={reload} /> : null;
 
 	// Compared in whole cents, so a balance is either zero or it is not; the old
 	// 0.01 epsilon existed only because the figure arrived as a float.

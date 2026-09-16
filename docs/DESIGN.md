@@ -2301,6 +2301,15 @@ clients render the same money and the same dates, and a formatter that
 disagreed between them would be a visible bug that no type checker would catch.
 `cap()` followed the same way once the mobile cost list needed it.
 
+Editing that package from a `git worktree` needs one extra step. A worktree has
+no `node_modules` of its own, so `@trippy/copy` resolves up to the root tree's
+`node_modules/@trippy/copy`, which is a link to the _main_ checkout's
+`packages/copy`: a string added inside the worktree is invisible to `tsc` and to
+vite running there, and the failure looks like a missing key rather than a
+resolution problem. Link it before checking, with
+`New-Item -ItemType Junction -Path node_modules\@trippy\copy -Target (Resolve-Path packages\copy)`
+from the worktree root.
+
 **Auth is the same session row presented two ways.** A browser gets an httpOnly
 cookie, which is the right answer there and the one thing script cannot read. A
 native app has no cookie jar worth relying on, so it gets a bearer token. The
@@ -4044,24 +4053,34 @@ content, because a reload that fails leaves the previous data in place. There
 the failure is only a result, so `panel={false}` sends the reason to the corner
 and leaves what is on screen alone.
 
-`LoadError` announces once per distinct reason, guarded by a ref. A re-render is
-not a second failure, and React's development mode mounts every component twice,
-which without the guard put the same sentence in the corner two times over on
-the live dev server. A retry that fails the same way is not re-announced either:
-the error is still in the corner, because errors do not expire, and a second
-identical one reads as a second, different problem. A retry that fails
-_differently_ does announce, and one that succeeds unmounts the panel, so the
-next failure after it starts from a clean guard.
+`LoadError` holds the corner for exactly as long as the reason is true. The
+effect raises the toast when the panel appears and retracts it in its cleanup,
+so a retry that works leaves nothing behind: `useApi` clears `error` on success,
+the panel unmounts, and the sentence describing a state the app is no longer in
+goes with it. Errors never expire on their own, so without the retraction the
+corner would keep insisting the page was broken after it had loaded.
 
-**The retry reloads the document, and that is the honest cheap option here.**
-`useApi` returns `reload`, which refetches only the endpoint that failed, and it
-is the obvious thing to pass. It is not passed anywhere yet, because a refetch
-that succeeds leaves the error it raised sitting in the corner: errors do not
-expire and `toast.error` hands the caller no way to take one back. A document
-reload has no such problem. The page whose own load failed has no state to lose,
-and the reload clears the corner too, so what is on screen is always the latest
-answer. `LoadError` takes an `onRetry` for the day the toast API can retract a
-message; until then the default is the one that stays truthful.
+That also replaced the ref that used to guard against announcing twice. React's
+development mode mounts every component twice, and the first mount's cleanup now
+retracts its own toast before the second raises one, so the double mount nets
+out at a single row with no key to keep in sync. The key was the fragile part: a
+guard that outlives the mount has to be cleared by hand on every retraction, or
+the next genuine failure with the same wording goes unannounced.
+
+A retry that fails the same way is deliberately not re-announced. `error` holds
+the same string, the effect does not re-run, and the sentence is still sitting in
+the corner unexpired, so a second copy would read as a second, separate problem.
+A retry that fails _differently_ does announce, and retracts the stale reason in
+the same pass.
+
+**The retry refetches, it does not reload the document.** `useApi` returns
+`reload`, which asks the one endpoint that failed again and keeps the rest of the
+app alive, and all six panels pass it. That was only possible once `toast.error`
+returned an id: before it did, a refetch that succeeded left the error it raised
+sitting in the corner, and a full document reload was the one option that stayed
+truthful at the cost of throwing the SPA away for a single GET. Unset, `onRetry`
+draws no button at all, since a button offering another try with nothing behind
+it is worse than the line on its own.
 
 **The auth card raises its own.** The log in, register, forgot and reset pages
 each call `toast.error` in their own catch rather than handing a string to

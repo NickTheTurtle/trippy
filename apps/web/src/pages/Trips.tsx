@@ -41,7 +41,9 @@ export default function Trips() {
 			<section className="container grid grid-cols-1 gap-5 md:grid-cols-2">
 				{/* The reason goes to the corner. The panel only appears when the grid
 				    is empty, so a failed reload does not push the trips down. */}
-				{error && <LoadError message={error} panel={!data} className="col-span-full" />}
+				{error && (
+					<LoadError message={error} onRetry={reload} panel={!data} className="col-span-full" />
+				)}
 
 				{data?.trips.map((t) => (
 					<TripCard key={t.id} trip={t} />

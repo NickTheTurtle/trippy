@@ -51,7 +51,7 @@ export default function People() {
 
 	/* The reason goes to the corner, the page keeps a line saying it is not
 	   there. A popup over a blank screen explains itself and leaves nothing. */
-	if (!data) return error ? <LoadError message={error} /> : null;
+	if (!data) return error ? <LoadError message={error} onRetry={reload} /> : null;
 
 	const crews = section === 'crews';
 	const sections = [
