@@ -22,8 +22,14 @@ import { db } from '../db';
  * latency optimisation, not a source of truth, so a restart losing it is fine.
  */
 export interface TtlCache<T> {
-	/** Returns the cached value for `key`, or runs `load` and caches the result. */
-	take(key: string, load: () => Promise<T>): Promise<T>;
+	/**
+	 * Returns the cached value for `key`, or runs `load` and caches the result.
+	 *
+	 * `ttlFor` lets the caller price an individual answer: it is handed the
+	 * loaded value and returns how long that particular value is worth keeping.
+	 * An empty provider result is the case this exists for (see `places.ts`).
+	 */
+	take(key: string, load: () => Promise<T>, ttlFor?: (value: T) => number): Promise<T>;
 	/** Entry count, for tests. */
 	readonly size: number;
 }
@@ -32,12 +38,23 @@ export function createCache<T>(ttlMs: number, max: number): TtlCache<T> {
 	const entries = new Map<string, { expires: number; value: Promise<T> }>();
 
 	return {
-		take(key, load) {
+		take(key, load, ttlFor) {
 			const hit = entries.get(key);
 			if (hit && hit.expires > Date.now()) return hit.value;
 
 			const value = load();
-			entries.set(key, { expires: Date.now() + ttlMs, value });
+			const entry = { expires: Date.now() + ttlMs, value };
+			entries.set(key, entry);
+			if (ttlFor) {
+				void value.then(
+					(resolved) => {
+						// Re-price once the answer is known. Only this entry is touched,
+						// so a newer write for the same key is left alone.
+						if (entries.get(key) === entry) entry.expires = Date.now() + ttlFor(resolved);
+					},
+					() => {}
+				);
+			}
 			value.catch(() => {
 				// Only evict if this is still the entry we wrote; a later successful
 				// load for the same key must not be thrown away by an older failure.
@@ -94,27 +111,56 @@ export function createPersistentCache<T>(
 	const prune = db.prepare(`DELETE FROM provider_cache WHERE expires_at <= ?`);
 
 	return {
-		take(key, load) {
+		take(key, load, ttlFor) {
 			const full = `${namespace}|${key}`;
-			return mem.take(full, async () => {
-				const hit = read.get(full, Date.now()) as { value: string } | undefined;
-				// A row we cannot parse is a row from an older shape of the value.
-				// Treat it as a miss and let the fresh load overwrite it.
-				if (hit) {
-					try {
-						return JSON.parse(hit.value) as T;
-					} catch {
-						/* fall through to the load */
+			return mem.take(
+				full,
+				async () => {
+					const hit = read.get(full, Date.now()) as { value: string } | undefined;
+					// A row we cannot parse is a row from an older shape of the value.
+					// Treat it as a miss and let the fresh load overwrite it.
+					if (hit) {
+						try {
+							return JSON.parse(hit.value) as T;
+						} catch {
+							/* fall through to the load */
+						}
 					}
-				}
-				const value = await load();
-				write.run(full, JSON.stringify(value), Date.now() + ttl);
-				prune.run(Date.now());
-				return value;
-			});
+					const value = await load();
+					const rowTtl = Math.min(ttlFor ? ttlFor(value) : ttl, MAX_TTL_MS);
+					write.run(full, JSON.stringify(value), Date.now() + rowTtl);
+					prune.run(Date.now());
+					return value;
+				},
+				ttlFor
+			);
 		},
 		get size() {
 			return mem.size;
 		}
 	};
+}
+
+/**
+ * Drops stored rows in a namespace whose JSON value is one of `values`.
+ *
+ * The reason this exists: a cached empty array is a cached *outage*. When a
+ * provider was failing, "no results" got written through with the full TTL, so
+ * those queries stayed broken for a week after the provider came back, with no
+ * way to fix them short of deleting the database. Returns the number of rows
+ * removed. The in-memory layer is per-process and short-lived, so clearing the
+ * table is enough in practice; a running server drops its copy within one TTL.
+ */
+export function purgeCachedValues(namespace: string, values: readonly string[]): number {
+	if (!values.length) return 0;
+	const holes = values.map(() => '?').join(', ');
+	const stmt = db.prepare(`DELETE FROM provider_cache WHERE key LIKE ? AND value IN (${holes})`);
+	const info = stmt.run(`${namespace}|%`, ...values);
+	return Number(info.changes ?? 0);
+}
+
+/** Drops every stored row in a namespace. The blunt version, for an operator. */
+export function purgeCacheNamespace(namespace: string): number {
+	const info = db.prepare(`DELETE FROM provider_cache WHERE key LIKE ?`).run(`${namespace}|%`);
+	return Number(info.changes ?? 0);
 }

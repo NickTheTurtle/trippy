@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { requireMember } from '../middleware';
-import { billingGate, quota429, QuotaError } from '../provider-quota';
+import { billingGate, photoGate, quota429, QuotaError } from '../provider-quota';
 import { body, int, isoDay, num, optStr, str } from '../parse';
 import { fail, goneMessage, okOr } from '../respond';
 import type { Env, Trip } from '../types';
@@ -25,7 +25,7 @@ import { backfillTripPhotos } from '@trippy/server/photos';
 import { ensureRatesFresh, knownCurrencies } from '@trippy/server/fx';
 import { citySearchContext } from '@trippy/server/trips';
 import {
-	activeProvider,
+	providerStatus,
 	placeDetailsCached,
 	searchPlaces,
 	MIN_QUERY,
@@ -61,8 +61,10 @@ discover.get('/', async (c) => {
 	// Cover photos for places and stays that have never had one looked up:
 	// seeded demo data, and anything added through the keyless OSM provider.
 	// The helper owns the rules (one lookup per row ever, a cap per request, a
-	// bounded number in flight) because every lookup is billed by Google.
-	await backfillTripPhotos(trip.id);
+	// bounded number in flight) because every lookup is billed by Google. The
+	// gate is the ceiling those rules do not give: a caller who adds rows faster
+	// than the backlog drains would otherwise buy a Places call per row forever.
+	await backfillTripPhotos(trip.id, undefined, photoGate(userId));
 
 	// Stays live in their own table (they carry prices, night ranges and a single
 	// exclusive vote per city) but are presented alongside places on this page.
@@ -76,7 +78,10 @@ discover.get('/', async (c) => {
 		currencies: knownCurrencies().sort(),
 		memberCount: trip.members.length,
 		isOrganizer: trip.role === 'organizer',
-		provider: activeProvider()
+		// The provider that is actually answering, not the one configured. This
+		// drives the attribution line under the search box, and attributing an
+		// OSM result to Google is both wrong and a licence problem.
+		provider: providerStatus().serving
 	});
 });
 

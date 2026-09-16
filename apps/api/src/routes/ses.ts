@@ -1,5 +1,10 @@
 import { Hono } from 'hono';
-import { verifySnsSignature, isAllowedSnsCertUrl, type SnsMessage } from '@trippy/server/sns';
+import {
+	verifySnsSignature,
+	isAllowedSnsApiUrl,
+	rememberMessageId,
+	type SnsMessage
+} from '@trippy/server/sns';
 import { applySesNotification, type SesEvent } from '@trippy/server/suppressions';
 
 /**
@@ -32,9 +37,9 @@ type SnsType = 'SubscriptionConfirmation' | 'Notification' | 'UnsubscribeConfirm
  * message, and this is belt-and-braces on top of it.
  */
 async function confirm(subscribeUrl: string | undefined): Promise<void> {
-	if (!subscribeUrl || !isAllowedSnsCertUrl(subscribeUrl)) return;
+	if (!subscribeUrl || !isAllowedSnsApiUrl(subscribeUrl)) return;
 	try {
-		await fetch(subscribeUrl);
+		await fetch(subscribeUrl, { redirect: 'error' });
 	} catch {
 		// A failed confirmation is AWS's to retry; there is nothing to report to
 		// the caller, which is SNS itself.
@@ -55,6 +60,13 @@ ses.post('/notifications', async (c) => {
 	const genuine = await verifySnsSignature(message).catch(() => false);
 	if (!genuine) return c.body(null, 200);
 
+	// The replay gate. A signature says who wrote a message, never how many
+	// times it may be delivered, so one genuine complaint captured off the wire
+	// could otherwise be re-POSTed for as long as it stays inside the freshness
+	// window. Burned here, at the point of action, and only for a message that
+	// already verified.
+	if (!rememberMessageId(message.MessageId)) return c.body(null, 200);
+
 	const type = message.Type as SnsType | undefined;
 
 	if (type === 'SubscriptionConfirmation' || type === 'UnsubscribeConfirmation') {
@@ -66,7 +78,13 @@ ses.post('/notifications', async (c) => {
 		// The SES event rides inside the SNS envelope as a JSON string.
 		try {
 			const event = JSON.parse(message.Message ?? '') as SesEvent;
-			applySesNotification(event);
+			const applied = applySesNotification(event);
+			// One line per applied notification, so an address that stops
+			// receiving mail is something an operator can find rather than a
+			// silent disappearance.
+			if (applied.length) {
+				console.info(`[ses] notification applied, ${applied.length} address(es) suppressed`);
+			}
 		} catch {
 			// A malformed inner payload suppresses nothing and is not worth a 500;
 			// SNS would only retry a request it could never make succeed.

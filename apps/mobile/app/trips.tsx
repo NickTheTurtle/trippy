@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Pressable, RefreshControl, Text, View } from 'react-native';
 import { Redirect, router, Stack } from 'expo-router';
 import { copy } from '@trippy/copy';
-import { formatDayRange } from '@trippy/copy/format';
+import { formatDayRangeShort } from '@trippy/copy/format';
 import { useAuth } from '../src/auth';
 import { useApi } from '../src/hooks/useApi';
 import { Card, EmptyState, FormError, Loading, Screen } from '../src/ui';
@@ -85,7 +85,7 @@ export default function Trips() {
 
 function TripCard({ trip }: { trip: Trip }) {
 	const dates =
-		trip.startDate && trip.endDate ? formatDayRange(trip.startDate, trip.endDate) : trip.dates;
+		trip.startDate && trip.endDate ? formatDayRangeShort(trip.startDate, trip.endDate) : trip.dates;
 
 	return (
 		<Pressable

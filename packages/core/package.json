@@ -14,6 +14,7 @@
 		"./geo": "./src/geo.ts",
 		"./travel": "./src/travel.ts",
 		"./plan": "./src/plan.ts",
+		"./conflicts": "./src/conflicts.ts",
 		"./currency": "./src/currency.ts",
 		"./validate": "./src/validate.ts",
 		"./sample": "./src/sample.ts"

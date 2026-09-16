@@ -49,9 +49,29 @@ export type Layout = {
 	crossings: number;
 };
 
+/**
+ * Two half-open ranges share an open interval. Touching endpoints do not count,
+ * so a block that ends exactly when the next begins does not overlap it.
+ *
+ * Exported because it is the one geometric fact two different questions both
+ * need: this module asks "must these be drawn side by side", and `conflicts.ts`
+ * asks "is one person booked into both". The questions differ in what they run
+ * over (every drawable block on the day, against one person's own timeline in
+ * absolute time) but the predicate is the same, and two copies of it would be
+ * free to disagree about the boundary case.
+ */
+export function rangesOverlap(
+	aStart: number,
+	aEnd: number,
+	bStart: number,
+	bEnd: number
+): boolean {
+	return aStart < bEnd && bStart < aEnd;
+}
+
 /** Events overlap when they share any open interval (touching endpoints don't count). */
 function overlaps(a: LayoutEvent, b: LayoutEvent): boolean {
-	return a.start < b.end && b.start < a.end;
+	return rangesOverlap(a.start, a.end, b.start, b.end);
 }
 
 /**
