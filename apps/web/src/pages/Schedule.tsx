@@ -738,6 +738,14 @@ export default function Schedule() {
 		};
 		fit();
 		window.addEventListener('resize', fit);
+		/* The web font lands after the first paint, and it is narrower than the
+		   fallback: on a phone the lodging band comes back from two rows to one
+		   when it arrives. That moves the box up without changing the height of
+		   the card around it, since the box absorbs what the band gave back, so
+		   the observer below never fires and the board keeps a height measured
+		   against a layout that no longer exists. Measured, that was 34px of
+		   the day at 390px. */
+		if (document.fonts) void document.fonts.ready.then(fit);
 		// The card above the box is what moves its top: a toolbar that wraps, a
 		// lodging band that gains a stay. Watching the card catches both without
 		// a dependency list that has to list everything the board can grow.

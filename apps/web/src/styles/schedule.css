@@ -857,6 +857,44 @@
 		flex: 1;
 		width: auto;
 	}
+
+	/* The rest of this block is about how much of the phone the chrome above
+	   the day is allowed to eat, which is what "collapses uncomfortably" turned
+	   out to be. Measured at 390px, 583px of the 900px screen stood above the
+	   first hour: 65 of page header, 175 of trip title, dates and roster, 45 of
+	   tabs, then 249 that belongs to this page. The board got the 320px floor,
+	   which is not a day, it is a slot.
+	 *
+	 * The lodging band was the single worst row. It is indented 56px to line up
+	 * with the day grid's hour gutter, which is worth having beside a wide
+	 * board and not worth 56px of a phone: with the indent the stay chip and
+	 * `+ Add stay` no longer fit on one line, so the band wrapped to two and
+	 * cost 39px. Flush left it is one row again, which also puts the action
+	 * back on its section's own row. Measured, the indent is what breaks it:
+	 * the band fits at 430px with the indent and not at 390px.
+	 *
+	 * The rest is rhythm. The gaps here were set for a page with room around
+	 * it; each one trimmed is a strip of the day drawn instead, and the day is
+	 * what the reader came for. Worth 24px between them at every narrow width.
+	 *
+	 * Together: 63px back at 390px, board box 320 to 363, and 360px gets the
+	 * same 63 with the floor taking part of it. The "View as" label stays. It
+	 * is the one label here that is not repeating its control: the select shows
+	 * a name, and the name alone does not say that the board is being read
+	 * through that person's eyes. */
+	.sched .toolbar {
+		margin-bottom: 0.7rem;
+	}
+	.sched .board {
+		padding-top: 0.6rem;
+	}
+	.sched .boardhead {
+		margin-bottom: 0.6rem;
+		padding-bottom: 0.6rem;
+	}
+	.sched .stayband {
+		margin-left: 0;
+	}
 }
 
 /* --- Reduced motion ------------------------------------------------------

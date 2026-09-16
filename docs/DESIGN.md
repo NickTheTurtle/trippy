@@ -3127,6 +3127,43 @@ breakpoint is the measured one, so no width that fits today is broken in two.
 `display: contents` at that width: it carries no styling of its own, so it loses
 nothing by not generating a box, and its children become grid items directly.
 
+**Two rows were still not the answer on their own: the chrome was.** The verdict
+on that layout was that the header still "collapses uncomfortably" at narrow
+widths, so the whole stack above the day was measured rather than the toolbar
+alone. At 390x900, 583px of the 900px screen stood above the first hour: 65px of
+page header, 175px of trip title, dates and roster, 45px of tabs, and 249px
+belonging to this page (toolbar 84 plus its 19px margin, day title row 45,
+lodging band 75, card padding 16 and the gaps between). The board was left on
+its 320px floor, which is not a day, it is a slot. The accumulation was the
+complaint, not any single row.
+
+Three things changed, all inside the schedule's own 249px. The lodging band is
+indented 56px to line up with the hour gutter, which is worth having beside a
+wide board and not worth 56px of a phone: with the indent the stay chip and
+`+ Add stay` no longer fit on one line, so the band wrapped to two rows and cost
+39px. Flush left below 480px it is one row again, which also restores the
+convention that the section's action rides on its own row. Measured, the indent
+is exactly what breaks it, since the band still fits at 430px with it and not at
+390px. The vertical rhythm around the toolbar, the card's top padding and the
+day title's rule were set for a page with room around it; trimmed at that width
+they give back another 24px. And the height measurement now re-runs on
+`document.fonts.ready`: the web font is narrower than the fallback, so the band
+comes back to one row after the first paint, and because the box absorbs what
+the band gives back, the card's own height does not change and the observer
+watching it never fires. That stale measurement was worth another 34px.
+
+Together the chrome falls from 583px to 520px at 390px and the board box grows
+from 320 to 363, an hour and a half more of the day for no loss of control. At
+360px the same 63px comes back, with the floor taking part of it (320 to 330);
+at 414 and 430 the band already fitted, so the rhythm alone gives 24px (339 to
+363); at 1280 nothing moves.
+
+What was considered and not done: dropping the "View as" label at narrow widths.
+It is the one label in that row that does not repeat its control. The select
+shows a name, and a name on its own does not say that the whole board is being
+read through that person's eyes. `+ Add stay` keeps its noun by the owner's
+ruling, and it is not what was forcing the wrap; the 56px indent was.
+
 **One height, and the page's air belongs to the board.** The next report was
 that the board and the map could both be taller. Measured at 1280x900 before
 anything changed: the box started 458.5px down the page and came out 417.5px
