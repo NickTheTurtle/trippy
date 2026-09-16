@@ -1,4 +1,3 @@
-import type { Option } from '../components/ui/Select';
 import { CURRENCY_CODES } from '@trippy/core/currency';
 
 export { CURRENCY_CODES };
@@ -8,18 +7,14 @@ export { CURRENCY_CODES };
  *
  * The list itself lives in `@trippy/core/currency`, beside the offline rate
  * table, because a currency the app offers but cannot convert is worse than
- * one it does not offer at all: see the note there.
+ * one it does not offer at all: see the note there. It is the fallback for the
+ * fields that have no server list of their own, and the whole list for the
+ * home currency, which is what every other amount converts into.
  *
- * `currencyOptions` is what keeps the option shape identical everywhere, so a
- * caller that does have a server list (Expenses, which renders whatever
- * `GET /expenses` returns once live rates land) still builds its dropdown the
- * same way rather than mapping by hand.
+ * `currencyOptions` used to build `Select` options from it. Every currency
+ * field is now `CurrencyPicker`, which takes the codes themselves, so the
+ * option shape it existed to keep identical is no longer built anywhere.
  */
-
-/** Options for `Select`. Pass the server's list when there is one. */
-export function currencyOptions(codes: readonly string[] = CURRENCY_CODES): Option[] {
-	return codes.map((c) => ({ value: c, label: c }));
-}
 
 /**
  * English names for the codes, for searching and for reading.
