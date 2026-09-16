@@ -1,5 +1,4 @@
-import { estimateTravel } from '@trippy/core/geo';
-import type { PlannedLeg } from '@trippy/core/travel';
+import { guessLeg, minsByMode, type PlannedLeg } from '@trippy/core/travel';
 import { createCache } from '../infra/cache';
 import { env } from '../infra/env';
 
@@ -119,15 +118,16 @@ async function osrmMinutes(leg: PlannedLeg): Promise<number | null> {
 
 /**
  * The mode a journey of this length is most likely made in, when nobody has
- * said. The thresholds match the straight-line estimate's, so the label and the
- * number never disagree about what kind of journey this is.
+ * said.
+ *
+ * Delegates to core's `guessLeg` rather than repeating its thresholds. The copy
+ * that used to live here agreed with `guessLeg` about the label and disagreed
+ * with the *other* core estimator about the number, which is how a 1000km leg
+ * came to be labelled `flight` and given 43 hours of driving. One function now
+ * decides both, so they cannot drift apart again.
  */
 export function guessMode(km: number): string {
-	const dist = km * 1.3;
-	if (dist < 1.1) return 'walk';
-	if (dist < 8) return 'transit';
-	if (dist < 500) return 'drive';
-	return 'flight';
+	return guessLeg(km).mode;
 }
 
 /**
@@ -155,7 +155,11 @@ export function routeLeg(
 			const osrm = await osrmMinutes(leg);
 			if (osrm != null) return { mode: wanted, mins: osrm, routed: true };
 		}
-		return { ...estimateTravel(leg.km), mode: wanted, routed: false };
+		// The estimate is asked for the mode we are actually reporting. Spreading a
+		// mode-blind estimate and then overwriting its label was the bug: a flight
+		// was priced as a drive, a ferry as a drive around the bay, and the number
+		// the board showed contradicted the word next to it.
+		return { mode: wanted, mins: minsByMode(leg.km, wanted), routed: false };
 	});
 }
 
