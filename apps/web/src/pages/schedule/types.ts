@@ -130,8 +130,23 @@ export type BoardDay = {
 };
 
 export type ScheduleData = {
+	/**
+	 * The days the board can draw, as a window around `day` rather than the
+	 * whole trip. It is a rendering convenience and nothing more: it does not
+	 * decide which day is drawn, and it must not be used to work out where the
+	 * trip begins or ends. On every trip that exists today the window is the
+	 * whole trip, which is exactly what would let that mistake go unnoticed.
+	 */
 	days: string[];
 	day: string;
+	/** The earliest and latest day the trip reaches. The real bounds. */
+	firstDay: string;
+	lastDay: string;
+	/** The trip's own total, which is not `days.length` on a long trip. */
+	dayCount: number;
+	/** The day one step either way, or null at that end. Server decided. */
+	prevDay: string | null;
+	nextDay: string | null;
 	view: ViewMode;
 	board: BoardDay[];
 	members: Member[];

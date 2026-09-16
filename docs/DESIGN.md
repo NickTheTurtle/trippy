@@ -892,6 +892,41 @@ is not built**: the board currently renders the refusal in its error banner,
 which is honest but is not the end state. The client should redirect an
 out-of-range day to `firstDay` or `lastDay` and rewrite the url with it.
 
+**The stepper now asks rather than counts.** The client half built so far is the
+arrows: `dayStep` returns `data.prevDay` and `data.nextDay` instead of walking
+`days.indexOf(day)`. Walking the window would read the edge of a 4000 day slice
+as the end of the trip, and `null` from the server is the honest disabled state.
+
+It is worth recording that this fixes nothing visible today, because it cannot.
+The window is centred on the day drawn, so it recentres on every step and an
+index walk agrees with the server everywhere, including on a deliberately
+constructed 5480 day trip where the window really was a slice: at its first day,
+its last day and 2000 days in, both answers matched. The same held for a trip
+shortened under an event, where `nextDay` jumped 2026-03-05 straight to
+2026-03-28 and the index walk did too, because the window still held both sides
+of the gap. The change is worth making anyway: the two agree only by the window
+being generous, and an index walk is one long trip away from being wrong, in a
+way no test on today's data would catch. Where the window does already lie is
+about totals and ends, which is why `dayCount` exists and why the picker's
+bounds are read from `firstDay` and `lastDay`.
+
+**What `day_not_offered` should do, and why it is not the same answer.** An
+out-of-range day can honestly be sent to an end, because the reader asked for
+somewhere the trip is not. A day in the gap is different: it is inside the trip's
+reach, so sending it to `firstDay` or `lastDay` would answer a reasonable request
+by throwing the reader to the far end of the trip. The gap is not a place that
+can be planned in either, since the board has no column for it, so drawing it is
+not on offer.
+
+The right destination is the **nearest offered day**, with the url rewritten to
+match, tie broken towards the earlier day. That keeps the reader where they were
+looking instead of at an end, and it is the same move the arrows already make
+when they skip a gap. It needs one field the refusal does not yet carry: the
+nearest served day, since `firstDay` and `lastDay` cannot express it. On the
+worked example, dates 2026-03-01..2026-03-05 with an event stranded on
+2026-03-28, a request for 2026-03-20 should land on 2026-03-28 and one for
+2026-03-08 on 2026-03-05, and neither is derivable from the two bounds alone.
+
 **Trip length is bounded at the other end, at 366 days**, in the trip form: a new
 or lengthened trip may not exceed a year, and an existing longer trip is
 grandfathered so it can still be renamed and re-dated. The read makes no use of
