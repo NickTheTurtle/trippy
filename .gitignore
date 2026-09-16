@@ -25,9 +25,11 @@ Thumbs.db
 !.env.test
 
 # Local databases, including WAL and shared-memory sidecar files.
-*.db
-*.db-wal
-*.db-shm
+# The trailing wildcard also catches timestamped backups (app.db.bak-...),
+# which a plain *.db pattern did not match and left exposed on this public repo.
+*.db*
+# Belt and suspenders: any backup dropped in data/, whatever its suffix.
+data/*.bak-*
 
 # Dev server logs (dev-api.log, dev-web.log). The repo is public, so never
 # publish local server output.
