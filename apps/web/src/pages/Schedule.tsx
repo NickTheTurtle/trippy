@@ -25,9 +25,11 @@ import {
 	DRAFT_ID,
 	MIN_EVENT_MINS,
 	PX_PER_MIN,
+	clock,
+	clockRange,
 	dayLabel,
 	heightPx,
-	hhmm,
+	hourLabel,
 	hoursFrom,
 	modeLabel,
 	topPx,
@@ -97,7 +99,7 @@ type Drag = {
 	origStart: number;
 	/** How long the block is, so a drag cannot push it off the end of the day. */
 	mins: number;
-	/** Minutes the window has been pushed open past where the pointer reaches. */
+	/** Minutes the viewport has been travelled past where the pointer reaches. */
 	creep: number;
 	liveStart: number;
 };
@@ -111,14 +113,21 @@ type Resize = {
 	liveEnd: number;
 };
 
-/** How close to the top of the screen counts as pushing against it. */
+/** How close to an edge of the day's viewport counts as pushing against it. */
 const EDGE_PX = 72;
-/** Minutes a second the window opens at when the pointer is at the very top. */
+/** Minutes a second the board travels at when the pointer is at the very edge. */
 const EDGE_RATE = 150;
+/** The shortest day viewport worth scrolling inside, on a short screen. */
+const MIN_VIEW_H = 320;
+/** Breathing room under the board, so it does not sit on the bottom edge. */
+const VIEW_GAP = 24;
 
 /**
  * Where a dragged block sits: the pointer's own travel, plus whatever the edge
  * loop has added to it.
+ *
+ * `creep` is minutes, positive for the top edge and negative for the bottom, so
+ * one number covers pushing against either end of the viewport.
  *
  * Snapped to five minutes, because the block carries its time as a label and a
  * board that reads 9:37 while a hand is moving is noise rather than precision.
@@ -229,6 +238,39 @@ export default function Schedule() {
 		return () => ro.disconnect();
 	}, []);
 
+	/* The day's viewport: the box the hours scroll inside, with the day's title
+	   bar, its stepper and the lodging band standing still above it.
+
+	   Its height is whatever is left between its own top and the bottom of the
+	   screen. Measured rather than stated, because the board's top depends on a
+	   toolbar that wraps at narrow widths and a lodging band holding anything
+	   from nothing to three stays. The measurement is taken in document
+	   coordinates (`rect.top + scrollY`), which is where the box sits whatever
+	   the page has been scrolled to: reading the viewport-relative top would make
+	   the height grow as the page scrolls, which would grow the page, which would
+	   let it scroll further. */
+	const scrollRef = useRef<HTMLDivElement>(null);
+	const [viewH, setViewH] = useState(0);
+	useLayoutEffect(() => {
+		const el = scrollRef.current;
+		if (!el) return;
+		const fit = () => {
+			const docTop = el.getBoundingClientRect().top + window.scrollY;
+			setViewH(Math.max(MIN_VIEW_H, window.innerHeight - docTop - VIEW_GAP));
+		};
+		fit();
+		window.addEventListener('resize', fit);
+		// The card above the box is what moves its top: a toolbar that wraps, a
+		// lodging band that gains a stay. Watching the card catches both without
+		// a dependency list that has to list everything the board can grow.
+		const ro = new ResizeObserver(fit);
+		if (el.parentElement) ro.observe(el.parentElement);
+		return () => {
+			window.removeEventListener('resize', fit);
+			ro.disconnect();
+		};
+	}, [data]);
+
 	async function act(fn: () => Promise<unknown>) {
 		setNotice('');
 		try {
@@ -305,10 +347,10 @@ export default function Schedule() {
 					...entry,
 					events,
 					stays,
-					legs: preview ? replanLegs(entry, preview) : entry.legs
+					legs: preview ? replanLegs(entry, preview, memberIds) : entry.legs
 				};
 			}),
-		[data, preview]
+		[data, preview, memberIds]
 	);
 
 	/* The same board, through "view as". An event with nobody on it belongs to
@@ -423,27 +465,55 @@ export default function Schedule() {
 	const boardStart = Math.min(winStart, (drag ? drag.liveStart : openFloor) ?? winStart);
 
 	/**
-	 * Opening the window moves the whole day down the page, so the page goes with
-	 * it by exactly as much.
+	 * Keep the dragged block under the pointer while the board moves beneath it.
 	 *
-	 * The grid grows downwards from a top edge that stays put, which means every
-	 * minute already on the board, including the one under the pointer, slides
-	 * down by whatever was opened above it. Scrolling by the same amount in the
-	 * same layout pass, before the browser paints, cancels it: the block stays
-	 * stuck to the cursor and the hours appear above it. There is always room,
-	 * because the document just grew by precisely the distance being scrolled.
+	 * Two things move it, and both are corrected the same way, by scrolling the
+	 * day's viewport in the same layout pass, before the browser paints.
 	 *
-	 * Only while a gesture owns the window. A board opening for a time typed into
+	 * Opening the window is the first. The grid grows downwards from a top edge
+	 * that stays put, so every minute already on the board, the one under the
+	 * pointer included, slides down by whatever was opened above it. Scrolling
+	 * the viewport down by exactly that cancels it, and there is always room
+	 * because the content just grew by precisely that distance.
+	 *
+	 * Travelling at an edge is the second. A pointer held against the top or the
+	 * bottom of the viewport keeps moving the block's time without moving the
+	 * pointer, so the block would slide away from the cursor unless the hours
+	 * slide past by the same amount. `creep` is exactly that distance in minutes,
+	 * so scrolling by the negative of it keeps the block still and the day
+	 * running past it.
+	 *
+	 * The two are one number, applied as a difference from the last pass, so a
+	 * frame that does both nets out: opening the window while at the top of the
+	 * box moves nothing, because the growth and the travel are the same growth.
+	 *
+	 * Then the block is held inside the box it is being dragged in. A viewport
+	 * has edges the page did not: a pointer carried past the top of the box wants
+	 * the block drawn above it, where it would be clipped and the gesture would
+	 * be happening somewhere the reader cannot see. Staying visible is worth more
+	 * than staying exactly under the cursor for the last few pixels, so the block
+	 * is pinned at the edge it is pushing against and the day keeps running past
+	 * it. The start wins over the end, since a block taller than the box cannot
+	 * show both and the time it begins is the time being set.
+	 *
+	 * Only while a gesture owns the board. A window opened for a time typed into
 	 * a dialog is not being held onto by anybody, and that one is better read as
-	 * the board opening than hidden by moving the page under it.
+	 * the board opening than hidden by moving the hours under it.
 	 */
 	const openedBy = winStart - boardStart;
-	const lastOpened = useRef(openedBy);
+	const glue = (openedBy - (drag?.creep ?? 0)) * PX_PER_MIN;
+	const lastGlue = useRef(glue);
 	useLayoutEffect(() => {
-		const prev = lastOpened.current;
-		lastOpened.current = openedBy;
-		if (dragRef.current && openedBy !== prev) window.scrollBy(0, (openedBy - prev) * PX_PER_MIN);
-	}, [openedBy]);
+		const prev = lastGlue.current;
+		lastGlue.current = glue;
+		const el = scrollRef.current;
+		const d = dragRef.current;
+		if (!el || !d || glue === prev) return;
+		el.scrollTop += glue - prev;
+		const top = topPx(d.liveStart, boardStart);
+		const foot = top + d.mins * PX_PER_MIN - el.clientHeight;
+		el.scrollTop = Math.min(Math.max(el.scrollTop, foot), top);
+	});
 
 	/** Which city a day is spent in, for ordering the place picker. */
 	const cityOfDay = useCallback(
@@ -525,18 +595,20 @@ export default function Schedule() {
 	 * would otherwise be out of view, and only as far as it has to. */
 	useEffect(() => {
 		if (!preview || !roomToDock) return;
+		const el = scrollRef.current;
 		const lane = document.querySelector('.sched .block.editingnow')?.closest('.lane');
-		if (!lane) return;
+		if (!el || !lane) return;
 		const laneTop = lane.getBoundingClientRect().top;
 		const top = laneTop + topPx(preview.start_min, boardStart);
 		const bottom = laneTop + topPx(preview.end_min, boardStart);
+		const box = el.getBoundingClientRect();
 		const margin = 56;
-		const over = bottom - (window.innerHeight - margin);
-		const under = top - margin;
+		const over = bottom - (box.bottom - margin);
+		const under = top - (box.top + margin);
 		// Never past the block's own top: a long event cannot be shown whole, and
 		// the end of one is worth less than knowing where it begins.
 		const by = under < 0 ? under : over > 0 ? Math.min(over, under) : 0;
-		if (by) window.scrollBy({ top: by, behavior: 'smooth' });
+		if (by) el.scrollBy({ top: by, behavior: 'smooth' });
 	}, [preview, roomToDock, boardStart]);
 
 	const peopleLabel = useCallback(
@@ -587,15 +659,16 @@ export default function Schedule() {
 	}
 
 	/**
-	 * Keep opening while the pointer is held against the top of the screen.
+	 * Keep travelling while the pointer is held against an edge of the viewport.
 	 *
-	 * Dragging on its own reaches any hour the pointer has room to travel to,
-	 * which on a page at rest is most of the day, because the board grows
-	 * downwards and its top edge stays where it is. It runs out at the top of the
-	 * screen though, and on a page already scrolled down it runs out early.
-	 * Pressing past that edge carries on at a rate set by how far past it the
-	 * hand is: barely moving at the threshold, a couple of hours a second at the
-	 * very top, which is slow enough to stop on a minute and quick enough to
+	 * Dragging on its own reaches whatever the pointer has room to travel to,
+	 * which inside a box a few hundred pixels tall is a few hours either way. The
+	 * day is nineteen, so both edges carry on: pushing against the top runs the
+	 * hours back towards midnight before, opening the window past six when there
+	 * is nothing left to scroll to, and pushing against the bottom runs them on
+	 * towards midnight after. The rate is set by how far past the edge the hand
+	 * is, barely moving at the threshold and a couple of hours a second at the
+	 * very edge, which is slow enough to stop on a minute and quick enough to
 	 * cross a night.
 	 */
 	useEffect(() => {
@@ -607,10 +680,23 @@ export default function Schedule() {
 			const dt = Math.min(now - last, 100) / 1000;
 			last = now;
 			const d = dragRef.current;
-			const past = d ? EDGE_PX - d.pointerY : 0;
-			if (d && past > 0 && d.liveStart > 0) {
-				const creep = d.creep + (past / EDGE_PX) * EDGE_RATE * dt;
-				putDrag({ ...d, creep, liveStart: liveStartFor(d, creep, d.pointerY) });
+			const box = scrollRef.current?.getBoundingClientRect();
+			if (d && box) {
+				const pastTop = box.top + EDGE_PX - d.pointerY;
+				const pastBottom = d.pointerY - (box.bottom - EDGE_PX);
+				const rate = (past: number) => (Math.min(past, EDGE_PX) / EDGE_PX) * EDGE_RATE * dt;
+				// Only ever one of the two: a viewport shorter than two thresholds
+				// would otherwise be past both at once and travel nowhere.
+				const by =
+					pastTop > 0 && d.liveStart > 0
+						? rate(pastTop)
+						: pastBottom > 0 && d.liveStart < DAY_END - d.mins
+							? -rate(pastBottom)
+							: 0;
+				if (by) {
+					const creep = d.creep + by;
+					putDrag({ ...d, creep, liveStart: liveStartFor(d, creep, d.pointerY) });
+				}
 			}
 			raf = requestAnimationFrame(tick);
 		};
@@ -781,7 +867,7 @@ export default function Schedule() {
 				className={cls}
 				role="button"
 				tabIndex={0}
-				aria-label={`${ev.title}, ${hhmm(ev.start_min)} to ${hhmm(ev.end_min)}. Open, or drag to reschedule.`}
+				aria-label={`${ev.title}, ${clock(ev.start_min)} to ${clock(ev.end_min)}. Open, or drag to reschedule.`}
 				style={{
 					...box,
 					top: `${topPx(from, boardStart)}px`,
@@ -806,7 +892,7 @@ export default function Schedule() {
 			>
 				<div className="bt">{ev.title}</div>
 				<div className="bmeta">
-					{bud.showTime && <span>{bud.compact ? hhmm(from) : `${hhmm(from)}-${hhmm(to)}`}</span>}
+					{bud.showTime && <span>{bud.compact ? clock(from) : clockRange(from, to)}</span>}
 				</div>
 				<div className="bwho">
 					{ev.people.length === 0 || ev.people.length === members.length ? (
@@ -899,7 +985,7 @@ export default function Schedule() {
 				className={cls}
 				role="button"
 				tabIndex={0}
-				aria-label={`${name}, ${hhmm(leg.startMin)} to ${hhmm(leg.endMin)}. Open.`}
+				aria-label={`${name}, ${clock(leg.startMin)} to ${clock(leg.endMin)}. Open.`}
 				title={legTitle(leg)}
 				style={{
 					left: `${box.left * 100}%`,
@@ -929,7 +1015,7 @@ export default function Schedule() {
 				</div>
 				{!thin && (
 					<div className="bmeta">
-						{bud.showTime && <span>{`${hhmm(leg.startMin)}-${hhmm(leg.endMin)}`}</span>}
+						{bud.showTime && <span>{clockRange(leg.startMin, leg.endMin)}</span>}
 						<span>{leg.resolvedMins}m</span>
 					</div>
 				)}
@@ -1004,9 +1090,9 @@ export default function Schedule() {
 							style={{ top: `${(h * 60 - boardStart) * PX_PER_MIN}px` }}
 						>
 							{/* The last line is where the day stops, not an hour of it:
-							    labelling it would put "24:00" on the board, and on a board
-							    dragged fully open the same midnight twice. */}
-							{h * 60 < DAY_END && <span>{h}:00</span>}
+							    labelling it would put a second "12 AM" on a board dragged
+							    fully open, directly under the one the day started on. */}
+							{h * 60 < DAY_END && <span>{hourLabel(h)}</span>}
 						</div>
 					))}
 				</div>
@@ -1067,7 +1153,7 @@ export default function Schedule() {
 			key: ev.id,
 			start: ev.start_min,
 			title: ev.title,
-			meta: `${typeLabel(ev.type)} · ${hhmm(ev.start_min)}-${hhmm(ev.end_min)}`,
+			meta: `${typeLabel(ev.type)} · ${clockRange(ev.start_min, ev.end_min)}`,
 			tight: false,
 			open: () => openBlock(ev.id)
 		})),
@@ -1093,7 +1179,7 @@ export default function Schedule() {
 								className={row.tight ? 'agendarow tight' : 'agendarow'}
 								onClick={row.open}
 							>
-								<span className="agendawhen">{hhmm(row.start)}</span>
+								<span className="agendawhen">{clock(row.start)}</span>
 								<span className="agendawhat">{row.title}</span>
 								<span className="agendameta">
 									{row.meta}
@@ -1199,7 +1285,7 @@ export default function Schedule() {
 						title: e.title,
 						lat: e.lat,
 						lng: e.lng,
-						subtitle: `${typeLabel(e.type)} · ${hhmm(e.start_min)}-${hhmm(e.end_min)}`,
+						subtitle: `${typeLabel(e.type)} · ${clockRange(e.start_min, e.end_min)}`,
 						detail: [peopleLabel(e.people), ...shown],
 						warn: legs.some((l) => l.tight) ? copy.viewAs.travelWarning : undefined
 					};
@@ -1293,11 +1379,22 @@ export default function Schedule() {
 							)}
 						</div>
 						{anchor && stayBands(anchor)}
-						{anchor
-							? view === 'agenda'
-								? agendaBoard()
-								: dayBoard(anchor, { lanePx: laneW || 560, measure: true })
-							: null}
+						{anchor ? (
+							view === 'agenda' ? (
+								agendaBoard()
+							) : (
+								/* The day's viewport. The stepper and the lodging band are
+								   outside it on purpose: they name the hours, so they stay
+								   while the hours scroll. */
+								<div
+									className="boardscroll"
+									ref={scrollRef}
+									style={viewH ? { maxHeight: `${viewH}px` } : undefined}
+								>
+									{dayBoard(anchor, { lanePx: laneW || 560, measure: true })}
+								</div>
+							)
+						) : null}
 					</div>
 				</div>
 

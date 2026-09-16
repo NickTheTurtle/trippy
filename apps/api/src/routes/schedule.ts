@@ -16,7 +16,7 @@ import {
 	type EventType
 } from '@trippy/core/types';
 import { formatDayRange } from '@trippy/core/tz';
-import { isNameLength, nameTooLong } from '@trippy/core/validate';
+import { isNameLength, MAX_NAME_LENGTH, nameTooLong } from '@trippy/core/validate';
 import {
 	createEvent,
 	crewsForTrip,
@@ -457,6 +457,68 @@ function editedType(eventId: string, sent: unknown): EventType {
 }
 
 /**
+ * A derived name cut down to something the title column will take.
+ *
+ * Only ever applied to text the organiser did not type into the name field: a
+ * place name from a provider, or a line of notes. Refusing those with a 400
+ * would be refusing a field nobody filled in, so an over-long one is shortened
+ * instead. The cut prefers a word boundary, but only when that still leaves at
+ * least half the limit, so a single very long word is not sliced back to a
+ * couple of characters. One character is held back for the ellipsis so the
+ * result is always within the limit, and the ellipsis is what tells a reader
+ * the name is a summary rather than the whole line.
+ *
+ * Runs of whitespace collapse first: a notes line pasted with a tab or a double
+ * space in it is the same title either way.
+ */
+function fitName(text: string): string {
+	const clean = text.replace(/\s+/g, ' ').trim();
+	if (isNameLength(clean)) return clean;
+	const cut = clean.slice(0, MAX_NAME_LENGTH - 1);
+	const space = cut.lastIndexOf(' ');
+	const body = space >= MAX_NAME_LENGTH / 2 ? cut.slice(0, space) : cut;
+	return `${body.trimEnd()}…`;
+}
+
+/**
+ * The first line of a note, as a title.
+ *
+ * "First line" means the first line with anything on it, on either line ending:
+ * a note that opens with a blank line, which is what a paste out of a document
+ * tends to look like, should be named after its first real sentence rather than
+ * fall through to the type's noun. Nothing else about the text is interpreted:
+ * a leading "- " or "# " is left exactly as typed, because guessing at markup
+ * would mangle a title that genuinely starts with a dash, and the organiser can
+ * always type a name if the derived one reads badly.
+ */
+function firstNoteLine(notes: string): string {
+	return notes.split(/\r?\n/).find((line) => line.trim() !== '') ?? '';
+}
+
+/**
+ * The name an event ends up with when the client sent none.
+ *
+ * In order: the place that was picked, then the first line of the notes, then
+ * the type's own noun, which never being empty is what makes the name genuinely
+ * optional on the wire. Picking a place is the primary way things get added, so
+ * it stays ahead of the notes; the notes are the next thing an organiser has
+ * actually written about this block.
+ *
+ * Free time is nowhere by definition, so it never takes a place's name, which
+ * keeps this agreeing with what create does when it skips the lookup entirely.
+ *
+ * The type's noun is `EVENT_TYPE_LABELS` from `@trippy/core/types` rather than
+ * a copy kept here. A board row reading "Activity" or "Food" still says
+ * something about the block where a column of identical "New event"s says
+ * nothing, and reading the one map is what stops a block named after its type
+ * coming out as "Freetime" here and "Free time" on the screen that shows it.
+ */
+function derivedTitle(type: EventType, placeName: string, notes: string): string {
+	const fromPlace = isLocatedType(type) ? fitName(placeName) : '';
+	return fromPlace || fitName(firstNoteLine(notes)) || EVENT_TYPE_LABELS[type];
+}
+
+/**
  * Whether a day falls outside the trip, for a write that is choosing one.
  *
  * Reads are deliberately more forgiving than writes: a read still serves
@@ -537,18 +599,17 @@ schedule.post('/events', async (c) => {
 		return fail(c, 400, outsideTripMessage(trip));
 	}
 
-	let title = str(b.title);
+	// The name is optional on the wire: picking a place is how most things get
+	// added, so one is derived rather than demanded. A name that was typed is
+	// still checked, because that is a field the organiser can see and fix; a
+	// derived one is shortened instead of refused.
+	const sentTitle = str(b.title);
+	if (sentTitle && !isNameLength(sentTitle)) return fail(c, 400, nameTooLong());
+
 	// Free time is deliberately nowhere, so it is the one type with no link. A
 	// journey's link is the far end of it: where it lands.
 	const place = isLocatedType(type) ? placeFor(trip.id, type, str(b.poiId)) : null;
-	if (place && !title) title = place.name;
-
-	// The type's own noun for the two types that are their own description. The
-	// words come from core so the picker, the board and this fallback cannot
-	// drift apart.
-	if (!title) title = type === 'travel' || type === 'freetime' ? EVENT_TYPE_LABELS[type] : '';
-	if (!title) return fail(c, 400, 'Enter a title.');
-	if (!isNameLength(title)) return fail(c, 400, nameTooLong());
+	const title = sentTitle || derivedTitle(type, place?.name ?? '', str(b.notes));
 
 	// Every event, a stay included, occupies real time on its own day, so the
 	// end is always a length from the start. A length is asked for rather than
@@ -718,14 +779,14 @@ function opProblem(op: string, b: Record<string, unknown>): string | null {
 	}
 
 	// Null reads as absent here, as it always has: it is how a client says it has
-	// nothing to say about the name. An empty one is not that. Every event has a
-	// name, create refuses a blank one, and an edit that blanks it was ignored
-	// rather than refused, so the old name came back on the next load looking
-	// like the save had not happened.
+	// nothing to say about the name. An empty one is not that, but it is not a
+	// refusal either: a cleared field is a request to derive a name again, by
+	// exactly the order create uses, and the handler below does that. Only the
+	// length is the validator's business, because an over-long typed name is the
+	// one thing the organiser can see and fix.
 	if (sent(b.title) && b.title !== null) {
 		const title = str(b.title);
-		if (!title) return 'Enter a title.';
-		if (!isNameLength(title)) return nameTooLong();
+		if (title && !isNameLength(title)) return nameTooLong();
 	}
 
 	return null;
@@ -787,11 +848,37 @@ schedule.post('/events/:eventId/op', async (c) => {
 			okay = resizeEvent(eventId, userId, num(b.endMin)!, trip.id);
 			break;
 		case 'edit': {
+			// The type and the place this block is ending up as, read once: the
+			// derived name needs both, and the edit itself needs them anyway. Which
+			// list the id is looked up in follows the type it is ending up as, not
+			// the one it had. Absent leaves the link alone, empty unlinks.
+			const type = editedType(eventId, b.type);
+			const place = b.poiId === undefined ? undefined : placeFor(trip.id, type, str(b.poiId));
+
+			/* Three cases for the name, and the last two are not the same thing:
+			   absent (or null) means the body is silent about it, so the stored name
+			   stands and an edit that never mentions the name cannot rename an event
+			   somebody deliberately named; explicitly blank means the organiser
+			   cleared the field, which is a request to derive one again by exactly
+			   the order create uses; anything else is used as typed.
+
+			   A blank one derives from what this body carries, because the dialog
+			   save writes the whole record back: the place it is ending up at and
+			   the notes it is ending up with are both in front of us. If it carries
+			   neither, the type's own noun is still a real name, so clearing the
+			   field can never leave the block nameless. */
+			const sentTitle = b.title === undefined || b.title === null ? null : str(b.title);
+			if (sentTitle && !isNameLength(sentTitle)) return fail(c, 400, nameTooLong());
+			const title =
+				sentTitle === null
+					? undefined
+					: sentTitle || derivedTitle(type, place?.name ?? '', str(b.notes));
+
 			const result = editEvent(
 				eventId,
 				userId,
 				{
-					title: b.title != null ? String(b.title) : undefined,
+					title,
 					type: b.type != null ? String(b.type) : undefined,
 					notes: b.notes === undefined ? undefined : b.notes === null ? null : String(b.notes),
 					// Three cases, not two: absent means leave it alone, null or empty
@@ -807,13 +894,7 @@ schedule.post('/events/:eventId/op', async (c) => {
 					// A stay moves and stretches by its dates instead.
 					day: isoDay(b.day) ?? undefined,
 					endDay: isoDay(b.endDay) ?? undefined,
-					// Same three cases again: absent leaves the link, empty unlinks.
-					// Which list the id is looked up in follows the type the block is
-					// ending up as, not the one it had.
-					place:
-						b.poiId === undefined
-							? undefined
-							: placeFor(trip.id, editedType(eventId, b.type), str(b.poiId))
+					place
 				},
 				trip.id,
 				int(b.version)

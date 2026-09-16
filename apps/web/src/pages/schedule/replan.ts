@@ -27,8 +27,25 @@ import { shiftDay } from './shared';
  * Free time is deliberately nowhere, so a block switched to it loses its
  * location for planning without losing the place it was at: switch it back and
  * the place is still there. This mirrors `toPlanner` on the server.
+ *
+ * "Everyone" is put back here too, against the same roster the payload already
+ * carries. The wire writes the whole group as an empty `people` list, because
+ * that is the only form that survives somebody joining, while `planLegs` reads
+ * a list as exactly the travellers and an empty one as nobody. Passing the
+ * stored form straight through would put every Everyone event on nobody's
+ * chain, so the preview would show a day with no journeys on it while the board
+ * behind the dialog, planned by the server, shows them.
+ *
+ * A named list is filtered to the roster for the same reason the server filters
+ * it: somebody who has left the trip can still be named on an old event, and
+ * planning them a journey would put a stranger in a leg key. A list naming only
+ * people who have left therefore empties to nobody rather than to everybody,
+ * because somebody chose those names and the choice was not "the whole group".
+ * An empty roster expands to nobody as well, so a trip with no members plans
+ * nothing rather than throwing.
  */
-function plannerEvent(e: EventRow): PlannerEvent {
+function plannerEvent(e: EventRow, roster: readonly string[]): PlannerEvent {
+	const members = new Set(roster);
 	return {
 		id: e.id,
 		type: e.type,
@@ -36,7 +53,7 @@ function plannerEvent(e: EventRow): PlannerEvent {
 		endMin: e.end_min,
 		lat: isLocatedType(e.type) ? e.lat : null,
 		lng: isLocatedType(e.type) ? e.lng : null,
-		people: e.people
+		people: e.people.length ? e.people.filter((id) => members.has(id)) : [...roster]
 	};
 }
 
@@ -127,19 +144,28 @@ function boardStays(rows: EventRow[], day: string): EventRow[] {
  * it, so it is an origin only: nobody travels back to a room they have left.
  * This mirrors `planFor` on the server exactly; if it did not, the preview
  * would disagree with the board that arrives a moment later.
+ *
+ * `roster` is the trip's member ids, which is what "Everyone" means at this
+ * moment. It is applied to the day's blocks, tonight's stays and last night's
+ * origins alike, exactly as `planFor` applies it: an incoming stay carries
+ * people too, and a stay left on the whole group is where everybody wakes up.
  */
-export function replanLegs(entry: BoardDay, draft: EventDraft | null): LegRow[] {
+export function replanLegs(
+	entry: BoardDay,
+	draft: EventDraft | null,
+	roster: readonly string[]
+): LegRow[] {
 	const { events, stays } = applyDraft(entry, draft);
 	const tonight = stays
 		.filter((s) => isNightOf(s, entry.day))
 		.map((s) => ({
-			...plannerEvent(s),
+			...plannerEvent(s, roster),
 			startMin: 24 * 60,
 			endMin: 24 * 60
 		}));
 	const planned = planLegs(
-		[...events.map(plannerEvent), ...tonight],
-		entry.incoming.map(plannerEvent)
+		[...events.map((e) => plannerEvent(e, roster)), ...tonight],
+		entry.incoming.map((s) => plannerEvent(s, roster))
 	);
 
 	const stored = new Map(entry.legs.map((l) => [l.key, l]));

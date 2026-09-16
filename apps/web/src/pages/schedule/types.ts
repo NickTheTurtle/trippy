@@ -48,7 +48,11 @@ export type EventRow = {
 	lng: number | null;
 	notes: string | null;
 	travel_mode: string | null;
-	/** Trip member ids. Empty means the whole group. */
+	/**
+	 * Trip member ids. Empty means the whole group on the wire, but planning
+	 * reads a list as exactly the travellers, so expand an empty one against
+	 * `ScheduleData.members` before handing it to `@trippy/core/travel`.
+	 */
 	people: string[];
 	/** Bumped by every edit. Sent back on save to detect a lost update. */
 	version: number;

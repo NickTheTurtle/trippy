@@ -304,14 +304,16 @@ describe('a dialog save the server cannot read', () => {
 		);
 	});
 
-	it('refuses a blank title rather than ignoring it', async () => {
+	it('derives a name again rather than ignoring a blank title', async () => {
 		const f = fixture();
 		const id = await event(f);
-		// Every event has a name and create refuses a blank one, so an edit that
-		// blanks it is a mistake. It used to be dropped, and the old name came back
-		// on the next load looking like the save had not happened.
-		expect(await refusal(await op(f, id, { op: 'edit', title: '   ' }))).toBe('Enter a title.');
-		expect(stored(id).title).toBe('ZZ Museum');
+		// It used to be dropped, and the old name came back on the next load looking
+		// like the save had not happened. Refusing it was one answer; deriving is
+		// the one create already gives, so clearing the field names the block after
+		// what it carries rather than after nothing.
+		const res = await op(f, id, { op: 'edit', title: '   ' });
+		expect(res.status).toBe(200);
+		expect(stored(id).title).toBe('Activity');
 	});
 
 	it('refuses a title too long to store', async () => {

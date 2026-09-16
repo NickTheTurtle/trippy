@@ -327,13 +327,96 @@ already exist, and cannot be deleted by somebody tidying up. `editCrew` and
 a row that looks like the others but does nothing when clicked is worse than one
 that plainly is not a control.
 
-**Picking Everyone empties the field rather than filling it.** An event with
-nobody on it already means the whole group, which is why the picker's trigger
-reads "Everyone" when the selection is empty. Ticking all twenty names would
-look identical today and part company the moment somebody joins, so
-`PeoplePicker` collapses a full selection back to none. The two Everyones then
-say the same thing, and the one that survives a new arrival is the one that gets
-stored.
+**Everyone is stored as nothing and shown as everything.** An event with nobody
+on it already means the whole group, which is why the picker's trigger reads
+"Everyone" when the stored list is empty. That empty list is the representation
+worth keeping: it still means everyone the moment somebody joins the trip, where
+a frozen roster of today's ids would silently leave the new arrival out of an
+event that was meant to include them. So `PeoplePicker` collapses a full
+selection back to none before saving, and `PUT /events/:eventId/people` stores
+exactly the list it is handed.
+
+Storing it that way is not a reason to **show** it that way, and for a while the
+picker did both. Opening an ordinary event showed twenty empty checkboxes for an
+event that applied to all twenty people, which reads as nobody; and ticking
+names one at a time cleared the lot on the last tick, because that is the moment
+the selection collapses. Both are the same mistake, a storage form leaking into
+the display. `PeoplePicker` is now the only place the two forms meet: it expands
+empty to every name ticked on the way in, and collapses a full set back to empty
+on the way out. Unticking one name therefore writes out everyone-except-them
+explicitly, and reticking them empties the field again.
+
+Three consequences worth naming. A name that has left the trip is dropped from
+the display and written out on the next edit, because a stored id the menu
+cannot offer could never be unticked and would hold the count permanently short
+of the roster, putting "Everyone" out of reach. A stored list naming only people
+who have left is therefore the empty list by another route, and reads as
+Everyone. And unticking the last remaining name returns to Everyone rather than
+to nobody, which is not a bug but the schema showing through: an event with no
+people is defined as an event for the whole group, so a one-member trip cannot
+distinguish the two and no trip can express "nobody". Free time, not an empty
+participant list, is how the schedule says somebody is not involved.
+
+**"Everyone" is expanded at the persistence boundary, and core reads ids
+literally.** The convention above is a storage convention, and `planLegs` never
+knew about it: it builds its traveller set out of the `people` arrays and walks
+each person's own events, so an event naming nobody was on nobody's chain. A
+trip whose events were all left on the default therefore had an empty traveller
+set and **no travel legs at all**, which is the bug that made this explicit.
+
+The two readings were both written down and neither was wrong on its own, so
+the rule is now stated in one place and enforced in another:
+
+- `PlannerEvent.people` in `packages/core/src/travel.ts` is **exactly the ids
+  travelling**. An empty list is nobody, never everybody. Core is pure and
+  browser-portable, so it has no roster to expand against and cannot get one
+  without doing I/O.
+- `toPlanner` in `packages/server/src/persistence/schedule.ts` expands an empty
+  list to the trip's `memberships`, for blocks, for tonight's stays and for
+  last night's incoming stays alike, and reads the roster fresh on every plan
+  rather than copying it onto a row.
+
+The rejected alternative was a roster parameter on `planLegs`, which would have
+kept "empty means everyone" in a single place. It was rejected because that
+place would be the one module that must stay free of trip concepts and of I/O,
+and it would not even settle the question: every other caller constructing a
+`PlannerEvent` would still be free to mean something else by an empty array.
+Expanding at the boundary leaves core with one meaning and no special case.
+
+Three consequences, all deliberate:
+
+- **A trip with no members plans nothing.** The expansion yields an empty set,
+  which is right: there is nobody to travel.
+- **A stale id is dropped.** `event_people` outlives a membership, so a person
+  who has left can still be named on an old event. A named list is filtered to
+  the roster, and a list that names only people who have left empties to
+  **nobody**, not to everybody: somebody chose those names, and the choice was
+  not "the whole group".
+- **Leg keys change where an event was on Everyone**, because the key carries
+  the sorted travellers. Nothing is orphaned in practice, since those days
+  previously planned no legs to store. To catch days nobody writes to again,
+  `reconcileAllLegs()` runs the ordinary per-day reconciliation across every
+  stored day once, guarded by a row in `schema_backfills`; it inserts what is
+  newly planned and prunes what is not, keeping every row whose key still stands
+  along with its override. Additive, like every other migration here: no table
+  is dropped and no row is rewritten.
+
+**The client preview is told the same thing.** `replanLegs` in
+`apps/web/src/pages/schedule/replan.ts` runs the same `planLegs` while a dialog
+is open, and its `plannerEvent` is a copy of the server's `toPlanner`. It now
+takes the roster as a third argument, `ScheduleData.members` mapped to ids from
+`Schedule.tsx`, and applies the identical rule to the day's blocks, tonight's
+stays and last night's origins: an empty list expands to the roster, a named one
+is filtered to it, an empty roster expands to nobody. Without it a preview of an
+Everyone day showed no journeys where the board behind it showed them, which
+reads worse than either being wrong on its own.
+
+The rule now has two implementations that must agree, which is exactly the
+shape of the original bug. It cannot live in `planLegs` itself without giving
+pure logic a trip concept, but it could live in a pure
+`expandPeople(people, roster)` helper exported from `packages/core` and called
+by both boundaries. That is a follow-up for the core workspace, not something
+the web side can do on its own.
 
 **Deriving the legs** (`packages/core/src/travel.ts`, `planLegs`). For each
 person, walk their own events in order and pair each consecutive two. Bucket the
@@ -347,12 +430,27 @@ That is the whole of splitting and rejoining. Three rules keep it honest:
 - **Free time breaks the chain on both sides.** Not because it has no location,
   but because nobody has promised to be anywhere, so planning a journey out of it
   would be inventing a fact.
-- **An event with no location is passed over, not treated as a break.** A block
-  with no coordinates says _when_ someone is busy, not _where_ they are, so the
-  chain runs on through it and the journeys either side survive. The earlier rule
-  broke the chain on anything that was not an anchor, which meant adding a
-  reminder in the middle of an afternoon silently deleted the two travel times
-  around it and planned none in their place.
+- **An event with no location breaks the chain, like free time does.** A block
+  with no coordinates does not say _where_ its people are, so a journey measured
+  across it is an estimate from the last known place drawn on the day as a fact.
+  A missing estimate is more honest than a wrong one, so the chain stops at such
+  a block and picks up at the next place somebody has named.
+
+  This **reverses the earlier rule**, which passed a location-less block over on
+  the grounds that it says _when_ someone is busy rather than _where_ they are,
+  and so kept the journeys either side of it. That rule was written against the
+  failure it replaced (breaking on anything that was not an anchor, which meant
+  a reminder dropped into an afternoon silently deleted the travel times around
+  it). What it traded away is worse: with A located, B without an address and C
+  located, it planned and drew an A -> C travel time that nobody can stand
+  behind, because between A and C the group's whereabouts are unknown. Adding an
+  address to B brings both journeys back; until then the day shows none, which
+  is what it knows.
+
+  Only an ordinary block is affected. `freetime` already broke the chain, and a
+  `travel` event is decided before this rule is reached: one with a destination
+  becomes the origin of the next leg, one without breaks the chain, both exactly
+  as before.
 - **A hand-entered `travel` event is never an endpoint**, so no automatic leg is
   planned into or out of it. Saying how you are getting from A to B is how you
   turn the planner off for that hop.
@@ -2911,6 +3009,44 @@ Both maps build the card through one shared `mapCard` in
 without one are reading the same trip, and the keyless fallback drifting into a
 card of its own shape is a difference nobody asked for.
 
+**One pin per point, not one per thing.** Several things can be at one address:
+a venue saved twice from the same provider result, or five escape rooms run out
+of one building. Drawn a pin each they land exactly on top of each other, so the
+stack reads as a single pin and only the topmost one can be hovered or tapped.
+The others are invisible and unreachable, which is what was reported. Both maps
+now collapse the items of a track onto one pin per point, through one shared
+`groupColocated` in `apps/web/src/components/map-groups.ts`, and the card lists
+everything that pin stands for.
+
+**Grouped on exact coordinate equality, with no distance tolerance.** The trips
+in hand hold exactly one co-located set of saved places, three sharing a pair of
+doubles to the last digit, and not one pair of non-identical places within 60m of
+each other; the day tracks show the same, nine sets of bit-identical event
+coordinates. So the duplicates being complained about are literally the same
+numbers, which is what saving the same provider result twice produces. A radius
+would buy nothing against that data while risking the thing a radius always
+risks: merging two real venues that share a doorway. If near-duplicates ever do
+turn up, that is the moment to decide what a distance means, with the data to
+decide it on. Grouping is per track, because a pin can only be one colour, and
+the board already keeps a scheduled place out of the saved track.
+
+**The count goes in a badge, not in the pin.** The body of a pin is where the
+order number goes, so a count written there would be read as one. The things
+sharing a venue are not always consecutive stops. A day can visit a place, leave
+and come back, so no single number is true of the pin: a grouped pin drops the
+number and carries a small count badge at its corner instead. A pin standing for
+one thing is drawn exactly as it was, down to its size and its anchor. The badge
+never takes the pointer, because it overhangs its pin's box and a clickable
+badge swallowed clicks meant for the pin next to it.
+
+**A clicked card is held open; a hovered one is not.** A card that leaves the
+moment the pointer leaves its pin is right for a glance and useless for a pin
+holding nine things, which cannot be read, let alone scrolled, if it vanishes on
+the way to it. So a click holds the card and gives it the pointer back, and a
+click on the map, a hover onto another pin, or a redraw that takes its pin away
+puts it down. The list scrolls at 18rem rather than growing, so a busy venue
+cannot make a card taller than a phone.
+
 **A travel problem is a mark, not a sentence.** A leg that does not fit its gap
 used to be labelled "does not fit the gap" wherever it showed, which spends a
 line of a crowded card on a phrase the colour had already said. It is now the
@@ -2931,6 +3067,140 @@ filtered board would have defeated the point: the warning would vanish the momen
 you looked at somebody else, so it would only ever reach the person who already
 knew. The board memo is therefore split in two, `planned` before the "view as"
 filter and `board` after it, and the warning is read from `planned`.
+
+#### The day scrolls inside the board, not the page
+
+**The complaint was losing your place, not being unable to reach the evening.**
+The day grid is a pixel a minute over a window that opens at six, so an ordinary
+day is around 1150px tall and every screen is shorter than it. Nothing was
+clipped and nothing was unreachable: the page scrolled, and the whole board went
+with it. What went with it was the day's title bar, its stepper and the lodging
+band, so reading 22:00 meant no longer being able to see which day it was 22:00
+on, or to step to the next one without scrolling back. A calendar keeps the
+labels and moves the hours.
+
+So the hours move on their own. `.boardscroll` is a box between the lodging band
+and the bottom of the screen; the grid scrolls inside it, and the stepper and the
+band stand outside it and stay. The hour gutter is inside, because it is the
+axis: pinning it would pin the times to rows that had moved away from them. The
+day view alone gets the box. The agenda is a list of the day's rows, short by
+construction, and boxing a list only makes two scrollbars out of one.
+
+**The height is measured, not stated.** The box's top depends on a toolbar that
+wraps at narrow widths and a lodging band that may hold nothing or three stays,
+so no `calc()` of viewport units can name it. It is measured in document
+coordinates, `rect.top + scrollY`, which is where the box sits whatever the page
+has been scrolled to. Reading the viewport-relative top instead would have fed
+back: scrolling the page would grow the box, growing the box would grow the page,
+and the page would scroll further. A floor of 320px keeps a short screen with a
+usable window rather than a slot, and the CSS carries `70vh` for the render
+before the measurement lands.
+
+**A scroll container is where drag maths usually dies**, because a gesture
+measured against the page is suddenly happening in a box that moves under it.
+This one is delta-based (`clientY - pointerStartY`), so the pointer arithmetic
+survived untouched; what had to move was everything that compensated for the
+board moving _by itself_. Two things do that, and they are now one number,
+`glue`, applied to the box's `scrollTop` as a difference per layout pass:
+
+- **The window opening.** Dragging a block earlier than the window's first hour
+  grows the grid upwards, which slides every minute already drawn, including the
+  one under the pointer, down by the amount opened. This used to be cancelled
+  with `window.scrollBy`; it is now the box that scrolls, by the same amount and
+  in the same pre-paint layout pass.
+- **Travelling at an edge.** A pointer held against the top or the bottom of the
+  box keeps changing the block's time without moving, so the hours have to run
+  past it. `creep` is that distance in minutes, and the box scrolls by the
+  negative of it so the block stays put and the day moves.
+
+They net out when both happen at once, which is exactly the case of opening the
+window while already at the top of the box: the growth and the travel are the
+same growth.
+
+**Both edges travel now, where only the top used to.** On a page the size of the
+day, dragging downwards had the rest of the document to travel through; in a box
+a few hundred pixels tall it would have run out in a couple of hours. Pushing
+against the bottom therefore runs the day on towards midnight at the same rate
+the top runs it back, and `creep` carries a sign rather than gaining a twin.
+
+**The block is held inside the box.** A viewport has edges the page did not: a
+pointer carried above the top of the box wants its block drawn above it, where it
+would be clipped and the gesture would be happening somewhere the reader cannot
+see. Staying visible is worth more than the last few pixels of glue, so the block
+pins to the edge it is pushing against while the hours keep running past, and the
+start wins over the end, since a block taller than the box cannot show both and
+the time it begins is the time being set. This is the one place the "stays under
+the pointer" contract gives way, and the e2e test now says so: glued inside the
+box, pinned at its edge.
+
+**Scroll chaining is left on.** A flick that reaches the end of the day carries
+on into the page, which is how the map under the board is reached on a phone,
+where the box is most of the screen. `overscroll-behavior: contain` would have
+made the board a trap at exactly the width with nowhere else to swipe.
+
+**Nothing at the root was touched.** The reserved scrollbar gutter that made the
+full-bleed header stop short of the right edge (see "The header reaches the right
+edge") stays gone; this box is a descendant, and the page keeps the browser's
+default gutter behaviour.
+
+## The board reads its clock as AM/PM
+
+**The board was the only 24-hour surface left in the app.** Discover already
+showed a venue's hours the way the provider gives them, "9:00 AM - 5:00 PM", and
+the schedule next to it said "19:00". That is one trip described two ways on two
+tabs, and the owner read the board as the one that was wrong. So every wall-clock
+time the board draws is now twelve-hour with a meridiem: blocks, their accessible
+names, journey legs, the agenda, the hour gutter and the map card.
+
+**Through `Intl`, not through arithmetic.** A hand-rolled twelve-hour clock is
+four lines and gets both ends of the day wrong: `h % 12` prints "0:00 AM" for
+midnight and "0:00 PM" for noon, and neither is a time anyone writes. The
+formatter is asked for `hour12` and it answers "12:00 AM" and "12:00 PM", which
+is the only reason this is worth a helper rather than a template string.
+
+**The minute is already local, so the format is done in UTC.** The board's unit
+is minutes past midnight in the destination's own zone, which the API has already
+resolved. Letting `Intl` apply the reader's zone on top of that would shift a
+time that is in the right zone already, so a fixed UTC instant is built from the
+minute and formatted in UTC. The conversion stays where it belongs, and this
+stays presentation.
+
+**One helper, three shapes**, all in `pages/schedule/shared.ts`:
+
+- `clock(min)` is a single time, "7:00 PM".
+- `clockRange(from, to)` says the meridiem once when both ends share it, so a
+  block reads "9:00 - 11:00 AM" rather than spending a third of a narrow line
+  repeating a word that has not changed. A range that crosses noon or midnight
+  keeps both, because there the meridiem is the information.
+- `hourLabel(h)` is an hour line, "6 AM". Minuteless because an hour line is
+  always on the hour, and ":00" under every one of them is nineteen repetitions
+  of nothing. It is also what keeps the gutter still: "6 AM" is no wider than the
+  "6:00" it replaces, so the 56px gutter and its 48px label did not move and the
+  grid did not reflow.
+
+**`en-US` is named rather than inferred**, the same way `dayLabel` and core's
+date helpers already name it. This is the deliberate part: for an app whose whole
+premise is crossing time zones, a hard-coded twelve-hour clock is a parochial
+default, and it is recorded here as one.
+
+**What it would take to make it a preference.** The account already stores a
+`homeTz` and nothing else about how times are shown, so a clock preference is a
+new column, a new field on the profile form, and a way for these three functions
+to read it. The functions are the easy part: they are the only place on the board
+that decides what a time looks like, so a preference reaches the whole board by
+being threaded into one module. The work is the setting, not the formatting, and
+the honest version of it is locale-aware rather than a two-value toggle: a reader
+who wants a 24-hour clock generally wants their own date order and their own
+wording with it, which is a decision for the app's copy as a whole and not for
+one page. Until that is wanted, `undefined` in place of `'en-US'` is the smallest
+step and it is one line.
+
+**The typed time fields are still 24-hour.** `TimeField` is two numeric segments
+with an hour that runs to 24, because the board ends at midnight and 24:00 is the
+end of a day where 0:00 is the start of one. Reading it as twelve-hour needs a
+third segment for the meridiem and changes what the arrow keys and typed digits
+mean, which is an input contract rather than a format. It is left alone here so
+the display change is separable from it.
 
 ## Shared UI conventions
 
@@ -4521,7 +4791,7 @@ optional field does, as built:
 
 | Field | Absent | Explicit `null` | Empty (`''` / `[]`) | Unreadable |
 |---|---|---|---|---|
-| `title` | unchanged | unchanged (null reads as silence, as it always has) | **400 `Enter a title.`** | 400, over-length quotes the limit |
+| `title` | unchanged | unchanged (null reads as silence, as it always has) | **derived again**, exactly as create derives | 400, over-length quotes the limit |
 | `type` | unchanged | 400 | 400 | 400 `Pick an event type.` |
 | `notes` | unchanged | cleared | cleared | n/a, any string is notes |
 | `travelMode` | unchanged | cleared, back to the router | cleared, back to the router | 400 `Pick a travel mode.` |
@@ -4531,22 +4801,31 @@ optional field does, as built:
 | `version` | unchecked write, as before | unchecked write | unchecked write | 400 `Reload the page and try again.` |
 | `people` | not read by this branch at all | not read | not read | not read |
 
-Two entries are worth the reasoning. `title` is the one field a member can set
-and cannot clear: every event has a name, create refuses a blank one, so a save
-that blanks it is refused rather than ignored. It used to be dropped, and the
-old name reappeared on the next load looking as though the save had not
-happened. `people` is not read here at all, by design: participants are written
-through `PUT /events/:eventId/people`, which is the endpoint that splits and
-rejoins the group and the one that recomputes the day's travel. An edit that
-carries a `people` field is not refused, because refusing would break clients
-that send a harmless one, but it does not save participants either.
+Two entries are worth the reasoning. `title` is the one field a member can clear
+without naming a replacement. It used to be dropped, and the old name reappeared
+on the next load looking as though the save had not happened. Two answers were
+written to that, in parallel: refuse the blank save with `Enter a title.`, and
+derive a name again from the place, the notes and finally the type's own noun.
+**Deriving won, and the refusal was dropped.** They fix the same complaint, but
+the refusal makes the organiser invent a name for a block they were trying to
+leave unnamed, while create already names an unnamed block for them, so refusing
+here would have the two paths disagree about the same empty field. The length
+check is kept: an over-long name that was actually typed is a field the
+organiser can see and fix. `people` is not read here at all, by design:
+participants are written through `PUT /events/:eventId/people`, which is the
+endpoint that splits and rejoins the group and the one that recomputes the day's
+travel. An edit that carries a `people` field is not refused, because refusing
+would break clients that send a harmless one, but it does not save participants
+either.
 
 #### The type's own noun lives in core
 
 `EVENT_TYPE_LABELS` in `@trippy/core/types` is the single map from an event type
 to the word for it. There were two copies, one in the API and one in the web
 client's `schedule/shared.ts`, plus a third half-copy in the API's create path
-as a `travel`/`freetime` ternary. Two copies of a vocabulary is how "Free time"
+as a `travel`/`freetime` ternary, and a fourth, `TYPE_TITLES`, added beside the
+API's title derivation by parallel work. All four are gone: `derivedTitle` reads
+`EVENT_TYPE_LABELS`. Two copies of a vocabulary is how "Free time"
 becomes "Freetime" on one surface and not the other, and this vocabulary is also
 what an unnamed block is called, so a divergence is visible to a member as a
 block that renames itself when it is saved.

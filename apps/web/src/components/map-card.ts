@@ -42,13 +42,17 @@ function warnIcon(): SVGElement {
  * own colour, because the colour is the only thing tying a card to the pin
  * underneath it, and a reader should not have to learn a code to use a map.
  *
+ * A pin can hold more than one thing, because more than one thing can be at one
+ * address. It is given every item at its point rather than the first, so the
+ * others stop being unreachable.
+ *
  * Built as DOM rather than as an HTML string. Every line on it is typed by a
  * trip member and a track colour comes back from the API as member-editable
  * text, so interpolating any of it into markup would let somebody close an
  * attribute and inject tags. `style.color` is set through the CSSOM, which
  * refuses anything that is not a colour.
  */
-export function mapCard(item: MapItem, track: Pick<MapTrack, 'name' | 'color'>): HTMLElement {
+export function mapCard(items: MapItem[], track: Pick<MapTrack, 'name' | 'color'>): HTMLElement {
 	const wrap = document.createElement('div');
 	wrap.className = 'mapcard';
 
@@ -58,26 +62,62 @@ export function mapCard(item: MapItem, track: Pick<MapTrack, 'name' | 'color'>):
 	eyebrow.textContent = track.name;
 	wrap.append(eyebrow);
 
-	const title = document.createElement('strong');
-	title.textContent = item.title;
-	wrap.append(title);
+	/* One pin, so one card, exactly as before. Several, and each gets the same
+	   block under the one eyebrow: the track is what they have in common, and
+	   repeating it per entry would say nothing and cost a line each. The list
+	   scrolls rather than growing, so a venue with nine things on it cannot
+	   push a card taller than the window. */
+	const list = document.createElement('div');
+	list.className = items.length > 1 ? 'mapcard-list' : 'mapcard-one';
+	wrap.append(list);
 
-	const row = (text: string, className?: string) => {
-		const span = document.createElement('span');
-		if (className) span.className = className;
-		span.textContent = text;
-		wrap.append(span);
-		return span;
-	};
+	for (const item of items) {
+		const entry = document.createElement('div');
+		entry.className = 'mapcard-entry';
+		list.append(entry);
 
-	if (item.subtitle) row(item.subtitle, 'mapcard-sub');
-	for (const line of item.detail ?? []) row(line);
-	if (item.warn) {
-		const warn = row(item.warn, 'mapcard-warn');
-		warn.prepend(warnIcon());
+		const title = document.createElement('strong');
+		title.textContent = item.title;
+		entry.append(title);
+
+		const row = (text: string, className?: string) => {
+			const span = document.createElement('span');
+			if (className) span.className = className;
+			span.textContent = text;
+			entry.append(span);
+			return span;
+		};
+
+		if (item.subtitle) row(item.subtitle, 'mapcard-sub');
+		for (const line of item.detail ?? []) row(line);
+		if (item.warn) {
+			const warn = row(item.warn, 'mapcard-warn');
+			warn.prepend(warnIcon());
+		}
 	}
 
 	return wrap;
+}
+
+/**
+ * Where to put the card for an event that may not have come from a pointer.
+ *
+ * Both maps make their markers reachable by keyboard, and the click a keyboard
+ * sends has no useful coordinates: reading `clientX` off it puts the card in
+ * the top-left corner of the window, nowhere near the pin it belongs to. So the
+ * marker's own element is measured instead, which is where a reader tabbing
+ * through the pins is looking.
+ */
+export function cardAnchor(
+	domEvent: { clientX?: number; clientY?: number } | undefined,
+	el: Element | null | undefined
+): { x: number; y: number } {
+	if (domEvent && (domEvent.clientX || domEvent.clientY)) {
+		return { x: domEvent.clientX ?? 0, y: domEvent.clientY ?? 0 };
+	}
+	const box = el?.getBoundingClientRect?.();
+	if (box) return { x: box.left + box.width / 2, y: box.top };
+	return { x: 0, y: 0 };
 }
 
 /** How far the card sits from the pointer, and how close it may come to an edge. */
@@ -105,6 +145,13 @@ const EDGE = 8;
  */
 export function createCardLayer() {
 	let el: HTMLDivElement | null = null;
+	/* Whether the open card was asked for rather than hovered into. A hovered
+	   card leaves the moment the pointer leaves its pin, which is right for a
+	   glance and wrong for a pin holding nine things: the list under the pointer
+	   cannot be read, let alone scrolled, if it disappears on the way to it. So
+	   a click keeps it, and only a click on the map, on another pin, or a redraw
+	   that takes its pin away puts it back. */
+	let held = false;
 
 	const layer = () => {
 		if (!el) {
@@ -116,8 +163,9 @@ export function createCardLayer() {
 	};
 
 	return {
-		show(card: HTMLElement, x: number, y: number) {
+		show(card: HTMLElement, x: number, y: number, hold = false) {
 			const host = layer();
+			held = hold;
 			host.replaceChildren(card);
 			/* Measured after mounting rather than guessed: the card is as tall as
 			   the trip made it, and the flip depends on knowing that. */
@@ -135,12 +183,16 @@ export function createCardLayer() {
 			host.style.top = `${Math.round(Math.max(EDGE, top))}px`;
 			host.style.visibility = 'visible';
 		},
-		hide() {
+		/** `force` closes a held card: the map was clicked, or the pin is gone. */
+		hide(force = false) {
+			if (held && !force) return;
+			held = false;
 			if (el) el.replaceChildren();
 		},
 		destroy() {
 			el?.remove();
 			el = null;
+			held = false;
 		}
 	};
 }

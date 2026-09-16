@@ -107,6 +107,31 @@
 	padding: 1rem 1rem 1rem 0;
 	overflow: visible;
 }
+/* The day's own viewport.
+ *
+ * The grid is as tall as the day it draws, around nineteen hours at a pixel a
+ * minute, so on every screen it is taller than the screen. Scrolling the page to
+ * reach the evening took the day's title bar, its stepper and the lodging band
+ * off the top with it, which is the thing a calendar is not supposed to do: the
+ * header names what you are reading, so it has to stay while the hours move.
+ *
+ * So the hours scroll inside this box and everything that labels them sits
+ * outside it. The height is the space left between the box and the bottom of the
+ * screen, measured on the page rather than stated here, since the board's top
+ * moves with a toolbar that wraps and a lodging band that may hold nothing or
+ * three stays; the `70vh` below is only what applies before the measurement
+ * lands. The floor is in the measurement, so a short screen still gets a usable
+ * window rather than a slot.
+ *
+ * Scroll chaining is left on: a flick that reaches the end of the day carries
+ * on into the page, which is how the map below the board is reached on a phone,
+ * where the box is most of the screen. Containing it would have made the board a
+ * trap at exactly the width where there is nowhere else to swipe. */
+.sched .boardscroll {
+	max-height: 70vh;
+	overflow-x: hidden;
+	overflow-y: auto;
+}
 /* The board's title bar: the day it is drawing, and the way to the next one.
    Centred over the board rather than left-aligned in the toolbar, because it
    labels the thing underneath it. `.board` gives its left padding away to the

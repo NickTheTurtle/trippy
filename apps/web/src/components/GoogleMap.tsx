@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { mapCard, createCardLayer } from './map-card';
+import { mapCard, cardAnchor, createCardLayer } from './map-card';
+import { groupColocated } from './map-groups';
 
 export type MapItem = {
 	title: string;
@@ -92,7 +93,7 @@ export default function GoogleMap({
 	   hover listener, so a marker that keeps its slot through a re-layout shows
 	   its new times without its listeners being torn down and rebuilt. */
 	const layerRef = useRef<ReturnType<typeof createCardLayer> | null>(null);
-	const cards = useRef<{ item: MapItem; track: Pick<MapTrack, 'name' | 'color'> }[]>([]);
+	const cards = useRef<{ items: MapItem[]; track: Pick<MapTrack, 'name' | 'color'> }[]>([]);
 	/** Bumped once the map exists, so the draw effect below reruns for it. */
 	const [ready, setReady] = useState(0);
 
@@ -142,7 +143,7 @@ export default function GoogleMap({
 					fullscreenControl: true
 				});
 				// A tap opens a card, so a tap on the map behind it is what puts it away.
-				mapRef.current.addListener('click', () => layerRef.current?.hide());
+				mapRef.current.addListener('click', () => layerRef.current?.hide(true));
 				setReady((n) => n + 1);
 			})
 			.catch(() => {});
@@ -167,15 +168,39 @@ export default function GoogleMap({
 		const g = gRef.current;
 		if (!map || !g) return;
 
-		const pinIcon = (color: string, n: number | null) => {
-			const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="36" viewBox="0 0 28 36">
-			<path d="M14 0C6.3 0 0 6.1 0 13.7 0 24 14 36 14 36s14-12 14-22.3C28 6.1 21.7 0 14 0z" fill="${color}" stroke="#fff" stroke-width="2"/>
-			${n === null ? '' : `<text x="14" y="18" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="700" fill="#fff">${n}</text>`}
+		const pin = (color: string, n: number | null) =>
+			`<path d="M14 0C6.3 0 0 6.1 0 13.7 0 24 14 36 14 36s14-12 14-22.3C28 6.1 21.7 0 14 0z" fill="${color}" stroke="#fff" stroke-width="2"/>
+			${n === null ? '' : `<text x="14" y="18" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="700" fill="#fff">${n}</text>`}`;
+		const pinIcon = (color: string, n: number | null, count: number) => {
+			/* A pin standing for one thing is drawn exactly as it always was, down
+			   to its size and its anchor: the fix is for stacks, and a lone pin is
+			   not one. */
+			if (count < 2) {
+				const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="36" viewBox="0 0 28 36">
+			${pin(color, n)}
+		</svg>`;
+				return {
+					url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
+					scaledSize: new g.maps.Size(28, 36),
+					anchor: new g.maps.Point(14, 36)
+				};
+			}
+			/* A pin that stands for several things wears the count in a badge
+			   rather than in its body. The body is where the order number goes, and
+			   a count written there would be read as one: the things sharing a
+			   venue are not always consecutive stops, so no single number is true
+			   of the pin. The badge overhangs the 28x36 pin, so the viewBox grows
+			   around it and the anchor moves by the same amount, leaving the point
+			   of the pin exactly where it was. */
+			const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="39" viewBox="-2 -3 32 39">
+			${pin(color, n)}
+			<circle cx="22" cy="5" r="7" fill="#fff" stroke="${color}" stroke-width="2"/>
+			<text x="22" y="8.6" text-anchor="middle" font-family="sans-serif" font-size="${count > 9 ? 8 : 9.5}" font-weight="700" fill="${color}">${count > 99 ? '99+' : count}</text>
 		</svg>`;
 			return {
 				url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
-				scaledSize: new g.maps.Size(28, 36),
-				anchor: new g.maps.Point(14, 36)
+				scaledSize: new g.maps.Size(32, 39),
+				anchor: new g.maps.Point(16, 39)
 			};
 		};
 		const dotIcon = (color: string) => ({
@@ -189,8 +214,8 @@ export default function GoogleMap({
 
 		/* The card is the shared one, drawn on the app's own layer rather than in
 		   the library's bubble, so nothing clips it. */
-		const card = (c: { item: MapItem; track: Pick<MapTrack, 'name' | 'color'> }) =>
-			mapCard(c.item, c.track);
+		const card = (c: { items: MapItem[]; track: Pick<MapTrack, 'name' | 'color'> }) =>
+			mapCard(c.items, c.track);
 
 		/* Work out what the map should show, then reconcile the overlays already
 		   on it towards that, rather than clearing and rebuilding. A Marker that
@@ -201,7 +226,9 @@ export default function GoogleMap({
 			pos: { lat: number; lng: number };
 			iconKey: string;
 			icon: Gm;
-			card: { item: MapItem; track: Pick<MapTrack, 'name' | 'color'> };
+			/** The pin's accessible name, which is every title it stands for. */
+			title: string;
+			card: { items: MapItem[]; track: Pick<MapTrack, 'name' | 'color'> };
 		};
 		const wantMarkers: Want[] = [];
 		const wantLines: { path: { lat: number; lng: number }[]; color: string }[] = [];
@@ -210,18 +237,26 @@ export default function GoogleMap({
 		for (const t of tracksRef.current) {
 			const located = t.items.filter((i) => i.lat != null && i.lng != null);
 			const path: { lat: number; lng: number }[] = [];
-			located.forEach((i, idx) => {
+			for (const i of located) {
 				const pos = { lat: i.lat as number, lng: i.lng as number };
-				const n = t.numbered === false ? null : idx + 1;
 				path.push(pos);
 				bounds.extend(pos);
+			}
+			/* One pin per point rather than one per item. The line still runs
+			   through every item in order: it is the route, and the route really
+			   does come back to a venue it has already been to. */
+			for (const pin of groupColocated(t.items)) {
+				const pos = { lat: pin.lat, lng: pin.lng };
+				const count = pin.items.length;
+				const n = t.numbered === false || count > 1 ? null : pin.index;
 				wantMarkers.push({
 					pos,
-					iconKey: t.dot ? `dot:${t.color}` : `pin:${t.color}:${n ?? '-'}`,
-					icon: t.dot ? dotIcon(t.color) : pinIcon(t.color, n),
-					card: { item: i, track: t }
+					iconKey: t.dot ? `dot:${t.color}:${count}` : `pin:${t.color}:${n ?? '-'}:${count}`,
+					icon: t.dot ? dotIcon(t.color) : pinIcon(t.color, n, count),
+					title: pin.items.map((i) => i.title).join(', '),
+					card: { items: pin.items, track: t }
 				});
-			});
+			}
 			if (t.line !== false && path.length > 1) wantLines.push({ path, color: t.color });
 		}
 
@@ -237,23 +272,29 @@ export default function GoogleMap({
 					position: w.pos,
 					map,
 					icon: w.icon,
+					title: w.title,
 					zIndex: dot ? 1 : 10
 				});
-				const open = (e: { domEvent?: MouseEvent }) => {
+				const open = (e: { domEvent?: MouseEvent }, hold = false) => {
 					const c = cards.current[i];
-					const at = e?.domEvent;
-					if (!c || !at) return;
-					layer.show(card(c), at.clientX, at.clientY);
+					if (!c) return;
+					/* A pin reached by keyboard sends a click with no coordinates on
+					   it, so the card is placed from the marker's own element. */
+					const at = cardAnchor(e?.domEvent, e?.domEvent?.target as Element | null);
+					layer.show(card(c), at.x, at.y, hold);
 				};
 				// On click as well as on hover, because a phone has no hover: a tap is
 				// the only way to read a pin there, and the card leaves on the next tap.
-				marker.addListener('mouseover', open);
-				marker.addListener('click', open);
+				// A clicked card is held open, so a pin holding several things can be
+				// read and scrolled without the pointer having to stay on the pin.
+				marker.addListener('mouseover', (e: { domEvent?: MouseEvent }) => open(e));
+				marker.addListener('click', (e: { domEvent?: MouseEvent }) => open(e, true));
 				marker.addListener('mouseout', () => layer.hide());
 				markers.current[i] = marker;
 				iconKeys.current[i] = w.iconKey;
 				return;
 			}
+			if (m.getTitle() !== w.title) m.setTitle(w.title);
 			const at = m.getPosition();
 			if (!at || at.lat() !== w.pos.lat || at.lng() !== w.pos.lng) m.setPosition(w.pos);
 			if (iconKeys.current[i] !== w.iconKey) {
@@ -266,8 +307,9 @@ export default function GoogleMap({
 			markers.current[i].setMap(null);
 		}
 		/* A pin dropped from under the pointer never fires its `mouseout`, so the
-		   card would stand on the page with nothing under it. */
-		if (markers.current.length > wantMarkers.length) layer.hide();
+		   card would stand on the page with nothing under it. Held cards go too:
+		   the pin that was asked about is no longer there to be asked about. */
+		if (markers.current.length > wantMarkers.length) layer.hide(true);
 		markers.current.length = wantMarkers.length;
 		iconKeys.current.length = wantMarkers.length;
 		cards.current.length = wantMarkers.length;
