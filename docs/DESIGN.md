@@ -3104,6 +3104,56 @@ breakpoint is the measured one, so no width that fits today is broken in two.
 `display: contents` at that width: it carries no styling of its own, so it loses
 nothing by not generating a box, and its children become grid items directly.
 
+**One height, and the page's air belongs to the board.** The next report was
+that the board and the map could both be taller. Measured at 1280x900 before
+anything changed: the box started 458.5px down the page and came out 417.5px
+tall, the map was a flat 420px in a 422px card beside a 557px column, and the
+document was 989px against a 900px screen. So the box's formula was not the
+conservative one it looked like. Above the box sit the page header, the trip
+title and dates, the tabs, the toolbar, the day title and the lodging band, and
+under it the card's padding; all of that is real, and only about 24px of the
+total was guesswork. Two other things were wasting the screen. The page keeps
+96px of trailing air under its last section, which on a page built to end at the
+bottom of the screen only bought a second scrollbar around a board that already
+has its own. And the map was a fixed 420px in a column 135px taller than itself.
+
+The derivation is now shared and stated once: **screen height, less the box's own
+top in document coordinates, less the card's measured tail, less 8px of air,
+floored at 320px**. The 8px is the whole of the guess; the card's tail and the
+page's tail are measured rather than assumed, and `VIEW_AIR` replaces the flat
+24px gap that stood in for both. The day grid, the agenda list and the map all
+take that one number: the first two because they are the same box, the map
+because the split stretches its column and the map fills it. `.board`'s bottom
+padding went from 1rem to 0.5rem on the principle that a pixel kept there is a
+pixel of the day not drawn.
+
+The page's air is handed back through `--tailpull`, a negative bottom margin on
+`.sched` measured in the same pass that sizes the box. It is bounded by the air
+that is actually there and floored at zero, so a board too tall for the screen
+still scrolls the page down to its last row rather than losing it; and because
+both the overflow and the air are read with the current pull already applied,
+one pass lands on the fixed point instead of creeping toward it. It is written
+straight onto the node rather than held in state, so it cannot start a render
+loop. Below 901px it is off: the map sits under the board there, the page is
+meant to scroll, and pulling the tail up would only crowd it.
+
+After: the box is 424.5px, the map card 557px on the day board and 489px on the
+shorter agenda card, and the document is 900px against a 900px screen, so the
+second scrollbar is gone. The board gained 7px, which is honestly all the slack
+there was at that size; the map gained 135px, and that is the visible win. At
+390px nothing moves: the 320px floor binds, the map keeps its 420px under the
+board, and the page still scrolls, which is correct on a phone where the map is
+the next thing down rather than the thing beside.
+
+**Leaflet has to be told.** The fallback map caches its container size, so a
+container that grows under it leaves the new space blank until something fires a
+window resize. Measured with the observer removed: growing the card from 383px
+to 828px left the tiles ending 356px above the bottom of the box, six tiles for
+a box that wants twelve. A `ResizeObserver` on the map element calling
+`invalidateSize` closes it, and the same growth then fills the box with tiles
+past its bottom edge. The Google map, which is what runs when a maps key is
+configured, watches its own container and needs no equivalent.
+
 ## The board reads its clock as AM/PM
 
 **The board was the only 24-hour surface left in the app.** Discover already
