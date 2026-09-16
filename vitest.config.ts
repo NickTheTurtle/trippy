@@ -13,6 +13,7 @@ export default defineConfig({
 			{ find: '@trippy/core/cover', replacement: core('cover.ts') },
 			{ find: '@trippy/core/geo', replacement: core('geo.ts') },
 			{ find: '@trippy/core/travel', replacement: core('travel.ts') },
+			{ find: '@trippy/core/conflicts', replacement: core('conflicts.ts') },
 			{ find: '@trippy/core/currency', replacement: core('currency.ts') },
 			{ find: '@trippy/core/sample', replacement: core('sample.ts') },
 			{ find: '@trippy/core/types', replacement: core('types.ts') },
