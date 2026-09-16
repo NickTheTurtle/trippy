@@ -4343,6 +4343,98 @@ or an object, and `String(x)` on an object yields "[object Object]" rather than
 failing. FormData could only ever yield strings, so the old `String(f.get(k) ??
 '')` idiom was safe and the JSON equivalent is not.
 
+#### An op payload is checked field by field, before the store sees it
+
+`POST /schedule/events/:eventId/op` used to check exactly two fields, the
+dialog's two clock values, and coerce the rest. Coercion turned one class of
+mistake into two different wrong answers.
+
+A drag or a resize whose minute could not be read reached the store as `NaN`,
+which is what `num(b.startMin) ?? NaN` was written to do. `node:sqlite` binds
+NaN as NULL, the minute columns are NOT NULL, and the constraint failure came
+back to the member as a 500 and "Something went wrong": a request only the
+caller could fix, reported as a broken server. The shape is not exotic. An
+emptied number field in the dialog is `Number('')`, which is NaN, and
+`JSON.stringify` writes NaN as `null`, so the commonest way to send an
+unreadable minute is to clear a field and press Save.
+
+Everything else failed the other way, which is harder to notice and harder to
+report: an unreadable time on a dialog save, a type outside the five, a misspelt
+travel mode, a malformed day and a version that is not a whole number were all
+dropped on the way through. The write then succeeded with those fields left out,
+the API answered 200, and the board came back holding the old value with nothing
+said about why the new one did not stick. A version that could not be read was
+the worst of them, because being ignored there switches the optimistic-locking
+check off and lets a stale copy of every untouched field overwrite whoever saved
+first.
+
+All of it is now refused by `opProblem`, in one place ahead of the switch,
+because the fields mean the same thing whichever op is carrying them. Each
+refusal is a 400 in the standard `{ error }` envelope with a sentence a member
+can act on, which is what the corner toast shows.
+
+What is deliberately still not refused: an unknown place id, which unlinks (see
+`placeFor`); an empty travel mode, which hands the journey back to the router;
+and an empty participant list, which means everyone (see 4.8). Those are
+requests rather than mistakes.
+
+#### Absent, null and empty are three different requests
+
+The op edit branch is a partial update, so "the body did not mention this" has
+to stay distinguishable from "the body asked for this to be cleared". What each
+optional field does, as built:
+
+| Field | Absent | Explicit `null` | Empty (`''` / `[]`) | Unreadable |
+|---|---|---|---|---|
+| `title` | unchanged | unchanged (null reads as silence, as it always has) | **400 `Enter a title.`** | 400, over-length quotes the limit |
+| `type` | unchanged | 400 | 400 | 400 `Pick an event type.` |
+| `notes` | unchanged | cleared | cleared | n/a, any string is notes |
+| `travelMode` | unchanged | cleared, back to the router | cleared, back to the router | 400 `Pick a travel mode.` |
+| `poiId` | link unchanged | link and coordinates cleared | link and coordinates cleared | 400 for a non-string; an unknown id unlinks by design |
+| `startMin` / `endMin` | unchanged | **400** | n/a | 400 |
+| `day` / `endDay` | unchanged | 400 | 400 | 400; a checkout on or before the check-in is 400 |
+| `version` | unchecked write, as before | unchecked write | unchecked write | 400 `Reload the page and try again.` |
+| `people` | not read by this branch at all | not read | not read | not read |
+
+Two entries are worth the reasoning. `title` is the one field a member can set
+and cannot clear: every event has a name, create refuses a blank one, so a save
+that blanks it is refused rather than ignored. It used to be dropped, and the
+old name reappeared on the next load looking as though the save had not
+happened. `people` is not read here at all, by design: participants are written
+through `PUT /events/:eventId/people`, which is the endpoint that splits and
+rejoins the group and the one that recomputes the day's travel. An edit that
+carries a `people` field is not refused, because refusing would break clients
+that send a harmless one, but it does not save participants either.
+
+#### The type's own noun lives in core
+
+`EVENT_TYPE_LABELS` in `@trippy/core/types` is the single map from an event type
+to the word for it. There were two copies, one in the API and one in the web
+client's `schedule/shared.ts`, plus a third half-copy in the API's create path
+as a `travel`/`freetime` ternary. Two copies of a vocabulary is how "Free time"
+becomes "Freetime" on one surface and not the other, and this vocabulary is also
+what an unnamed block is called, so a divergence is visible to a member as a
+block that renames itself when it is saved.
+
+A label map is display text, which is usually a reason to keep it out of core.
+It goes there anyway because core already owns the literals it is keyed by, and
+because the client, the API and a future native client all need the same words.
+Core stays pure: it is a frozen-in-practice constant and a lookup, no
+formatting, no locale, no I/O.
+
+Two client-side follow-ups fall out of this and are deliberately not made here,
+because `apps/web` was being edited by other work at the time:
+
+- `schedule/shared.ts` should drop its own `TYPE_LABELS` and its `'New event'`
+  fallback in `deriveTitle`, and read `EVENT_TYPE_LABELS` instead. The server
+  names an unnamed block after its type, so a preview that says "New event"
+  shows a name that is about to be replaced: the block appears to rename itself
+  the moment it is saved. The server's rule is the correct one, since a column
+  of identical "New event"s says nothing about the day.
+- `AddEventDialog` never sends `travelMode`, although create has always accepted
+  and stored it for a `travel` block, so a mode can currently only be set by
+  saving the journey and reopening it.
+
 **Known gaps, inherited rather than introduced.** `getBudget` / `setBudget`,
 `toggleSave` and `linkedItemCount` exist in `packages/server` but no UI ever
 called them. They are deliberately not exposed: the API mirrors the app that

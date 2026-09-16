@@ -5,7 +5,15 @@ import { body, int, isoDay, num, str, strList } from '../parse';
 import { fail, goneMessage, okOr } from '../respond';
 import type { Env, Trip } from '../types';
 import { env } from '@trippy/server/env';
-import { isEventType, isLocatedType, MIN_EVENT_MINS, type EventType } from '@trippy/core/types';
+import {
+	DAY_END_MIN,
+	EVENT_TYPE_LABELS,
+	isEventType,
+	isLocatedType,
+	isTransportMode,
+	MIN_EVENT_MINS,
+	type EventType
+} from '@trippy/core/types';
 import { isNameLength, nameTooLong } from '@trippy/core/validate';
 import {
 	createEvent,
@@ -274,7 +282,10 @@ schedule.post('/events', async (c) => {
 	const place = isLocatedType(type) ? placeFor(trip.id, type, str(b.poiId)) : null;
 	if (place && !title) title = place.name;
 
-	if (!title) title = type === 'travel' ? 'Travel' : type === 'freetime' ? 'Free time' : '';
+	// The type's own noun for the two types that are their own description. The
+	// words come from core so the picker, the board and this fallback cannot
+	// drift apart.
+	if (!title) title = type === 'travel' || type === 'freetime' ? EVENT_TYPE_LABELS[type] : '';
 	if (!title) return fail(c, 400, 'Enter a title.');
 	if (!isNameLength(title)) return fail(c, 400, nameTooLong());
 
@@ -327,6 +338,136 @@ schedule.put('/events/:eventId/people', async (c) => {
 });
 
 /**
+ * Whether the body said anything at all about a field.
+ *
+ * Absent is a real answer on an edit: every field the dialog does not mention
+ * is left exactly as it is, which is what keeps a save that only moved a block
+ * from writing back a stale copy of everything else. `null` is not absent even
+ * though it reads like it, and that distinction is the whole point of this
+ * helper: `JSON.stringify` writes NaN and Infinity as null, so an emptied time
+ * field arrives as an explicit null rather than as silence. Reading that as
+ * "leave it alone" is how a time somebody typed went nowhere without a word.
+ */
+function sent(v: unknown): boolean {
+	return v !== undefined;
+}
+
+/**
+ * What is wrong with an op payload, or null when nothing is.
+ *
+ * Each branch of the op switch reads a few fields off an untrusted body, and
+ * only the dialog's two clock fields were ever checked. The rest were coerced,
+ * and coercion turned two different mistakes into two different bad answers:
+ *
+ *  - A drag or a resize whose minute was unreadable became `NaN`, which is what
+ *    `num(b.startMin) ?? NaN` was for. SQLite binds NaN as NULL, the minute
+ *    columns are NOT NULL, and the refusal surfaced as a 500 "Something went
+ *    wrong": a bad request reported as a broken server, with nothing a member
+ *    could act on.
+ *  - Everything else failed silently. An unreadable time, an unknown type, a
+ *    misspelt travel mode and a malformed day were all dropped on the way to the
+ *    store, so the save answered 200 and the board came back holding the old
+ *    value with no explanation of why the new one did not stick.
+ *
+ * Both are requests the caller got wrong, so both are 400s with a sentence a
+ * member can act on. This runs before the switch because the check is per
+ * field, not per branch: the same day, the same minute and the same version
+ * mean the same thing whichever op is carrying them.
+ *
+ * What is deliberately not refused: an unknown place id, which unlinks (see
+ * `placeFor`), an empty travel mode, which hands the journey back to the
+ * router, and an empty participant list, which means everyone. Those are
+ * requests, not mistakes.
+ */
+function opProblem(op: string, b: Record<string, unknown>): string | null {
+	// Any op may name the day it is landing on. Absent leaves the block where it
+	// is; unreadable would have moved it to a day that is not a day.
+	if (sent(b.day) && !isoDay(b.day)) return 'Pick a day.';
+	if (sent(b.endDay) && !isoDay(b.endDay)) return 'Pick a checkout date.';
+	const from = isoDay(b.day);
+	const to = isoDay(b.endDay);
+	// Same rule create holds a stay to. The store clamps an inverted range into
+	// the shortest real stay, which is the right last resort and the wrong thing
+	// to tell somebody who typed two dates and got a third.
+	if (from && to && to <= from) return 'Check out after you check in.';
+
+	// The version the editor had on screen. A version that is not a whole number
+	// reads as "no version" and quietly turns the conflict check off, which is
+	// the one field where being ignored costs somebody else's edit.
+	if (sent(b.version) && b.version !== null && int(b.version) === null) {
+		return 'Reload the page and try again.';
+	}
+
+	const start = num(b.startMin);
+	const end = num(b.endMin);
+
+	if (op === 'move') {
+		// A drag carries exactly one minute and it is not optional: there is no
+		// stored value to fall back on, because the drag is the new value.
+		if (start === null) return 'Pick a start time.';
+		if (start < 0 || start >= DAY_END_MIN) return 'Pick a start time within the day.';
+		return null;
+	}
+
+	if (op === 'resize') {
+		if (end === null) return 'Pick an end time.';
+		if (end <= 0 || end > DAY_END_MIN) return 'Pick an end time within the day.';
+		return null;
+	}
+
+	if (op !== 'edit') return null;
+
+	// On an edit the two ends are optional, so only a field that was sent and
+	// cannot be read is a mistake. A stay is edited by its dates and sends
+	// neither.
+	if (sent(b.startMin) && start === null) return 'Pick a start time.';
+	if (sent(b.endMin) && end === null) return 'Pick an end time.';
+	if (start !== null && (start < 0 || start >= DAY_END_MIN)) {
+		return 'Pick a start time within the day.';
+	}
+	if (end !== null && end > DAY_END_MIN) return 'That runs past the end of the day.';
+	// A dialog save carries both ends of the clock at once, so it is the one op
+	// that can describe an event that ends before it begins.
+	if (start !== null && end !== null && end - start < MIN_EVENT_MINS) {
+		return `An event needs to run at least ${MIN_EVENT_MINS} minutes.`;
+	}
+
+	// A type outside the five was dropped by the store, which left the block as
+	// whatever it already was and reported success.
+	if (sent(b.type) && !(typeof b.type === 'string' && isEventType(b.type))) {
+		return 'Pick an event type.';
+	}
+
+	// Empty is the reset, and null is how a client writes the same thing. A word
+	// that is neither was silently treated as the reset, so a misspelt mode
+	// unpinned the journey instead of pinning it.
+	if (sent(b.travelMode) && b.travelMode !== null && b.travelMode !== '') {
+		if (typeof b.travelMode !== 'string' || !isTransportMode(b.travelMode)) {
+			return 'Pick a travel mode.';
+		}
+	}
+
+	// A place is picked from a list, so anything that is not a string is not a
+	// pick. An id that is a string and unknown still unlinks, deliberately.
+	if (sent(b.poiId) && b.poiId !== null && typeof b.poiId !== 'string') {
+		return 'Pick a place from the list.';
+	}
+
+	// Null reads as absent here, as it always has: it is how a client says it has
+	// nothing to say about the name. An empty one is not that. Every event has a
+	// name, create refuses a blank one, and an edit that blanks it was ignored
+	// rather than refused, so the old name came back on the next load looking
+	// like the save had not happened.
+	if (sent(b.title) && b.title !== null) {
+		const title = str(b.title);
+		if (!title) return 'Enter a title.';
+		if (!isNameLength(title)) return nameTooLong();
+	}
+
+	return null;
+}
+
+/**
  * Drag, resize, retitle, delete.
  *
  * These stay behind one `op` field rather than becoming four REST endpoints
@@ -357,25 +498,12 @@ schedule.post('/events/:eventId/op', async (c) => {
 		return fail(c, 400, outsideTripMessage(trip));
 	}
 
-	// A dialog save carries both ends of the clock at once, so it is the one op
-	// that can describe an event that ends before it begins. The store clamps
-	// such a pair into something legal, which is the right last resort but the
-	// wrong answer to give an organiser: they typed a time and would be shown a
-	// different one with no explanation. Refuse it here, where there is still
+	// A dialog save carries both ends of the clock at once, a drag carries one
+	// minute, and either can arrive unreadable. Everything the switch below is
+	// about to read is checked here, in one place, while there is still
 	// somewhere to put the reason.
-	if (str(b.op) === 'edit') {
-		const from = num(b.startMin);
-		const to = num(b.endMin);
-		if (from !== null && (from < 0 || from >= 24 * 60)) {
-			return fail(c, 400, 'Pick a start time within the day.');
-		}
-		if (to !== null && to > 24 * 60) {
-			return fail(c, 400, 'That runs past the end of the day.');
-		}
-		if (from !== null && to !== null && to - from < MIN_EVENT_MINS) {
-			return fail(c, 400, `An event needs to run at least ${MIN_EVENT_MINS} minutes.`);
-		}
-	}
+	const problem = opProblem(str(b.op), b);
+	if (problem) return fail(c, 400, problem);
 
 	// A drag and a resize are deliberately left unversioned. They carry exactly
 	// one field each, so there is nothing stale riding along to overwrite, and
@@ -387,16 +515,12 @@ schedule.post('/events/:eventId/op', async (c) => {
 	switch (str(b.op)) {
 		case 'move':
 			// A drag can cross days, so the target day rides along with the start.
-			okay = moveEvent(
-				eventId,
-				userId,
-				num(b.startMin) ?? NaN,
-				trip.id,
-				isoDay(b.day) ?? undefined
-			);
+			// Both were checked above, so the minute is a number and the day, if it
+			// came at all, is a real one.
+			okay = moveEvent(eventId, userId, num(b.startMin)!, trip.id, isoDay(b.day) ?? undefined);
 			break;
 		case 'resize':
-			okay = resizeEvent(eventId, userId, num(b.endMin) ?? NaN, trip.id);
+			okay = resizeEvent(eventId, userId, num(b.endMin)!, trip.id);
 			break;
 		case 'edit': {
 			const result = editEvent(
@@ -414,8 +538,8 @@ schedule.post('/events/:eventId/op', async (c) => {
 							: b.travelMode === null || b.travelMode === ''
 								? null
 								: String(b.travelMode),
-					startMin: b.startMin === undefined ? undefined : (num(b.startMin) ?? undefined),
-					endMin: b.endMin === undefined ? undefined : (num(b.endMin) ?? undefined),
+					startMin: sent(b.startMin) ? num(b.startMin)! : undefined,
+					endMin: sent(b.endMin) ? num(b.endMin)! : undefined,
 					// A stay moves and stretches by its dates instead.
 					day: isoDay(b.day) ?? undefined,
 					endDay: isoDay(b.endDay) ?? undefined,
