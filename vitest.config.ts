@@ -21,6 +21,10 @@ export default defineConfig({
 		]
 	},
 	test: {
+		// Runs before every test file: strips inherited Google keys and blocks
+		// real network access, so no unit run can reach a paid provider. See the
+		// file for why a convention alone was not enough.
+		setupFiles: ['./vitest.setup.ts'],
 		include: [
 			'packages/core/test/**/*.test.ts',
 			'packages/server/test/**/*.test.ts',

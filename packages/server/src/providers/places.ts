@@ -1,5 +1,5 @@
-import { env } from '../infra/env';
-import { createPersistentCache } from '../infra/cache';
+import { assertPaidProviderAllowed, env, PaidProviderBlockedError } from '../infra/env';
+import { createPersistentCache, purgeCachedValues } from '../infra/cache';
 
 /**
  * A place returned from a search provider, normalised across backends.
@@ -313,6 +313,7 @@ async function searchGoogle(
 	near: SearchNear,
 	kind: SearchKind
 ): Promise<PlaceResult[]> {
+	assertPaidProviderAllowed('google places text search');
 	const key = env.GOOGLE_SERVER_KEY;
 	if (!key) return [];
 	const res = await fetch(GOOGLE_ENDPOINT, {
@@ -387,6 +388,7 @@ async function suggestGoogle(
 	kind: SearchKind,
 	sessionToken: string
 ): Promise<PlaceResult[]> {
+	assertPaidProviderAllowed('google places autocomplete');
 	const key = env.GOOGLE_SERVER_KEY;
 	if (!key || typeof near.lat !== 'number' || typeof near.lng !== 'number') return [];
 	const res = await fetch(GOOGLE_SUGGEST, {
@@ -461,6 +463,7 @@ export async function placeDetails(
 	id: string,
 	sessionToken?: string
 ): Promise<PlaceDetails | null> {
+	assertPaidProviderAllowed('google place details');
 	const key = env.GOOGLE_SERVER_KEY;
 	if (!key || !id) return null;
 	const url = new URL(`${GOOGLE_DETAILS}${encodeURIComponent(id)}`);
@@ -599,6 +602,7 @@ export async function lookupPhoto(
 	lat?: number | null,
 	lng?: number | null
 ): Promise<string> {
+	assertPaidProviderAllowed('google place photo lookup');
 	const key = env.GOOGLE_SERVER_KEY;
 	if (!key) return NO_PHOTO;
 
@@ -632,9 +636,109 @@ export async function lookupPhoto(
 	return data.places?.[0]?.photos?.[0]?.name ?? NO_PHOTO;
 }
 
-/** Which backend is active, for the UI to label results. */
+/** Which backend is configured, for the UI to label results. */
 export function activeProvider(): 'google' | 'osm' {
 	return env.GOOGLE_SERVER_KEY ? 'google' : 'osm';
+}
+
+// --- Provider health --------------------------------------------------------
+
+/**
+ * What a Google failure looked like, without the key or the query in it.
+ *
+ * `searchPlaces` used to swallow these in bare `catch` blocks and drop to
+ * Photon, while `activeProvider()` and `/health` went on saying "google". That
+ * combination hid a real outage for days: every search in the dev environment
+ * was answered by OSM (`source: "osm"`, `id: null`) while the app reported
+ * Google, and nothing anywhere said why. Degrading to OSM is the right
+ * behaviour; doing it silently is not.
+ */
+export interface ProviderFailure {
+	/** Which call failed, e.g. `google places text search`. */
+	op: string;
+	/** Status code or short transport reason. Never a key, never a full query. */
+	reason: string;
+	/** Epoch ms of the most recent occurrence. */
+	at: number;
+	/** How many times this op/reason pair has failed since the process started. */
+	count: number;
+}
+
+export interface ProviderStatus {
+	/** What configuration says: Google when a server key is set. */
+	configured: 'google' | 'osm';
+	/** What is actually answering, which is OSM once Google has failed. */
+	serving: 'google' | 'osm';
+	/** Set when `serving` is not `configured`. */
+	lastFailure: ProviderFailure | null;
+}
+
+/**
+ * One line per distinct failure per minute.
+ *
+ * Search fires as you type, so an outage produces a failure per keystroke-batch
+ * per member: logging every one turns a single broken key into thousands of
+ * identical lines and buries whatever else the server was saying. De-duplicated
+ * on op plus reason (a 403 from a key restriction and a 429 from quota are
+ * different problems and both deserve to be seen) and rate-limited to one line
+ * a minute each, with the suppressed count carried into the next line so the
+ * volume is still visible. First occurrence is always logged immediately.
+ */
+const FAILURE_LOG_INTERVAL_MS = 60_000;
+const failureLog = new Map<string, { at: number; suppressed: number }>();
+const failureCounts = new Map<string, number>();
+let lastFailure: ProviderFailure | null = null;
+let lastGoogleOk = 0;
+
+/** A short, safe description of a provider error: a status code, or its kind. */
+function shortReason(err: unknown): string {
+	const raw = err instanceof Error ? err.message : String(err);
+	// Belt and braces. Nothing here puts a key in a message or a URL, but a
+	// logged line must never be the first place that changes.
+	return raw.replace(/([?&](key|api_?key)=)[^&\s]*/gi, '$1[redacted]').slice(0, 120);
+}
+
+function noteGoogleFailure(op: string, err: unknown): void {
+	const reason = shortReason(err);
+	const key = `${op}|${reason}`;
+	const count = (failureCounts.get(key) ?? 0) + 1;
+	failureCounts.set(key, count);
+	lastFailure = { op, reason, at: Date.now(), count };
+
+	const seen = failureLog.get(key);
+	if (seen && Date.now() - seen.at < FAILURE_LOG_INTERVAL_MS) {
+		seen.suppressed += 1;
+		return;
+	}
+	const also = seen?.suppressed ? ` (+${seen.suppressed} more since)` : '';
+	failureLog.set(key, { at: Date.now(), suppressed: 0 });
+	console.warn(`[places] ${op} failed: ${reason}${also}. Serving OpenStreetMap results instead.`);
+}
+
+/**
+ * Configured vs. actually answering, for a health endpoint to report.
+ *
+ * Google counts as serving until it has failed, and counts as serving again as
+ * soon as one call succeeds; a single 403 should not pin the report to "osm"
+ * forever once the key is fixed.
+ */
+export function providerStatus(): ProviderStatus {
+	const configured = activeProvider();
+	if (configured === 'osm') return { configured, serving: 'osm', lastFailure: null };
+	const degraded = lastFailure !== null && lastFailure.at > lastGoogleOk;
+	return {
+		configured,
+		serving: degraded ? 'osm' : 'google',
+		lastFailure: degraded ? lastFailure : null
+	};
+}
+
+/** Clears remembered failures. For tests. */
+export function resetProviderStatus(): void {
+	failureLog.clear();
+	failureCounts.clear();
+	lastFailure = null;
+	lastGoogleOk = 0;
 }
 
 /**
@@ -663,12 +767,45 @@ const detailsCache = createPersistentCache<PlaceDetails | null>(
 );
 
 /**
+ * How long "no results" is worth keeping: ten minutes, not seven days.
+ *
+ * There is a real tension here. Never caching a miss means a query that
+ * genuinely matches nothing re-bills on every retry, and as-you-type search
+ * produces plenty of those. But an empty array is also exactly what a provider
+ * outage returns, and a week-long TTL turns a five-minute outage into a
+ * week-long one: two probe queries were pinned to `[]` in SQLite and stayed
+ * broken after the provider recovered, with no way to fix them short of
+ * deleting the database. Ten minutes keeps the anti-retry protection that
+ * matters (a member hammering the same fruitless query, a board reloading)
+ * while capping the blast radius of a bad answer at one coffee break.
+ */
+const EMPTY_RESULT_TTL_MS = 10 * 60 * 1000;
+
+const searchTtl = (results: PlaceResult[]) =>
+	results.length ? 7 * 24 * 60 * 60 * 1000 : EMPTY_RESULT_TTL_MS;
+
+/**
+ * Drops rows poisoned under the old policy: searches stored as `[]` with a
+ * seven-day TTL while the provider was failing. Runs once at startup because it
+ * is a single indexed-free DELETE over a small table, and because those rows
+ * are unreachable-by-design garbage under the policy above rather than data.
+ * Exported as `clearEmptySearchCache` for an operator who wants it on demand.
+ */
+export function clearEmptySearchCache(): number {
+	return purgeCachedValues('search', ['[]']);
+}
+
+clearEmptySearchCache();
+
+/**
  * Search for places. Uses Google Places when GOOGLE_SERVER_KEY is set,
  * otherwise the keyless OpenStreetMap (Photon) provider. Google falls back
- * to Photon if the request fails so discovery keeps working.
+ * to Photon if the request fails so discovery keeps working, and the failure is
+ * logged and reflected in `providerStatus()` rather than swallowed.
  *
  * Results are cached per normalised query and city: the same search typed twice
  * costs one request, and simultaneous identical searches share one in flight.
+ * An empty result is cached for minutes rather than days; see EMPTY_RESULT_TTL_MS.
  */
 export async function searchPlaces(
 	query: string,
@@ -686,34 +823,50 @@ export async function searchPlaces(
 	// The session token is deliberately *not* in the key: it changes every
 	// search, and keying on it would mean never reading the cache again.
 	const key = `${kind}|${q.toLowerCase().replace(/\s+/g, ' ')}|${nearText(near)}|${near.lat ?? ''},${near.lng ?? ''}`;
-	return searchCache.take(key, async () => {
-		// Charged only here, on a cache miss, so a repeat search served from cache
-		// costs the caller no quota. Throws through `take` when over the ceiling,
-		// which the route turns into a 429.
-		gate?.();
-		if (env.GOOGLE_SERVER_KEY) {
-			// Suggestions first, because inside a session they are free. They are
-			// prefix matching though, so they come up empty on the wordier queries
-			// ("cheap sushi near the station") that a text search still answers.
-			// Paying for a text search only once predictions have failed keeps that
-			// answer without paying for it on every ordinary lookup.
-			if (sessionToken) {
+	return searchCache.take(
+		key,
+		async () => {
+			// Charged only here, on a cache miss, so a repeat search served from cache
+			// costs the caller no quota. Throws through `take` when over the ceiling,
+			// which the route turns into a 429.
+			gate?.();
+			if (env.GOOGLE_SERVER_KEY) {
+				// Suggestions first, because inside a session they are free. They are
+				// prefix matching though, so they come up empty on the wordier queries
+				// ("cheap sushi near the station") that a text search still answers.
+				// Paying for a text search only once predictions have failed keeps that
+				// answer without paying for it on every ordinary lookup.
+				if (sessionToken) {
+					try {
+						const hits = await suggestGoogle(q, near, kind, sessionToken);
+						if (hits.length) {
+							lastGoogleOk = Date.now();
+							return hits;
+						}
+					} catch (err) {
+						// A blocked paid call is a bug in the caller, not an outage: it
+						// must not be absorbed into a quiet OSM answer.
+						if (err instanceof PaidProviderBlockedError) throw err;
+						// Fall through to the text search rather than to Photon: a failed
+						// suggestion says nothing about whether Google is reachable. Logged
+						// all the same, because this is where a bad key shows up first.
+						noteGoogleFailure('google places autocomplete', err);
+					}
+				}
 				try {
-					const hits = await suggestGoogle(q, near, kind, sessionToken);
-					if (hits.length) return hits;
-				} catch {
-					// Fall through to the text search rather than to Photon: a failed
-					// suggestion says nothing about whether Google is reachable.
+					const hits = await searchGoogle(q, near, kind);
+					lastGoogleOk = Date.now();
+					return hits;
+				} catch (err) {
+					if (err instanceof PaidProviderBlockedError) throw err;
+					noteGoogleFailure('google places text search', err);
+					return searchPhoton(q, near, kind);
 				}
 			}
-			try {
-				return await searchGoogle(q, near, kind);
-			} catch {
-				return searchPhoton(q, near, kind);
-			}
-		}
-		return searchPhoton(q, near, kind);
-	});
+			return searchPhoton(q, near, kind);
+		},
+		searchTtl
+	);
 }
 
 /**
@@ -730,10 +883,20 @@ export function placeDetailsCached(
 	sessionToken?: string,
 	gate?: () => void
 ): Promise<PlaceDetails | null> {
-	return detailsCache.take(id, () => {
+	return detailsCache.take(id, async () => {
 		// As with search: charged only on a miss, so re-opening a place already
 		// looked at is free and never blocked.
 		gate?.();
-		return placeDetails(id, sessionToken);
+		try {
+			const details = await placeDetails(id, sessionToken);
+			lastGoogleOk = Date.now();
+			return details;
+		} catch (err) {
+			if (err instanceof PaidProviderBlockedError) throw err;
+			// Rethrown, not swallowed: the caller decides what an unavailable
+			// detail means. Logged here so the reason is not lost on the way up.
+			noteGoogleFailure('google place details', err);
+			throw err;
+		}
 	});
 }
