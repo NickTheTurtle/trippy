@@ -3,6 +3,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { PlannedLeg } from '@trippy/core/travel';
+import { guessLeg, minsByMode } from '@trippy/core/travel';
 
 /**
  * How a journey's duration is resolved, and what happens when the paid provider
@@ -252,6 +253,47 @@ describe('the fallback chain', () => {
 		const res = await routing.routeLeg(makeLeg(0.5));
 		expect(res.mode).toBe('walk');
 		expect(res.routed).toBe(false);
+	});
+});
+
+describe('the estimate and its label come from one estimator', () => {
+	/** Nothing may reach a provider here: the estimate is what is under test. */
+	function offline() {
+		const stub = vi.fn(async () => {
+			throw new Error('offline');
+		});
+		vi.stubGlobal('fetch', stub);
+		return stub;
+	}
+
+	it('gives a long unlabelled leg a flight time, not 43 hours of driving', async () => {
+		offline();
+		const res = await routing.routeLeg(makeLeg(1000));
+		// The old code took the label from `guessMode` and the number from a
+		// mode-blind estimate, which paired "flight" with 2605 minutes.
+		expect(res.mode).toBe('flight');
+		expect(res.mins).toBe(minsByMode(1000, 'flight'));
+		expect(res.mins).toBeLessThan(6 * 60);
+	});
+
+	it('agrees with core for any unlabelled leg, mode and minutes alike', async () => {
+		offline();
+		for (const km of [0.4, 3, 40, 1000]) {
+			const res = await routing.routeLeg(makeLeg(km));
+			expect({ mode: res.mode, mins: res.mins }).toEqual(guessLeg(km));
+		}
+	});
+
+	it('prices a chosen mode as that mode, not as a drive wearing its label', async () => {
+		offline();
+		const ferry = await routing.routeLeg(makeLeg(30), 'ferry');
+		expect(ferry.mins).toBe(minsByMode(30, 'ferry'));
+		const walk = await routing.routeLeg(makeLeg(2), 'walk');
+		expect(walk.mins).toBe(minsByMode(2, 'walk'));
+		// A ferry across 30km is not the drive around the bay, and a 2km walk is
+		// not a bus ride; the old estimate gave both the same number.
+		expect(ferry.mins).not.toBe(minsByMode(30, 'drive'));
+		expect(walk.mins).not.toBe(minsByMode(2, 'transit'));
 	});
 });
 

@@ -308,10 +308,48 @@ The server never crashes on a missing key; each feature simply degrades.
 | `TRIPPY_PROVIDER_IP_LIMIT` | Paid provider calls per client IP before exponential backoff | Defaults to `240` |
 | `TRIPPY_ROUTING_LIMIT` | Paid routing calls per user before fallback to the free path | Defaults to `300` |
 | `NODE_ENV=production` | Secure cookie flag, disables dev CORS, skips the demo seed | Set by the setup script |
+| `TRIPPY_OFFLINE_PROVIDERS` | Nothing. Set to `1` it *forbids* paid providers: all Google keys read as unset, search serves keyless OpenStreetMap / Photon, routing takes the straight-line estimate, and the FX refresh is skipped | Unset in production, which is what you want; the test harnesses set it for themselves |
 
 Foreign-exchange rates use a keyless public endpoint, so there is no FX key to
 set. All provider results are cached (`cache.ts`); the caches start cold on a
 fresh box and warm up as people use the app.
+
+### Why tests never use the paid provider
+
+The browser suite sets `TRIPPY_OFFLINE_PROVIDERS=1` for the API server it starts
+(`tests-e2e/playwright.config.ts`), so e2e runs use the keyless OpenStreetMap /
+Photon provider and never Google. Unit runs get the same guarantee a different
+way: `vitest.setup.ts` strips every Google key out of `process.env` and replaces
+`fetch` with a function that throws, so a unit test cannot reach any network
+service at all and the Google code paths are exercised against stubs.
+
+Google Places and Routes are billed per request: a suite that calls them costs
+money on every run, cannot be deterministic because the provider's answers change
+under it, and couples CI to a third party's uptime. Both guards are set by the
+harness rather than left to whoever is running it, because a developer machine
+legitimately has live keys in `.env` and the failure mode of forgetting is silent
+and expensive. Local hand-driven development still uses the real key; only
+automated runs are pinned to OSM.
+
+The flag is a refusal, not a preference: with it set, a code path that reaches
+for Google throws `PaidProviderBlockedError` instead of quietly degrading, so an
+accidental paid call fails visibly rather than serving OSM results under a
+Google label.
+
+### Clearing a poisoned provider cache
+
+An empty search result is cached for ten minutes rather than the usual seven
+days, because an empty array is also what a broken provider returns and a
+week-long TTL turns a short outage into a week-long one. If stale empties do
+need clearing (for example after an old build wrote some), do it without
+touching the rest of the database:
+
+```
+sqlite3 /var/lib/trippy/app.db "DELETE FROM provider_cache WHERE key LIKE 'search|%' AND value = '[]';"
+```
+
+`clearEmptySearchCache()` in `@trippy/server/places` does exactly this and runs
+once at startup, so a restart also clears them.
 
 ### Google key restriction and cost control
 

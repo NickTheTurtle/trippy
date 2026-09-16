@@ -14,6 +14,7 @@ export default defineConfig({
 			{ find: '@trippy/core/geo', replacement: core('geo.ts') },
 			{ find: '@trippy/core/travel', replacement: core('travel.ts') },
 			{ find: '@trippy/core/plan', replacement: core('plan.ts') },
+			{ find: '@trippy/core/conflicts', replacement: core('conflicts.ts') },
 			{ find: '@trippy/core/currency', replacement: core('currency.ts') },
 			// `validate` is aliased like the rest so a route under test resolves it
 			// the way the app does. Without it, the first test to load a route that
@@ -27,6 +28,10 @@ export default defineConfig({
 		]
 	},
 	test: {
+		// Runs before every test file: strips inherited Google keys and blocks
+		// real network access, so no unit run can reach a paid provider. See the
+		// file for why a convention alone was not enough.
+		setupFiles: ['./vitest.setup.ts'],
 		include: [
 			'packages/core/test/**/*.test.ts',
 			'packages/server/test/**/*.test.ts',
