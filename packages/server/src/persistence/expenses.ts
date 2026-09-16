@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { db } from '../db';
 import { settle, type Balance, type Transaction } from '@trippy/core/settlement';
 import { splitByWeight, type SplitMode } from '@trippy/core/split';
+import { normalizeDay } from '@trippy/core/tz';
 import { atRate, convertCents, rateTo } from '../providers/fx';
 import { publish } from '../events';
 import { conflict, isStale, missing, written, type WriteResult } from './versioning';
@@ -23,6 +24,12 @@ export interface ExpenseRow {
 	split_mode: SplitMode;
 	participants: number;
 	settlement: number; // 1 when this row records a transfer, not a shared cost
+	/**
+	 * The day the money was spent, `YYYY-MM-DD`, zone-free: what a member picked,
+	 * not when they typed it. This is what the list is ordered by. It is
+	 * descriptive only and never affects conversion; see `fx_rate` in `db.ts`.
+	 */
+	spent_on: string;
 	created_at: number;
 	/** Bumped by every edit. Send it back with a PUT to detect a lost update. */
 	version: number;
@@ -89,6 +96,32 @@ export interface SettlementRow {
 	token: string;
 }
 
+/**
+ * The day an expense happened, as a zone-free `YYYY-MM-DD`.
+ *
+ * A caller that knows the date passes it and it is taken as given, provided it
+ * is a real calendar day. Anything missing, blank or malformed falls back to
+ * today rather than refusing the write: the date is descriptive, and losing a
+ * whole expense because a date failed to parse is a far worse outcome than
+ * recording it on the day it was entered, which is exactly what the ledger did
+ * before this column existed.
+ *
+ * The fallback is deliberately the UTC day, not a trip-local one. There is no
+ * trip timezone to use: a trip has many cities and each carries its own `tz`,
+ * an expense is not linked to any of them, and picking the first city would
+ * invent a fact. The member's browser is the only thing that actually knows
+ * what day it is where they are standing, so the client supplies the date and
+ * the server only backstops it. Clients should always send one.
+ *
+ * Bounds are not enforced here. `normalizeDay` rejects impossible dates (month
+ * 13, 31 February), but 1200-01-01 is a real day and is stored as typed, the
+ * same latitude `trips.start_date` allows. Rejecting absurd-but-real years is
+ * the API layer's job, where there is an error channel to explain the refusal.
+ */
+function expenseDay(spentOn?: string | null): string {
+	return normalizeDay(spentOn) ?? new Date().toISOString().slice(0, 10);
+}
+
 export function tripMembers(tripId: string): Member[] {
 	return db
 		.prepare(
@@ -102,7 +135,8 @@ export function listExpenses(tripId: string): ExpenseRow[] {
 	const rows = db
 		.prepare(
 			`SELECT e.id, e.description, e.amount_cents, e.currency, e.payer_id, e.split_mode,
-			        u.name AS payer_name, e.created_at, COALESCE(e.settlement, 0) AS settlement,
+			        u.name AS payer_name, e.spent_on, e.created_at,
+			        COALESCE(e.settlement, 0) AS settlement,
 			        e.version,
 			        -- Only stakes above zero count. A person selected in a shares or
 			        -- exact split who entered nothing is stored at weight 0 and is
@@ -121,7 +155,15 @@ export function listExpenses(tripId: string): ExpenseRow[] {
 			                       AND p.user_id NOT IN (SELECT user_id FROM memberships WHERE trip_id = e.trip_id))
 			        ) AS needs_review
 			 FROM expenses e JOIN users u ON u.id = e.payer_id
-			 WHERE e.trip_id = ? ORDER BY e.created_at DESC`
+			 WHERE e.trip_id = ?
+			 -- Newest day first, and within a day newest entry first. The ledger is
+			 -- read as a reverse-chronological feed, so the day has to lead; the
+			 -- entry time breaks the tie because it is the only total order left and
+			 -- it is the order these rows already came back in, so a trip whose
+			 -- expenses all share a date reads exactly as it did before. It also
+			 -- keeps the ordering stable: the day alone leaves same-day rows free
+			 -- to swap places between two reads of unchanged data.
+			 ORDER BY e.spent_on DESC, e.created_at DESC`
 		)
 		.all(tripId) as unknown as (Omit<ExpenseRow, 'needsReview'> & { needs_review: number })[];
 	return rows.map(({ needs_review, ...r }) => ({ ...r, needsReview: !!needs_review }));
@@ -142,6 +184,11 @@ export function listExpenses(tripId: string): ExpenseRow[] {
  *
  * Returns the new expense id, or null if the actor, payer, or every
  * participant is not a member, or the amount is zero.
+ *
+ * `spentOn` is the day it happened, `YYYY-MM-DD`; see `expenseDay` for what an
+ * absent or unusable one falls back to. It has no effect on the rate the
+ * expense is locked at: `rateTo` serves only current rates, so a backdated
+ * expense is recorded at the rate in force when it was entered.
  */
 export function addExpense(
 	tripId: string,
@@ -151,7 +198,8 @@ export function addExpense(
 	amountCents: number,
 	currency: string,
 	parts: SplitPart[],
-	splitMode: SplitMode = 'even'
+	splitMode: SplitMode = 'even',
+	spentOn?: string | null
 ): string | null {
 	if (!isMember(tripId, actorId)) return null;
 	if (!isMember(tripId, payerId)) return null;
@@ -167,8 +215,8 @@ export function addExpense(
 	const id = randomUUID();
 	const home = homeCurrency(tripId);
 	db.prepare(
-		`INSERT INTO expenses (id, trip_id, payer_id, description, amount_cents, currency, split_mode, fx_rate, fx_home, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		`INSERT INTO expenses (id, trip_id, payer_id, description, amount_cents, currency, split_mode, fx_rate, fx_home, spent_on, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	).run(
 		id,
 		tripId,
@@ -179,6 +227,7 @@ export function addExpense(
 		splitMode,
 		rateTo(currency || home, home),
 		home,
+		expenseDay(spentOn),
 		Date.now()
 	);
 	const insertPart = db.prepare(
@@ -216,6 +265,17 @@ export function addExpense(
  * place for a silent last-write-wins: one member correcting a total while
  * another adds a sharer used to end with the correction gone and both of them
  * told it had saved. A stale version is refused instead.
+ *
+ * `spentOn` is last because it was added after the rest, and every existing
+ * caller passes these positionally. Omitting it keeps the date already on the
+ * row rather than falling back to today, which is the opposite of what
+ * `addExpense` does with the same argument and is deliberate: an edit that says
+ * nothing about the date is not a claim that the expense happened today, and a
+ * caller that forgot the field must not quietly drag a backdated expense
+ * forward. Changing the date re-orders the row and changes nothing else. In
+ * particular it never re-locks `fx_rate`: only a change of currency does that,
+ * because the provider has no historical rates to honour a backdate with, and a
+ * rate that moved retroactively would shift every member's settled balance.
  */
 export function updateExpense(
 	tripId: string,
@@ -227,14 +287,15 @@ export function updateExpense(
 	currency: string,
 	parts: SplitPart[],
 	splitMode: SplitMode = 'even',
-	expectedVersion?: number | null
+	expectedVersion?: number | null,
+	spentOn?: string | null
 ): WriteResult {
 	if (!isMember(tripId, actorId)) return missing;
 	if (!isMember(tripId, payerId)) return missing;
 
 	const existing = db
 		.prepare(
-			`SELECT COALESCE(settlement, 0) AS settlement, version, currency, fx_rate, fx_home
+			`SELECT COALESCE(settlement, 0) AS settlement, version, currency, fx_rate, fx_home, spent_on
 			   FROM expenses WHERE id = ? AND trip_id = ?`
 		)
 		.get(expenseId, tripId) as
@@ -244,6 +305,7 @@ export function updateExpense(
 				currency: string;
 				fx_rate: number | null;
 				fx_home: string | null;
+				spent_on: string | null;
 		  }
 		| undefined;
 	if (!existing || existing.settlement === 1) return missing;
@@ -266,11 +328,12 @@ export function updateExpense(
 	const keepRate =
 		existing.fx_rate !== null && existing.fx_home === home && existing.currency === currency;
 	const fxRate = keepRate ? existing.fx_rate : rateTo(currency || home, home);
+	const day = normalizeDay(spentOn) ?? expenseDay(existing.spent_on);
 
 	db.exec('BEGIN');
 	try {
 		db.prepare(
-			`UPDATE expenses SET payer_id = ?, description = ?, amount_cents = ?, currency = ?, split_mode = ?, version = ?, fx_rate = ?, fx_home = ?
+			`UPDATE expenses SET payer_id = ?, description = ?, amount_cents = ?, currency = ?, split_mode = ?, version = ?, fx_rate = ?, fx_home = ?, spent_on = ?
 			 WHERE id = ? AND trip_id = ?`
 		).run(
 			payerId,
@@ -281,6 +344,7 @@ export function updateExpense(
 			next,
 			fxRate,
 			home,
+			day,
 			expenseId,
 			tripId
 		);

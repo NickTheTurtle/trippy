@@ -200,6 +200,66 @@ describe('a foreign-currency expense', () => {
 		expect(expenses.balances(tripId).map((b) => b.netCents)).toEqual(before);
 		expect(before.reduce((n, c) => n + c, 0)).toBe(0);
 	});
+
+	/**
+	 * The date an expense carries is descriptive. The rate provider serves only
+	 * current rates and has no historical lookup, so a backdated expense cannot
+	 * be honoured with the rate of the day it names; and a rate that moved
+	 * retroactively would shift every member's settled balance without anybody
+	 * touching a number. So the date orders the ledger and does nothing else.
+	 */
+	it('is worth the same whatever day it is dated, before and after a rate move', async () => {
+		const { tripId, expenseId } = tripWithEuroDinner();
+		const alice = expenses.expenseShares(tripId).get(expenseId)!.payerId;
+		const entered = homeTotal(tripId, expenseId);
+		const lockedRate = (
+			db.prepare(`SELECT fx_rate FROM expenses WHERE id = ?`).get(expenseId) as { fx_rate: number }
+		).fx_rate;
+		const parts = [{ userId: alice, weight: 1 }];
+
+		const backdate = (day: string) =>
+			expenses.updateExpense(
+				tripId,
+				alice,
+				expenseId,
+				alice,
+				'Dinner in Athens',
+				10_000,
+				'EUR',
+				parts,
+				'even',
+				null,
+				day
+			);
+
+		// A year back, before the rate moves at all.
+		expect(backdate('2025-01-15').ok).toBe(true);
+		expect(homeTotal(tripId, expenseId)).toBe(entered);
+
+		await moveRates(0.25);
+
+		// And a year forward, after it has. Neither date revalues the dinner.
+		expect(backdate('2027-12-31').ok).toBe(true);
+		expect(homeTotal(tripId, expenseId)).toBe(entered);
+		expect(expenses.balances(tripId).reduce((n, b) => n + b.netCents, 0)).toBe(0);
+
+		// The stored rate is untouched, not merely re-derived to the same number.
+		const row = db
+			.prepare(`SELECT fx_rate, fx_home, spent_on FROM expenses WHERE id = ?`)
+			.get(expenseId) as { fx_rate: number | null; fx_home: string | null; spent_on: string };
+		expect(row.spent_on).toBe('2027-12-31');
+		expect(row.fx_home).toBe('USD');
+		expect(row.fx_rate).toBe(lockedRate);
+	});
+
+	it('records today when no date is supplied, and is convertible either way', () => {
+		const { tripId, expenseId } = tripWithEuroDinner();
+		const stored = db.prepare(`SELECT spent_on FROM expenses WHERE id = ?`).get(expenseId) as {
+			spent_on: string;
+		};
+		expect(stored.spent_on).toBe(new Date().toISOString().slice(0, 10));
+		expect(homeTotal(tripId, expenseId)).toBeGreaterThan(0);
+	});
 });
 
 /**

@@ -856,3 +856,52 @@ export function markBackfillDone(name: string): void {
 		Date.now()
 	);
 }
+
+/**
+ * The day an expense happened, as opposed to the instant it was typed in.
+ *
+ * `created_at` is a keystroke timestamp, and it was the only date an expense
+ * had. That is fine while everyone enters things as they go and wrong the
+ * moment anybody catches up: a week of receipts reconciled on the flight home
+ * all landed on the same day, in the order they were typed, and no screen could
+ * say otherwise because there was nothing to say it with. `spent_on` is the
+ * date a person picks, and it is what the ledger is ordered by.
+ *
+ * TEXT `YYYY-MM-DD`, matching `trips.start_date/end_date`, `events.day` and
+ * `lodging_options.check_in/check_out`, rather than an epoch integer like
+ * `created_at`. The two columns are answering different questions and deserve
+ * different types. An instant is a point on the world's clock and only means
+ * something with a zone attached; a calendar day is what a human picked off a
+ * date picker and has no zone at all. A trip crosses zones by definition, so
+ * storing this as an instant forces a zone choice on every read, and there is
+ * no right one: a 9pm Tokyo dinner stored as an instant renders as the previous
+ * day in London, and the same row would name two different dates depending on
+ * who was looking. Storing the plain day means the dinner the group had on the
+ * 14th is on the 14th for every member, forever, which is what everyone who was
+ * at that dinner means by its date. This is the same boundary `@trippy/core/tz`
+ * already draws, and `isDayString` / `normalizeDay` there are the validators
+ * for this column too.
+ *
+ * Deliberately descriptive only: it drives ordering and display and must never
+ * touch `fx_rate`. The rate is locked at entry time and the provider serves
+ * only current rates, so a date change cannot be honoured with a historical
+ * rate; pretending otherwise would silently revalue a backdated expense and
+ * move every member's settled balance under them. See `docs/DESIGN.md` §M7.
+ *
+ * Existing rows are backfilled from `created_at` rather than left NULL, so
+ * every expense in the table has a real date and readers need one rule, not
+ * two. The UTC day of the keystroke is the honest answer for them: it is the
+ * only fact we have about when they happened, it is what the `trips` backfill
+ * above already derives from `created_at`, and it is off by at most a day for
+ * anyone who was entering expenses near midnight in a distant zone, which a
+ * member can correct in one edit.
+ *
+ * The column stays nullable for the same reason the `trips` endpoints did:
+ * tightening to NOT NULL means rebuilding a table that `expense_participants`
+ * references by foreign key, which is not worth the risk when `addExpense` and
+ * `updateExpense` are the only writers and both always supply a value.
+ */
+addColumn('expenses', 'spent_on', 'TEXT');
+db.exec(
+	`UPDATE expenses SET spent_on = date(created_at / 1000, 'unixepoch') WHERE spent_on IS NULL`
+);
