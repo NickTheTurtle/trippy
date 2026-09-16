@@ -687,14 +687,19 @@
    Floored rather than fixed, which is the opposite of the typed clock's
    segments in `index.css`, and for the opposite reason: there a value that
    outgrew its box shunted the colon along, here it would be a time with its
-   meridiem cut off. A fallback font that needs more than 4rem costs one
+   meridiem cut off. A fallback font that needs more than this costs one
    indented row; a fixed width would cost a clipped one.
+
+   4.5rem, not the 4rem that fits on Windows: the widest time measures 64.54px
+   in CI's Linux font against a 64px floor, which put one row 0.54px out. The
+   floor is sized off the widest measured value with room for a font that draws
+   wider still, and `schedule.spec.ts` fails if one ever outgrows it.
 
    Right-aligned, so the column ends flush against the gap before the title and
    an hour with one digit sets in the way a right-aligned number should. */
 .sched .agendawhen {
 	flex: 0 0 auto;
-	min-width: 4rem;
+	min-width: 4.5rem;
 	text-align: right;
 	font-variant-numeric: tabular-nums;
 	color: var(--color-ink-faint);
