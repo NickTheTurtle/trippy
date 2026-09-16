@@ -608,7 +608,6 @@ test.describe('add event', () => {
 		}
 	});
 });
-});
 
 /**
  * The editor stands beside the board rather than over it, so its width is a
