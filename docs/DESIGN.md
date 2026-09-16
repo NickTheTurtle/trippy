@@ -3015,6 +3015,69 @@ full-bleed header stop short of the right edge (see "The header reaches the righ
 edge") stays gone; this box is a descendant, and the page keeps the browser's
 default gutter behaviour.
 
+#### What the box cost, and what it was not
+
+Three reports arrived together once the box was live: the drag had gone slow, the
+scrollbar looked bad, and the time was cut off. They are three separate things,
+and only two of them are the box's fault.
+
+**The slow drag was not forced layout.** The obvious suspect was the box being
+measured per pointer move, `getBoundingClientRect` and `scrollY` read in the same
+frame as a style write. Measured against the running dev server, it was not: the
+drag read a rect about 1.5 times a move and spent roughly 0.3ms each in Layout
+and Recalc Style. What it did instead was commit a render of the entire page on
+every move, because the drag lives in the page's state: 41 blocks, twenty legs,
+the axis, the toolbar, the router links and the map's track assembly, about
+10ms of script per move and 13.5KB of `JSON.stringify` per move on the map's
+account alone. The board is therefore split into `memo` components at module
+scope, each taking primitives or identity-stable props (`left` and `width` rather
+than the layout object that is rebuilt every render, a member count rather than
+the member array, precomputed strings for a leg), the map's tracks are a
+`useMemo`, and the handlers they are given are `useCallback`s so the memo holds.
+A move now costs about 5.4ms with a p95 move-to-commit of 8ms, down from 18ms.
+
+**The ref stays the truth, and state is a frame behind it.** Pointer moves write
+`dragRef` synchronously and mark the board dirty; the edge-travel rAF loop makes
+the single `setDrag` for the frame. Coalescing state is safe only because nothing
+that has to be exact reads state: pointer-up, the click-versus-drag guard and the
+resize all read the ref, so a resize with one move between down and up still
+lands on the minute it was released at.
+
+**The scrollbar is the page's, not the platform's.** Inside a card, the native
+bar arrived with stepper arrows and a white track hard against the card's edge. It
+is now a 6px pill inset in a 10px bar, `--color-ink-faint` at 55 percent and full
+strength under the pointer, on a transparent track. It does not fade, because in a
+card with no other edge to read it is the only thing that says the hours go on.
+The standard `scrollbar-width` and `scrollbar-color` are quarantined in an
+`@supports not selector(::-webkit-scrollbar)` block: a browser that has both
+prefers the standard pair and drops the `::-webkit-` rules, and Chromium's `thin`
+bar brings the arrows back. Firefox, which has no `::-webkit-` scrollbar, takes
+them instead. The root gutter decision is untouched.
+
+**The time was cut off at the top, and the gutter was innocent.** An hour is
+written across its own rule rather than under it, so `.hourline span` sits at
+`top: -0.6rem` and the first label of the day hangs about 9.6px above the grid.
+The old page did not clip and the box does, so the first hour came out sliced in
+half lengthways: 8.8px of it, measured, at every width. The gutter was never the
+problem, since "6 AM" measures about 29px inside its 48px box, so the gutter is
+unchanged and the scroller leaves 12px above the first hour instead. The padding
+is on the scroller rather than on `.daygrid`, because the grid's children are
+positioned against its padding box and would not have moved, and because the grid
+carries an inline pixel height. `BOARD_PAD_PX` repeats it in `Schedule.tsx`, where
+the drag's clamp has to add it to keep the held block inside the box.
+
+**Both midnights are named.** The closing rule of the day used to be left bare, on
+the reasoning that a board dragged fully open would otherwise carry two "12 AM"s,
+one under the other. Measured, they are a day and 1440px apart with twenty-three
+named hours between them, and the box is capped at 70vh, so a screen has to be
+over about 2050px tall before both are even on screen at once. What the bare rule
+cost was paid on every ordinary board instead: the day ran 11 PM, blank, and
+stopped without saying where. Each midnight is true where it sits, one opening the
+day and one closing it, so both are written. The closing label is not what was
+being clipped: it sits 7px clear of the bottom of the box, inside the 16px the
+grid already carries past its last rule. Top clipping and the missing label were
+two bugs, not one.
+
 ## The board reads its clock as AM/PM
 
 **The board was the only 24-hour surface left in the app.** Discover already
