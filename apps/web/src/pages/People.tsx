@@ -4,6 +4,7 @@ import { useApi } from '../hooks/useApi';
 import { useLiveSection } from '../hooks/useTripEvents';
 import { useTrip } from './TripShell';
 import FormError from '../components/ui/FormError';
+import { useToast } from '../components/ui/Toast';
 import SectionNav from '../components/ui/SectionNav';
 import { useNarrowLayout } from '../hooks/useMediaQuery';
 import { PlusIcon } from '../components/ui/icons';
@@ -33,7 +34,7 @@ export default function People() {
 	const { trip, reloadTrip } = useTrip();
 	const { data, error, reload } = useApi<PeopleData>(`/trips/${trip.id}/people`);
 	useLiveSection(['members'], reload);
-	const [notice, setNotice] = useState('');
+	const toast = useToast();
 	const [section, setSection] = useState('members');
 	const [adding, setAdding] = useState(false);
 	const [editing, setEditing] = useState<Person | null>(null);
@@ -48,6 +49,8 @@ export default function People() {
 		reloadTrip();
 	}
 
+	/* The load, not a result: with no roster there is no page to put a corner
+	   popup beside. */
 	if (!data) return error ? <FormError message={error} variant="banner" /> : null;
 
 	const crews = section === 'crews';
@@ -77,10 +80,6 @@ export default function People() {
 			/>
 
 			<div className="min-w-0">
-				{/* Only ever a success line: a refusal reports inside the dialog that
-				    was refused, not at the top of the page. */}
-				<FormError message={notice} tone="success" variant="banner" />
-
 				{/* Narrow, the add button has gone up beside the dropdown, which also
 				    names the section, so this row would be an empty band. Wide, a
 				    member looking at the roster has no button either, and a band
@@ -135,7 +134,7 @@ export default function People() {
 					tripId={trip.id}
 					onClose={() => setAdding(false)}
 					onDone={(text) => {
-						setNotice(text);
+						toast.success(text);
 						refresh();
 					}}
 				/>
@@ -158,7 +157,7 @@ export default function People() {
 					tripId={trip.id}
 					onClose={() => setEditing(null)}
 					onSaved={refresh}
-					onDone={setNotice}
+					onDone={toast.success}
 					onRemove={
 						editing.id === data.me || !data.organizer
 							? null
@@ -169,7 +168,6 @@ export default function People() {
 									// goes.
 									await api(`/trips/${trip.id}/people/${editing.id}`, { method: 'DELETE' });
 									setEditing(null);
-									setNotice('');
 									refresh();
 								}
 					}

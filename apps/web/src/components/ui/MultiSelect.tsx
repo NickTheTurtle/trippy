@@ -23,7 +23,8 @@ export default function MultiSelect({
 	compact = false,
 	quiet = false,
 	summary: summaryOverride,
-	summaryLabel = copy.ui.multiSelect.summaryLabel
+	summaryLabel = copy.ui.multiSelect.summaryLabel,
+	note
 }: {
 	options: Option[];
 	/**
@@ -54,6 +55,14 @@ export default function MultiSelect({
 	 * "N people", which is what every current call site means.
 	 */
 	summaryLabel?: (count: number) => string;
+	/**
+	 * A line about the last tick, shown at the top of the open menu. The menu is
+	 * fixed and covers the field's own hint, so a caller that has something to
+	 * say about a tick has nowhere else the reader is looking. It is announced
+	 * rather than merely drawn, because the case that needs it is a tick that
+	 * changed nothing.
+	 */
+	note?: string;
 }) {
 	function toggle(v: string) {
 		onChange(selected.includes(v) ? selected.filter((x) => x !== v) : [...selected, v]);
@@ -135,6 +144,14 @@ export default function MultiSelect({
 					// open across several ticks.
 					onMouseDown={(e) => e.preventDefault()}
 				>
+					{note && (
+						<li className="mnote" role="presentation">
+							{/* Presentational to the listbox, which may only contain options,
+							    and a status to the reader, because the tick that prompts it
+							    changed nothing they could otherwise hear. */}
+							<span role="status">{note}</span>
+						</li>
+					)}
 					{groupRows.length > 0 && (
 						<li className="mopthead" role="presentation">
 							{copy.ui.multiSelect.groupsHeading}

@@ -357,6 +357,27 @@ people is defined as an event for the whole group, so a one-member trip cannot
 distinguish the two and no trip can express "nobody". Free time, not an empty
 participant list, is how the schedule says somebody is not involved.
 
+**A tick that cannot change anything says so.** The consequence above was
+correct and invisible, which is a bad combination for the one row most likely to
+be clicked: the derived Everyone crew sits at the top of the picker's menu, and
+once everyone is picked, clicking it asks to untick the whole trip. That is the
+unrepresentable pick, so the ticks come straight back and the control reads as
+broken. The reported bug was exactly that: "I cannot click Everyone to deselect
+everyone."
+
+Nobody is still not a thing an event can be, and the fix is not to pretend
+otherwise. An empty field that saved as everyone would be a lie told in the one
+place the two forms are supposed to be reconciled, and there is no third record
+to write: `writePeople` deletes the rows and `toPlanner` reads no rows as the
+whole roster. So the refusal is said instead of performed. `PeoplePicker`
+remembers the tick that asked for nobody and passes a line back to the menu,
+which shows it at the top, where the click was; the same line stays under the
+field once the menu closes. It goes in the menu and not only in the field's hint
+because the open menu is `position: fixed` and covers the line under the field,
+so a hint alone would be written where the reader cannot see it. That is the
+same judgment the People page makes about the locked crew row: a control that
+silently does nothing is worse than one that explains itself.
+
 **"Everyone" is expanded at the persistence boundary, and core reads ids
 literally.** The convention above is a storage convention, and `planLegs` never
 knew about it: it builds its traveller set out of the `people` arrays and walks
@@ -451,6 +472,7 @@ That is the whole of splitting and rejoining. Three rules keep it honest:
   `travel` event is decided before this rule is reached: one with a destination
   becomes the origin of the next leg, one without breaks the chain, both exactly
   as before.
+
 - **A hand-entered `travel` event is never an endpoint**, so no automatic leg is
   planned into or out of it. Saying how you are getting from A to B is how you
   turn the planner off for that hop.
@@ -2709,17 +2731,18 @@ would have fallen back to, and the two can never drift. It costs `km` on the leg
 wire shape, which the board was already computing.
 
 **A time is typed, not picked.** The start and end were dropdowns of every
-quarter-hour, which is 72 rows: setting 14:45 meant opening a list, scrolling
+quarter-hour, which is 72 rows: setting 2:45 PM meant opening a list, scrolling
 most of the way down it and hitting one row among seventy, and the reader
 already knew the answer before they opened it. `TimeField` is the macOS shape,
-two segments in one box: digits replace, arrows step, and the caret moves to the
-minutes by itself once the hour can take no more digits, so "1445" lands on
-14:45. Two segments rather than a free text box because a free box has to parse
-what it is given and can be wrong ("2pm", "1430", "half two"), while a segment
-holding a number has no input to refuse. It carries minutes past midnight, the
-unit the board and the server already speak, so nothing parses a clock. The hour
-runs to 24 rather than wrapping to 0, because midnight is the end of the board
-and not the start of it.
+segments in one box: digits replace, arrows step, and the caret moves on by
+itself once a segment can take no more, so "245p" lands on 2:45 PM. Segments
+rather than a free text box because a free box has to parse what it is given and
+can be wrong ("2pm", "1430", "half two"), while a segment holding one thing has
+no input to refuse. It carries minutes past midnight, the unit the board and the
+server already speak, so nothing parses a clock. The value runs to 24:00 rather
+than wrapping to 0, because midnight is the end of the board and not the start
+of it; what that end reads as on a twelve-hour clock is under "The typed time
+fields read twelve hours" below.
 
 Each segment is a fixed width, wide enough for two of the widest digits, and
 that is the whole of what holds the colon still. It used to be a floor rather
@@ -3206,12 +3229,85 @@ wording with it, which is a decision for the app's copy as a whole and not for
 one page. Until that is wanted, `undefined` in place of `'en-US'` is the smallest
 step and it is one line.
 
-**The typed time fields are still 24-hour.** `TimeField` is two numeric segments
-with an hour that runs to 24, because the board ends at midnight and 24:00 is the
-end of a day where 0:00 is the start of one. Reading it as twelve-hour needs a
-third segment for the meridiem and changes what the arrow keys and typed digits
-mean, which is an input contract rather than a format. It is left alone here so
-the display change is separable from it.
+**The typed time fields read twelve hours.** `TimeField` is three segments now,
+hour, minute and meridiem, because the board around it reads twelve: a block
+saying "2:45 PM" that opened an editor saying "14:45" was the one place the app
+spoke a different clock from itself. The value is unchanged and deliberately so.
+It is still minutes past midnight, so this is how a time is read and typed
+rather than what it is, and no caller of the field moved.
+
+The rules the segments follow:
+
+- The hour is 1 to 12 and unpadded, the minute is always two digits: "9:30 AM",
+  never "09:30 AM". That is the pair `clock()` already prints on every block, so
+  the editor and the board are written the same way rather than nearly the same
+  way.
+- Both midnights read 12, which is why the hour is computed around the wrap
+  rather than as `h % 12`. A hand-rolled twelve-hour clock prints a bare "0:15
+  AM" and the mistake is invisible until somebody is standing outside a closed
+  door.
+- "1" and "0" are the only digits that wait for a second one, since only they
+  can still be the front of an hour; everything else stands alone and moves the
+  caret on, so "2", "4", "5", "p" is the whole of 2:45 PM.
+- A or P is taken from whichever segment has focus, because "2p" is how anyone
+  says two in the afternoon and stopping to aim at a third segment for one
+  letter is the work a typed clock exists to avoid. Setting the meridiem it
+  already has is a no-op rather than a toggle, which is what stops a stray "A"
+  from moving a time.
+- **The end of the day stays 24:00 and reads "12:00 AM".** The board ends at
+  midnight, an event may end there, and that value is the one the board and the
+  server already hold, so it was not given up to make the twelve-hour reading
+  tidier. It reads as the same "12:00 AM" `clock()` prints for it, and it is
+  only ever seen as the far end of a span that started earlier the same day.
+  Typed digits resolve the other way: "12" with AM is the start of the day,
+  because digits alone cannot tell the two midnights apart and the start is the
+  one a reader typing a time means. The end of the day is then reached by
+  stepping the hour up from 11 PM, where the existing clamp holds it, or simply
+  by leaving a block that already ends there alone.
+
+**The event dialogs have no name field.** Names are derived server-side from the
+place, the first non-blank line of the notes, then the type's own noun, so the
+field was asking for something the reader had already said by picking a place or
+writing a line about it. With it gone, the dialogs stop sending `title`
+altogether rather than sending an empty one: absent means "leave the stored name
+alone", so a block somebody deliberately named keeps its name through an edit
+that only moved it, while an empty string would have re-derived one underneath
+them. The wire contract is untouched; the client just has nothing to say about
+the name.
+
+Two rows were re-laid out around the hole it left, since the grid is 12 columns
+and a row with one control in it reads as a mistake. Free time has no place
+picker, so its Type moves down to share the clock's row, with the people running
+full width underneath. A journey's Mode takes the rest of the second row the
+people used to share, for the same reason. Every one of the five types now fills
+every row it draws.
+
+**The clock is sized by its content, and the row is sized around the clock.**
+The field's three segments cannot shrink, so the box holding them must not
+either: `.tfield` is `flex: none; width: max-content`. Without that it was a
+flex item with `min-width: 0` inherited from `.input`, free to be squeezed by
+the grid cell it sat in, and at 1280px a half-column cell gave it 101.8px for
+107px of clock. The overflow came out of the last segment, so the focused
+meridiem's highlight ran into the right border, which is what "the AM and PM
+goes a little outside the input box" was. Shrinking the type or the segment
+widths would have paid for the layout with legibility; the box is the thing that
+should hold its ground.
+
+The pair then has an honest intrinsic width: two 107px clocks, an 8px gap either
+side of "to", 242px in all. Six of twelve columns is 232px in a 512px dialog, so
+the clock takes **seven** columns and whatever shares its row takes five. That
+is a 7/5 split rather than 6/6 because one side is a fixed measurement and the
+other is elastic: a picker of avatars or a Mode select reads the same at 191px
+as at 232px, and the clock does not. `.tfpair` also wraps rather than clips, so
+a cell that is somehow still too narrow puts the end time on a second line
+instead of cutting a digit off it.
+
+Below `sm` the clock takes the whole row and so does whatever shared it. The
+meridiem made the pair wide enough that half of a 390px dialog clipped the end
+time mid-digit, which reads as a different time rather than as a truncation. The
+content-width fix does not make that stacking unnecessary: at 390px the full row
+is 313px, comfortably over the 242px the pair needs, but half of it would still
+be 152px.
 
 ## Shared UI conventions
 
@@ -4043,6 +4139,106 @@ header bar green was considered and rejected: the bar is a translucent off-white
 with a blur and a hairline that every page is designed against, and going solid
 green would force a rethink of the nav links, the avatar pill, the accent "Start
 planning" button and the focus rings, which is a redesign, not a logo change.
+
+## Results go to a corner, the page keeps its validation
+
+**The red and green blocks pushed into the page are now toasts.** A result the
+app owes the user after an action ("Saved.", "Could not change your password.")
+used to be a tinted block inserted above the form that caused it. Three things
+were wrong with that. It moved the page under the reader's hands, so the button
+they had just pressed jumped. On a scrolling page (Preparation ticking a box
+near the bottom, Discover voting on a card) it appeared somewhere off screen, so
+the refusal of a write was reported to nobody. And the one that had to survive
+the save could not: saving a new email remounts the Account profile form by key,
+which threw its own confirmation away before it could be read, and the page had
+to hold the flag on the form's behalf to work around it. A toast lives above the
+router, so the result outlives the page that raised it.
+
+**What did not move.** Two kinds of message stayed exactly where they were.
+
+- **A failed load is the page.** `if (!data) return error ? <FormError/> : null`
+  on Discover, Preparation, People, Expenses and the trip list is not a result,
+  it is the only content there is. A corner popup over a blank screen would say
+  what went wrong and leave nothing behind.
+- **A refused submit belongs to the form that was refused.** `ModalFooter` and
+  `ConfirmDialog` print the server's refusal beside the button that failed, and
+  `SettleRow` prints its own beside the row. These are read where the correction
+  is made. "Pick a start date." in the corner while the empty date field sits
+  unmarked in the middle of the screen is worse than the same sentence under the
+  button, not better. The auth forms keep their message for the same reason and
+  because the card is the whole screen there.
+
+The rule: a _result_ goes to the corner, a _refusal attached to a control_ stays
+beside the control. `useMutation` supports both at once through `onError`, which
+reports the resolved message without taking it out of `error`.
+
+**Errors do not expire; successes do.** A success repeats something the user
+just watched happen, so it costs nothing to lose after 4.5 seconds. An error is
+the only account of why something did not happen, it frequently carries wording
+the server chose, and it can arrive while a modal is open, where it cannot be
+dismissed at all (see below). A timer there deletes the answer before the reader
+can reach it. Errors leave on a click, or when a fifth toast pushes the oldest
+out. The stack is capped rather than scrolled: a corner holds the last few things
+that happened, and a column tall enough to scroll is covering the page it reports
+on.
+
+**The viewport is a popover, because dialogs are in the top layer.** Every
+dialog in the app is a native `showModal()` dialog, which puts it in the top
+layer, above any z-index a stylesheet can name (the app's ceiling is 40). A
+toast raised by a dialog's own save would be painted behind it. The viewport
+therefore carries `popover="manual"`, the other door into the top layer. The top
+layer is ordered by entry, so a viewport promoted at startup still sits under a
+dialog opened later: each new toast closes and reopens the popover, which moves
+it back to the front, and a `MutationObserver` on the `open` attribute does the
+same for toasts that were already up when a dialog opened. Watching for that
+centrally beats asking each dialog to announce itself, because the dialog that
+forgets is a message nobody sees. Measured in Chrome on the live app: promoted
+before the dialog it is invisible, re-promoted after it, it paints on top.
+
+**The stack pauses while it is under the pointer or the caret, and unsticks
+itself.** Hovering or tabbing into the corner holds every clock, so a message
+cannot expire mid-sentence while it is being read. That state is re-read after
+each removal rather than trusted from the last event: dismissing a toast
+destroys the element that had focus, an element removed while focused never
+fires a blur, and a stack stuck paused would keep everything under it on screen
+for good.
+
+**A toast over an open modal can be read but not pressed.** `showModal()` makes
+the rest of the document inert, and inertness reaches into the top layer, so the
+dismiss button does not take the click while the dialog is up. That is the right
+end of the trade rather than a defect to route around: focus belongs to the
+dialog, a toast must never pull it out, and an error simply waits, still there
+and now pressable, once the dialog closes. It also means the corner is a safe
+home for a refusal raised from inside a dialog, which is what the API rejecting
+an event with nobody on it will need.
+
+**Politeness follows tone, as it already did inline.** A success is a
+`role="status"` and waits its turn; an error is a `role="alert"` and interrupts.
+The viewport is opened once and left open for the session rather than opened
+with its first message, so messages are inserted into a container that is
+already rendered instead of one that appears with them, which is the usual way
+to have a live region announced by nobody. Empty, it paints nothing and takes no
+clicks.
+
+**The server's own sentence is the message.** `api()` already lifts `error` out
+of the `fail()` envelope every route uses and throws it as `ApiError.message`,
+`useMutation` passes that string to `onError` untouched, and `toast.error` shows
+it. Nothing on the path adds a preamble or substitutes house copy, because the
+route is the only thing that knows why it refused. The longest of these written
+so far, the 400 for an event whose named people are none of them on the trip
+("Nobody in that list is on this trip. Pick from the trip's members.", 66
+characters), is the width fixture: measured in Chrome it wraps to two lines in a
+384px toast at 1280px and a 366px one at 390px, clips nothing, and leaves the
+dismiss button in its corner.
+
+**The picker note stayed in the menu.** The refusal in `PeoplePicker` ("An event
+with no names on it means everyone, so this cannot be emptied") was considered
+for the corner and deliberately left where it is. It is not a result of an
+action the app took; it is an answer to a tick, and the reader is looking at the
+row they just ticked, inside a menu that is itself fixed above the dialog. The
+corner would put the answer as far from the question as the screen allows. It
+also fires while a modal is open, which is exactly where a toast cannot be
+dismissed.
 
 ## The header reaches the right edge
 

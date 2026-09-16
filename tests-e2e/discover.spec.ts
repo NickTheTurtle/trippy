@@ -198,7 +198,8 @@ test.describe('discover', () => {
 			);
 			await page.getByRole('button', { name: '+ Add stay' }).click();
 			const dialog = page.getByRole('dialog');
-			await dialog.getByLabel('Name').fill('Alfama rooms');
+			// The block takes its name from the stay it is booked into, so picking
+			// one is all there is to say.
 			await dialog.getByRole('button', { name: 'Stay', exact: true }).click();
 			await page.getByRole('option', { name: /Alfama rooms/ }).click();
 			await dialog.getByRole('button', { name: copy.common.add, exact: true }).click();
