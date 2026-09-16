@@ -4583,6 +4583,37 @@ backstop for anything that reaches one anyway, alongside the underline and pill
 backgrounds, listing its selectors one by one so any newly animated selector has
 to be added to it by hand.
 
+## The console keeps only what somebody has to read
+
+A development console that prints the same expected failure on every page load
+is a console nobody reads, and a real error goes into it unnoticed. A recent
+audit of this app lost time to exactly that. Two things were in there.
+
+**`net::ERR_ABORTED`, two or three per navigation, was ours.** `useApi` starts
+its GET in an effect and aborts it in the effect's cleanup. React's StrictMode
+runs every effect, then its cleanup, then the effect again, synchronously, in
+development: so the first pass put a real request on the wire and the cleanup
+killed it mid-flight, which the browser reports in red and which also sent each
+section's GET twice. The request now starts a microtask late, so the discarded
+first pass is cancelled before it reaches the network. A request that has
+genuinely started is still aborted the moment its path is superseded; that is a
+real cancellation and is still worth doing.
+
+**The red 401 on `/auth/me` is not ours to remove, and is not what it looked
+like.** It is printed by the browser's network stack for any 4xx, before any of
+our code runs, and no `catch` touches it (`auth.tsx` has caught this 401 as an
+expected answer all along). The client cannot skip the request: the session
+cookie is httpOnly, so asking is the only way to know. Measured on the running
+dev server, it is every **signed-out** load that prints it and no signed-in one,
+which is the opposite of what it was reported as.
+
+The fix is one line in the API and is filed for its owner: `GET /auth/me`
+should answer **200 with `{ user: null }`** when nobody is signed in. "Is
+anybody signed in?" is a question with a legitimate negative answer; 401 is for
+a request that needed a session and did not have one. Working around it from the
+client (remembering "no session" in storage, or not asking) would trade a
+cosmetic line for a real bug, since a cookie can arrive from another tab.
+
 ## Implementation status
 
 Built and verified:

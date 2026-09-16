@@ -8,6 +8,23 @@ import { copy } from '../copy';
  * response into a thrown ApiError carrying the server's own message. Callers
  * then only ever handle two shapes, a value or an ApiError, instead of each one
  * re-deciding what `res.ok` should mean.
+ *
+ * **The one line of console noise this cannot quieten.** A signed-out visit
+ * asks `GET /auth/me`, is answered 401, and the browser itself prints "Failed
+ * to load resource: the server responded with a status of 401" in red. That
+ * line is emitted by the network stack for any 4xx, before a single line of
+ * this file runs; there is no JavaScript that removes it, and catching the
+ * error (which `auth.tsx` already does, deliberately and only for 401) does not
+ * touch it. The client cannot skip the request either: the session cookie is
+ * httpOnly, so asking the server is the only way to find out whether there is
+ * a session.
+ *
+ * The fix belongs to the API and is one line there: `GET /auth/me` should
+ * answer **200 with `{ user: null }`** for a signed-out visitor. "Is anybody
+ * signed in?" is a question with a legitimate negative answer, not a refused
+ * request, and 401 is reserved for a request that needed a session and did not
+ * have one. Measured rather than assumed: it is every *signed-out* load that
+ * prints it, and no signed-in load does.
  */
 
 export class ApiError extends Error {
