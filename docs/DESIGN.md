@@ -3858,6 +3858,21 @@ lifetime rather than awaited during the load.
 `TripMap` takes the same `center` prop as `GoogleMap` for this, since a fallback
 that opens on a hardcoded city is a fallback that looks broken.
 
+**The schedule takes that choice.** Reporting the failure only helps if a caller
+acts on it, and the board was still choosing its renderer on the key being
+non-empty, which reads a key's presence as a promise that it works. It now
+latches a `mapsOut` flag from `onUnavailable` and draws `TripMap` for the rest of
+the session, passing it the same `anchorCity` Google was getting.
+
+The timing is the part worth writing down, because it decides where the flag can
+live. Measured against a key this environment refuses
+(`RefererNotAllowedMapError`), Google mounts at 235ms to 414ms and the fallback
+replaces it at 540ms to 863ms: the failure lands well after first paint, so this
+cannot be a decision taken while choosing what to mount. Google's error card is
+genuinely on screen, for 0 to 1 sampled frames at around 620ms, and is gone by
+the end of every run. The reader is left with 6 tiles and 21 pins instead of an
+error card, at both 1280px and 390px.
+
 ## Implementation status
 
 Built and verified:

@@ -380,6 +380,19 @@ export default function Schedule() {
 	const anchorCity = anchor?.city ?? null;
 
 	/**
+	 * Whether Google has taken itself off the table.
+	 *
+	 * A key that is present but refused is worse than no key at all: the reader
+	 * gets Google's own failure card where Leaflet would have drawn the map. The
+	 * signal arrives seconds after the map is constructed, well after first
+	 * paint, so this cannot be decided while choosing what to mount and has to
+	 * be state the panel re-renders on. It only ever travels one way in a
+	 * session, and it may be raised more than once, which setting a flag already
+	 * absorbs.
+	 */
+	const [mapsOut, setMapsOut] = useState(false);
+
+	/**
 	 * The first minute the board draws when nothing is being dragged.
 	 *
 	 * The day's own contents decide it: its blocks and its journeys, both of
@@ -1302,10 +1315,15 @@ export default function Schedule() {
 				</div>
 
 				<aside className="mapwrap card">
-					{data.mapsKey ? (
-						<GoogleMap tracks={mapTracks} apiKey={data.mapsKey} center={anchorCity} />
+					{data.mapsKey && !mapsOut ? (
+						<GoogleMap
+							tracks={mapTracks}
+							apiKey={data.mapsKey}
+							center={anchorCity}
+							onUnavailable={() => setMapsOut(true)}
+						/>
 					) : (
-						<TripMap tracks={mapTracks} />
+						<TripMap tracks={mapTracks} center={anchorCity} />
 					)}
 				</aside>
 			</div>
