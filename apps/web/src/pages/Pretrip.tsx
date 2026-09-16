@@ -7,7 +7,8 @@ import { formatMoney } from '../lib/format';
 import { useTrip } from './TripShell';
 import { useNarrowLayout } from '../hooks/useMediaQuery';
 import SectionNav from '../components/ui/SectionNav';
-import FormError from '../components/ui/FormError';
+import LoadError from '../components/ui/LoadError';
+import { useToast } from '../components/ui/Toast';
 import Stat from '../components/ui/Stat';
 import type { Task, PretripData, Draft, TaskDraft } from './pretrip/types';
 import TaskList, { ListTitle } from './pretrip/TaskList';
@@ -43,14 +44,19 @@ export default function Pretrip() {
 	const narrow = useNarrowLayout();
 
 	// One state machine for the small in-place writes this page makes (ticking a
-	// box, and the deletes the dialogs below confirm), so a refusal lands in the
-	// banner instead of being thrown into nothing.
+	// box, and the deletes the dialogs below confirm), so a refusal is reported
+	// instead of being thrown into nothing. The tick is not a form and has no
+	// footer to report in, which is exactly the case the corner is for.
+	const toast = useToast();
 	const act = useMutation<[() => Promise<unknown>]>((fn) => fn(), {
 		onSuccess: reload,
-		fallback: cp.saveFallback
+		fallback: cp.saveFallback,
+		onError: toast.error
 	});
 
-	if (!data) return error ? <FormError message={error} variant="banner" /> : null;
+	/* The reason goes to the corner, the page keeps a line saying it is not
+	   there. A popup over a blank screen explains itself and leaves nothing. */
+	if (!data) return error ? <LoadError message={error} onRetry={reload} /> : null;
 
 	const doneCount = data.tasks.filter((t) => t.done).length;
 	const packedCount = data.packing.filter((t) => t.done).length;
@@ -162,8 +168,6 @@ export default function Pretrip() {
 			/>
 
 			<div className="min-w-0">
-				<FormError message={act.error} variant="banner" />
-
 				{/* The row keeps its height across sections, so switching never shifts
 				    the card below it up or down. The section is named by the nav (the
 				    column beside it, or the dropdown that replaces it), so the button

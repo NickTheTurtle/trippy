@@ -6,7 +6,7 @@ import Modal, { ModalFooter, ModalForm } from '../../components/ui/Modal';
 import { useDeleteAction } from '../../components/ui/useDeleteAction';
 import Select, { type Option } from '../../components/ui/Select';
 import TimeField from '../../components/ui/TimeField';
-import { Field, FieldShell, TextArea } from '../../components/ui/Field';
+import { FieldShell, TextArea } from '../../components/ui/Field';
 import { copy } from '../../copy';
 import PeoplePicker from './PeoplePicker';
 import { useJourneys } from './Journeys';
@@ -26,8 +26,13 @@ import StayDates from './StayDates';
 import type { Cell, Crew, EventDraft, EventRow, LegRow, SavedPoi } from './types';
 
 /**
- * One event: rename, retype, retime, re-people, relocate, delete, and set the
- * journeys that arrive at it.
+ * One event: retype, retime, re-people, relocate, delete, and set the journeys
+ * that arrive at it.
+ *
+ * Not rename: a block is named from what it is, which is the place it is at,
+ * the first line of its notes, or its own type, and the server owns that order.
+ * The dialog is silent about the name, so a block named deliberately keeps the
+ * name it was given.
  *
  * Changing the type to free time clears the event's location on the server.
  * That is the point of free time rather than a side effect: nobody has promised
@@ -85,7 +90,6 @@ export default function EventDialog({
 	onClose: () => void;
 	onDone: () => void;
 }) {
-	const [title, setTitle] = useState(event.title);
 	const [type, setType] = useState<EventType>(event.type);
 	const [start, setStart] = useState(String(event.start_min));
 	const [end, setEnd] = useState(String(event.end_min));
@@ -157,10 +161,12 @@ export default function EventDialog({
 			id: event.id,
 			day: onDay,
 			end_day: staying ? checkOut : null,
-			// An empty title is not savable, and a nameless block on the board reads
-			// as a bug rather than as an unfinished edit, so the saved name stands
-			// until there is a new one.
-			title: title.trim() || event.title,
+			/* The name it already has, because this dialog no longer sends one: the
+			   name field is gone, the save is silent about the title, and the server
+			   leaves a stored name alone when it is not mentioned. Deriving a
+			   different one here would preview a rename that is not going to
+			   happen. */
+			title: event.title,
 			type,
 			start_min: staying ? STAY_CHECK_IN : startMin,
 			end_min: staying ? DAY_END : endMin,
@@ -174,8 +180,10 @@ export default function EventDialog({
 		onDay,
 		staying,
 		checkOut,
-		title,
+		notes,
 		type,
+		placeable,
+		spot?.name,
 		startMin,
 		endMin,
 		people,
@@ -219,7 +227,10 @@ export default function EventDialog({
 			// travel off them rather than off anything in the edit.
 			await op({
 				op: 'edit',
-				title: title.trim(),
+				/* No title, ever. The name field is gone, so this dialog has nothing
+				   to say about the name: an absent title leaves the stored one alone,
+				   which is what keeps a name somebody deliberately chose from being
+				   recomputed by an edit that only moved the block. */
 				type,
 				notes: notes.trim(),
 				startMin: staying ? undefined : startMin,
@@ -263,17 +274,40 @@ export default function EventDialog({
 						{/* The same 12-column grid the rest of the app's dialogs use, so a
 						    field keeps its width whether or not the row beside it is
 						    showing: the mode field comes and goes with the type, and the
-						    old flexbox row re-flowed everything each time it did. */}
+						    old flexbox row re-flowed everything each time it did.
+
+						    The place leads here as it does in the add dialog. With the
+						    name field gone, two rows are laid out for what is missing:
+						    free time has no place, so its type moves down to share the
+						    clock's row, and a journey's mode takes the rest of the
+						    second row the people used to share, with the people running
+						    full width underneath. No row is left half empty for any of
+						    the five types.
+
+						    The clock takes seven of the twelve columns rather than six,
+						    which is what the pair actually measures: two fixed-width
+						    clocks, a gap either side of "to", and 242px in all. Six
+						    columns is 232px, and the difference used to come out of the
+						    meridiem. Whatever shares the row takes the other five.
+
+						    The clock and whatever shares its row take the whole width
+						    below `sm`: two clocks of three segments each do not fit in
+						    half of a 390px dialog. */}
 						<div className="grid grid-cols-12 gap-x-2.5 gap-y-3.5">
-							<Field
-								label="Name"
-								className="col-span-8"
-								autoFocus
-								required
-								value={title}
-								onChange={(e) => setTitle(e.target.value)}
-							/>
-							<FieldShell label="Type" className="col-span-4">
+							{placeable && (
+								<FieldShell label={placeText} optional className="col-span-8">
+									<Select
+										value={poi}
+										onChange={setPoi}
+										options={poiOptions}
+										ariaLabel={placeText}
+									/>
+								</FieldShell>
+							)}
+							<FieldShell
+								label="Type"
+								className={placeable ? 'col-span-4' : 'col-span-12 sm:col-span-5'}
+							>
 								<Select
 									value={type}
 									onChange={(v) => {
@@ -297,7 +331,7 @@ export default function EventDialog({
 									onCheckOut={setCheckOut}
 								/>
 							) : (
-								<FieldShell label="When" className="col-span-6">
+								<FieldShell label="When" className="col-span-12 sm:col-span-7">
 									<div className="tfpair">
 										<TimeField
 											value={startMin}
@@ -314,33 +348,25 @@ export default function EventDialog({
 									</div>
 								</FieldShell>
 							)}
+							{type === 'travel' && (
+								<FieldShell label="Mode" optional className="col-span-12 sm:col-span-5">
+									<Select value={mode} onChange={setMode} options={MODE_OPTIONS} ariaLabel="Mode" />
+								</FieldShell>
+							)}
 							<PeoplePicker
 								people={people}
 								onChange={setPeople}
 								memberOptions={memberOptions}
 								crews={crews}
-								className={staying ? 'col-span-4' : 'col-span-6'}
+								className={
+									staying
+										? 'col-span-4'
+										: placeable && type !== 'travel'
+											? 'col-span-12 sm:col-span-5'
+											: 'col-span-12'
+								}
 							/>
 
-							{type === 'travel' && (
-								<FieldShell label="Mode" optional className="col-span-4">
-									<Select value={mode} onChange={setMode} options={MODE_OPTIONS} ariaLabel="Mode" />
-								</FieldShell>
-							)}
-							{placeable && (
-								<FieldShell
-									label={placeText}
-									optional
-									className={type === 'travel' ? 'col-span-8' : 'col-span-12'}
-								>
-									<Select
-										value={poi}
-										onChange={setPoi}
-										options={poiOptions}
-										ariaLabel={placeText}
-									/>
-								</FieldShell>
-							)}
 							<TextArea
 								label="Notes"
 								optional

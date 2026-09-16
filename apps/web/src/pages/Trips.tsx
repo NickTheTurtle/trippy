@@ -4,7 +4,7 @@ import { api } from '../lib/api';
 import { useApi } from '../hooks/useApi';
 import Cover from '../components/Cover';
 import EmptyState from '../components/ui/EmptyState';
-import FormError from '../components/ui/FormError';
+import LoadError from '../components/ui/LoadError';
 import TripFormDialog from '../components/TripFormDialog';
 import { PlusIcon } from '../components/ui/icons';
 import { copy } from '../copy';
@@ -39,7 +39,11 @@ export default function Trips() {
 			</section>
 
 			<section className="container grid grid-cols-1 gap-5 md:grid-cols-2">
-				{error && <FormError message={error} variant="banner" className="col-span-full" />}
+				{/* The reason goes to the corner. The panel only appears when the grid
+				    is empty, so a failed reload does not push the trips down. */}
+				{error && (
+					<LoadError message={error} onRetry={reload} panel={!data} className="col-span-full" />
+				)}
 
 				{data?.trips.map((t) => (
 					<TripCard key={t.id} trip={t} />

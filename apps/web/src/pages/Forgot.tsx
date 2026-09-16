@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, Navigate } from 'react-router';
 import { AuthNotice, AuthShell } from '../components/ui/AuthShell';
 import { Field } from '../components/ui/Field';
+import { useToast } from '../components/ui/Toast';
 import { useAuth } from '../auth';
 import { api } from '../lib/api';
 import { copy } from '../copy';
@@ -10,16 +11,15 @@ const c = copy.auth.forgot;
 
 export default function Forgot() {
 	const { status } = useAuth();
+	const toast = useToast();
 	const [email, setEmail] = useState('');
 	const [sent, setSent] = useState(false);
-	const [error, setError] = useState<string | null>(null);
 	const [submitting, setSubmitting] = useState(false);
 
 	if (status === 'authenticated') return <Navigate to="/trips" replace />;
 
 	async function submit() {
 		setSubmitting(true);
-		setError(null);
 		try {
 			await api('/auth/forgot', { method: 'POST', body: { email } });
 			// Shown whatever the address turns out to be, matching the server, which
@@ -28,7 +28,7 @@ export default function Forgot() {
 			// is being careful not to.
 			setSent(true);
 		} catch (err) {
-			setError(err instanceof Error ? err.message : c.fallback);
+			toast.error(err instanceof Error ? err.message : c.fallback);
 			setSubmitting(false);
 		}
 	}
@@ -57,7 +57,6 @@ export default function Forgot() {
 		<AuthShell
 			title={c.title}
 			blurb={c.blurb}
-			error={error}
 			onSubmit={submit}
 			submitting={submitting}
 			submitLabel={c.submitLabel}

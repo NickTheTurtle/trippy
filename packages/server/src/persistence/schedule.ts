@@ -1,13 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import { db } from '../db';
+import { db, backfillDone, markBackfillDone } from '../db';
 import { isEventType, isLocatedType, isTransportMode, type EventType } from '@trippy/core/types';
-import {
-	guessLeg,
-	planLegs,
-	placeLeg,
-	type PlannedLeg,
-	type PlannerEvent
-} from '@trippy/core/travel';
+import { type PlannedLeg } from '@trippy/core/travel';
+import { planDay, resolveLeg, shiftDay, stayBand, type LegOverride } from '@trippy/core/plan';
 import { publish, publishMany } from '../events';
 import { isMember } from './membership';
 import { conflict, isStale, missing, written, type WriteResult } from './versioning';
@@ -44,6 +39,13 @@ import { MIN_EVENT_MINS } from '@trippy/core/types';
 
 /** Where a stay sits on the clock. In core, so the client anchors it the same. */
 export { STAY_CHECK_IN } from '@trippy/core/types';
+
+/**
+ * Day arithmetic, in core so the board and the API agree about what tomorrow
+ * is. Re-exported because `apps/api/src/routes/schedule.ts` reaches for it
+ * here, and moving it should not make that route learn a new module.
+ */
+export { shiftDay } from '@trippy/core/plan';
 
 export interface EventRow {
 	id: string;
@@ -90,12 +92,6 @@ export interface LegRow {
 	startMin: number;
 	endMin: number;
 	tight: boolean;
-}
-
-/** Shift an ISO day, staying in UTC so a DST boundary cannot move it. */
-export function shiftDay(iso: string, delta: number): string {
-	const [y, m, d] = iso.split('-').map(Number);
-	return new Date(Date.UTC(y, m - 1, d + delta)).toISOString().slice(0, 10);
 }
 
 const EVENT_COLUMNS = `id, day, end_day, title, type, start_min, end_min, poi_id, lodging_id, city_id, lat, lng, notes, travel_mode, version`;
@@ -163,10 +159,9 @@ export function staysCovering(tripId: string, day: string): EventRow[] {
  * what the planner books journeys against, and this for the days, which is what
  * is drawn.
  *
- * A night checked out of and a night checked into can now land on the same day,
- * which is right when the group is changing hotels and pure noise when it is
- * not: two identical chips saying the same room twice. So a checkout is dropped
- * when the same people are booked back into the same place that night.
+ * The de-duplication a drawn checkout day needs is `stayBand` in core, because
+ * the client draws the same band from the same rows while a dialog is open and
+ * the two must agree about which chips a day has.
  */
 export function staysOnBoard(tripId: string, day: string): EventRow[] {
 	const rows = db
@@ -177,19 +172,7 @@ export function staysOnBoard(tripId: string, day: string): EventRow[] {
 			 ORDER BY day, start_min, id`
 		)
 		.all(tripId, day, day) as unknown as EventRow[];
-	attachPeople(rows);
-	const tonight = new Set(rows.filter((r) => !leavesOn(r, day)).map(stayKey));
-	return rows.filter((r) => !leavesOn(r, day) || !tonight.has(stayKey(r)));
-}
-
-function leavesOn(row: EventRow, day: string): boolean {
-	return (row.end_day ?? shiftDay(row.day, 1)) === day;
-}
-
-/** What makes two stays the same booking: the same room, held by the same people. */
-function stayKey(row: EventRow): string {
-	const place = row.lodging_id ?? row.poi_id ?? `${row.title}|${row.lat}|${row.lng}`;
-	return `${place}\u0000${[...row.people].sort().join(',')}`;
+	return stayBand(attachPeople(rows), day);
 }
 
 /**
@@ -275,38 +258,44 @@ export function strandedDayCount(tripId: string, start: string, end: string): nu
 	return row?.n ?? 0;
 }
 
-function toPlanner(e: EventRow): PlannerEvent {
-	return {
-		id: e.id,
-		type: e.type,
-		startMin: e.start_min,
-		endMin: e.end_min,
-		// Free time is the one type that is deliberately nowhere. Blanking here
-		// rather than refusing to store coordinates means a block can be switched
-		// to free time and back without losing the place it was at.
-		lat: isLocatedType(e.type) ? e.lat : null,
-		lng: isLocatedType(e.type) ? e.lng : null,
-		people: e.people
-	};
+/**
+ * The trip's roster, sorted, which is what "Everyone" means at this instant.
+ *
+ * Read on every plan rather than copied onto an event, for the same reason the
+ * `everyone` crew is derived rather than stored: a copy starts naming a group
+ * that is no longer everyone the moment somebody joins or leaves.
+ */
+function tripRoster(tripId: string): string[] {
+	const rows = db
+		.prepare(`SELECT user_id FROM memberships WHERE trip_id = ? ORDER BY user_id`)
+		.all(tripId) as unknown as { user_id: string }[];
+	return rows.map((r) => r.user_id);
 }
 
 /**
  * The day's plan: its blocks, tonight's lodging as the last thing reached, and
  * last night's as the morning's origin.
  *
- * A stay is not on the clock, but a journey to it is a real journey, so it
- * enters the plan as the end of the day. Midnight rather than a check-in hour:
- * it is the mirror of the morning, where last night's stay is an origin at
- * midnight, and `placeLeg` reads it as an arrival with no time to be late for.
+ * All this layer does is read the four things a day is made of and hand them to
+ * `planDay` in core, which owns every rule about what they mean: the projection
+ * to a `PlannerEvent`, "Everyone", which stays are a night of the day, and the
+ * midnight anchor at both ends. The client replans the same day from the same
+ * function while a dialog is open, so the two answers cannot differ.
+ *
+ * `staysCovering` already returns only the nights of the day, so `planDay`'s
+ * own night filter is a no-op here; it is there for the client, which passes
+ * the band it draws, checkout mornings included.
  */
 function planFor(tripId: string, day: string): PlannedLeg[] {
-	const events = eventsForDay(tripId, day).map(toPlanner);
-	const tonight = staysCovering(tripId, day).map((s) => ({
-		...toPlanner(s),
-		startMin: 24 * 60,
-		endMin: 24 * 60
-	}));
-	return planLegs([...events, ...tonight], incomingStays(tripId, day).map(toPlanner));
+	return planDay(
+		{
+			day,
+			events: eventsForDay(tripId, day),
+			stays: staysCovering(tripId, day),
+			incoming: incomingStays(tripId, day)
+		},
+		tripRoster(tripId)
+	);
 }
 
 /**
@@ -350,9 +339,58 @@ export function recomputeLegs(tripId: string, day: string): void {
 	for (const id of have.values()) del.run(id);
 }
 
-/** The straight-line guess, used until a provider has said better. */
-function fallbackEstimate(leg: PlannedLeg): { mode: string; mins: number } {
-	return guessLeg(leg.km);
+/**
+ * Reconcile every day of every trip that carries an event.
+ *
+ * Reconciliation is otherwise only triggered by a write, which is exactly right
+ * while the rules do not move: a day nobody has touched still implies the legs
+ * that are stored for it. When the rules do move, every stored day is suddenly
+ * a day whose plan changed with no write to notice, and `legsForDay` shows only
+ * legs that have a row, so an untouched day would draw no travel until somebody
+ * happened to drag something on it.
+ *
+ * It is the ordinary per-day reconciliation run over the whole database, so it
+ * inserts what is newly planned, prunes what is no longer planned, and leaves
+ * every row whose key still stands, overrides and all. Nothing is dropped and
+ * no table is rebuilt.
+ *
+ * Returns the number of (trip, day) pairs it visited, which is what the caller
+ * logs or a test asserts on.
+ */
+export function reconcileAllLegs(): number {
+	const rows = db
+		.prepare(`SELECT DISTINCT trip_id, day FROM events ORDER BY trip_id, day`)
+		.all() as unknown as { trip_id: string; day: string }[];
+	// The morning after a stay leaves it, so the day after one carrying events
+	// can have legs of its own even with nothing scheduled on it.
+	const pairs = new Set<string>();
+	for (const r of rows) {
+		pairs.add(`${r.trip_id}\u0000${r.day}`);
+		pairs.add(`${r.trip_id}\u0000${shiftDay(r.day, 1)}`);
+	}
+	for (const pair of pairs) {
+		const [tripId, day] = pair.split('\u0000');
+		recomputeLegs(tripId, day);
+	}
+	return pairs.size;
+}
+
+/**
+ * The one-time pass for the rule change that made "Everyone" expand.
+ *
+ * Before it, an event left on the whole group named nobody, so it was on
+ * nobody's chain and a trip whose events were all left on the default planned
+ * no journeys at all. Every day stored under the old rules therefore has legs
+ * missing, and days with a location-less block in them have legs that were
+ * planned straight across it and are no longer planned at all.
+ *
+ * Guarded by a marker row rather than run on every boot: the work is a plan per
+ * stored day, which is cheap once and pointless forever after.
+ */
+const LEGS_BACKFILL = 'travel-legs-everyone-expansion';
+if (!backfillDone(LEGS_BACKFILL)) {
+	reconcileAllLegs();
+	markBackfillDone(LEGS_BACKFILL);
 }
 
 /**
@@ -360,9 +398,13 @@ function fallbackEstimate(leg: PlannedLeg): { mode: string; mins: number } {
  *
  * The plan is recomputed rather than read back structurally, because placement
  * needs the event times and those are here anyway; the stored row contributes
- * only the identity and the override. A leg with no duration yet (never routed,
- * never overridden) falls back to the straight-line estimate, so the day is
- * never drawn with a gap where a journey should be.
+ * only the identity and the override. `resolveLeg` in core runs the routing
+ * ladder (pinned, then routed, then the straight-line guess) and places the
+ * journey, so a leg with no duration yet is still drawn and the client's
+ * preview of the same leg resolves it the same way.
+ *
+ * The only thing left here is the column renaming, because the stored row is
+ * snake_case and the answer is not.
  */
 export function legsForDay(tripId: string, day: string): LegRow[] {
 	const planned = planFor(tripId, day);
@@ -391,27 +433,14 @@ export function legsForDay(tripId: string, day: string): LegRow[] {
 		// shows one fewer journey rather than inventing a row id the client would
 		// then try to edit.
 		if (!row) continue;
-		const fallback = fallbackEstimate(leg);
-		const resolvedMode = row.mode ?? row.auto_mode ?? fallback.mode;
-		const resolvedMins = row.mins ?? row.auto_mins ?? fallback.mins;
-		out.push({
-			id: row.id,
-			day,
-			key: leg.key,
-			fromEventId: leg.fromEventId,
-			toEventId: leg.toEventId,
-			people: leg.people,
+		const override: LegOverride = {
 			title: row.title,
 			autoMode: row.auto_mode,
 			autoMins: row.auto_mins,
 			mode: row.mode,
-			mins: row.mins,
-			resolvedMode,
-			resolvedMins,
-			km: leg.km,
-			manual: row.mode != null || row.mins != null,
-			...placeLeg(leg, resolvedMins)
-		});
+			mins: row.mins
+		};
+		out.push({ id: row.id, day, ...resolveLeg(leg, override) });
 	}
 	return out;
 }
@@ -456,10 +485,7 @@ export interface NewEvent {
 
 /** Members of the trip, used to validate who an event can be assigned to. */
 function tripMemberIds(tripId: string): Set<string> {
-	const rows = db
-		.prepare(`SELECT user_id FROM memberships WHERE trip_id = ?`)
-		.all(tripId) as unknown as { user_id: string }[];
-	return new Set(rows.map((r) => r.user_id));
+	return new Set(tripRoster(tripId));
 }
 
 function writePeople(eventId: string, tripId: string, userIds: string[]): void {

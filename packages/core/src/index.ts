@@ -14,5 +14,6 @@ export * from './layout';
 export * from './cover';
 export * from './geo';
 export * from './travel';
+export * from './plan';
 export * from './conflicts';
 export * from './validate';

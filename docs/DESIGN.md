@@ -327,13 +327,117 @@ already exist, and cannot be deleted by somebody tidying up. `editCrew` and
 a row that looks like the others but does nothing when clicked is worse than one
 that plainly is not a control.
 
-**Picking Everyone empties the field rather than filling it.** An event with
-nobody on it already means the whole group, which is why the picker's trigger
-reads "Everyone" when the selection is empty. Ticking all twenty names would
-look identical today and part company the moment somebody joins, so
-`PeoplePicker` collapses a full selection back to none. The two Everyones then
-say the same thing, and the one that survives a new arrival is the one that gets
-stored.
+**Everyone is stored as nothing and shown as everything.** An event with nobody
+on it already means the whole group, which is why the picker's trigger reads
+"Everyone" when the stored list is empty. That empty list is the representation
+worth keeping: it still means everyone the moment somebody joins the trip, where
+a frozen roster of today's ids would silently leave the new arrival out of an
+event that was meant to include them. So `PeoplePicker` collapses a full
+selection back to none before saving, and `PUT /events/:eventId/people` stores
+exactly the list it is handed.
+
+Storing it that way is not a reason to **show** it that way, and for a while the
+picker did both. Opening an ordinary event showed twenty empty checkboxes for an
+event that applied to all twenty people, which reads as nobody; and ticking
+names one at a time cleared the lot on the last tick, because that is the moment
+the selection collapses. Both are the same mistake, a storage form leaking into
+the display. `PeoplePicker` is now the only place the two forms meet: it expands
+empty to every name ticked on the way in, and collapses a full set back to empty
+on the way out. Unticking one name therefore writes out everyone-except-them
+explicitly, and reticking them empties the field again.
+
+Three consequences worth naming. A name that has left the trip is dropped from
+the display and written out on the next edit, because a stored id the menu
+cannot offer could never be unticked and would hold the count permanently short
+of the roster, putting "Everyone" out of reach. A stored list naming only people
+who have left is therefore the empty list by another route, and reads as
+Everyone. And unticking the last remaining name returns to Everyone rather than
+to nobody, which is not a bug but the schema showing through: an event with no
+people is defined as an event for the whole group, so a one-member trip cannot
+distinguish the two and no trip can express "nobody". Free time, not an empty
+participant list, is how the schedule says somebody is not involved.
+
+**A tick that cannot change anything says so.** The consequence above was
+correct and invisible, which is a bad combination for the one row most likely to
+be clicked: the derived Everyone crew sits at the top of the picker's menu, and
+once everyone is picked, clicking it asks to untick the whole trip. That is the
+unrepresentable pick, so the ticks come straight back and the control reads as
+broken. The reported bug was exactly that: "I cannot click Everyone to deselect
+everyone."
+
+Nobody is still not a thing an event can be, and the fix is not to pretend
+otherwise. An empty field that saved as everyone would be a lie told in the one
+place the two forms are supposed to be reconciled, and there is no third record
+to write: `writePeople` deletes the rows and `toPlanner` reads no rows as the
+whole roster. So the refusal is said instead of performed. `PeoplePicker`
+remembers the tick that asked for nobody and passes a line back to the menu,
+which shows it at the top, where the click was; the same line stays under the
+field once the menu closes. It goes in the menu and not only in the field's hint
+because the open menu is `position: fixed` and covers the line under the field,
+so a hint alone would be written where the reader cannot see it. That is the
+same judgment the People page makes about the locked crew row: a control that
+silently does nothing is worse than one that explains itself.
+
+**"Everyone" is expanded at the persistence boundary, and core reads ids
+literally.** The convention above is a storage convention, and `planLegs` never
+knew about it: it builds its traveller set out of the `people` arrays and walks
+each person's own events, so an event naming nobody was on nobody's chain. A
+trip whose events were all left on the default therefore had an empty traveller
+set and **no travel legs at all**, which is the bug that made this explicit.
+
+The two readings were both written down and neither was wrong on its own, so
+the rule is now stated in one place and enforced in another:
+
+- `PlannerEvent.people` in `packages/core/src/travel.ts` is **exactly the ids
+  travelling**. An empty list is nobody, never everybody. Core is pure and
+  browser-portable, so it has no roster to expand against and cannot get one
+  without doing I/O.
+- `toPlanner` in `packages/server/src/persistence/schedule.ts` expands an empty
+  list to the trip's `memberships`, for blocks, for tonight's stays and for
+  last night's incoming stays alike, and reads the roster fresh on every plan
+  rather than copying it onto a row.
+
+The rejected alternative was a roster parameter on `planLegs`, which would have
+kept "empty means everyone" in a single place. It was rejected because that
+place would be the one module that must stay free of trip concepts and of I/O,
+and it would not even settle the question: every other caller constructing a
+`PlannerEvent` would still be free to mean something else by an empty array.
+Expanding at the boundary leaves core with one meaning and no special case.
+
+Three consequences, all deliberate:
+
+- **A trip with no members plans nothing.** The expansion yields an empty set,
+  which is right: there is nobody to travel.
+- **A stale id is dropped.** `event_people` outlives a membership, so a person
+  who has left can still be named on an old event. A named list is filtered to
+  the roster, and a list that names only people who have left empties to
+  **nobody**, not to everybody: somebody chose those names, and the choice was
+  not "the whole group".
+- **Leg keys change where an event was on Everyone**, because the key carries
+  the sorted travellers. Nothing is orphaned in practice, since those days
+  previously planned no legs to store. To catch days nobody writes to again,
+  `reconcileAllLegs()` runs the ordinary per-day reconciliation across every
+  stored day once, guarded by a row in `schema_backfills`; it inserts what is
+  newly planned and prunes what is not, keeping every row whose key still stands
+  along with its override. Additive, like every other migration here: no table
+  is dropped and no row is rewritten.
+
+**The client preview is told the same thing.** `replanLegs` in
+`apps/web/src/pages/schedule/replan.ts` runs the same `planLegs` while a dialog
+is open, and its `plannerEvent` is a copy of the server's `toPlanner`. It now
+takes the roster as a third argument, `ScheduleData.members` mapped to ids from
+`Schedule.tsx`, and applies the identical rule to the day's blocks, tonight's
+stays and last night's origins: an empty list expands to the roster, a named one
+is filtered to it, an empty roster expands to nobody. Without it a preview of an
+Everyone day showed no journeys where the board behind it showed them, which
+reads worse than either being wrong on its own.
+
+The rule now has two implementations that must agree, which is exactly the
+shape of the original bug. It cannot live in `planLegs` itself without giving
+pure logic a trip concept, but it could live in a pure
+`expandPeople(people, roster)` helper exported from `packages/core` and called
+by both boundaries. That is a follow-up for the core workspace, not something
+the web side can do on its own.
 
 **Deriving the legs** (`packages/core/src/travel.ts`, `planLegs`). For each
 person, walk their own events in order and pair each consecutive two. Bucket the
@@ -347,12 +451,28 @@ That is the whole of splitting and rejoining. Three rules keep it honest:
 - **Free time breaks the chain on both sides.** Not because it has no location,
   but because nobody has promised to be anywhere, so planning a journey out of it
   would be inventing a fact.
-- **An event with no location is passed over, not treated as a break.** A block
-  with no coordinates says _when_ someone is busy, not _where_ they are, so the
-  chain runs on through it and the journeys either side survive. The earlier rule
-  broke the chain on anything that was not an anchor, which meant adding a
-  reminder in the middle of an afternoon silently deleted the two travel times
-  around it and planned none in their place.
+- **An event with no location breaks the chain, like free time does.** A block
+  with no coordinates does not say _where_ its people are, so a journey measured
+  across it is an estimate from the last known place drawn on the day as a fact.
+  A missing estimate is more honest than a wrong one, so the chain stops at such
+  a block and picks up at the next place somebody has named.
+
+  This **reverses the earlier rule**, which passed a location-less block over on
+  the grounds that it says _when_ someone is busy rather than _where_ they are,
+  and so kept the journeys either side of it. That rule was written against the
+  failure it replaced (breaking on anything that was not an anchor, which meant
+  a reminder dropped into an afternoon silently deleted the travel times around
+  it). What it traded away is worse: with A located, B without an address and C
+  located, it planned and drew an A -> C travel time that nobody can stand
+  behind, because between A and C the group's whereabouts are unknown. Adding an
+  address to B brings both journeys back; until then the day shows none, which
+  is what it knows.
+
+  Only an ordinary block is affected. `freetime` already broke the chain, and a
+  `travel` event is decided before this rule is reached: one with a destination
+  becomes the origin of the next leg, one without breaks the chain, both exactly
+  as before.
+
 - **A hand-entered `travel` event is never an endpoint**, so no automatic leg is
   planned into or out of it. Saying how you are getting from A to B is how you
   turn the planner off for that hop.
@@ -380,6 +500,49 @@ automatic answer was. Every write recomputes **the day and the day after**,
 unconditionally: a stay is the previous night for the morning that follows it, and
 doing it only for stays leaves a bug where an event changes type into one and the
 next morning is never told.
+
+**One planner, called twice** (`packages/core/src/plan.ts`). Deriving the legs is
+`planLegs`, which is pure and knows nothing about storage. Getting from stored
+rows to the thing `planLegs` takes is a separate step, and it was written twice:
+`planFor` in `packages/server/src/persistence/schedule.ts` and `replanLegs` in
+`apps/web/src/pages/schedule/replan.ts`. The server plans the legs it stores; the
+client replans the same day while an edit dialog is open, so the reader sees the
+consequence of the edit before the write lands. The two answers **have to be
+identical**, and nothing made them so except two people keeping two copies in
+step.
+
+Four rules were duplicated, not one: the field renaming from a row to a
+`PlannerEvent`, blanking the coordinates of a type that cannot have a location,
+expanding an empty `people` list to the roster, and which stays are a night of
+the day rather than a day of it. A narrower extraction of just the people
+expansion was rejected: it dedupes one of three copied lines and leaves the other
+two free to drift, which is the same bug with a smaller blast radius.
+
+So `packages/core/src/plan.ts` holds `toPlannerEvent`, `planDay`, `stayBand`,
+`shiftDay`, `stayEndOf` / `isNightOf` / `isDayOf`, and `resolveLeg`. It takes
+rows and a roster as arguments and does no I/O, which is what lets the same code
+run in the API process and in a browser, and later in the Expo client. The
+server's `planFor` is now one call to `planDay`; `legsForDay` is a column rename
+around `resolveLeg`; `staysOnBoard` is its query plus `stayBand`. `apps/web`
+adopting the same three calls is a follow-up, held back only because two other
+sessions hold that directory.
+
+**`planDay` filters its own stays to the nights of the day**, which is a no-op
+for the server (its query already does) and load-bearing for the client (which
+passes the band it draws, checkout mornings included). One entry point that
+accepts either shape beats two entry points that agree today.
+
+**`stayBand` does not sort.** The two callers order their bands differently on
+purpose, the server by the stay's own start day and the client by the minute it
+is drawn at, and the ordering is not what was duplicated; the "drop a checkout
+when the same people are back in the same room tonight" filter is. Input order is
+preserved so neither caller's ordering has to move.
+
+**The location-less break rule is ahead of `main`.** `origin/main` still plans a
+journey straight across a block with no coordinates. The owner has ruled that it
+**breaks the chain**, for the reason above, and PR #31
+(`topic/schedule-conflicts`) encodes it. Anything read here describes the ruled
+behaviour, not what `main` does today.
 
 **Drawing dense travel** (`layoutBoard`). A day that splits four ways generates a
 lot of short legs at the same moment. Every one of them is drawn as a **block**,
@@ -728,6 +891,50 @@ somewhere real instead of parsing the range back out of the sentence. **That hal
 is not built**: the board currently renders the refusal in its error banner,
 which is honest but is not the end state. The client should redirect an
 out-of-range day to `firstDay` or `lastDay` and rewrite the url with it.
+
+**The stepper now asks rather than counts.** The client half built so far is the
+arrows: `dayStep` returns `data.prevDay` and `data.nextDay` instead of walking
+`days.indexOf(day)`. Walking the window would read the edge of a 4000 day slice
+as the end of the trip, and `null` from the server is the honest disabled state.
+
+It is worth recording that this fixes nothing visible today, because it cannot.
+The window is centred on the day drawn, so it recentres on every step and an
+index walk agrees with the server everywhere, including on a deliberately
+constructed 5480 day trip where the window really was a slice: at its first day,
+its last day and 2000 days in, both answers matched. The same held for a trip
+shortened under an event, where `nextDay` jumped 2026-03-05 straight to
+2026-03-28 and the index walk did too, because the window still held both sides
+of the gap. The change is worth making anyway: the two agree only by the window
+being generous, and an index walk is one long trip away from being wrong, in a
+way no test on today's data would catch. Where the window does already lie is
+about totals and ends, which is why `dayCount` exists and why the picker's
+bounds are read from `firstDay` and `lastDay`.
+
+**The picker's bounds are now actually wired to them.** The date field's `min`
+and `max` were `days[0]` and `days[days.length - 1]`, the ends of the window
+rather than the ends of the trip, because the picker and the new fields were
+built on separate branches and neither could see the other. With both in one
+change it is two attributes: `first={data.firstDay}` and `last={data.lastDay}`.
+This is visible, unlike the stepper: on a long trip the picker refused every day
+past the edge of the window, so a trip running to 2026-09-12 stopped offering
+dates at 2025-10-13.
+
+**What `day_not_offered` should do, and why it is not the same answer.** An
+out-of-range day can honestly be sent to an end, because the reader asked for
+somewhere the trip is not. A day in the gap is different: it is inside the trip's
+reach, so sending it to `firstDay` or `lastDay` would answer a reasonable request
+by throwing the reader to the far end of the trip. The gap is not a place that
+can be planned in either, since the board has no column for it, so drawing it is
+not on offer.
+
+The right destination is the **nearest offered day**, with the url rewritten to
+match, tie broken towards the earlier day. That keeps the reader where they were
+looking instead of at an end, and it is the same move the arrows already make
+when they skip a gap. It needs one field the refusal does not yet carry: the
+nearest served day, since `firstDay` and `lastDay` cannot express it. On the
+worked example, dates 2026-03-01..2026-03-05 with an event stranded on
+2026-03-28, a request for 2026-03-20 should land on 2026-03-28 and one for
+2026-03-08 on 2026-03-05, and neither is derivable from the two bounds alone.
 
 **Trip length is bounded at the other end, at 366 days**, in the trip form: a new
 or lengthened trip may not exceed a year, and an existing longer trip is
@@ -2615,6 +2822,15 @@ clients render the same money and the same dates, and a formatter that
 disagreed between them would be a visible bug that no type checker would catch.
 `cap()` followed the same way once the mobile cost list needed it.
 
+Editing that package from a `git worktree` needs one extra step. A worktree has
+no `node_modules` of its own, so `@trippy/copy` resolves up to the root tree's
+`node_modules/@trippy/copy`, which is a link to the _main_ checkout's
+`packages/copy`: a string added inside the worktree is invisible to `tsc` and to
+vite running there, and the failure looks like a missing key rather than a
+resolution problem. Link it before checking, with
+`New-Item -ItemType Junction -Path node_modules\@trippy\copy -Target (Resolve-Path packages\copy)`
+from the worktree root.
+
 **Auth is the same session row presented two ways.** A browser gets an httpOnly
 cookie, which is the right answer there and the one thing script cannot read. A
 native app has no cookie jar worth relying on, so it gets a bearer token. The
@@ -3045,17 +3261,18 @@ would have fallen back to, and the two can never drift. It costs `km` on the leg
 wire shape, which the board was already computing.
 
 **A time is typed, not picked.** The start and end were dropdowns of every
-quarter-hour, which is 72 rows: setting 14:45 meant opening a list, scrolling
+quarter-hour, which is 72 rows: setting 2:45 PM meant opening a list, scrolling
 most of the way down it and hitting one row among seventy, and the reader
 already knew the answer before they opened it. `TimeField` is the macOS shape,
-two segments in one box: digits replace, arrows step, and the caret moves to the
-minutes by itself once the hour can take no more digits, so "1445" lands on
-14:45. Two segments rather than a free text box because a free box has to parse
-what it is given and can be wrong ("2pm", "1430", "half two"), while a segment
-holding a number has no input to refuse. It carries minutes past midnight, the
-unit the board and the server already speak, so nothing parses a clock. The hour
-runs to 24 rather than wrapping to 0, because midnight is the end of the board
-and not the start of it.
+segments in one box: digits replace, arrows step, and the caret moves on by
+itself once a segment can take no more, so "245p" lands on 2:45 PM. Segments
+rather than a free text box because a free box has to parse what it is given and
+can be wrong ("2pm", "1430", "half two"), while a segment holding one thing has
+no input to refuse. It carries minutes past midnight, the unit the board and the
+server already speak, so nothing parses a clock. The value runs to 24:00 rather
+than wrapping to 0, because midnight is the end of the board and not the start
+of it; what that end reads as on a twelve-hour clock is under "The typed time
+fields read twelve hours" below.
 
 Each segment is a fixed width, wide enough for two of the widest digits, and
 that is the whole of what holds the colon still. It used to be a floor rather
@@ -3217,6 +3434,44 @@ Both maps build the card through one shared `mapCard` in
 without one are reading the same trip, and the keyless fallback drifting into a
 card of its own shape is a difference nobody asked for.
 
+**One pin per point, not one per thing.** Several things can be at one address:
+a venue saved twice from the same provider result, or five escape rooms run out
+of one building. Drawn a pin each they land exactly on top of each other, so the
+stack reads as a single pin and only the topmost one can be hovered or tapped.
+The others are invisible and unreachable, which is what was reported. Both maps
+now collapse the items of a track onto one pin per point, through one shared
+`groupColocated` in `apps/web/src/components/map-groups.ts`, and the card lists
+everything that pin stands for.
+
+**Grouped on exact coordinate equality, with no distance tolerance.** The trips
+in hand hold exactly one co-located set of saved places, three sharing a pair of
+doubles to the last digit, and not one pair of non-identical places within 60m of
+each other; the day tracks show the same, nine sets of bit-identical event
+coordinates. So the duplicates being complained about are literally the same
+numbers, which is what saving the same provider result twice produces. A radius
+would buy nothing against that data while risking the thing a radius always
+risks: merging two real venues that share a doorway. If near-duplicates ever do
+turn up, that is the moment to decide what a distance means, with the data to
+decide it on. Grouping is per track, because a pin can only be one colour, and
+the board already keeps a scheduled place out of the saved track.
+
+**The count goes in a badge, not in the pin.** The body of a pin is where the
+order number goes, so a count written there would be read as one. The things
+sharing a venue are not always consecutive stops. A day can visit a place, leave
+and come back, so no single number is true of the pin: a grouped pin drops the
+number and carries a small count badge at its corner instead. A pin standing for
+one thing is drawn exactly as it was, down to its size and its anchor. The badge
+never takes the pointer, because it overhangs its pin's box and a clickable
+badge swallowed clicks meant for the pin next to it.
+
+**A clicked card is held open; a hovered one is not.** A card that leaves the
+moment the pointer leaves its pin is right for a glance and useless for a pin
+holding nine things, which cannot be read, let alone scrolled, if it vanishes on
+the way to it. So a click holds the card and gives it the pointer back, and a
+click on the map, a hover onto another pin, or a redraw that takes its pin away
+puts it down. The list scrolls at 18rem rather than growing, so a busy venue
+cannot make a card taller than a phone.
+
 **A travel problem is a mark, not a sentence.** A leg that does not fit its gap
 used to be labelled "does not fit the gap" wherever it showed, which spends a
 line of a crowded card on a phrase the colour had already said. It is now the
@@ -3237,6 +3492,479 @@ filtered board would have defeated the point: the warning would vanish the momen
 you looked at somebody else, so it would only ever reach the person who already
 knew. The board memo is therefore split in two, `planned` before the "view as"
 filter and `board` after it, and the warning is read from `planned`.
+
+#### The day scrolls inside the board, not the page
+
+**The complaint was losing your place, not being unable to reach the evening.**
+The day grid is a pixel a minute over a window that opens at six, so an ordinary
+day is around 1150px tall and every screen is shorter than it. Nothing was
+clipped and nothing was unreachable: the page scrolled, and the whole board went
+with it. What went with it was the day's title bar, its stepper and the lodging
+band, so reading 22:00 meant no longer being able to see which day it was 22:00
+on, or to step to the next one without scrolling back. A calendar keeps the
+labels and moves the hours.
+
+So the hours move on their own. `.boardscroll` is a box between the lodging band
+and the bottom of the screen; the grid scrolls inside it, and the stepper and the
+band stand outside it and stay. The hour gutter is inside, because it is the
+axis: pinning it would pin the times to rows that had moved away from them.
+
+**The agenda is in the same box.** It was left out at first, on the reasoning
+that a list of the day's rows is short by construction and boxing a list only
+makes two scrollbars out of one. That held for the seeded days and not for a real
+one: a full day is forty rows, and the owner hit a day where the agenda ran past
+the bottom of the screen and took the day's title and stepper with it, which is
+the complaint the box was built to answer. So both boards now render inside one
+`.boardscroll`, with the same measured height, the same 320px floor and the same
+`70vh` fallback: one mechanism, not two. A `list` modifier drops the 12px of
+head room the hour labels need, since a list has no label hanging above its first
+row, and adds a little air under the last one. Nothing is imposed on a short
+agenda, because the box is a `max-height`: a nine-row day measures 321px tall in
+a box that would allow 500, so it does not scroll and shows no bar at all.
+
+**The height is measured, not stated.** The box's top depends on a toolbar that
+wraps at narrow widths and a lodging band that may hold nothing or three stays,
+so no `calc()` of viewport units can name it. It is measured in document
+coordinates, `rect.top + scrollY`, which is where the box sits whatever the page
+has been scrolled to. Reading the viewport-relative top instead would have fed
+back: scrolling the page would grow the box, growing the box would grow the page,
+and the page would scroll further. A floor of 320px keeps a short screen with a
+usable window rather than a slot, and the CSS carries `70vh` for the render
+before the measurement lands.
+
+**A scroll container is where drag maths usually dies**, because a gesture
+measured against the page is suddenly happening in a box that moves under it.
+This one is delta-based (`clientY - pointerStartY`), so the pointer arithmetic
+survived untouched; what had to move was everything that compensated for the
+board moving _by itself_. Two things do that, and they are now one number,
+`glue`, applied to the box's `scrollTop` as a difference per layout pass:
+
+- **The window opening.** Dragging a block earlier than the window's first hour
+  grows the grid upwards, which slides every minute already drawn, including the
+  one under the pointer, down by the amount opened. This used to be cancelled
+  with `window.scrollBy`; it is now the box that scrolls, by the same amount and
+  in the same pre-paint layout pass.
+- **Travelling at an edge.** A pointer held against the top or the bottom of the
+  box keeps changing the block's time without moving, so the hours have to run
+  past it. `creep` is that distance in minutes, and the box scrolls by the
+  negative of it so the block stays put and the day moves.
+
+They net out when both happen at once, which is exactly the case of opening the
+window while already at the top of the box: the growth and the travel are the
+same growth.
+
+**Both edges travel now, where only the top used to.** On a page the size of the
+day, dragging downwards had the rest of the document to travel through; in a box
+a few hundred pixels tall it would have run out in a couple of hours. Pushing
+against the bottom therefore runs the day on towards midnight at the same rate
+the top runs it back, and `creep` carries a sign rather than gaining a twin.
+
+**The block is held inside the box.** A viewport has edges the page did not: a
+pointer carried above the top of the box wants its block drawn above it, where it
+would be clipped and the gesture would be happening somewhere the reader cannot
+see. Staying visible is worth more than the last few pixels of glue, so the block
+pins to the edge it is pushing against while the hours keep running past, and the
+start wins over the end, since a block taller than the box cannot show both and
+the time it begins is the time being set. This is the one place the "stays under
+the pointer" contract gives way, and the e2e test now says so: glued inside the
+box, pinned at its edge.
+
+**Scroll chaining is left on.** A flick that reaches the end of the day carries
+on into the page, which is how the map under the board is reached on a phone,
+where the box is most of the screen. `overscroll-behavior: contain` would have
+made the board a trap at exactly the width with nowhere else to swipe.
+
+**Nothing at the root was touched.** The reserved scrollbar gutter that made the
+full-bleed header stop short of the right edge (see "The header reaches the right
+edge") stays gone; this box is a descendant, and the page keeps the browser's
+default gutter behaviour.
+
+#### What the box cost, and what it was not
+
+Three reports arrived together once the box was live: the drag had gone slow, the
+scrollbar looked bad, and the time was cut off. They are three separate things,
+and only two of them are the box's fault.
+
+**The slow drag was not forced layout.** The obvious suspect was the box being
+measured per pointer move, `getBoundingClientRect` and `scrollY` read in the same
+frame as a style write. Measured against the running dev server, it was not: the
+drag read a rect about 1.5 times a move and spent roughly 0.3ms each in Layout
+and Recalc Style. What it did instead was commit a render of the entire page on
+every move, because the drag lives in the page's state: 41 blocks, twenty legs,
+the axis, the toolbar, the router links and the map's track assembly, about
+10ms of script per move and 13.5KB of `JSON.stringify` per move on the map's
+account alone. The board is therefore split into `memo` components at module
+scope, each taking primitives or identity-stable props (`left` and `width` rather
+than the layout object that is rebuilt every render, a member count rather than
+the member array, precomputed strings for a leg), the map's tracks are a
+`useMemo`, and the handlers they are given are `useCallback`s so the memo holds.
+A move now costs about 5.4ms with a p95 move-to-commit of 8ms, down from 18ms.
+
+**The ref stays the truth, and state is a frame behind it.** Pointer moves write
+`dragRef` synchronously and mark the board dirty; the edge-travel rAF loop makes
+the single `setDrag` for the frame. Coalescing state is safe only because nothing
+that has to be exact reads state: pointer-up, the click-versus-drag guard and the
+resize all read the ref, so a resize with one move between down and up still
+lands on the minute it was released at.
+
+**The scrollbar is the page's, not the platform's.** Inside a card, the native
+bar arrived with stepper arrows and a white track hard against the card's edge. It
+is now a 6px pill inset in a 10px bar, `--color-ink-faint` at 55 percent and full
+strength under the pointer, on a transparent track. It does not fade, because in a
+card with no other edge to read it is the only thing that says the hours go on.
+The standard `scrollbar-width` and `scrollbar-color` are quarantined in an
+`@supports not selector(::-webkit-scrollbar)` block: a browser that has both
+prefers the standard pair and drops the `::-webkit-` rules, and Chromium's `thin`
+bar brings the arrows back. Firefox, which has no `::-webkit-` scrollbar, takes
+them instead. The root gutter decision is untouched.
+
+**The time was cut off at the top, and the gutter was innocent.** An hour is
+written across its own rule rather than under it, so `.hourline span` sits at
+`top: -0.6rem` and the first label of the day hangs about 9.6px above the grid.
+The old page did not clip and the box does, so the first hour came out sliced in
+half lengthways: 8.8px of it, measured, at every width. The gutter was never the
+problem, since "6 AM" measures about 29px inside its 48px box, so the gutter is
+unchanged and the scroller leaves 12px above the first hour instead. The padding
+is on the scroller rather than on `.daygrid`, because the grid's children are
+positioned against its padding box and would not have moved, and because the grid
+carries an inline pixel height. `BOARD_PAD_PX` repeats it in `Schedule.tsx`, where
+the drag's clamp has to add it to keep the held block inside the box.
+
+**Both midnights are named.** The closing rule of the day used to be left bare, on
+the reasoning that a board dragged fully open would otherwise carry two "12 AM"s,
+one under the other. Measured, they are a day and 1440px apart with twenty-three
+named hours between them, and the box is capped at 70vh, so a screen has to be
+over about 2050px tall before both are even on screen at once. What the bare rule
+cost was paid on every ordinary board instead: the day ran 11 PM, blank, and
+stopped without saying where. Each midnight is true where it sits, one opening the
+day and one closing it, so both are written. The closing label is not what was
+being clipped: it sits 7px clear of the bottom of the box, inside the 16px the
+grid already carries past its last rule. Top clipping and the missing label were
+two bugs, not one.
+
+**The schedule toolbar has two rows on a phone, and they are chosen ones.** The
+row carries three things: the `Day | Agenda` pills, the "View as" person filter
+and `+ Add`. Measured, they hold one line down to 484px and wrap at 480px, and
+what the wrap produced was not two rows so much as two leftovers: the pills alone
+with 200px of nothing beside them, then the filter with `+ Add` jammed against
+it. Below 480px the row is therefore laid out on purpose as a two-column grid.
+The pills take the top left and `+ Add` the top right, which keeps the
+convention that a section's action sits on the section's own row; "View as"
+spans the second row with its select stretched to the full width, which is the
+one control here that gains from being wide, since it holds people's names. The
+breakpoint is the measured one, so no width that fits today is broken in two.
+`.tools`, the wrapper that grouped the filter with the button, is
+`display: contents` at that width: it carries no styling of its own, so it loses
+nothing by not generating a box, and its children become grid items directly.
+
+**Two rows were still not the answer on their own: the chrome was.** The verdict
+on that layout was that the header still "collapses uncomfortably" at narrow
+widths, so the whole stack above the day was measured rather than the toolbar
+alone. At 390x900, 583px of the 900px screen stood above the first hour: 65px of
+page header, 175px of trip title, dates and roster, 45px of tabs, and 249px
+belonging to this page (toolbar 84 plus its 19px margin, day title row 45,
+lodging band 75, card padding 16 and the gaps between). The board was left on
+its 320px floor, which is not a day, it is a slot. The accumulation was the
+complaint, not any single row.
+
+Three things changed, all inside the schedule's own 249px. The lodging band is
+indented 56px to line up with the hour gutter, which is worth having beside a
+wide board and not worth 56px of a phone: with the indent the stay chip and
+`+ Add stay` no longer fit on one line, so the band wrapped to two rows and cost
+39px. Flush left below 480px it is one row again, which also restores the
+convention that the section's action rides on its own row. Measured, the indent
+is exactly what breaks it, since the band still fits at 430px with it and not at
+390px. The vertical rhythm around the toolbar, the card's top padding and the
+day title's rule were set for a page with room around it; trimmed at that width
+they give back another 24px. And the height measurement now re-runs on
+`document.fonts.ready`: the web font is narrower than the fallback, so the band
+comes back to one row after the first paint, and because the box absorbs what
+the band gives back, the card's own height does not change and the observer
+watching it never fires. That stale measurement was worth another 34px.
+
+Together the chrome falls from 583px to 520px at 390px and the board box grows
+from 320 to 363, an hour and a half more of the day for no loss of control. At
+360px the same 63px comes back, with the floor taking part of it (320 to 330);
+at 414 and 430 the band already fitted, so the rhythm alone gives 24px (339 to
+363); at 1280 nothing moves.
+
+What was considered and not done: dropping the "View as" label at narrow widths.
+It is the one label in that row that does not repeat its control. The select
+shows a name, and a name on its own does not say that the whole board is being
+read through that person's eyes. `+ Add stay` keeps its noun by the owner's
+ruling, and it is not what was forcing the wrap; the 56px indent was.
+
+**The trip header pairs the dates with the roster on a phone.** Trimming the
+schedule's own chrome left the trip header as the largest thing above the day:
+176px of the 475px still standing above the board at 390px, measured as a 53px
+back link, a 33px title, 25px of dates and a 32px roster row, plus the gaps.
+Its `flex-wrap` layout gave the title a 288px basis so that a shrinking title
+could never drag the roster onto its own line, but below 640px the basis is
+wider than the screen, so the roster always dropped anyway. The result was two
+rows each holding one short thing: dates with empty space beside them, then
+faces with empty space beside them.
+
+A two column grid says it once. The title spans both columns, and below 640px
+the dates take the first column while the roster and its button sit right
+aligned in the second; above 640px the roster spans both rows beside the title,
+which is exactly the old desktop layout. `minmax(0, 1fr)` on the title column
+removes the reason the 288px basis existed, since a grid column cannot push a
+sized neighbour out of its track, and a long name wraps inside its own column
+rather than squeezing the faces. The back link's padding, set for a page with
+room around it, is halved below 640px.
+
+The face count gives up one more below 400px. The strip is the trip at a
+glance and the People tab is the roster, so it already sheds faces as the width
+tightens; measured at 360px the third face is precisely what pushes the dates
+onto a second line, and the count stays computed rather than styled so that
+"+N" keeps telling the truth.
+
+The title keeps `--text-title` at every width. It is what says which trip this
+is, and a page title shrunk to the size of a section heading on the screen with
+the least context around it reads as a mistake rather than as a choice. A long
+name wrapping to two lines at 360px is the honest outcome.
+
+Measured after: the header band falls from 221px to 176px at 390px, 414px and
+430px, and the board box grows from 363 to 408. At 360px the band goes 254 to
+209 and the box 330 to 375, with the dates back on one line. At 1280px every
+number is unchanged, which was the constraint.
+
+**The day name is the way to jump.** The stepper moves one day at a time, which
+is right for a five day trip and useless on a long one: the Montreal trip runs
+from September 2024 to September 2026, and the schedule offers it as hundreds of
+day columns. Rather than put a second control between the arrows, the label
+itself opens a native date picker. It needs no label of its own, since the
+control is the date; the row stays three things wide at 390px; and a phone gets
+the platform's own calendar rather than something reimplemented. The visible
+piece is still a button reading `Fri, Apr 17`, with a dashed underline as the
+affordance, and the real `input[type=date]` sits underneath it at the same box,
+taking no clicks, so the platform anchors its calendar to the day name instead
+of to the corner of the card. `showPicker()` is what opens it; where that is
+missing the input is focused instead and the platform takes over.
+
+Its `min` and `max` are the first and last day the board offers, not the trip's
+own start and end. The two differ on a long trip, because the server caps how
+many days it will serve, and a picker that offered a day the arrows cannot walk
+to and the server will clamp away would be lying about where you can go.
+
+**Typing into it needed the field to stop being controlled.** Exercising the
+jump on the long trip turned up two faults in the first cut, both on the path
+where the date is typed rather than picked, which is where a browser without
+`showPicker` lands. As a controlled input the field cannot be typed into at all:
+React restores the value after every change, so each segment is wiped before the
+next one arrives and nothing is ever entered. The field is uncontrolled now,
+with the day written back to the node when the board moves and only while the
+field is not the thing being typed into, so the calendar still opens on the day
+being drawn.
+
+The second fault is that every part-typed date is itself a complete date.
+Entering 05/01/2026 walks through 2024-05-09 and 2024-06-09 on the way, and each
+one fired a navigation, so the board jumped mid-entry, re-rendered the field
+back to where it had landed, and threw away the rest of what was being typed. A
+change with the field focused now waits 600ms for the entry to settle; a
+calendar pick arrives with the field unfocused and lands at once, measured at 18
+to 26ms. A value outside `min` and `max` is ignored rather than followed, since
+following it put a day in the url that the server then clamped away, leaving the
+address bar naming one day and the board drawing another.
+
+What that leaves is worth naming: a date inside the trip but past the served
+range is refused silently. The calendar will not select it, and a typed one does
+nothing. That is the honest behaviour available without a string to explain it,
+and the real fix is the cap itself rather than an apology for it.
+
+**A one day trip has nothing to jump to.** Where the first day the board offers
+is also the last, the picker can only re-pick the day already drawn, so the day
+name goes back to being a day name: no button, no field, no dashed underline and
+nothing in the tab order. Suppressing only the underline would have been worse
+than leaving it alone, since a keyboard would still land on a plain-looking
+thing and find nothing there. The visible text is identical either way.
+
+The test is `first === last` rather than any count of days, because two days is
+already enough to jump between. Confirmed on a two day trip built for the
+purpose: the button, the field and the underline all survive, and picking the
+second day lands on it.
+
+**One height, and the page's air belongs to the board.** The next report was
+that the board and the map could both be taller. Measured at 1280x900 before
+anything changed: the box started 458.5px down the page and came out 417.5px
+tall, the map was a flat 420px in a 422px card beside a 557px column, and the
+document was 989px against a 900px screen. So the box's formula was not the
+conservative one it looked like. Above the box sit the page header, the trip
+title and dates, the tabs, the toolbar, the day title and the lodging band, and
+under it the card's padding; all of that is real, and only about 24px of the
+total was guesswork. Two other things were wasting the screen. The page keeps
+96px of trailing air under its last section, which on a page built to end at the
+bottom of the screen only bought a second scrollbar around a board that already
+has its own. And the map was a fixed 420px in a column 135px taller than itself.
+
+The derivation is now shared and stated once: **screen height, less the box's own
+top in document coordinates, less the card's measured tail, less 8px of air,
+floored at 320px**. The 8px is the whole of the guess; the card's tail and the
+page's tail are measured rather than assumed, and `VIEW_AIR` replaces the flat
+24px gap that stood in for both. The day grid, the agenda list and the map all
+take that one number: the first two because they are the same box, the map
+because the split stretches its column and the map fills it. `.board`'s bottom
+padding went from 1rem to 0.5rem on the principle that a pixel kept there is a
+pixel of the day not drawn.
+
+The page's air is handed back through `--tailpull`, a negative bottom margin on
+`.sched` measured in the same pass that sizes the box. It is bounded by the air
+that is actually there and floored at zero, so a board too tall for the screen
+still scrolls the page down to its last row rather than losing it; and because
+both the overflow and the air are read with the current pull already applied,
+one pass lands on the fixed point instead of creeping toward it. It is written
+straight onto the node rather than held in state, so it cannot start a render
+loop. Below 901px it is off: the map sits under the board there, the page is
+meant to scroll, and pulling the tail up would only crowd it.
+
+After: the box is 424.5px, the map card 557px on the day board and 489px on the
+shorter agenda card, and the document is 900px against a 900px screen, so the
+second scrollbar is gone. The board gained 7px, which is honestly all the slack
+there was at that size; the map gained 135px, and that is the visible win. At
+390px nothing moves: the 320px floor binds, the map keeps its 420px under the
+board, and the page still scrolls, which is correct on a phone where the map is
+the next thing down rather than the thing beside.
+
+**Leaflet has to be told.** The fallback map caches its container size, so a
+container that grows under it leaves the new space blank until something fires a
+window resize. Measured with the observer removed: growing the card from 383px
+to 828px left the tiles ending 356px above the bottom of the box, six tiles for
+a box that wants twelve. A `ResizeObserver` on the map element calling
+`invalidateSize` closes it, and the same growth then fills the box with tiles
+past its bottom edge. The Google map, which is what runs when a maps key is
+configured, watches its own container and needs no equivalent.
+
+## The board reads its clock as AM/PM
+
+**The board was the only 24-hour surface left in the app.** Discover already
+showed a venue's hours the way the provider gives them, "9:00 AM - 5:00 PM", and
+the schedule next to it said "19:00". That is one trip described two ways on two
+tabs, and the owner read the board as the one that was wrong. So every wall-clock
+time the board draws is now twelve-hour with a meridiem: blocks, their accessible
+names, journey legs, the agenda, the hour gutter and the map card.
+
+**Through `Intl`, not through arithmetic.** A hand-rolled twelve-hour clock is
+four lines and gets both ends of the day wrong: `h % 12` prints "0:00 AM" for
+midnight and "0:00 PM" for noon, and neither is a time anyone writes. The
+formatter is asked for `hour12` and it answers "12:00 AM" and "12:00 PM", which
+is the only reason this is worth a helper rather than a template string.
+
+**The minute is already local, so the format is done in UTC.** The board's unit
+is minutes past midnight in the destination's own zone, which the API has already
+resolved. Letting `Intl` apply the reader's zone on top of that would shift a
+time that is in the right zone already, so a fixed UTC instant is built from the
+minute and formatted in UTC. The conversion stays where it belongs, and this
+stays presentation.
+
+**One helper, three shapes**, all in `pages/schedule/shared.ts`:
+
+- `clock(min)` is a single time, "7:00 PM".
+- `clockRange(from, to)` says the meridiem once when both ends share it, so a
+  block reads "9:00 - 11:00 AM" rather than spending a third of a narrow line
+  repeating a word that has not changed. A range that crosses noon or midnight
+  keeps both, because there the meridiem is the information.
+- `hourLabel(h)` is an hour line, "6 AM". Minuteless because an hour line is
+  always on the hour, and ":00" under every one of them is nineteen repetitions
+  of nothing. It is also what keeps the gutter still: "6 AM" is no wider than the
+  "6:00" it replaces, so the 56px gutter and its 48px label did not move and the
+  grid did not reflow.
+
+**`en-US` is named rather than inferred**, the same way `dayLabel` and core's
+date helpers already name it. This is the deliberate part: for an app whose whole
+premise is crossing time zones, a hard-coded twelve-hour clock is a parochial
+default, and it is recorded here as one.
+
+**What it would take to make it a preference.** The account already stores a
+`homeTz` and nothing else about how times are shown, so a clock preference is a
+new column, a new field on the profile form, and a way for these three functions
+to read it. The functions are the easy part: they are the only place on the board
+that decides what a time looks like, so a preference reaches the whole board by
+being threaded into one module. The work is the setting, not the formatting, and
+the honest version of it is locale-aware rather than a two-value toggle: a reader
+who wants a 24-hour clock generally wants their own date order and their own
+wording with it, which is a decision for the app's copy as a whole and not for
+one page. Until that is wanted, `undefined` in place of `'en-US'` is the smallest
+step and it is one line.
+
+**The typed time fields read twelve hours.** `TimeField` is three segments now,
+hour, minute and meridiem, because the board around it reads twelve: a block
+saying "2:45 PM" that opened an editor saying "14:45" was the one place the app
+spoke a different clock from itself. The value is unchanged and deliberately so.
+It is still minutes past midnight, so this is how a time is read and typed
+rather than what it is, and no caller of the field moved.
+
+The rules the segments follow:
+
+- The hour is 1 to 12 and unpadded, the minute is always two digits: "9:30 AM",
+  never "09:30 AM". That is the pair `clock()` already prints on every block, so
+  the editor and the board are written the same way rather than nearly the same
+  way.
+- Both midnights read 12, which is why the hour is computed around the wrap
+  rather than as `h % 12`. A hand-rolled twelve-hour clock prints a bare "0:15
+  AM" and the mistake is invisible until somebody is standing outside a closed
+  door.
+- "1" and "0" are the only digits that wait for a second one, since only they
+  can still be the front of an hour; everything else stands alone and moves the
+  caret on, so "2", "4", "5", "p" is the whole of 2:45 PM.
+- A or P is taken from whichever segment has focus, because "2p" is how anyone
+  says two in the afternoon and stopping to aim at a third segment for one
+  letter is the work a typed clock exists to avoid. Setting the meridiem it
+  already has is a no-op rather than a toggle, which is what stops a stray "A"
+  from moving a time.
+- **The end of the day stays 24:00 and reads "12:00 AM".** The board ends at
+  midnight, an event may end there, and that value is the one the board and the
+  server already hold, so it was not given up to make the twelve-hour reading
+  tidier. It reads as the same "12:00 AM" `clock()` prints for it, and it is
+  only ever seen as the far end of a span that started earlier the same day.
+  Typed digits resolve the other way: "12" with AM is the start of the day,
+  because digits alone cannot tell the two midnights apart and the start is the
+  one a reader typing a time means. The end of the day is then reached by
+  stepping the hour up from 11 PM, where the existing clamp holds it, or simply
+  by leaving a block that already ends there alone.
+
+**The event dialogs have no name field.** Names are derived server-side from the
+place, the first non-blank line of the notes, then the type's own noun, so the
+field was asking for something the reader had already said by picking a place or
+writing a line about it. With it gone, the dialogs stop sending `title`
+altogether rather than sending an empty one: absent means "leave the stored name
+alone", so a block somebody deliberately named keeps its name through an edit
+that only moved it, while an empty string would have re-derived one underneath
+them. The wire contract is untouched; the client just has nothing to say about
+the name.
+
+Two rows were re-laid out around the hole it left, since the grid is 12 columns
+and a row with one control in it reads as a mistake. Free time has no place
+picker, so its Type moves down to share the clock's row, with the people running
+full width underneath. A journey's Mode takes the rest of the second row the
+people used to share, for the same reason. Every one of the five types now fills
+every row it draws.
+
+**The clock is sized by its content, and the row is sized around the clock.**
+The field's three segments cannot shrink, so the box holding them must not
+either: `.tfield` is `flex: none; width: max-content`. Without that it was a
+flex item with `min-width: 0` inherited from `.input`, free to be squeezed by
+the grid cell it sat in, and at 1280px a half-column cell gave it 101.8px for
+107px of clock. The overflow came out of the last segment, so the focused
+meridiem's highlight ran into the right border, which is what "the AM and PM
+goes a little outside the input box" was. Shrinking the type or the segment
+widths would have paid for the layout with legibility; the box is the thing that
+should hold its ground.
+
+The pair then has an honest intrinsic width: two 107px clocks, an 8px gap either
+side of "to", 242px in all. Six of twelve columns is 232px in a 512px dialog, so
+the clock takes **seven** columns and whatever shares its row takes five. That
+is a 7/5 split rather than 6/6 because one side is a fixed measurement and the
+other is elastic: a picker of avatars or a Mode select reads the same at 191px
+as at 232px, and the clock does not. `.tfpair` also wraps rather than clips, so
+a cell that is somehow still too narrow puts the end time on a second line
+instead of cutting a digit off it.
+
+Below `sm` the clock takes the whole row and so does whatever shared it. The
+meridiem made the pair wide enough that half of a 390px dialog clipped the end
+time mid-digit, which reads as a different time rather than as a truncation. The
+content-width fix does not make that stacking unnecessary: at 390px the full row
+is 313px, comfortably over the 242px the pair needs, but half of it would still
+be 152px.
 
 ## Shared UI conventions
 
@@ -4069,6 +4797,195 @@ with a blur and a hairline that every page is designed against, and going solid
 green would force a rethink of the nav links, the avatar pill, the accent "Start
 planning" button and the focus rings, which is a redesign, not a logo change.
 
+## Results go to a corner, the page keeps its validation
+
+**The red and green blocks pushed into the page are now toasts.** A result the
+app owes the user after an action ("Saved.", "Could not change your password.")
+used to be a tinted block inserted above the form that caused it. Three things
+were wrong with that. It moved the page under the reader's hands, so the button
+they had just pressed jumped. On a scrolling page (Preparation ticking a box
+near the bottom, Discover voting on a card) it appeared somewhere off screen, so
+the refusal of a write was reported to nobody. And the one that had to survive
+the save could not: saving a new email remounts the Account profile form by key,
+which threw its own confirmation away before it could be read, and the page had
+to hold the flag on the form's behalf to work around it. A toast lives above the
+router, so the result outlives the page that raised it.
+
+**What did not move.** Two kinds of message stayed exactly where they were.
+
+- **A refused submit belongs beside the control that was refused, when there is
+  one.** `SettleRow` prints the server's refusal next to the row it applies to.
+  That is a coloured line beside a control, not a tinted pill, which is the
+  shape the ruling was about.
+- **The confirmation pages are pages.** `AuthNotice` in Verify, Forgot, Register
+  and Reset is the whole screen saying the flow now continues in the reader's
+  inbox. There is nothing else on it to be transient over.
+
+**The dialogs went too, and the a11y half of that is the part worth reading.**
+`ModalFooter` and `ConfirmDialog` used to print the refusal between the `start`
+slot and Cancel. That put the reason in the part of a tall dialog the reader may
+have scrolled away from, and reflowed the footer under the buttons as the hand
+went to press one. Both now raise it in the corner instead.
+
+The catch is that a corner is outside the dialog, and `showModal()` makes the
+rest of the document inert. Inertness does not only stop clicks: it removes the
+inert subtree from the accessibility tree. Measured with the same sentence
+raised twice, once from a page load with nothing open and once from a dialog's
+failing save: with no dialog it is two live nodes in the tree, and with a dialog
+open it is not in the tree at all. A corner toast on its own would therefore be
+seen by a sighted user and never spoken to a screen reader, which is strictly
+worse than the footer line it replaced.
+
+So `DialogError` is both halves in one node: it raises the toast and renders the
+same sentence `sr-only` with `role="alert"` inside the dialog, which is the only
+part of the document that is not inert. One node rather than two calls, so a
+dialog cannot wire the visible half and forget the spoken one. It is absolutely
+positioned, so the footer keeps its height: measured at 70px with and without a
+failure, at 1280 and at 390.
+
+A dialog-raised error is also retracted when the dialog closes, not left in the
+corner. `useMutation.run` clears `error` at the start of the next attempt and a
+closing dialog unmounts the footer, and both arrive as the same effect cleanup,
+so a user who fails, fixes the field and succeeds is not left with the failure
+still on screen describing a state the app is no longer in.
+
+**A failed load became two things, not one.** The banner on a page whose GET
+failed was doing two jobs: saying why, and leaving something on the screen. A
+toast alone only does the first, and a corner popup floating over a blank page
+explains itself and then takes the explanation away. So `LoadError` splits it.
+The server's sentence goes to the corner, where it does not expire, and the page
+keeps an `EmptyState` reading "Could not load this page." The panel deliberately
+does not repeat the server's wording: the same sentence twice on one screen
+reads as two separate failures. It uses `EmptyState` without its drawing, since
+the fly is a joke about a list nobody has filled in and a joke over a server
+failure is the wrong tone.
+
+Two pages, Account and the trip list, can hold an error while still showing
+content, because a reload that fails leaves the previous data in place. There
+the failure is only a result, so `panel={false}` sends the reason to the corner
+and leaves what is on screen alone.
+
+`LoadError` holds the corner for exactly as long as the reason is true. The
+effect raises the toast when the panel appears and retracts it in its cleanup,
+so a retry that works leaves nothing behind: `useApi` clears `error` on success,
+the panel unmounts, and the sentence describing a state the app is no longer in
+goes with it. Errors never expire on their own, so without the retraction the
+corner would keep insisting the page was broken after it had loaded.
+
+That also replaced the ref that used to guard against announcing twice. React's
+development mode mounts every component twice, and the first mount's cleanup now
+retracts its own toast before the second raises one, so the double mount nets
+out at a single row with no key to keep in sync. The key was the fragile part: a
+guard that outlives the mount has to be cleared by hand on every retraction, or
+the next genuine failure with the same wording goes unannounced.
+
+A retry that fails the same way is deliberately not re-announced. `error` holds
+the same string, the effect does not re-run, and the sentence is still sitting in
+the corner unexpired, so a second copy would read as a second, separate problem.
+A retry that fails _differently_ does announce, and retracts the stale reason in
+the same pass.
+
+**The retry refetches, it does not reload the document.** `useApi` returns
+`reload`, which asks the one endpoint that failed again and keeps the rest of the
+app alive, and all six panels pass it. That was only possible once `toast.error`
+returned an id: before it did, a refetch that succeeded left the error it raised
+sitting in the corner, and a full document reload was the one option that stayed
+truthful at the cost of throwing the SPA away for a single GET. Unset, `onRetry`
+draws no button at all, since a button offering another try with nothing behind
+it is worse than the line on its own.
+
+**The auth card raises its own.** The log in, register, forgot and reset pages
+each call `toast.error` in their own catch rather than handing a string to
+`AuthShell`, and the shell no longer has an error slot. A prop holding one
+message cannot report the same wrong password twice: the state does not change,
+so nothing fires, and the second attempt would look like it was ignored.
+
+The rule: a _result_ goes to the corner, a _refusal attached to a control_ stays
+beside the control. `useMutation` supports both at once through `onError`, which
+reports the resolved message without taking it out of `error`.
+
+**Errors do not expire; successes do.** A success repeats something the user
+just watched happen, so it costs nothing to lose after 4.5 seconds. An error is
+the only account of why something did not happen, it frequently carries wording
+the server chose, and it can arrive while a modal is open, where it cannot be
+dismissed at all (see below). A timer there deletes the answer before the reader
+can reach it. Errors leave on a click, or when a fifth toast pushes the oldest
+out. The stack is capped rather than scrolled: a corner holds the last few things
+that happened, and a column tall enough to scroll is covering the page it reports
+on.
+
+**The viewport is a popover, because dialogs are in the top layer.** Every
+dialog in the app is a native `showModal()` dialog, which puts it in the top
+layer, above any z-index a stylesheet can name (the app's ceiling is 40). A
+toast raised by a dialog's own save would be painted behind it. The viewport
+therefore carries `popover="manual"`, the other door into the top layer. The top
+layer is ordered by entry, so a viewport promoted at startup still sits under a
+dialog opened later: each new toast closes and reopens the popover, which moves
+it back to the front, and a `MutationObserver` on the `open` attribute does the
+same for toasts that were already up when a dialog opened. Watching for that
+centrally beats asking each dialog to announce itself, because the dialog that
+forgets is a message nobody sees. Measured in Chrome on the live app: promoted
+before the dialog it is invisible, re-promoted after it, it paints on top.
+
+**The stack pauses while it is under the pointer or the caret, and unsticks
+itself.** Hovering or tabbing into the corner holds every clock, so a message
+cannot expire mid-sentence while it is being read. That state is re-read after
+each removal rather than trusted from the last event: dismissing a toast
+destroys the element that had focus, an element removed while focused never
+fires a blur, and a stack stuck paused would keep everything under it on screen
+for good.
+
+**A toast over an open modal can be read but not pressed.** `showModal()` makes
+the rest of the document inert, and inertness reaches into the top layer, so the
+dismiss button does not take the click while the dialog is up. That is the right
+end of the trade rather than a defect to route around: focus belongs to the
+dialog, and a toast must never pull it out. An error the dialog itself raised
+does not need dismissing, because it is retracted when the dialog closes; one
+raised from elsewhere waits, still there and now pressable, once the dialog is
+out of the way.
+
+**Politeness follows tone, as it already did inline.** A success is a
+`role="status"` and waits its turn; an error is a `role="alert"` and interrupts.
+The viewport is opened once and left open for the session rather than opened
+with its first message, so messages are inserted into a container that is
+already rendered instead of one that appears with them, which is the usual way
+to have a live region announced by nobody. Empty, it paints nothing and takes no
+clicks.
+
+**The server's own sentence is the message.** `api()` already lifts `error` out
+of the `fail()` envelope every route uses and throws it as `ApiError.message`,
+`useMutation` passes that string to `onError` untouched, and `toast.error` shows
+it. Nothing on the path adds a preamble or substitutes house copy, because the
+route is the only thing that knows why it refused. The longest of these written
+so far, the 400 for an event whose named people are none of them on the trip
+("Nobody in that list is on this trip. Pick from the trip's members.", 66
+characters), is the width fixture: measured in Chrome it wraps to two lines in a
+384px toast at 1280px and a 366px one at 390px, clips nothing, and leaves the
+dismiss button in its corner.
+
+**The picker note stayed in the menu.** The refusal in `PeoplePicker` ("An event
+with no names on it means everyone, so this cannot be emptied") was considered
+for the corner and deliberately left where it is. It is not a result of an
+action the app took; it is an answer to a tick, and the reader is looking at the
+row they just ticked, inside a menu that is itself fixed above the dialog. The
+corner would put the answer as far from the question as the screen allows. It
+also fires while a modal is open, which is exactly where a toast cannot be
+dismissed.
+
+**The schedule's board writes toast; its load failure does not.** The day board
+has one write path, `act`, and the gestures go through it: a drag that
+lands, a resize that lands. It used to set a `notice` string drawn as a line
+above the board, which is the wrong place twice over. The line was above the
+fold only by luck, since the board is now a scroll box that fills the screen; and
+a refusal usually arrives while the reader is looking at the block they just
+moved, not at the top of the page. It is `toast.error` now, which also puts it in
+the top layer, so a dialog opened afterwards cannot bury it. The load failure
+that `useApi` reports is deliberately left inline: it is not the result of an
+action, it is the whole of the page's content when it fires, and a corner popup
+over a blank screen explains itself and then leaves nothing behind. The two
+event dialogs keep showing their own save failures in their own footers, which
+is beside the form that caused them and already above the board.
+
 ## The header reaches the right edge
 
 The sticky header is full-bleed and its centred `.container` holds the content,
@@ -4235,6 +5152,119 @@ an explicit reduced-motion block zeroes every `::view-transition-*` animation as
 backstop for anything that reaches one anyway, alongside the underline and pill
 backgrounds, listing its selectors one by one so any newly animated selector has
 to be added to it by hand.
+
+## The map waits for its own modules
+
+The planner map used to take the whole page down with it. `GoogleMap` reconciled
+its polylines with `l.setPath(...)`, and that call threw
+`Cannot read properties of undefined (reading 'setAt')` on the second draw of any
+day whose pins were joined up. There is no error boundary on the planner, so the
+throw escaped the effect during commit, React unmounted the tree, and the `+ Add`
+dialog never opened again. The map was the smallest thing on the page and it
+killed everything else.
+
+**The cause is the loader, not the polyline.** The legacy bootstrap,
+`maps/api/js?key=...`, resolves on the script's `onload` event, which fires once
+the bootstrap and the core modules are in. `google.maps.Polyline` exists at that
+moment, but it is a shell: the internal `MVCArray` of points that `setPath` calls
+`setAt` on is created by `poly.js`, which has not arrived. The constructor
+succeeds because it only stores its options, so the first draw looks fine. The
+second draw is the first call that reaches into the shell, and it throws. That is
+why the failure was reproducible only with a line on the board: a day with twenty
+pins and no line never calls `setPath`, and overlapping the two events removed
+the line and so removed the crash.
+
+**The fix is to wait for the modules rather than for the script.** The loader now
+asks for `&loading=async&callback=` and then awaits
+`google.maps.importLibrary('maps')` and `importLibrary('marker')` before it
+resolves. `poly.js` is in the module list by the time anything draws, the shell
+is never observed, and `setPath` works. This was verified in the state that
+matters: with the key refused, the old code threw on the second draw and the
+`+ Add` dialog stopped opening, and the new code drew the same day twice with no
+error at all. The loader fix alone is sufficient, tested with the defensive catch
+below removed.
+
+The version is pinned to `quarterly` for the same reason a dependency is pinned:
+an unpinned SDK is a dependency that changes under a running page.
+
+**Two defences sit behind the fix.** The reconcile loop wraps `setPath` in a
+`try`, and on a throw drops the overlay and builds a new one, because an overlay
+is cheap to replace and a throw inside an effect is not cheap to survive. And
+`MapBoundary`, a class error boundary, wraps both renderers, so any future map
+failure degrades to a sentence in the map's own box while the board, the
+dialogs and the rest of the planner keep working. Containing the blast radius is
+not a substitute for the fix, but the planner should never again depend on the
+map being well.
+
+**A refused key is worse than no key.** With no key at all the planner renders
+Leaflet, which works. With a key the browser rejects, Google paints its own
+untranslated error card and the SDK stops fetching modules. The loader used to
+swallow that in a bare `.catch(() => {})`. It now reports it: a load failure and
+`gm_authFailure` both reach an `onUnavailable` callback, so the caller can choose
+the other renderer. `gm_authFailure` is a global and it fires seconds after the
+map is constructed, not at load time, so the hook is installed once at module
+import, chains any handler already there, and is watched for the component's
+lifetime rather than awaited during the load.
+
+`TripMap` takes the same `center` prop as `GoogleMap` for this, since a fallback
+that opens on a hardcoded city is a fallback that looks broken.
+
+**The schedule takes that choice.** Reporting the failure only helps if a caller
+acts on it, and the board was still choosing its renderer on the key being
+non-empty, which reads a key's presence as a promise that it works. It now
+latches a `mapsOut` flag from `onUnavailable` and draws `TripMap` for the rest of
+the session, passing it the same `anchorCity` Google was getting.
+
+The panel is held inside a `useMemo`, because the board re-renders at pointer
+rate while a block is dragged and the map must not be rebuilt on each frame, so
+**`mapsOut` has to be in that memo's dependency list.** It is the one dependency
+here that fails quietly if it is dropped: `mapTracks` changes on most edits to
+the board, so an omitted `mapsOut` would still swap to Leaflet eventually, on
+the next unrelated edit, and the symptom would be a map that falls back
+sometimes rather than one that never does.
+
+The timing is the part worth writing down, because it decides where the flag can
+live. Measured against a key this environment refuses
+(`RefererNotAllowedMapError`), Google mounts at 235ms to 414ms and the fallback
+replaces it at 540ms to 863ms: the failure lands well after first paint, so this
+cannot be a decision taken while choosing what to mount. Google's error card is
+genuinely on screen, for 0 to 1 sampled frames at around 620ms, and is gone by
+the end of every run. The reader is left with 6 tiles and 21 pins instead of an
+error card, at both 1280px and 390px.
+
+## An unnamed block is called what it is
+
+**The event type words have one home.** `EVENT_TYPE_LABELS` and `eventTypeLabel()`
+live in `@trippy/core/types`, next to the `EventType` literals they are keyed by,
+and the schedule's `shared.ts` imports them rather than keeping a second copy.
+Both sides of the app name a block, so a private table on the client was a table
+that could drift from the one the server writes from, silently, in the direction
+the user reads.
+
+**The client previews an unnamed block as the type's noun, not "New event".**
+`deriveTitle` is a mirror of the server's own derivation and nothing more: place
+name, then the first non-empty line of the notes, then the type's noun. It used
+to end on the literal "New event" for everything except travel and free time,
+which meant a block added without a place or a note was previewed as "New event"
+and then renamed itself to "Activity" the moment the save came back. That was a
+rare curiosity while the dialogs still carried a Name field. With the field gone
+it is the common path, so the disagreement is now what most people see. The
+server wins every disagreement by definition, since it is what is stored, so the
+client is the side that moves. "New event" was also the weaker of the two words:
+a day of blocks all called "New event" says nothing, while the noun at least says
+what kind of thing is there.
+
+The server half of this now sits in the same change, so the two agree on the
+first load rather than only once two branches have both landed.
+
+**A journey's mode can be set when it is added.** The add dialog rendered no mode
+field, so the only way to say "ferry" was to save the block, reopen it and edit
+it, even though the create endpoint has always accepted and stored `travelMode`.
+The field is the same `Select` the edit dialog uses, shown on the same condition
+and in the same five columns beside the clock's seven, so the two dialogs read
+alike and the row is full rather than half empty. An unpicked mode is sent as
+absent, not as an empty string: absent means "let the router decide", which is
+the right default for a journey nobody has an opinion about.
 
 ## Implementation status
 
@@ -4827,7 +5857,7 @@ optional field does, as built:
 
 | Field | Absent | Explicit `null` | Empty (`''` / `[]`) | Unreadable |
 |---|---|---|---|---|
-| `title` | unchanged | unchanged (null reads as silence, as it always has) | **400 `Enter a title.`** | 400, over-length quotes the limit |
+| `title` | unchanged | unchanged (null reads as silence, as it always has) | **derived again**, exactly as create derives | 400, over-length quotes the limit |
 | `type` | unchanged | 400 | 400 | 400 `Pick an event type.` |
 | `notes` | unchanged | cleared | cleared | n/a, any string is notes |
 | `travelMode` | unchanged | cleared, back to the router | cleared, back to the router | 400 `Pick a travel mode.` |
@@ -4837,22 +5867,31 @@ optional field does, as built:
 | `version` | unchecked write, as before | unchecked write | unchecked write | 400 `Reload the page and try again.` |
 | `people` | not read by this branch at all | not read | not read | not read |
 
-Two entries are worth the reasoning. `title` is the one field a member can set
-and cannot clear: every event has a name, create refuses a blank one, so a save
-that blanks it is refused rather than ignored. It used to be dropped, and the
-old name reappeared on the next load looking as though the save had not
-happened. `people` is not read here at all, by design: participants are written
-through `PUT /events/:eventId/people`, which is the endpoint that splits and
-rejoins the group and the one that recomputes the day's travel. An edit that
-carries a `people` field is not refused, because refusing would break clients
-that send a harmless one, but it does not save participants either.
+Two entries are worth the reasoning. `title` is the one field a member can clear
+without naming a replacement. It used to be dropped, and the old name reappeared
+on the next load looking as though the save had not happened. Two answers were
+written to that, in parallel: refuse the blank save with `Enter a title.`, and
+derive a name again from the place, the notes and finally the type's own noun.
+**Deriving won, and the refusal was dropped.** They fix the same complaint, but
+the refusal makes the organiser invent a name for a block they were trying to
+leave unnamed, while create already names an unnamed block for them, so refusing
+here would have the two paths disagree about the same empty field. The length
+check is kept: an over-long name that was actually typed is a field the
+organiser can see and fix. `people` is not read here at all, by design:
+participants are written through `PUT /events/:eventId/people`, which is the
+endpoint that splits and rejoins the group and the one that recomputes the day's
+travel. An edit that carries a `people` field is not refused, because refusing
+would break clients that send a harmless one, but it does not save participants
+either.
 
 #### The type's own noun lives in core
 
 `EVENT_TYPE_LABELS` in `@trippy/core/types` is the single map from an event type
 to the word for it. There were two copies, one in the API and one in the web
 client's `schedule/shared.ts`, plus a third half-copy in the API's create path
-as a `travel`/`freetime` ternary. Two copies of a vocabulary is how "Free time"
+as a `travel`/`freetime` ternary, and a fourth, `TYPE_TITLES`, added beside the
+API's title derivation by parallel work. All four are gone: `derivedTitle` reads
+`EVENT_TYPE_LABELS`. Two copies of a vocabulary is how "Free time"
 becomes "Freetime" on one surface and not the other, and this vocabulary is also
 what an unnamed block is called, so a divergence is visible to a member as a
 block that renames itself when it is saved.

@@ -5,7 +5,7 @@ import { useMutation } from '../../hooks/useMutation';
 import Modal, { ModalFooter, ModalForm } from '../../components/ui/Modal';
 import Select, { type Option } from '../../components/ui/Select';
 import TimeField from '../../components/ui/TimeField';
-import { Field, FieldShell, TextArea } from '../../components/ui/Field';
+import { FieldShell, TextArea } from '../../components/ui/Field';
 import { copy } from '../../copy';
 import PeoplePicker from './PeoplePicker';
 import StayDates from './StayDates';
@@ -14,8 +14,10 @@ import {
 	DAY_END,
 	DRAFT_ID,
 	MIN_EVENT_MINS,
+	MODE_OPTIONS,
 	TYPE_OPTIONS,
 	dayLabel,
+	deriveTitle,
 	keepsPick,
 	placeLabel,
 	placeOptions,
@@ -89,7 +91,6 @@ export default function AddEventDialog({
 	onDone: () => void;
 }) {
 	const [type, setType] = useState<EventType>(initialType ?? 'activity');
-	const [title, setTitle] = useState('');
 	const [start, setStart] = useState(String(startMin ?? 9 * 60));
 	const [end, setEnd] = useState(String((startMin ?? 9 * 60) + 60));
 	/* A stay is asked for by its dates instead of by a clock. Kept beside the
@@ -100,6 +101,11 @@ export default function AddEventDialog({
 	const [people, setPeople] = useState<string[]>([]);
 	const [poi, setPoi] = useState('');
 	const [notes, setNotes] = useState('');
+	/* Blank means "let the router decide", which is what the API does with an
+	   absent mode, so an untouched field and no field at all are the same
+	   request. Kept across a change of type, like the times and the dates, so
+	   flipping to Activity and back does not lose the ferry that was picked. */
+	const [mode, setMode] = useState('');
 
 	const staying = type === 'stay';
 	/** The day the block lands on, which is its check-in once it is a stay. */
@@ -146,8 +152,10 @@ export default function AddEventDialog({
 			id: DRAFT_ID,
 			day: onDay,
 			end_day: staying ? checkOut : null,
-			// An unnamed block still has to read as a block rather than as a gap.
-			title: title.trim() || 'New event',
+			// Every block is named by the server now, so the preview is always a
+			// derived name: the block reads as the thing it is about to be saved as
+			// rather than as a gap or a placeholder.
+			title: deriveTitle(spot?.name ?? null, notes, type),
 			type,
 			start_min: startAt,
 			end_min: endAt,
@@ -155,7 +163,19 @@ export default function AddEventDialog({
 			lat: spot?.lat ?? null,
 			lng: spot?.lng ?? null
 		});
-	}, [onDay, staying, checkOut, title, type, startAt, endAt, people, spot?.lat, spot?.lng]);
+	}, [
+		onDay,
+		staying,
+		checkOut,
+		notes,
+		type,
+		startAt,
+		endAt,
+		people,
+		spot?.name,
+		spot?.lat,
+		spot?.lng
+	]);
 	// Mount-scoped, so the board drops the block whether it was added or not.
 	useEffect(() => () => preview.current?.(null), []);
 
@@ -170,12 +190,18 @@ export default function AddEventDialog({
 					body: {
 						day: onDay,
 						endDay: staying ? checkOut : undefined,
-						title: title.trim(),
+						// No title at all: there is no name field any more, so the
+						// server names the block from the place, the first line of the
+						// notes or the type's own noun, which is the order the preview
+						// above mirrors.
 						type,
 						start: startAt,
 						duration: endAt - startAt,
 						poiId: placeable && poi ? poi : undefined,
 						notes: notes.trim() || undefined,
+						// Absent hands the journey to the router, which is the right
+						// default and the only thing this form could send before.
+						travelMode: type === 'travel' && mode ? mode : undefined,
 						people
 					}
 				})
@@ -201,17 +227,40 @@ export default function AddEventDialog({
 			<ModalForm className="schedule" onSubmit={add.submit}>
 				<div className="mbody flex flex-col gap-4">
 					{/* The same 12-column grid as the edit dialog: the two ask for the
-					    same thing and should read the same way. */}
+					    same thing and should read the same way.
+
+					    The place leads, because picking one is how a block is usually
+					    added and the name now follows from it: there is no name field,
+					    so the first row is the place and the type. Free time has no
+					    place at all, so its type moves down to share the clock's row
+					    rather than leaving a hole.
+
+					    The clock takes seven of the twelve columns rather than six,
+					    which is what the pair actually measures: two fixed-width
+					    clocks, a gap either side of "to", and 242px in all. Six
+					    columns is 232px, and the difference used to come out of the
+					    meridiem. Whatever shares the row takes the other five.
+
+					    The clock and whatever shares its row take the whole width
+					    below `sm`: two clocks of three segments each do not fit in
+					    half of a 390px dialog.
+
+					    A journey's mode sits beside the clock and takes those five,
+					    exactly as it does in the edit dialog, and the people move to a
+					    full-width row underneath rather than being squeezed out of the
+					    clock's row. Without it a journey could only be given a mode by
+					    saving the block and opening it again, and the row it would
+					    otherwise share was left half empty. */}
 					<div className="grid grid-cols-12 gap-x-2.5 gap-y-3.5">
-						<Field
-							label="Name"
-							className="col-span-8"
-							autoFocus
-							required
-							value={title}
-							onChange={(e) => setTitle(e.target.value)}
-						/>
-						<FieldShell label="Type" className="col-span-4">
+						{placeable && (
+							<FieldShell label={placeText} optional className="col-span-8">
+								<Select value={poi} onChange={setPoi} options={poiOptions} ariaLabel={placeText} />
+							</FieldShell>
+						)}
+						<FieldShell
+							label="Type"
+							className={placeable ? 'col-span-4' : 'col-span-12 sm:col-span-5'}
+						>
 							<Select
 								value={type}
 								onChange={(v) => {
@@ -232,7 +281,7 @@ export default function AddEventDialog({
 								onCheckOut={setCheckOut}
 							/>
 						) : (
-							<FieldShell label="When" className="col-span-6">
+							<FieldShell label="When" className="col-span-12 sm:col-span-7">
 								<div className="tfpair">
 									<TimeField
 										value={startAt}
@@ -249,19 +298,25 @@ export default function AddEventDialog({
 								</div>
 							</FieldShell>
 						)}
+						{type === 'travel' && (
+							<FieldShell label="Mode" optional className="col-span-12 sm:col-span-5">
+								<Select value={mode} onChange={setMode} options={MODE_OPTIONS} ariaLabel="Mode" />
+							</FieldShell>
+						)}
 						<PeoplePicker
 							people={people}
 							onChange={setPeople}
 							memberOptions={memberOptions}
 							crews={crews}
-							className={staying ? 'col-span-4' : 'col-span-6'}
+							className={
+								staying
+									? 'col-span-4'
+									: placeable && type !== 'travel'
+										? 'col-span-12 sm:col-span-5'
+										: 'col-span-12'
+							}
 						/>
 
-						{placeable && (
-							<FieldShell label={placeText} optional className="col-span-12">
-								<Select value={poi} onChange={setPoi} options={poiOptions} ariaLabel={placeText} />
-							</FieldShell>
-						)}
 						<TextArea
 							label="Notes"
 							optional

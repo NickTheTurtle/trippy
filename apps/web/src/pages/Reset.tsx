@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, Navigate, useSearchParams } from 'react-router';
 import { AuthNotice, AuthShell } from '../components/ui/AuthShell';
 import { Field } from '../components/ui/Field';
+import { useToast } from '../components/ui/Toast';
 import { api } from '../lib/api';
 import { copy } from '../copy';
 
@@ -10,10 +11,10 @@ const c = copy.auth.reset;
 export default function Reset() {
 	const [params] = useSearchParams();
 	const token = params.get('token') ?? '';
+	const toast = useToast();
 
 	const [password, setPassword] = useState('');
 	const [done, setDone] = useState(false);
-	const [error, setError] = useState<string | null>(null);
 	const [submitting, setSubmitting] = useState(false);
 
 	// Nothing on this page works without a token, and a bare /reset is somebody
@@ -22,12 +23,11 @@ export default function Reset() {
 
 	async function submit() {
 		setSubmitting(true);
-		setError(null);
 		try {
 			await api('/auth/reset', { method: 'POST', body: { token, password } });
 			setDone(true);
 		} catch (err) {
-			setError(err instanceof Error ? err.message : c.fallback);
+			toast.error(err instanceof Error ? err.message : c.fallback);
 			setSubmitting(false);
 		}
 	}
@@ -48,7 +48,6 @@ export default function Reset() {
 		<AuthShell
 			title={c.title}
 			blurb={c.blurb}
-			error={error}
 			onSubmit={submit}
 			submitting={submitting}
 			submitLabel={c.submitLabel}

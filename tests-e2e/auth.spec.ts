@@ -89,9 +89,10 @@ test.describe('auth and session', () => {
 			await page.getByLabel(copy.auth.login.passwordLabel).fill('not-the-password');
 			await page.getByRole('button', { name: copy.auth.login.submitLabel }).click();
 
-			// The server sends "Wrong email or password" for both a bad password and
-			// a missing account, so the message must never name which was wrong.
-			const alert = page.getByRole('alert');
+			// The refusal is a corner toast now, not a block inside the card. The
+			// server sends "Wrong email or password" for both a bad password and a
+			// missing account, so the message must never name which was wrong.
+			const alert = page.locator('.toast.bad').getByRole('alert');
 			await expect(alert).toBeVisible();
 			await expect(alert).toHaveText('Wrong email or password.');
 			await expect(alert).not.toContainText(fixture.email);

@@ -506,7 +506,10 @@ export const copy = {
 		},
 		sectionNav: { ariaLabel: 'Sections' },
 		field: { optionalSuffix: ' (optional)' },
-		tripMap: { noPoints: 'Schedule something with a location to see it on the map.' }
+		tripMap: {
+			noPoints: 'Schedule something with a location to see it on the map.',
+			failed: 'Could not draw the map.'
+		}
 	},
 
 	// Shared API client and hooks > fallbacks used when the server sends none
@@ -514,6 +517,7 @@ export const copy = {
 		unreachable: 'Could not reach the server. Check your connection.',
 		requestFailed: 'Could not complete that. Try again.',
 		loadFailed: 'Could not load this page.',
+		retry: 'Try again',
 		saveFallback: 'Could not save that.'
 	},
 
