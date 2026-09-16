@@ -5,18 +5,25 @@ import { copy } from './fixtures/copy';
 import { signIn } from './fixtures/session';
 
 /**
- * Wait for the page to stop scrolling.
+ * Wait for the board to stop scrolling.
  *
  * The schedule scrolls a previewed block into sight with `behavior: 'smooth'`,
  * which keeps running after whatever started it has gone. Anything aimed at a
- * coordinate has to wait for it, or it is aimed at where the board was.
+ * coordinate has to wait for it, or it is aimed at where the board was. The day
+ * scrolls inside its own box, so both that and the page are watched: either one
+ * moving means the coordinates are still changing.
  */
 async function settled(page: import('@playwright/test').Page): Promise<void> {
 	await page.waitForFunction(
 		() =>
 			new Promise<boolean>((done) => {
-				const was = window.scrollY;
-				requestAnimationFrame(() => requestAnimationFrame(() => done(window.scrollY === was)));
+				const box = document.querySelector('.sched .boardscroll');
+				const was = [window.scrollY, box?.scrollTop ?? 0];
+				requestAnimationFrame(() =>
+					requestAnimationFrame(() =>
+						done(window.scrollY === was[0] && (box?.scrollTop ?? 0) === was[1])
+					)
+				);
 			}),
 		undefined,
 		{ timeout: 5000 }
@@ -256,6 +263,56 @@ test.describe('the day window', () => {
 		}
 	});
 
+	test('the hours scroll inside the board while its title bar stays', async ({
+		page,
+		request
+	}) => {
+		const fixture = await createApiFixture(request);
+		const { startDate } = fixture.tripBody;
+		const box = page.locator('.sched .boardscroll');
+		try {
+			await signIn(page, fixture.sessionCookie);
+			await page.goto(`/trips/${fixture.tripId}/schedule?day=${startDate}&view=day`);
+
+			// A block late enough to be off the bottom of any box the day is drawn
+			// in, which is the whole point: it has to be reachable.
+			await page.getByRole('button', { name: '+ Add', exact: true }).click();
+			await page.getByLabel('Name').fill('Last orders');
+			await page.getByLabel('Start hour').click();
+			await page.keyboard.type('22');
+			await page.getByRole('button', { name: copy.common.add, exact: true }).click();
+			const block = page.locator('.block', { hasText: 'Last orders' }).first();
+			await expect(block).toBeVisible();
+			await settled(page);
+
+			// The day is taller than the box, so the box is what scrolls.
+			const room = await box.evaluate((el) => el.scrollHeight - el.clientHeight);
+			expect(room).toBeGreaterThan(0);
+
+			const head = page.locator('.sched .boardhead');
+			const headTop = () => head.evaluate((el) => el.getBoundingClientRect().top);
+			const before = await headTop();
+			const pageBefore = await page.evaluate(() => window.scrollY);
+
+			await box.evaluate((el) => el.scrollTo(0, el.scrollHeight));
+			await settled(page);
+
+			// The day it is drawing, and the way to the next one, are still there.
+			expect(Math.abs((await headTop()) - before)).toBeLessThanOrEqual(1);
+			expect(await page.evaluate(() => window.scrollY)).toBe(pageBefore);
+			// And the last hour of the day arrived, inside the box rather than past
+			// the bottom of it.
+			const seen = await block.evaluate((el) => {
+				const r = el.getBoundingClientRect();
+				const b = el.closest('.boardscroll')!.getBoundingClientRect();
+				return r.top < b.bottom && r.bottom > b.top;
+			});
+			expect(seen).toBe(true);
+		} finally {
+			fixture.teardown();
+		}
+	});
+
 	test('a drag opens it past six, and the block stays under the pointer', async ({
 		page,
 		request
@@ -280,28 +337,42 @@ test.describe('the day window', () => {
 			// not aimed at where the block was a moment ago.
 			await expect(block).toHaveCSS('top', '180px');
 			// The add scrolls the new block into sight smoothly, and that outlives
-			// the dialog, so the grab has to wait for the page to stand still.
+			// the dialog, so the grab has to wait for the board to stand still.
 			await settled(page);
 			// Measured through the element: `boundingBox` reports null for these,
 			// even once they are visible.
 			const screenY = () => block.evaluate((el) => el.getBoundingClientRect().top);
+			const boxTop = await page
+				.locator('.sched .boardscroll')
+				.evaluate((el) => el.getBoundingClientRect().top);
 			const grabX = 200;
 			const grabY = (await screenY()) + 10;
 
-			// Four hours up the board, which is an hour past where it ends.
+			// An hour up the board, well inside the box it is drawn in: the block is
+			// glued to the pointer, so a drop lands where it looks like it will.
 			await page.mouse.move(grabX, grabY);
 			await page.mouse.down();
-			await page.mouse.move(grabX, grabY - 240, { steps: 12 });
+			await page.mouse.move(grabX, grabY - 60, { steps: 8 });
+			// The block eases into each five-minute step, so wait for the step to
+			// be the hour it was dragged to before measuring where it sits.
+			await expect(block).toHaveCSS('top', '120px');
+			expect(Math.abs((await screenY()) + 10 - (grabY - 60))).toBeLessThanOrEqual(2);
 
-			// The window came with it rather than holding the block against the top,
-			// and the page moved by exactly as much, so the block did not.
-			await expect(firstHour()).toHaveText('5:00');
-			expect(Math.abs((await screenY()) + 10 - (grabY - 240))).toBeLessThanOrEqual(2);
+			// Carried up to the top edge of the box, the day opens past six under a
+			// block that stays visible: the hours run past it rather than it running
+			// off the top of the box, which is the one place the glue gives way.
+			// The edge keeps opening the day for as long as the pointer is held
+			// there, so what is asserted is that it went past six, not the minute it
+			// happened to reach.
+			await page.mouse.move(grabX, boxTop + 6, { steps: 8 });
+			await expect(firstHour()).toHaveText(/^[0-5]:00$/);
+			expect(await screenY()).toBeGreaterThanOrEqual(boxTop - 1);
 
 			await page.mouse.up();
-			await expect(block).toContainText('5:00');
-			// Settled on the hour that holds it, which is where a saved day starts.
-			await expect(firstHour()).toHaveText('5:00');
+			// Settled on an hour that holds it, which is where a saved day starts,
+			// and the block is still the one being read: it kept its own time.
+			await expect(firstHour()).toHaveText(/^[0-5]:00$/);
+			await expect(block).toBeVisible();
 		} finally {
 			fixture.teardown();
 		}

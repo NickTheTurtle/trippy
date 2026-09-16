@@ -2804,6 +2804,81 @@ you looked at somebody else, so it would only ever reach the person who already
 knew. The board memo is therefore split in two, `planned` before the "view as"
 filter and `board` after it, and the warning is read from `planned`.
 
+#### The day scrolls inside the board, not the page
+
+**The complaint was losing your place, not being unable to reach the evening.**
+The day grid is a pixel a minute over a window that opens at six, so an ordinary
+day is around 1150px tall and every screen is shorter than it. Nothing was
+clipped and nothing was unreachable: the page scrolled, and the whole board went
+with it. What went with it was the day's title bar, its stepper and the lodging
+band, so reading 22:00 meant no longer being able to see which day it was 22:00
+on, or to step to the next one without scrolling back. A calendar keeps the
+labels and moves the hours.
+
+So the hours move on their own. `.boardscroll` is a box between the lodging band
+and the bottom of the screen; the grid scrolls inside it, and the stepper and the
+band stand outside it and stay. The hour gutter is inside, because it is the
+axis: pinning it would pin the times to rows that had moved away from them. The
+day view alone gets the box. The agenda is a list of the day's rows, short by
+construction, and boxing a list only makes two scrollbars out of one.
+
+**The height is measured, not stated.** The box's top depends on a toolbar that
+wraps at narrow widths and a lodging band that may hold nothing or three stays,
+so no `calc()` of viewport units can name it. It is measured in document
+coordinates, `rect.top + scrollY`, which is where the box sits whatever the page
+has been scrolled to. Reading the viewport-relative top instead would have fed
+back: scrolling the page would grow the box, growing the box would grow the page,
+and the page would scroll further. A floor of 320px keeps a short screen with a
+usable window rather than a slot, and the CSS carries `70vh` for the render
+before the measurement lands.
+
+**A scroll container is where drag maths usually dies**, because a gesture
+measured against the page is suddenly happening in a box that moves under it.
+This one is delta-based (`clientY - pointerStartY`), so the pointer arithmetic
+survived untouched; what had to move was everything that compensated for the
+board moving _by itself_. Two things do that, and they are now one number,
+`glue`, applied to the box's `scrollTop` as a difference per layout pass:
+
+- **The window opening.** Dragging a block earlier than the window's first hour
+  grows the grid upwards, which slides every minute already drawn, including the
+  one under the pointer, down by the amount opened. This used to be cancelled
+  with `window.scrollBy`; it is now the box that scrolls, by the same amount and
+  in the same pre-paint layout pass.
+- **Travelling at an edge.** A pointer held against the top or the bottom of the
+  box keeps changing the block's time without moving, so the hours have to run
+  past it. `creep` is that distance in minutes, and the box scrolls by the
+  negative of it so the block stays put and the day moves.
+
+They net out when both happen at once, which is exactly the case of opening the
+window while already at the top of the box: the growth and the travel are the
+same growth.
+
+**Both edges travel now, where only the top used to.** On a page the size of the
+day, dragging downwards had the rest of the document to travel through; in a box
+a few hundred pixels tall it would have run out in a couple of hours. Pushing
+against the bottom therefore runs the day on towards midnight at the same rate
+the top runs it back, and `creep` carries a sign rather than gaining a twin.
+
+**The block is held inside the box.** A viewport has edges the page did not: a
+pointer carried above the top of the box wants its block drawn above it, where it
+would be clipped and the gesture would be happening somewhere the reader cannot
+see. Staying visible is worth more than the last few pixels of glue, so the block
+pins to the edge it is pushing against while the hours keep running past, and the
+start wins over the end, since a block taller than the box cannot show both and
+the time it begins is the time being set. This is the one place the "stays under
+the pointer" contract gives way, and the e2e test now says so: glued inside the
+box, pinned at its edge.
+
+**Scroll chaining is left on.** A flick that reaches the end of the day carries
+on into the page, which is how the map under the board is reached on a phone,
+where the box is most of the screen. `overscroll-behavior: contain` would have
+made the board a trap at exactly the width with nowhere else to swipe.
+
+**Nothing at the root was touched.** The reserved scrollbar gutter that made the
+full-bleed header stop short of the right edge (see "The header reaches the right
+edge") stays gone; this box is a descendant, and the page keeps the browser's
+default gutter behaviour.
+
 ## Shared UI conventions
 
 These exist so five pages don't each invent their own version. Reach for them
