@@ -105,4 +105,45 @@ test.describe('account', () => {
 			user.teardown();
 		}
 	});
+
+	/**
+	 * A failed load is now two things at once: the server's reason in the corner,
+	 * where it does not expire, and a line left on the page so the screen is not
+	 * blank. Driven on two unrelated pages, because the panel sits in a different
+	 * layout on each.
+	 */
+	test('a page that cannot load says so on the page and why in the corner', async ({
+		page,
+		request
+	}) => {
+		const user = await registerUser(request);
+		const reason = 'Could not reach the trips service.';
+		try {
+			await signIn(page, user.sessionCookie);
+
+			for (const path of ['/account', '/trips']) {
+				await page.route(
+					(u) => u.pathname === `/api${path}`,
+					(route) => route.fulfill({ status: 500, json: { error: reason } })
+				);
+				await page.goto(path);
+
+				// The page keeps a statement of its own, and does not repeat the
+				// server's sentence underneath it.
+				await expect(page.getByText(copy.api.loadFailed)).toBeVisible();
+				const bad = page.locator('.toast.bad').filter({ hasText: reason });
+				await expect(bad).toHaveCount(1);
+				await expect(bad.getByRole('alert')).toHaveText(reason);
+
+				// Errors do not expire, so it is still there to be read.
+				await page.waitForTimeout(6000);
+				await expect(bad).toHaveCount(1);
+				await bad.getByRole('button').click();
+				await expect(page.locator('.toast')).toHaveCount(0);
+				await page.unrouteAll();
+			}
+		} finally {
+			user.teardown();
+		}
+	});
 });

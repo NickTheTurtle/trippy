@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, Navigate, useLocation } from 'react-router';
 import { AuthShell } from '../components/ui/AuthShell';
 import { Field } from '../components/ui/Field';
+import { useToast } from '../components/ui/Toast';
 import { useAuth } from '../auth';
 import { copy } from '../copy';
 
@@ -10,10 +11,10 @@ const c = copy.auth.login;
 export default function Login() {
 	const { status, logIn } = useAuth();
 	const location = useLocation();
+	const toast = useToast();
 
 	const [email, setEmail] = useState('');
 	const [password, setPassword] = useState('');
-	const [error, setError] = useState<string | null>(null);
 	const [submitting, setSubmitting] = useState(false);
 
 	// Set by RequireAuth when it turned a deep link away. Sending the user back
@@ -28,12 +29,11 @@ export default function Login() {
 
 	async function submit() {
 		setSubmitting(true);
-		setError(null);
 		try {
 			await logIn(email, password);
 			// No navigate here on purpose. See the redirect above.
 		} catch (err) {
-			setError(err instanceof Error ? err.message : c.fallback);
+			toast.error(err instanceof Error ? err.message : c.fallback);
 			setSubmitting(false);
 		}
 	}
@@ -42,7 +42,6 @@ export default function Login() {
 		<AuthShell
 			title={c.title}
 			blurb={c.blurb}
-			error={error}
 			onSubmit={submit}
 			submitting={submitting}
 			submitLabel={c.submitLabel}

@@ -6,7 +6,7 @@ import { useMutation } from '../hooks/useMutation';
 import FlipGrid from '../components/ui/FlipGrid';
 import { useTrip } from './TripShell';
 import Select from '../components/ui/Select';
-import FormError from '../components/ui/FormError';
+import LoadError from '../components/ui/LoadError';
 import { useToast } from '../components/ui/Toast';
 import EmptyState from '../components/ui/EmptyState';
 import type { DiscoverData, Poi, Stay } from '../lib/api-types';
@@ -79,9 +79,9 @@ export default function Discover() {
 		}
 	);
 
-	/* The load, not a result: a page with no data has nothing to put a corner
-	   popup beside. */
-	if (!data) return error ? <FormError message={error} variant="banner" /> : null;
+	/* The reason goes to the corner, the page keeps a line saying it is not
+	   there. A popup over a blank screen explains itself and leaves nothing. */
+	if (!data) return error ? <LoadError message={error} /> : null;
 
 	if (data.cities.length === 0) {
 		return <NoCities isOrganizer={trip.role === 'organizer'} onAddCity={() => addCity(reload)} />;

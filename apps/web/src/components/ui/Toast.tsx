@@ -17,10 +17,10 @@ import { copy } from '../../copy';
  * What lands here is a *result*: the app did the thing, or refused to. Those
  * used to be tinted blocks pushed into the page above the form that caused
  * them, which moved the page under the reader's hands and, on the pages that
- * scroll, reported the outcome somewhere off screen. What stays inline is
- * everything that is about a place rather than a moment: a load that failed is
- * the page's content, and a refusal attached to one field or one dialog is read
- * next to the control it is about.
+ * scroll, reported the outcome somewhere off screen. What stays inline is the
+ * refusal attached to one control: it is read next to the thing to correct. A
+ * page whose own load failed sends the reason here and keeps a line of its own
+ * saying so, which is what `LoadError` is for.
  *
  * Three things about the plumbing are not obvious.
  *

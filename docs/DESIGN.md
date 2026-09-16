@@ -4292,17 +4292,43 @@ router, so the result outlives the page that raised it.
 
 **What did not move.** Two kinds of message stayed exactly where they were.
 
-- **A failed load is the page.** `if (!data) return error ? <FormError/> : null`
-  on Discover, Preparation, People, Expenses and the trip list is not a result,
-  it is the only content there is. A corner popup over a blank screen would say
-  what went wrong and leave nothing behind.
 - **A refused submit belongs to the form that was refused.** `ModalFooter` and
   `ConfirmDialog` print the server's refusal beside the button that failed, and
   `SettleRow` prints its own beside the row. These are read where the correction
   is made. "Pick a start date." in the corner while the empty date field sits
   unmarked in the middle of the screen is worse than the same sentence under the
-  button, not better. The auth forms keep their message for the same reason and
-  because the card is the whole screen there.
+  button, not better. These are a coloured line beside a control, not a tinted
+  pill, which is the shape the ruling was about.
+- **The confirmation pages are pages.** `AuthNotice` in Verify, Forgot, Register
+  and Reset is the whole screen saying the flow now continues in the reader's
+  inbox. There is nothing else on it to be transient over.
+
+**A failed load became two things, not one.** The banner on a page whose GET
+failed was doing two jobs: saying why, and leaving something on the screen. A
+toast alone only does the first, and a corner popup floating over a blank page
+explains itself and then takes the explanation away. So `LoadError` splits it.
+The server's sentence goes to the corner, where it does not expire, and the page
+keeps an `EmptyState` reading "Could not load this page." The panel deliberately
+does not repeat the server's wording: the same sentence twice on one screen
+reads as two separate failures. It uses `EmptyState` without its drawing, since
+the fly is a joke about a list nobody has filled in and a joke over a server
+failure is the wrong tone.
+
+Two pages, Account and the trip list, can hold an error while still showing
+content, because a reload that fails leaves the previous data in place. There
+the failure is only a result, so `panel={false}` sends the reason to the corner
+and leaves what is on screen alone.
+
+`LoadError` announces once per distinct reason, guarded by a ref. A re-render is
+not a second failure, and React's development mode mounts every component twice,
+which without the guard put the same sentence in the corner two times over on
+the live dev server.
+
+**The auth card raises its own.** The log in, register, forgot and reset pages
+each call `toast.error` in their own catch rather than handing a string to
+`AuthShell`, and the shell no longer has an error slot. A prop holding one
+message cannot report the same wrong password twice: the state does not change,
+so nothing fires, and the second attempt would look like it was ignored.
 
 The rule: a _result_ goes to the corner, a _refusal attached to a control_ stays
 beside the control. `useMutation` supports both at once through `onError`, which
