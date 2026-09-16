@@ -4803,6 +4803,62 @@ backstop for anything that reaches one anyway, alongside the underline and pill
 backgrounds, listing its selectors one by one so any newly animated selector has
 to be added to it by hand.
 
+## The map waits for its own modules
+
+The planner map used to take the whole page down with it. `GoogleMap` reconciled
+its polylines with `l.setPath(...)`, and that call threw
+`Cannot read properties of undefined (reading 'setAt')` on the second draw of any
+day whose pins were joined up. There is no error boundary on the planner, so the
+throw escaped the effect during commit, React unmounted the tree, and the `+ Add`
+dialog never opened again. The map was the smallest thing on the page and it
+killed everything else.
+
+**The cause is the loader, not the polyline.** The legacy bootstrap,
+`maps/api/js?key=...`, resolves on the script's `onload` event, which fires once
+the bootstrap and the core modules are in. `google.maps.Polyline` exists at that
+moment, but it is a shell: the internal `MVCArray` of points that `setPath` calls
+`setAt` on is created by `poly.js`, which has not arrived. The constructor
+succeeds because it only stores its options, so the first draw looks fine. The
+second draw is the first call that reaches into the shell, and it throws. That is
+why the failure was reproducible only with a line on the board: a day with twenty
+pins and no line never calls `setPath`, and overlapping the two events removed
+the line and so removed the crash.
+
+**The fix is to wait for the modules rather than for the script.** The loader now
+asks for `&loading=async&callback=` and then awaits
+`google.maps.importLibrary('maps')` and `importLibrary('marker')` before it
+resolves. `poly.js` is in the module list by the time anything draws, the shell
+is never observed, and `setPath` works. This was verified in the state that
+matters: with the key refused, the old code threw on the second draw and the
+`+ Add` dialog stopped opening, and the new code drew the same day twice with no
+error at all. The loader fix alone is sufficient, tested with the defensive catch
+below removed.
+
+The version is pinned to `quarterly` for the same reason a dependency is pinned:
+an unpinned SDK is a dependency that changes under a running page.
+
+**Two defences sit behind the fix.** The reconcile loop wraps `setPath` in a
+`try`, and on a throw drops the overlay and builds a new one, because an overlay
+is cheap to replace and a throw inside an effect is not cheap to survive. And
+`MapBoundary`, a class error boundary, wraps both renderers, so any future map
+failure degrades to a sentence in the map's own box while the board, the
+dialogs and the rest of the planner keep working. Containing the blast radius is
+not a substitute for the fix, but the planner should never again depend on the
+map being well.
+
+**A refused key is worse than no key.** With no key at all the planner renders
+Leaflet, which works. With a key the browser rejects, Google paints its own
+untranslated error card and the SDK stops fetching modules. The loader used to
+swallow that in a bare `.catch(() => {})`. It now reports it: a load failure and
+`gm_authFailure` both reach an `onUnavailable` callback, so the caller can choose
+the other renderer. `gm_authFailure` is a global and it fires seconds after the
+map is constructed, not at load time, so the hook is installed once at module
+import, chains any handler already there, and is watched for the component's
+lifetime rather than awaited during the load.
+
+`TripMap` takes the same `center` prop as `GoogleMap` for this, since a fallback
+that opens on a hardcoded city is a fallback that looks broken.
+
 ## Implementation status
 
 Built and verified:

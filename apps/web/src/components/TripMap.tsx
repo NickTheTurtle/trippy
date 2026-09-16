@@ -1,18 +1,21 @@
 import { useEffect, useRef } from 'react';
 import 'leaflet/dist/leaflet.css';
 import type { Map as LMap, Layer } from 'leaflet';
-import type { MapTrack } from './GoogleMap';
+import type { MapCenter, MapTrack } from './GoogleMap';
 import { mapCard, cardAnchor, createCardLayer } from './map-card';
 import { groupColocated } from './map-groups';
+import MapBoundary from './MapBoundary';
 import { copy } from '../copy';
 
 /**
  * The keyless fallback map, on OpenStreetMap tiles.
  *
- * Used when no Google Maps key is configured. Leaflet is imported dynamically so
- * a deployment with a key never pays for the library.
+ * Used when no Google Maps key is configured, and when the configured one is
+ * refused: a key the SDK rejects is worse than no key at all, because it buys
+ * an error card where this draws an actual map. Leaflet is imported dynamically
+ * so a deployment with a working key never pays for the library.
  */
-export default function TripMap({ tracks }: { tracks: MapTrack[] }) {
+function TripMapInner({ tracks, center = null }: { tracks: MapTrack[]; center?: MapCenter }) {
 	const elRef = useRef<HTMLDivElement>(null);
 	const mapRef = useRef<LMap | null>(null);
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -24,6 +27,11 @@ export default function TripMap({ tracks }: { tracks: MapTrack[] }) {
 	tracksRef.current = tracks;
 	/** The last set of points the camera was fitted to. */
 	const fitted = useRef('');
+
+	/* Read when the map is built, and again only when there is nothing to fit
+	   to. Held in a ref so a new centre object does not rebuild the map. */
+	const centerRef = useRef(center);
+	centerRef.current = center;
 
 	function draw() {
 		const map = mapRef.current;
@@ -153,10 +161,17 @@ export default function TripMap({ tracks }: { tracks: MapTrack[] }) {
 			if (cancelled || !elRef.current) return;
 			const L = mod.default;
 			lRef.current = L;
+			const c = centerRef.current;
+			/* The city the page is looking at, or the whole world. It used to be a
+			   hardcoded pair of coordinates in Beijing, which is a real place to
+			   be told your empty trip is. */
 			const map = L.map(elRef.current, {
 				zoomControl: true,
 				attributionControl: true
-			}).setView([39.9163, 116.3972], 12);
+			}).setView(
+				c?.lat != null && c?.lng != null ? [c.lat, c.lng] : [20, 0],
+				c?.lat != null ? 12 : 2
+			);
 			L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 				maxZoom: 19,
 				attribution: '&copy; OpenStreetMap'
@@ -201,5 +216,14 @@ export default function TripMap({ tracks }: { tracks: MapTrack[] }) {
 			<div ref={elRef} className="mapbox" />
 			{!hasPoints && <p className="nogeo muted">{copy.ui.tripMap.noPoints}</p>}
 		</>
+	);
+}
+
+/** Fenced for the same reason the Google one is: see `MapBoundary`. */
+export default function TripMap(props: Parameters<typeof TripMapInner>[0]) {
+	return (
+		<MapBoundary>
+			<TripMapInner {...props} />
+		</MapBoundary>
 	);
 }
