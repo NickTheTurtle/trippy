@@ -2881,6 +2881,44 @@ Both maps build the card through one shared `mapCard` in
 without one are reading the same trip, and the keyless fallback drifting into a
 card of its own shape is a difference nobody asked for.
 
+**One pin per point, not one per thing.** Several things can be at one address:
+a venue saved twice from the same provider result, or five escape rooms run out
+of one building. Drawn a pin each they land exactly on top of each other, so the
+stack reads as a single pin and only the topmost one can be hovered or tapped.
+The others are invisible and unreachable, which is what was reported. Both maps
+now collapse the items of a track onto one pin per point, through one shared
+`groupColocated` in `apps/web/src/components/map-groups.ts`, and the card lists
+everything that pin stands for.
+
+**Grouped on exact coordinate equality, with no distance tolerance.** The trips
+in hand hold exactly one co-located set of saved places, three sharing a pair of
+doubles to the last digit, and not one pair of non-identical places within 60m of
+each other; the day tracks show the same, nine sets of bit-identical event
+coordinates. So the duplicates being complained about are literally the same
+numbers, which is what saving the same provider result twice produces. A radius
+would buy nothing against that data while risking the thing a radius always
+risks: merging two real venues that share a doorway. If near-duplicates ever do
+turn up, that is the moment to decide what a distance means, with the data to
+decide it on. Grouping is per track, because a pin can only be one colour, and
+the board already keeps a scheduled place out of the saved track.
+
+**The count goes in a badge, not in the pin.** The body of a pin is where the
+order number goes, so a count written there would be read as one. The things
+sharing a venue are not always consecutive stops. A day can visit a place, leave
+and come back, so no single number is true of the pin: a grouped pin drops the
+number and carries a small count badge at its corner instead. A pin standing for
+one thing is drawn exactly as it was, down to its size and its anchor. The badge
+never takes the pointer, because it overhangs its pin's box and a clickable
+badge swallowed clicks meant for the pin next to it.
+
+**A clicked card is held open; a hovered one is not.** A card that leaves the
+moment the pointer leaves its pin is right for a glance and useless for a pin
+holding nine things, which cannot be read, let alone scrolled, if it vanishes on
+the way to it. So a click holds the card and gives it the pointer back, and a
+click on the map, a hover onto another pin, or a redraw that takes its pin away
+puts it down. The list scrolls at 18rem rather than growing, so a busy venue
+cannot make a card taller than a phone.
+
 **A travel problem is a mark, not a sentence.** A leg that does not fit its gap
 used to be labelled "does not fit the gap" wherever it showed, which spends a
 line of a crowded card on a phrase the colour had already said. It is now the

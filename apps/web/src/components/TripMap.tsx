@@ -2,7 +2,8 @@ import { useEffect, useRef } from 'react';
 import 'leaflet/dist/leaflet.css';
 import type { Map as LMap, Layer } from 'leaflet';
 import type { MapTrack } from './GoogleMap';
-import { mapCard, createCardLayer } from './map-card';
+import { mapCard, cardAnchor, createCardLayer } from './map-card';
+import { groupColocated } from './map-groups';
 import { copy } from '../copy';
 
 /**
@@ -36,15 +37,36 @@ export default function TripMap({ tracks }: { tracks: MapTrack[] }) {
 		// Built as DOM rather than as an HTML string. Track colours come back from
 		// the API as member-editable text, so interpolating one into markup would
 		// let a crew name a colour that closes the attribute and injects tags.
-		const pin = (color: string, n: number | null) => {
+		// A pin standing for several things carries the count in a badge beside
+		// it, not in its body: the body is where the order number goes, and a
+		// count written there would be read as one.
+		const pin = (color: string, n: number | null, count: number) => {
 			const wrap = document.createElement('span');
+			wrap.className = 'wp-pin-body';
 			wrap.style.setProperty('--pin', color);
 			const b = document.createElement('b');
 			b.textContent = n === null ? '' : String(n);
 			wrap.appendChild(b);
+			if (count < 2) {
+				return L.divIcon({
+					className: 'wp-pin',
+					html: wrap,
+					iconSize: [24, 24],
+					iconAnchor: [12, 24],
+					popupAnchor: [0, -22]
+				});
+			}
+			const holder = document.createElement('span');
+			holder.className = 'wp-pin-stack';
+			holder.appendChild(wrap);
+			const badge = document.createElement('i');
+			badge.className = 'wp-pin-count';
+			badge.style.setProperty('--pin', color);
+			badge.textContent = count > 99 ? '99+' : String(count);
+			holder.appendChild(badge);
 			return L.divIcon({
 				className: 'wp-pin',
-				html: wrap,
+				html: holder,
 				iconSize: [24, 24],
 				iconAnchor: [12, 24],
 				popupAnchor: [0, -22]
@@ -58,31 +80,48 @@ export default function TripMap({ tracks }: { tracks: MapTrack[] }) {
 		const layer = layerRef.current;
 		/* Every overlay is rebuilt here, so a pin removed under the pointer will
 		   never fire its `mouseout`. The card would then stand on the page with
-		   nothing under it until the next hover. */
-		layer.hide();
+		   nothing under it until the next hover. A held card goes too: its pin is
+		   about to be replaced. */
+		layer.hide(true);
 
 		for (const t of tracksRef.current) {
 			const located = t.items.filter((i) => i.lat != null && i.lng != null);
 			const line: [number, number][] = [];
-			located.forEach((i, idx) => {
+			for (const i of located) {
 				const ll: [number, number] = [i.lat as number, i.lng as number];
 				line.push(ll);
 				pts.push(ll);
-				const m = L.marker(ll, {
-					icon: pin(t.color, t.numbered === false ? null : idx + 1)
+			}
+			/* One pin per point rather than one per item, so several things at one
+			   address stop hiding under each other. The line still runs through
+			   every item in order: it is the route, and a route can return to a
+			   venue it has already visited. */
+			for (const p of groupColocated(t.items)) {
+				const count = p.items.length;
+				const n = t.numbered === false || count > 1 ? null : p.index;
+				const title = p.items.map((i) => i.title).join(', ');
+				const m = L.marker([p.lat, p.lng], {
+					icon: pin(t.color, n, count),
+					// The pin's accessible name, and what a keyboard reader lands on.
+					title,
+					alt: title
 				});
 				// Drawn on the app's own layer rather than in Leaflet's popup, so a
 				// pin near an edge is not clipped by the map box. On click as well as
 				// on hover, because a phone has no hover: a tap is the only way to
-				// read a pin there, and the card leaves on the next tap.
-				const open = (e: { originalEvent: MouseEvent }) =>
-					layer.show(mapCard(i, t), e.originalEvent.clientX, e.originalEvent.clientY);
-				m.on('mouseover', open);
-				m.on('click', open);
+				// read a pin there, and the card leaves on the next tap. A clicked
+				// card is held open, so a pin holding several things can be read and
+				// scrolled without the pointer having to stay on the pin.
+				const open = (e: { originalEvent?: MouseEvent }, hold = false) => {
+					const at = cardAnchor(e?.originalEvent, m.getElement());
+					layer.show(mapCard(p.items, t), at.x, at.y, hold);
+				};
+				m.on('mouseover', (e: { originalEvent?: MouseEvent }) => open(e));
+				m.on('click', (e: { originalEvent?: MouseEvent }) => open(e, true));
 				m.on('mouseout', () => layer.hide());
 				m.addTo(map);
 				overlays.current.push(m);
-			});
+			}
 			if (t.line !== false && line.length > 1) {
 				overlays.current.push(
 					L.polyline(line, {
@@ -122,7 +161,7 @@ export default function TripMap({ tracks }: { tracks: MapTrack[] }) {
 				attribution: '&copy; OpenStreetMap'
 			}).addTo(map);
 			// A tap opens a card, so a tap on the map behind it is what puts it away.
-			map.on('click', () => layerRef.current?.hide());
+			map.on('click', () => layerRef.current?.hide(true));
 			mapRef.current = map;
 			draw();
 		});
