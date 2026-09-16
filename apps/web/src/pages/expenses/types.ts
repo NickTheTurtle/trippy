@@ -15,6 +15,13 @@ export type Expense = {
 	split_mode: SplitMode;
 	participants: number;
 	settlement: number;
+	/**
+	 * The day the money moved, `YYYY-MM-DD`. Distinct from `created_at`, which is
+	 * when the row was typed in: an expense logged after the trip is over is
+	 * still an expense from the day it happened, and the ledger is ordered by
+	 * this rather than by when somebody got round to entering it.
+	 */
+	spent_on: string;
 	created_at: number;
 	home_cents: number;
 	converted: boolean;
