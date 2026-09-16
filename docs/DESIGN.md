@@ -4356,6 +4356,17 @@ already rendered instead of one that appears with them, which is the usual way
 to have a live region announced by nobody. Empty, it paints nothing and takes no
 clicks.
 
+**The server's own sentence is the message.** `api()` already lifts `error` out
+of the `fail()` envelope every route uses and throws it as `ApiError.message`,
+`useMutation` passes that string to `onError` untouched, and `toast.error` shows
+it. Nothing on the path adds a preamble or substitutes house copy, because the
+route is the only thing that knows why it refused. The longest of these written
+so far, the 400 for an event whose named people are none of them on the trip
+("Nobody in that list is on this trip. Pick from the trip's members.", 66
+characters), is the width fixture: measured in Chrome it wraps to two lines in a
+384px toast at 1280px and a 366px one at 390px, clips nothing, and leaves the
+dismiss button in its corner.
+
 **The picker note stayed in the menu.** The refusal in `PeoplePicker` ("An event
 with no names on it means everyone, so this cannot be emptied") was considered
 for the corner and deliberately left where it is. It is not a result of an
