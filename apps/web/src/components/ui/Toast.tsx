@@ -38,8 +38,14 @@ import { copy } from '../../copy';
  * **A toast raised over an open modal can be read but not pressed.**
  * `showModal()` makes the rest of the document inert, and inertness reaches
  * into the top layer, so the dismiss button is unclickable while the dialog is
- * up. That is the right end of the trade: focus belongs to the dialog, and an
- * error waits, still there and now pressable, once the dialog closes.
+ * up. That is the right end of the trade: focus belongs to the dialog. An error
+ * the dialog itself raised does not need dismissing, because `DialogError`
+ * retracts it when the dialog closes; one raised from elsewhere waits, still
+ * there and now pressable, once the dialog is out of the way.
+ *
+ * Inertness also takes the corner out of the accessibility tree while a dialog
+ * is open, which is why a dialog announces its own failures from inside itself.
+ * See `DialogError`.
  */
 export type ToastTone = 'success' | 'error';
 
@@ -129,6 +135,73 @@ export function useToast(): ToastApi {
 	const api = useContext(ToastContext);
 	if (!api) throw new Error('useToast outside ToastProvider');
 	return api;
+}
+
+/**
+ * Keeps an error in the corner for exactly as long as it is true.
+ *
+ * The one pattern every caller with a *held* error string wants: a dialog
+ * footer, a confirmation, a page whose load failed. Raised when the string
+ * appears, retracted when it goes. Errors never expire on their own, so without
+ * the retraction a user who fails, fixes the field and succeeds is left with
+ * the failure still sitting in the corner describing a state the app is no
+ * longer in. `useMutation.run` clears `error` at the start of every attempt and
+ * a closing dialog unmounts its footer, so both resolutions arrive here as the
+ * same cleanup.
+ *
+ * Keyed on the message, which is what makes it announce once. A re-render with
+ * the same string does not re-run the effect, so an unrelated keystroke in the
+ * form does not restate the failure; and React's development mode double mount
+ * nets out at a single row, because the first mount's cleanup retracts its own
+ * toast before the second raises one. There is no guard key to clear, which is
+ * the failure mode a ref would have: a guard that outlives the mount has to be
+ * cleared by hand on every retraction or the next genuine failure with the same
+ * wording goes unannounced.
+ *
+ * A second attempt that fails the same way is deliberately not restated. The
+ * string is unchanged, the effect does not re-run, and the sentence is still in
+ * the corner unexpired, so a second copy would read as a second, separate
+ * problem. One that fails differently does announce, and retracts the stale
+ * reason in the same pass.
+ *
+ * Empty means nothing is wrong, so callers can pass state straight in.
+ */
+export function useErrorToast(message: string) {
+	const toast = useToast();
+	useEffect(() => {
+		if (!message) return;
+		const id = toast.error(message);
+		return () => toast.dismiss(id);
+	}, [message, toast]);
+}
+
+/**
+ * A dialog's failed save: the corner toast, plus the announcement.
+ *
+ * Both halves together in one node so a dialog cannot wire one without the
+ * other, because the second half is not optional and is not obvious.
+ * `showModal()` makes the rest of the document inert, and inertness does not
+ * only stop clicks: it takes the inert subtree out of the accessibility tree
+ * altogether. Measured, with the same sentence raised twice, once with no
+ * dialog open and once from a dialog's failing save: with no dialog the text is
+ * two live nodes in the tree, and with a dialog open it is not in the tree at
+ * all. So a corner toast on its own would be seen by a sighted user and never
+ * reach a screen reader, which is worse than the footer line it replaces.
+ *
+ * The fix has to sit inside the dialog, because the dialog is the only part of
+ * the document that is not inert. It carries no styling and no layout: it is
+ * the same sentence, said once, to the readers the corner cannot reach.
+ */
+export function DialogError({ message }: { message: string }) {
+	useErrorToast(message);
+	// Inserted only when there is something to say, which is how the footer line
+	// this replaces behaved and what makes `role="alert"` fire reliably.
+	if (!message) return null;
+	return (
+		<p role="alert" className="sr-only">
+			{message}
+		</p>
+	);
 }
 
 function ToastViewport({

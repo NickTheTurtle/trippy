@@ -1,6 +1,5 @@
-import { useEffect } from 'react';
 import EmptyState from './EmptyState';
-import { useToast } from './Toast';
+import { useErrorToast } from './Toast';
 import { copy } from '../../copy';
 
 /**
@@ -45,29 +44,12 @@ export default function LoadError({
 	panel?: boolean;
 	className?: string;
 }) {
-	const toast = useToast();
-	/* The corner carries the reason for exactly as long as the reason is true.
-	   Raised when this panel appears, taken back when it goes, which is what
-	   makes a retry that works leave nothing behind: `useApi` clears `error` on
-	   success, the panel unmounts, and the cleanup retracts the sentence that
-	   described a state the app is no longer in. Errors never expire on their
-	   own, so without this the corner would keep insisting the page is broken
-	   after it had loaded.
-
-	   Keying the effect on the message is also what makes it announce once.
-	   React's development mode mounts every component twice; the first mount's
-	   cleanup retracts its own toast before the second raises one, so the double
-	   mount nets out at a single row with no guard to keep.
-
-	   A retry that fails the same way does not re-announce: `error` holds the
-	   same string, the effect does not re-run, and the sentence is still sitting
-	   in the corner unexpired, so a second copy would read as a second, separate
-	   problem. A retry that fails *differently* does announce, because the
-	   message changes, and the stale reason is retracted in the same pass. */
-	useEffect(() => {
-		const id = toast.error(message);
-		return () => toast.dismiss(id);
-	}, [message, toast]);
+	/* Raised when this panel appears and retracted when it goes, so a retry that
+	   works leaves nothing behind: `useApi` clears `error` on success and the
+	   panel unmounts with its toast. The rest of the reasoning, including why
+	   there is no guard ref, lives on `useErrorToast`, which the dialog footers
+	   share. */
+	useErrorToast(message);
 
 	if (!panel) return null;
 	return (

@@ -169,9 +169,12 @@ test.describe('expenses', () => {
 			await dialog.getByLabel(ce.addDialog.weightLabel(true, 'Alice')).fill('30');
 			await dialog.getByRole('button', { name: copy.common.add, exact: true }).click();
 
-			await expect(dialog.getByRole('alert')).toHaveText(
-				'Amounts add up to 70.00, but the total is 100.00.'
-			);
+			// The refusal reads in the corner, and is announced from inside the
+			// dialog, which is the only part of the document a modal leaves
+			// non-inert. Both carry the server's wording.
+			const reason = 'Amounts add up to 70.00, but the total is 100.00.';
+			await expect(page.locator('.toast.bad').filter({ hasText: reason })).toBeVisible();
+			await expect(dialog.getByRole('alert')).toHaveText(reason);
 			await expect(dialog).toBeVisible();
 		} finally {
 			fixture.teardown();

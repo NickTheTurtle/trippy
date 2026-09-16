@@ -1,6 +1,6 @@
 import { useId, type FormEvent, type ReactNode } from 'react';
 import { useDialog } from './useDialog';
-import FormError from './FormError';
+import { DialogError } from './Toast';
 import { copy } from '../../copy';
 
 /**
@@ -201,7 +201,15 @@ export function ModalFooter({
 	onSubmit,
 	start
 }: {
-	error?: ReactNode;
+	/**
+	 * The failed save, announced in the corner rather than drawn here. It used
+	 * to be a line between the `start` slot and Cancel, which put the reason for
+	 * the failure in the one part of a tall dialog the reader may have scrolled
+	 * away from, and made the footer reflow under the buttons as they went to
+	 * press one. Held by the caller, usually `useMutation.error`, so it is
+	 * retracted the moment the next attempt starts or the dialog closes.
+	 */
+	error?: string;
 	onClose: () => void;
 	/**
 	 * Omitted for a dialog with nothing to save, which is a dialog that only
@@ -221,7 +229,7 @@ export function ModalFooter({
 	return (
 		<div className="mfoot">
 			{start && <div className="mr-auto">{start}</div>}
-			<FormError message={error} />
+			<DialogError message={error ?? ''} />
 			<button className="btn" type="button" onClick={onClose}>
 				{submitLabel ? copy.common.cancel : copy.ui.modal.closeLabel}
 			</button>

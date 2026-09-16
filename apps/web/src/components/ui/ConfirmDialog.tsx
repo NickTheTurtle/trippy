@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import Modal from './Modal';
-import FormError from './FormError';
+import { DialogError } from './Toast';
 import { copy } from '../../copy';
 
 /**
@@ -18,7 +18,7 @@ import { copy } from '../../copy';
  * detail nobody asked for at the moment they were trying to leave.
  *
  * `onConfirm` may be async: the dialog holds itself open and disables its own
- * buttons while it runs, and shows the failure in the footer rather than
+ * buttons while it runs, and announces the failure in the corner rather than
  * closing over the top of it, because a dialog that vanishes on a failed delete
  * leaves the user guessing whether the thing is gone.
  */
@@ -72,7 +72,7 @@ export default function ConfirmDialog({
 				<p className="m-0">{copy.ui.confirmDialog.undone}</p>
 			</div>
 			<div className="mfoot">
-				<FormError message={error} />
+				<DialogError message={error} />
 				<button className="btn" type="button" disabled={busy} onClick={onCancel}>
 					{cancelLabel}
 				</button>

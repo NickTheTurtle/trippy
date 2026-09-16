@@ -4026,16 +4026,41 @@ router, so the result outlives the page that raised it.
 
 **What did not move.** Two kinds of message stayed exactly where they were.
 
-- **A refused submit belongs to the form that was refused.** `ModalFooter` and
-  `ConfirmDialog` print the server's refusal beside the button that failed, and
-  `SettleRow` prints its own beside the row. These are read where the correction
-  is made. "Pick a start date." in the corner while the empty date field sits
-  unmarked in the middle of the screen is worse than the same sentence under the
-  button, not better. These are a coloured line beside a control, not a tinted
-  pill, which is the shape the ruling was about.
+- **A refused submit belongs beside the control that was refused, when there is
+  one.** `SettleRow` prints the server's refusal next to the row it applies to.
+  That is a coloured line beside a control, not a tinted pill, which is the
+  shape the ruling was about.
 - **The confirmation pages are pages.** `AuthNotice` in Verify, Forgot, Register
   and Reset is the whole screen saying the flow now continues in the reader's
   inbox. There is nothing else on it to be transient over.
+
+**The dialogs went too, and the a11y half of that is the part worth reading.**
+`ModalFooter` and `ConfirmDialog` used to print the refusal between the `start`
+slot and Cancel. That put the reason in the part of a tall dialog the reader may
+have scrolled away from, and reflowed the footer under the buttons as the hand
+went to press one. Both now raise it in the corner instead.
+
+The catch is that a corner is outside the dialog, and `showModal()` makes the
+rest of the document inert. Inertness does not only stop clicks: it removes the
+inert subtree from the accessibility tree. Measured with the same sentence
+raised twice, once from a page load with nothing open and once from a dialog's
+failing save: with no dialog it is two live nodes in the tree, and with a dialog
+open it is not in the tree at all. A corner toast on its own would therefore be
+seen by a sighted user and never spoken to a screen reader, which is strictly
+worse than the footer line it replaced.
+
+So `DialogError` is both halves in one node: it raises the toast and renders the
+same sentence `sr-only` with `role="alert"` inside the dialog, which is the only
+part of the document that is not inert. One node rather than two calls, so a
+dialog cannot wire the visible half and forget the spoken one. It is absolutely
+positioned, so the footer keeps its height: measured at 70px with and without a
+failure, at 1280 and at 390.
+
+A dialog-raised error is also retracted when the dialog closes, not left in the
+corner. `useMutation.run` clears `error` at the start of the next attempt and a
+closing dialog unmounts the footer, and both arrive as the same effect cleanup,
+so a user who fails, fixes the field and succeeds is not left with the failure
+still on screen describing a state the app is no longer in.
 
 **A failed load became two things, not one.** The banner on a page whose GET
 failed was doing two jobs: saying why, and leaving something on the screen. A
@@ -4127,10 +4152,10 @@ for good.
 the rest of the document inert, and inertness reaches into the top layer, so the
 dismiss button does not take the click while the dialog is up. That is the right
 end of the trade rather than a defect to route around: focus belongs to the
-dialog, a toast must never pull it out, and an error simply waits, still there
-and now pressable, once the dialog closes. It also means the corner is a safe
-home for a refusal raised from inside a dialog, which is what the API rejecting
-an event with nobody on it will need.
+dialog, and a toast must never pull it out. An error the dialog itself raised
+does not need dismissing, because it is retracted when the dialog closes; one
+raised from elsewhere waits, still there and now pressable, once the dialog is
+out of the way.
 
 **Politeness follows tone, as it already did inline.** A success is a
 `role="status"` and waits its turn; an error is a `role="alert"` and interrupts.

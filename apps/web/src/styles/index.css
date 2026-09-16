@@ -565,13 +565,6 @@ select.input.compact {
 	.mfoot {
 		justify-content: stretch;
 	}
-	/* Pushes an error message to the left of the footer buttons, so a long one
-   wraps in place instead of shoving the buttons off the row. */
-	.mfoot .mfoot-note {
-		margin-right: auto;
-		min-width: 0;
-		overflow-wrap: anywhere;
-	}
 	.mfoot .btn {
 		flex: 1 1 auto;
 		justify-content: center;
