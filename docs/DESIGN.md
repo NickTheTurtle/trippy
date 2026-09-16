@@ -4917,6 +4917,40 @@ genuinely on screen, for 0 to 1 sampled frames at around 620ms, and is gone by
 the end of every run. The reader is left with 6 tiles and 21 pins instead of an
 error card, at both 1280px and 390px.
 
+## An unnamed block is called what it is
+
+**The event type words have one home.** `EVENT_TYPE_LABELS` and `eventTypeLabel()`
+live in `@trippy/core/types`, next to the `EventType` literals they are keyed by,
+and the schedule's `shared.ts` imports them rather than keeping a second copy.
+Both sides of the app name a block, so a private table on the client was a table
+that could drift from the one the server writes from, silently, in the direction
+the user reads.
+
+**The client previews an unnamed block as the type's noun, not "New event".**
+`deriveTitle` is a mirror of the server's own derivation and nothing more: place
+name, then the first non-empty line of the notes, then the type's noun. It used
+to end on the literal "New event" for everything except travel and free time,
+which meant a block added without a place or a note was previewed as "New event"
+and then renamed itself to "Activity" the moment the save came back. That was a
+rare curiosity while the dialogs still carried a Name field. With the field gone
+it is the common path, so the disagreement is now what most people see. The
+server wins every disagreement by definition, since it is what is stored, so the
+client is the side that moves. "New event" was also the weaker of the two words:
+a day of blocks all called "New event" says nothing, while the noun at least says
+what kind of thing is there.
+
+The server half of this now sits in the same change, so the two agree on the
+first load rather than only once two branches have both landed.
+
+**A journey's mode can be set when it is added.** The add dialog rendered no mode
+field, so the only way to say "ferry" was to save the block, reopen it and edit
+it, even though the create endpoint has always accepted and stored `travelMode`.
+The field is the same `Select` the edit dialog uses, shown on the same condition
+and in the same five columns beside the clock's seven, so the two dialogs read
+alike and the row is full rather than half empty. An unpicked mode is sent as
+absent, not as an empty string: absent means "let the router decide", which is
+the right default for a journey nobody has an opinion about.
+
 ## Implementation status
 
 Built and verified:

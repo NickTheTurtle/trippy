@@ -14,6 +14,7 @@ import {
 	DAY_END,
 	DRAFT_ID,
 	MIN_EVENT_MINS,
+	MODE_OPTIONS,
 	TYPE_OPTIONS,
 	dayLabel,
 	deriveTitle,
@@ -100,6 +101,11 @@ export default function AddEventDialog({
 	const [people, setPeople] = useState<string[]>([]);
 	const [poi, setPoi] = useState('');
 	const [notes, setNotes] = useState('');
+	/* Blank means "let the router decide", which is what the API does with an
+	   absent mode, so an untouched field and no field at all are the same
+	   request. Kept across a change of type, like the times and the dates, so
+	   flipping to Activity and back does not lose the ferry that was picked. */
+	const [mode, setMode] = useState('');
 
 	const staying = type === 'stay';
 	/** The day the block lands on, which is its check-in once it is a stay. */
@@ -193,6 +199,9 @@ export default function AddEventDialog({
 						duration: endAt - startAt,
 						poiId: placeable && poi ? poi : undefined,
 						notes: notes.trim() || undefined,
+						// Absent hands the journey to the router, which is the right
+						// default and the only thing this form could send before.
+						travelMode: type === 'travel' && mode ? mode : undefined,
 						people
 					}
 				})
@@ -234,7 +243,14 @@ export default function AddEventDialog({
 
 					    The clock and whatever shares its row take the whole width
 					    below `sm`: two clocks of three segments each do not fit in
-					    half of a 390px dialog. */}
+					    half of a 390px dialog.
+
+					    A journey's mode sits beside the clock and takes those five,
+					    exactly as it does in the edit dialog, and the people move to a
+					    full-width row underneath rather than being squeezed out of the
+					    clock's row. Without it a journey could only be given a mode by
+					    saving the block and opening it again, and the row it would
+					    otherwise share was left half empty. */}
 					<div className="grid grid-cols-12 gap-x-2.5 gap-y-3.5">
 						{placeable && (
 							<FieldShell label={placeText} optional className="col-span-8">
@@ -282,13 +298,22 @@ export default function AddEventDialog({
 								</div>
 							</FieldShell>
 						)}
+						{type === 'travel' && (
+							<FieldShell label="Mode" optional className="col-span-12 sm:col-span-5">
+								<Select value={mode} onChange={setMode} options={MODE_OPTIONS} ariaLabel="Mode" />
+							</FieldShell>
+						)}
 						<PeoplePicker
 							people={people}
 							onChange={setPeople}
 							memberOptions={memberOptions}
 							crews={crews}
 							className={
-								staying ? 'col-span-4' : placeable ? 'col-span-12 sm:col-span-5' : 'col-span-12'
+								staying
+									? 'col-span-4'
+									: placeable && type !== 'travel'
+										? 'col-span-12 sm:col-span-5'
+										: 'col-span-12'
 							}
 						/>
 
