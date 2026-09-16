@@ -38,10 +38,10 @@ import { copy } from '../../copy';
  * **A toast raised over an open modal can be read but not pressed.**
  * `showModal()` makes the rest of the document inert, and inertness reaches
  * into the top layer, so the dismiss button is unclickable while the dialog is
- * up. That is the right end of the trade: focus belongs to the dialog. An error
- * the dialog itself raised does not need dismissing, because `DialogError`
- * retracts it when the dialog closes; one raised from elsewhere waits, still
- * there and now pressable, once the dialog is out of the way.
+ * up. That is the right end of the trade: focus belongs to the dialog. Nothing
+ * strands there: every message has a clock, an error the dialog itself raised
+ * is retracted by `DialogError` when the dialog closes, and one raised from
+ * elsewhere is pressable again the moment the dialog is out of the way.
  *
  * Inertness also takes the corner out of the accessibility tree while a dialog
  * is open, which is why a dialog announces its own failures from inside itself.
@@ -58,12 +58,28 @@ type Toast = { id: number; tone: ToastTone; message: string };
 const SUCCESS_MS = 4500;
 
 /**
- * Errors do not expire. A success repeats the thing the user just watched
- * happen, so losing it costs nothing; an error is the only account of why
- * something did not happen, it often carries the server's own wording, and it
- * frequently arrives from a dialog, where it cannot be dismissed until the
- * dialog closes. A timer there would delete the answer before the reader could
- * reach it. They go when they are dismissed, or when the stack pushes them out.
+ * How long an error has. Longer than a success, and for the reasons a success
+ * is short: an error is the only account of why something did not happen, it
+ * often carries the server's own wording, and it frequently arrives from a
+ * dialog, where it cannot be dismissed until the dialog closes. So it is given
+ * time to be found and read rather than time to be glanced at.
+ *
+ * It does expire, though, which it used to not. Permanence read as correct
+ * until you watched somebody use it: a refusal you have already understood and
+ * acted on is still sitting in the corner, and the only way to be rid of it is
+ * to aim at a small button, so the corner accumulated sentences about a state
+ * the app had already left. The holds below are what make a timer safe here:
+ * the clock stops while the pointer or the caret is on the stack, so a message
+ * being read is never taken away mid-sentence, and the ones that describe a
+ * condition that is still true (`useErrorToast`, `LoadError`) are re-raised by
+ * their own effect rather than depending on the first copy surviving.
+ */
+const ERROR_MS = 12000;
+
+/**
+ * How many messages the corner holds at once. A cap rather than a scroll: a
+ * corner is for the last few things that happened, and a column tall enough to
+ * need scrolling is covering the page it is reporting on.
  */
 const MAX = 4;
 
@@ -80,10 +96,11 @@ type ToastApi = {
 	/**
 	 * Takes a message back. The same call the dismiss button makes, so a caller
 	 * whose condition has passed can retract its own toast: an error that is no
-	 * longer true is a lie about the current state, and errors do not expire on
-	 * their own. Unknown and already-gone ids are a silent no-op, which is what
-	 * lets a caller retract on unmount without first checking whether the reader
-	 * got there first.
+	 * longer true is a lie about the current state, and an error is given long
+	 * enough on screen to outlive the condition that raised it. Unknown and
+	 * already-gone ids are a silent no-op, which is what lets a caller retract
+	 * on unmount without first checking whether the clock or the reader got
+	 * there first.
 	 */
 	dismiss: (id: number | null) => void;
 };
@@ -109,9 +126,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 	const push = useCallback((tone: ToastTone, message: string) => {
 		if (!message) return null;
 		const id = nextId.current++;
-		// Oldest out first. A cap rather than a scroll: a corner is for the last
-		// few things that happened, and a column tall enough to need scrolling is
-		// covering the page it is reporting on.
+		// Oldest out first, for the rare burst that outruns the clocks.
 		setToasts((list) => [...list, { id, tone, message }].slice(-MAX));
 		setPromotions((n) => n + 1);
 		return id;
@@ -145,12 +160,12 @@ export function useToast(): ToastApi {
  *
  * The one pattern every caller with a *held* error string wants: a dialog
  * footer, a confirmation, a page whose load failed. Raised when the string
- * appears, retracted when it goes. Errors never expire on their own, so without
- * the retraction a user who fails, fixes the field and succeeds is left with
- * the failure still sitting in the corner describing a state the app is no
- * longer in. `useMutation.run` clears `error` at the start of every attempt and
- * a closing dialog unmounts its footer, so both resolutions arrive here as the
- * same cleanup.
+ * appears, retracted when it goes. An error is on screen long enough to outlive
+ * most of the conditions that raise one, so without the retraction a user who
+ * fails, fixes the field and succeeds is left with the failure still sitting in
+ * the corner describing a state the app is no longer in. `useMutation.run`
+ * clears `error` at the start of every attempt and a closing dialog unmounts
+ * its footer, so both resolutions arrive here as the same cleanup.
  *
  * Keyed on the message, which is what makes it announce once. A re-render with
  * the same string does not re-run the effect, so an unrelated keystroke in the
@@ -161,11 +176,15 @@ export function useToast(): ToastApi {
  * cleared by hand on every retraction or the next genuine failure with the same
  * wording goes unannounced.
  *
- * A second attempt that fails the same way is deliberately not restated. The
- * string is unchanged, the effect does not re-run, and the sentence is still in
- * the corner unexpired, so a second copy would read as a second, separate
- * problem. One that fails differently does announce, and retracts the stale
- * reason in the same pass.
+ * A second attempt that fails the same way is not restated by a re-render. The
+ * string is unchanged and the effect does not re-run, so a second copy cannot
+ * appear under the first and read as a second, separate problem. A dialog or
+ * form still announces it, because `useMutation.run` clears `error` at the top
+ * of every attempt: the string goes empty and comes back, which is two runs of
+ * the effect and a fresh sentence even when the first has expired. `useApi` does
+ * not clear on retry, so a page whose reload fails identically says so on the
+ * page rather than in the corner, which is what `LoadError`'s panel is for. One
+ * that fails differently announces and retracts the stale reason in one pass.
  *
  * Empty means nothing is wrong, so callers can pass state straight in.
  */
@@ -340,8 +359,8 @@ function ToastRow({
 	// simpler rule (the clock restarts when you leave) never expires a message
 	// mid-sentence.
 	useEffect(() => {
-		if (tone === 'error' || paused) return;
-		const timer = window.setTimeout(() => onDismiss(id), SUCCESS_MS);
+		if (paused) return;
+		const timer = window.setTimeout(() => onDismiss(id), tone === 'error' ? ERROR_MS : SUCCESS_MS);
 		return () => window.clearTimeout(timer);
 	}, [id, tone, paused, onDismiss]);
 

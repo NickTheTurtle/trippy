@@ -5019,12 +5019,14 @@ still on screen describing a state the app is no longer in.
 failed was doing two jobs: saying why, and leaving something on the screen. A
 toast alone only does the first, and a corner popup floating over a blank page
 explains itself and then takes the explanation away. So `LoadError` splits it.
-The server's sentence goes to the corner, where it does not expire, and the page
-keeps an `EmptyState` reading "Could not load this page." The panel deliberately
-does not repeat the server's wording: the same sentence twice on one screen
-reads as two separate failures. It uses `EmptyState` without its drawing, since
-the fly is a joke about a list nobody has filled in and a joke over a server
-failure is the wrong tone.
+The server's sentence goes to the corner, where it stays long enough to be read,
+and the page keeps an `EmptyState` reading "Could not load this page." The panel
+deliberately does not repeat the server's wording: the same sentence twice on one
+screen reads as two separate failures. It uses `EmptyState` without its drawing,
+since the fly is a joke about a list nobody has filled in and a joke over a
+server failure is the wrong tone. The split is also what lets the toast expire:
+the page keeps saying it is broken for as long as it is broken, so the corner
+does not have to.
 
 Two pages, Account and the trip list, can hold an error while still showing
 content, because a reload that fails leaves the previous data in place. There
@@ -5035,8 +5037,9 @@ and leaves what is on screen alone.
 effect raises the toast when the panel appears and retracts it in its cleanup,
 so a retry that works leaves nothing behind: `useApi` clears `error` on success,
 the panel unmounts, and the sentence describing a state the app is no longer in
-goes with it. Errors never expire on their own, so without the retraction the
-corner would keep insisting the page was broken after it had loaded.
+goes with it. An error outlives most of the conditions that raise one, so
+without the retraction the corner would keep insisting the page was broken for
+some seconds after it had loaded.
 
 That also replaced the ref that used to guard against announcing twice. React's
 development mode mounts every component twice, and the first mount's cleanup now
@@ -5045,11 +5048,13 @@ out at a single row with no key to keep in sync. The key was the fragile part: a
 guard that outlives the mount has to be cleared by hand on every retraction, or
 the next genuine failure with the same wording goes unannounced.
 
-A retry that fails the same way is deliberately not re-announced. `error` holds
-the same string, the effect does not re-run, and the sentence is still sitting in
-the corner unexpired, so a second copy would read as a second, separate problem.
-A retry that fails _differently_ does announce, and retracts the stale reason in
-the same pass.
+A retry that fails the same way is not re-announced. `error` holds the same
+string and the effect does not re-run, so a second copy cannot appear under the
+first and read as a second, separate problem. `useApi` does not clear `error`
+before refetching, which is what makes that true, and it is also why the panel
+stays on the page: the corner's sentence may have expired by then, and the page
+is the thing still saying the load failed. A retry that fails _differently_
+announces and retracts the stale reason in the same pass.
 
 **The retry refetches, it does not reload the document.** `useApi` returns
 `reload`, which asks the one endpoint that failed again and keeps the rest of the
@@ -5070,15 +5075,33 @@ The rule: a _result_ goes to the corner, a _refusal attached to a control_ stays
 beside the control. `useMutation` supports both at once through `onError`, which
 reports the resolved message without taking it out of `error`.
 
-**Errors do not expire; successes do.** A success repeats something the user
-just watched happen, so it costs nothing to lose after 4.5 seconds. An error is
-the only account of why something did not happen, it frequently carries wording
-the server chose, and it can arrive while a modal is open, where it cannot be
-dismissed at all (see below). A timer there deletes the answer before the reader
-can reach it. Errors leave on a click, or when a fifth toast pushes the oldest
-out. The stack is capped rather than scrolled: a corner holds the last few things
-that happened, and a column tall enough to scroll is covering the page it reports
-on.
+**Errors expire too, just later.** A success repeats something the user just
+watched happen, so it costs nothing to lose after 4.5 seconds. An error is the
+only account of why something did not happen, it frequently carries wording the
+server chose, and it can arrive while a modal is open, where it cannot be
+dismissed at all (see below), so it is given 12 seconds rather than 4.5: time to
+be found and read, not time to be glanced at.
+
+They used to be permanent, and that read as correct until you watched the corner
+over a working session. A refusal you have already understood and acted on is
+still there, and the only way to be rid of it is to aim at a small button, so the
+corner silted up with sentences about states the app had already left, each one
+looking exactly like something that had just happened. Permanence also put every
+message one click away from a reader who never wanted to click.
+
+Three things make the timer safe. The clock stops while the pointer or the caret
+is on the stack, so a message being read is never taken away mid-sentence. A
+form or dialog re-announces a repeated failure, because `useMutation.run` clears
+`error` at the top of every attempt, so the string goes empty and comes back and
+the effect runs again even if the first sentence has expired. And the message is
+never the only account of a broken page: `LoadError` leaves a panel on the page
+itself, which matters because `useApi` does _not_ clear its error on retry, so a
+reload that fails identically is reported by that panel rather than by a second
+toast.
+
+The stack stays capped at four rather than scrolled, for the burst that outruns
+the clocks: a corner holds the last few things that happened, and a column tall
+enough to scroll is covering the page it reports on.
 
 **The viewport is a popover, because dialogs are in the top layer.** Every
 dialog in the app is a native `showModal()` dialog, which puts it in the top

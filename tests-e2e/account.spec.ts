@@ -61,7 +61,7 @@ test.describe('account', () => {
 	 * The corner popups, driven from the one page that can raise both tones a few
 	 * seconds apart: the profile save succeeds and the password save is refused.
 	 */
-	test('results stack in the corner, an error waits to be dismissed and a success expires', async ({
+	test('results stack in the corner, an error outlives a success and then goes too', async ({
 		page,
 		request
 	}) => {
@@ -94,13 +94,22 @@ test.describe('account', () => {
 			await expect(bad.locator('span[role="alert"]')).toBeVisible();
 			await expect(page.locator('.toast')).toHaveCount(2);
 
-			// The success goes on its own clock. The refusal does not: it is the only
-			// account of why the save did not happen.
+			// The success goes on its own clock. The refusal is still there well
+			// after it: an error is the only account of why the save did not happen,
+			// so it is given time to be found and read.
 			await expect(ok).toHaveCount(0, { timeout: 8000 });
 			await expect(bad).toHaveCount(1);
 
+			// It can be taken away by hand.
 			await bad.getByRole('button').click();
 			await expect(page.locator('.toast')).toHaveCount(0);
+
+			// And it goes on its own if it is left alone, which is the half that
+			// used to be missing: a refusal that had been read and acted on stayed
+			// in the corner until somebody aimed at its button.
+			await password.getByRole('button', { name: copy.common.save }).click();
+			await expect(bad).toHaveCount(1);
+			await expect(bad).toHaveCount(0, { timeout: 16000 });
 		} finally {
 			user.teardown();
 		}
@@ -108,9 +117,9 @@ test.describe('account', () => {
 
 	/**
 	 * A failed load is now two things at once: the server's reason in the corner,
-	 * where it does not expire, and a line left on the page so the screen is not
-	 * blank. Driven on two unrelated pages, because the panel sits in a different
-	 * layout on each.
+	 * which is given time to be read, and a line left on the page so the screen is
+	 * not blank once that sentence has gone. Driven on two unrelated pages,
+	 * because the panel sits in a different layout on each.
 	 */
 	test('a page that cannot load says so on the page and why in the corner', async ({
 		page,
@@ -135,7 +144,7 @@ test.describe('account', () => {
 				await expect(bad).toHaveCount(1);
 				await expect(bad.getByRole('alert')).toHaveText(reason);
 
-				// Errors do not expire, so it is still there to be read.
+				// Long enough to be read, so it is still there six seconds later.
 				await page.waitForTimeout(6000);
 				await expect(bad).toHaveCount(1);
 				await bad.getByRole('button').click();
