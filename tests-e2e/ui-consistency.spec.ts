@@ -210,4 +210,49 @@ test.describe('ui consistency', () => {
 			fixture.teardown();
 		}
 	});
+
+	/**
+	 * A field's controls are all the same size, and a menu matches the control
+	 * that opened it. Both used to depend on inheritance: `.field` carried its
+	 * label's size, so a control that did not restate its own took it, and an
+	 * open menu took whatever its trigger happened to sit in.
+	 */
+	test('every control in a dialog form reads at one size, menus included', async ({
+		page,
+		request
+	}) => {
+		const fixture = await createApiFixture(request);
+		try {
+			await signIn(page, fixture.sessionCookie);
+			await page.setViewportSize({ width: 1440, height: 950 });
+			await page.goto(`/trips/${fixture.tripId}/schedule`);
+			await page.getByRole('button', { name: /Add/ }).first().click();
+			await page.locator('.modal[open]').first().waitFor();
+
+			// Full-height controls only: `.small` and `.compact` are deliberate
+			// variants and say so in their class.
+			const sizes = async () =>
+				page.locator('.modal[open]').evaluate((m) => {
+					const out = new Set<string>();
+					for (const el of m.querySelectorAll('.input, .seltrigger, .mtrigger, .tfield')) {
+						const box = el as HTMLElement;
+						if (box.className.includes('compact')) continue;
+						if (!box.getClientRects().length) continue;
+						out.add(getComputedStyle(box).fontSize);
+					}
+					return [...out];
+				});
+
+			expect(await sizes(), 'the closed controls disagree').toHaveLength(1);
+
+			// An option and the value it is about to become are one sentence.
+			await page.getByRole('button', { name: 'Type' }).click();
+			const option = page.locator('.selopt').first();
+			await option.waitFor();
+			const menu = await option.evaluate((el) => getComputedStyle(el).fontSize);
+			expect([menu], 'the menu disagrees with its own trigger').toEqual(await sizes());
+		} finally {
+			fixture.teardown();
+		}
+	});
 });

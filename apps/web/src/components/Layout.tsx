@@ -87,9 +87,9 @@ function TopBar() {
 								}}
 								// A `.btn`, so the pill is the same height as every other
 								// control in the app rather than the 38px its own padding
-								// happened to give it. `pill` rounds it around the avatar and
+								// happened to give it. `round` rounds it around the avatar and
 								// `quiet` drops the border until it is hovered or open.
-								className={menuOpen ? 'btn pill' : 'btn pill quiet'}
+								className={menuOpen ? 'btn round' : 'btn round quiet'}
 							>
 								<Avatar tone="solid" name={user.name} />
 								<span>{user.name}</span>
