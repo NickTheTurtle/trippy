@@ -4316,6 +4316,23 @@ one button in the header rendered a step under every other button in the app,
 and took the segment's padding and divider border with it. It is `.btn.round`
 now. A variant name that reads naturally is worth nothing if some other
 component already owns it.
+
+**A page filter is the size of the button beside it.** The schedule's "View as"
+was a compact `Select`: 32px and a step of type under the `+ Add` it shares a
+row with, while Discover's type filter and `SectionNav`'s narrow form were full
+size. The same kind of control, answering the same kind of question at the top
+of a page, came out one size on the calendar and another on the next tab. The
+toolbar was already meant to be "the same filter-left, action-right shape
+Discover uses", so the mismatch was against the schedule's own stated intent.
+
+Both "View as" filters are full size now, and `Select` has no compact variant
+left to drift back to. It cost no vertical space anywhere: the `+ Add` beside it
+already set the row at 42px, at every width including the narrow layout where
+the filter and the button take a line of their own. The `Day | Agenda` pills
+stay at 32px on purpose, because that capsule is the same one Discover wears and
+is a switch rather than a field. A dense dropdown is still a real need in a list
+row, which is what `MultiSelect`'s compact form covers in the task list.
+
 **One picker component, not two.** The trip settings dialog used a native
 `<select>` for currency while every other picker in the app used `Select`. It
 looked different, it did not get the Escape fix, and it opened an OS menu in the

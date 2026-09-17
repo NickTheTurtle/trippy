@@ -489,7 +489,6 @@ const Toolbar = memo(function Toolbar({
 					<div className="viewas">
 						<span className="muted">{copy.viewAs.label}</span>
 						<Select
-							compact
 							value={readAs}
 							onChange={onViewAs}
 							options={viewAsOptions}

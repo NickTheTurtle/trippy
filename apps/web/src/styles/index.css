@@ -709,9 +709,6 @@ select.input.compact {
 	   a bare min-width here overflows narrow parents like the modal's field row. */
 	min-width: min(9rem, 100%);
 }
-.sel.compact {
-	min-width: min(7.5rem, 100%);
-}
 /*
  * The trigger takes the same height as a `.btn`, so a Select and a button in
  * the same row line up. It was inheriting its font size from wherever it
@@ -719,6 +716,13 @@ select.input.compact {
  * 38px in another and 43px in a third; both size and line-height are stated
  * here instead. `height`, not `min-height`: the label is a single ellipsised
  * line by design, so there is nothing to grow for.
+ *
+ * There is one height, and no compact variant. A `.sel.compact` existed and was
+ * worn by both "View as" filters: 32px, a step of type smaller than the `+ Add`
+ * button sitting right next to it, while Discover's filter and `SectionNav`'s
+ * narrow one were full size. The same control answering the same kind of
+ * question came out two sizes depending on the page. A dense form is a real
+ * need inside a list row, but that is what `MultiSelect`'s compact form covers.
  */
 .seltrigger {
 	display: flex;
@@ -737,12 +741,6 @@ select.input.compact {
 	color: var(--color-ink);
 	cursor: pointer;
 	text-align: left;
-}
-/* The compact variant matches `.btn.small` the same way. */
-.sel.compact .seltrigger {
-	height: var(--control-h-sm);
-	padding: 0.35rem 0.5rem;
-	font-size: var(--text-meta);
 }
 .seltrigger:hover {
 	border-color: var(--color-accent);
