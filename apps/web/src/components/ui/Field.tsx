@@ -32,7 +32,7 @@ export function FieldShell({
 }) {
 	return (
 		<label htmlFor={htmlFor} className={`field ${className}`}>
-			<span>
+			<span className="flabel">
 				{label}
 				{optional && <span className="foptional">{copy.ui.field.optionalSuffix}</span>}
 			</span>
