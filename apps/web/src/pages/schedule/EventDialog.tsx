@@ -1,14 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
 import { isLocatedType, STAY_CHECK_IN, type EventType } from '@trippy/core/types';
+import { MAX_NAME_LENGTH } from '@trippy/core/validate';
 import { api } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
 import Modal, { ModalFooter, ModalForm } from '../../components/ui/Modal';
 import { useDeleteAction } from '../../components/ui/useDeleteAction';
 import Select, { type Option } from '../../components/ui/Select';
 import TimeField from '../../components/ui/TimeField';
-import { FieldShell, TextArea } from '../../components/ui/Field';
+import { FieldShell, Field, TextArea } from '../../components/ui/Field';
 import { copy } from '../../copy';
 import PeoplePicker from './PeoplePicker';
+import PlaceField from './PlaceField';
+import { usePlaceLookup } from './usePlaceSearch';
 import { useJourneys } from './Journeys';
 import {
 	DAY_END,
@@ -16,7 +19,9 @@ import {
 	MODE_OPTIONS,
 	TYPE_OPTIONS,
 	dayLabel,
+	deriveTitle,
 	keepsPick,
+	NO_PEOPLE,
 	placeLabel,
 	placeOptions,
 	rangeLabel,
@@ -59,6 +64,7 @@ export default function EventDialog({
 	stays,
 	cities,
 	cityId,
+	provider,
 	dock,
 	peek,
 	onPreview,
@@ -81,6 +87,8 @@ export default function EventDialog({
 	stays: SavedPoi[];
 	cities: (Cell | null)[];
 	cityId: string | null;
+	/** Who answers the place search, for the attribution under its results. */
+	provider?: 'google' | 'osm';
 	/** Which edge to stand at. */
 	dock?: 'left' | 'right';
 	/** Whether there is room to leave the board showing rather than covering it. */
@@ -97,13 +105,23 @@ export default function EventDialog({
 	   block that is not a stay yet, so switching type to one has an answer. */
 	const [checkIn, setCheckIn] = useState(event.day);
 	const [checkOut, setCheckOut] = useState(event.end_day ?? shiftDay(event.day, 1));
-	const [people, setPeople] = useState<string[]>([...event.people]);
+	/* `null` once the organiser has emptied the field. Distinct from `[]`, which
+	   is how everyone is stored, and refused at the save rather than at the tick. */
+	const [people, setPeople] = useState<string[] | null>([...event.people]);
 	const [notes, setNotes] = useState(event.notes ?? '');
 	const [mode, setMode] = useState(event.travel_mode ?? '');
 	/* Which link the block already has depends on what it is: a stay is booked
 	   into a proposed stay, everything else is scheduled at a saved place. */
 	const savedPick = (event.type === 'stay' ? event.lodging_id : event.poi_id) ?? '';
 	const [poi, setPoi] = useState(savedPick);
+	/* The name the box opens on: the linked place's, or the one typed by hand
+	   when there is no link. Both are the same field to the reader, so both have
+	   to come back when the dialog is reopened. */
+	const openedOn =
+		((event.type === 'stay' ? stays : saved).find((p) => p.id === savedPick)?.name ??
+		(savedPick ? '' : event.place_text)) ||
+		'';
+	const [place, setPlace] = useState(openedOn);
 
 	const journeys = useJourneys({ legs, eventOf, peopleLabel, focusLegId });
 
@@ -144,11 +162,29 @@ export default function EventDialog({
 	// A journey's location is the far end of it: where it puts you, and where
 	// the rest of the day is then planned from.
 	const placeable = isLocatedType(type);
-	const placeText = placeLabel(type);
+	const placeFieldLabel = placeLabel(type);
+
+	/* The provider search is biased to a city, so a day without one searches
+	   nothing and the field is the saved list alone. */
+	const searchCity = cities.find((c): c is Cell => c?.id === cityId) ?? null;
+	const { found, onTyped, fieldProps } = usePlaceLookup({
+		base,
+		city: searchCity,
+		type,
+		provider,
+		onPicked: (made, stay) => {
+			setPlace(made.name);
+			// Linked only when the block can hold what was added: a hotel found
+			// from an activity is saved to the trip either way, but this block is
+			// not the thing that books it.
+			setPoi(stay === staying ? made.id : '');
+		}
+	});
 
 	/* One picker, two lists: a stay is booked into one of the stays the group is
-	   voting on, everything else happens at a saved place. */
-	const pickable = staying ? stays : saved;
+	   voting on, everything else happens at a saved place. Anything the provider
+	   search added while this dialog has been open goes in front of both. */
+	const pickable = staying ? [...found.stays, ...stays] : [...found.places, ...saved];
 
 	/* Where the draft stands, which the board, the map and the planner all read
 	   as coordinates. An event can hold coordinates without a saved place, so an
@@ -156,21 +192,42 @@ export default function EventDialog({
 	const spot = pickable.find((p) => p.id === poi) ?? null;
 	const lat = placeable ? (spot ? spot.lat : poi ? null : event.lat) : null;
 	const lng = placeable ? (spot ? spot.lng : poi ? null : event.lng) : null;
+
+	/** The name this block would be given if nobody had labelled it. */
+	const derived = deriveTitle(
+		placeable ? (spot?.name ?? (poi ? null : place.trim() || null)) : null,
+		notes,
+		type
+	);
+
+	/* What to call the block, blank when its name is simply the one it would be
+	   derived anyway. Showing a derived name as typed text would make every block
+	   look deliberately named, and a reader clearing what they found there would
+	   be undoing something they never wrote. Blank with the derived name as the
+	   placeholder says the same thing and is true. */
+	const [label, setLabel] = useState(() => {
+		const was = deriveTitle(
+			isLocatedType(event.type) ? openedOn || null : null,
+			event.notes ?? '',
+			event.type
+		);
+		return event.title === was ? '' : event.title;
+	});
 	useEffect(() => {
 		preview.current?.({
 			id: event.id,
 			day: onDay,
 			end_day: staying ? checkOut : null,
-			/* The name it already has, because this dialog no longer sends one: the
-			   name field is gone, the save is silent about the title, and the server
-			   leaves a stored name alone when it is not mentioned. Deriving a
-			   different one here would preview a rename that is not going to
-			   happen. */
-			title: event.title,
+			/* A typed label is the name; without one the block is named the way it
+			   would be named on a fresh save, so the preview shows the rename the
+			   save is actually going to make rather than the name on record. */
+			title: label.trim() || derived,
 			type,
 			start_min: staying ? STAY_CHECK_IN : startMin,
 			end_min: staying ? DAY_END : endMin,
-			people,
+			// An emptied field has nobody to draw, and the board reads no names as
+			// the whole group, which is what the event still is until this saves.
+			people: people ?? [],
 			lat,
 			lng
 		});
@@ -181,6 +238,8 @@ export default function EventDialog({
 		staying,
 		checkOut,
 		notes,
+		label,
+		derived,
 		type,
 		placeable,
 		spot?.name,
@@ -194,7 +253,7 @@ export default function EventDialog({
 	// preview when the dialog goes, whether it was saved, cancelled or escaped.
 	useEffect(() => () => preview.current?.(null), []);
 
-	const poiOptions = placeOptions(pickable, cities, cityId);
+	const poiOptions = placeOptions(pickable, cities, cityId, type);
 
 	/* Sent only when it has actually changed.
 	 *
@@ -203,7 +262,7 @@ export default function EventDialog({
 	 * for one of those the picker reads "No location" the moment it opens: a
 	 * reader who came here to change the end time and pressed Save would have
 	 * wiped the spot the day is planned around, and every journey to it. */
-	const placeMoved = poi !== savedPick;
+	const placeMoved = poi !== savedPick || place.trim() !== openedOn.trim();
 
 	const op = (body: Record<string, unknown>) =>
 		api(`${base}/events/${event.id}/op`, { method: 'POST', body });
@@ -227,10 +286,11 @@ export default function EventDialog({
 			// travel off them rather than off anything in the edit.
 			await op({
 				op: 'edit',
-				/* No title, ever. The name field is gone, so this dialog has nothing
-				   to say about the name: an absent title leaves the stored one alone,
-				   which is what keeps a name somebody deliberately chose from being
-				   recomputed by an edit that only moved the block. */
+				/* Sent on every save, because the field is on screen on every save.
+				   Blank is not silence: it is the organiser clearing the label, and
+				   the server reads it as a request to derive the name again from the
+				   place and the notes this body is writing. */
+				title: label.trim(),
 				type,
 				notes: notes.trim(),
 				startMin: staying ? undefined : startMin,
@@ -242,12 +302,19 @@ export default function EventDialog({
 				travelMode: type === 'travel' ? mode : undefined,
 				// Absent leaves the place alone; empty unlinks it.
 				poiId: placeable && placeMoved ? poi : undefined,
+				// Only carries a name when nothing is picked: a link names itself.
+				placeName: placeable && placeMoved && !poi ? place.trim() : undefined,
 				// What this form was opened on. The server refuses the write if the
 				// event has moved on since, rather than letting this copy of every
 				// untouched field overwrite whoever saved first.
 				version: event.version
 			});
-			await api(`${base}/events/${event.id}/people`, { method: 'PUT', body: { people } });
+			// Never null here: `submit` refuses an emptied field before it gets
+			// this far.
+			await api(`${base}/events/${event.id}/people`, {
+				method: 'PUT',
+				body: { people: people ?? [] }
+			});
 
 			// The journeys last: they are planned off the people just saved, and
 			// read back from the day the block has moved to rather than left.
@@ -257,6 +324,15 @@ export default function EventDialog({
 		},
 		{ fallback: 'Could not save that event.' }
 	);
+
+	/* The Participants field can be emptied but not saved empty, so the refusal
+	   is raised here, in the same footer slot and the same corner toast a server
+	   refusal would use. */
+	function submit(e: React.FormEvent) {
+		e.preventDefault();
+		if (!people) return save.setError(NO_PEOPLE);
+		void save.run();
+	}
 
 	return (
 		<>
@@ -269,7 +345,7 @@ export default function EventDialog({
 				subtitle={staying ? rangeLabel(checkIn, checkOut) : dayLabel(event.day)}
 				onClose={onClose}
 			>
-				<ModalForm className="schedule" onSubmit={save.submit}>
+				<ModalForm className="schedule" onSubmit={submit}>
 					<div className="mbody flex flex-col gap-4">
 						{/* The same 12-column grid the rest of the app's dialogs use, so a
 						    field keeps its width whether or not the row beside it is
@@ -295,14 +371,20 @@ export default function EventDialog({
 						    half of a 390px dialog. */}
 						<div className="grid grid-cols-12 gap-x-2.5 gap-y-3.5">
 							{placeable && (
-								<FieldShell label={placeText} optional className="col-span-8">
-									<Select
-										value={poi}
-										onChange={setPoi}
-										options={poiOptions}
-										ariaLabel={placeText}
-									/>
-								</FieldShell>
+								<PlaceField
+									label={placeFieldLabel}
+									className="col-span-8"
+									options={poiOptions}
+									value={place}
+									onChange={(text, id) => {
+										setPlace(text);
+										setPoi(id);
+										// Only a typed query searches. A pick puts a name in the
+										// box that nobody asked the provider for.
+										onTyped(id ? '' : text);
+									}}
+									{...fieldProps}
+								/>
 							)}
 							<FieldShell
 								label="Type"
@@ -312,7 +394,12 @@ export default function EventDialog({
 									value={type}
 									onChange={(v) => {
 										const next = v as EventType;
-										if (!keepsPick(type, next)) setPoi('');
+										// The pick and the name it wrote go together: see the add
+										// dialog.
+										if (!keepsPick(type, next, spot)) {
+											setPoi('');
+											setPlace('');
+										}
 										setType(next);
 									}}
 									options={TYPE_OPTIONS}
@@ -365,6 +452,19 @@ export default function EventDialog({
 											? 'col-span-12 sm:col-span-5'
 											: 'col-span-12'
 								}
+							/>
+
+							{/* The placeholder is the name the block falls back to once
+							    this is cleared, so the field says what it overrides
+							    without a hint line repeating it. */}
+							<Field
+								label="Label"
+								optional
+								className="col-span-12"
+								value={label}
+								maxLength={MAX_NAME_LENGTH}
+								placeholder={derived}
+								onChange={(e) => setLabel(e.target.value)}
 							/>
 
 							<TextArea

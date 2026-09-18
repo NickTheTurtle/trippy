@@ -15,7 +15,20 @@ import { copy } from '../copy';
  * an error card where this draws an actual map. Leaflet is imported dynamically
  * so a deployment with a working key never pays for the library.
  */
-function TripMapInner({ tracks, center = null }: { tracks: MapTrack[]; center?: MapCenter }) {
+function TripMapInner({
+	tracks,
+	center = null,
+	focus = null,
+	focusKey = 0,
+	onAdd
+}: {
+	tracks: MapTrack[];
+	center?: MapCenter;
+	focus?: MapCenter;
+	focusKey?: number;
+	/** Schedules a saved place a pin stands for. See `MapItem.addId`. */
+	onAdd?: (poiId: string) => void;
+}) {
 	const elRef = useRef<HTMLDivElement>(null);
 	const mapRef = useRef<LMap | null>(null);
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -27,11 +40,21 @@ function TripMapInner({ tracks, center = null }: { tracks: MapTrack[]; center?: 
 	tracksRef.current = tracks;
 	/** The last set of points the camera was fitted to. */
 	const fitted = useRef('');
+	/* The whole-day bounds, kept fresh on every draw so a cleared focus can put
+	   the camera back without recomputing them. */
+	const dayPts = useRef<[number, number][]>([]);
 
 	/* Read when the map is built, and again only when there is nothing to fit
 	   to. Held in a ref so a new centre object does not rebuild the map. */
 	const centerRef = useRef(center);
 	centerRef.current = center;
+	/** The camera aim, in a ref so `draw` can honour it without depending on it. */
+	const focusRef = useRef(focus);
+	focusRef.current = focus;
+	/* Read at click time rather than captured, so a card built on an earlier
+	   draw still calls the handler this render has. */
+	const addRef = useRef(onAdd);
+	addRef.current = onAdd;
 
 	function draw() {
 		const map = mapRef.current;
@@ -108,8 +131,12 @@ function TripMapInner({ tracks, center = null }: { tracks: MapTrack[]; center?: 
 				const count = p.items.length;
 				const n = t.numbered === false || count > 1 ? null : p.index;
 				const title = p.items.map((i) => i.title).join(', ');
+				// The pin's own colour wins over the track's, so a track whose stops
+				// are different kinds of place draws each in the board's palette; the
+				// line stays the track colour. Co-located items take the first's.
+				const color = p.items[0]?.color ?? t.color;
 				const m = L.marker([p.lat, p.lng], {
-					icon: pin(t.color, n, count),
+					icon: pin(color, n, count),
 					// The pin's accessible name, and what a keyboard reader lands on.
 					title,
 					alt: title
@@ -122,7 +149,12 @@ function TripMapInner({ tracks, center = null }: { tracks: MapTrack[]; center?: 
 				// scrolled without the pointer having to stay on the pin.
 				const open = (e: { originalEvent?: MouseEvent }, hold = false) => {
 					const at = cardAnchor(e?.originalEvent, m.getElement());
-					layer.show(mapCard(p.items, t), at.x, at.y, hold);
+					layer.show(
+						mapCard(p.items, t, (id) => addRef.current?.(id)),
+						at.x,
+						at.y,
+						hold
+					);
 				};
 				m.on('mouseover', (e: { originalEvent?: MouseEvent }) => open(e));
 				m.on('click', (e: { originalEvent?: MouseEvent }) => open(e, true));
@@ -142,7 +174,11 @@ function TripMapInner({ tracks, center = null }: { tracks: MapTrack[]; center?: 
 			}
 		}
 
+		dayPts.current = pts;
 		if (pts.length === 0) return;
+		// A focused pin owns the camera: a redraw must not yank it back to the
+		// whole day while the reader is looking at one place.
+		if (focusRef.current?.lat != null && focusRef.current?.lng != null) return;
 		/* The camera is the reader's. It follows the points when they change and
 		   is left alone otherwise, so retitling an event or nudging it an hour
 		   does not throw away a pan: none of that moves anything. Rounded so a
@@ -208,6 +244,25 @@ function TripMapInner({ tracks, center = null }: { tracks: MapTrack[]; center?: 
 	const sig = JSON.stringify(tracks);
 	// eslint-disable-next-line react-hooks/exhaustive-deps
 	useEffect(draw, [sig]);
+
+	/* Aim the camera at one pin when the page asks, and put it back on the whole
+	   day when the ask clears. Keyed on `focusKey`, which the page changes on
+	   every open and every close, so clicking the same block twice still re-aims
+	   and closing the dialog zooms back out. The fit-to-day branch reuses the
+	   points the last draw measured, so the two cannot disagree. */
+	useEffect(() => {
+		const map = mapRef.current;
+		const L = lRef.current;
+		if (!map || !L) return;
+		if (focus?.lat != null && focus?.lng != null) {
+			map.setView([focus.lat, focus.lng], 16);
+			return;
+		}
+		const pts = dayPts.current;
+		if (pts.length === 1) map.setView(pts[0], 14);
+		else if (pts.length > 1) map.fitBounds(L.latLngBounds(pts).pad(0.25));
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [focusKey]);
 
 	const hasPoints = tracks.some((t) => t.items.some((i) => i.lat != null && i.lng != null));
 

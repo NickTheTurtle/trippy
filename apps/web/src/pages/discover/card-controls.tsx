@@ -101,12 +101,23 @@ export function OpenLink({ url, name }: { url: string; name: string }) {
  * decoration. Checked on screen at both widths: it now sits in line with the
  * vote pill and the open link.
  */
-export function EditCardButton({ name, onEdit }: { name: string; onEdit: () => void }) {
-	// COPY: pending owner clearance, wanted as
-	// `copy.discover.card.editLabel: (name: string) => \`Edit ${name}\``.
-	const label = `Edit ${name}`;
+export function EditCardButton({
+	name,
+	onEdit,
+	className = ''
+}: {
+	name: string;
+	onEdit: () => void;
+	className?: string;
+}) {
+	const label = copy.discover.placeCard.editLabel(name);
 	return (
-		<button type="button" className="btn small" title={label} onClick={onEdit}>
+		<button
+			type="button"
+			className={`btn small ${className}`.trim()}
+			title={label}
+			onClick={onEdit}
+		>
 			<PencilIcon />
 			<span className="sr-only">{label}</span>
 		</button>

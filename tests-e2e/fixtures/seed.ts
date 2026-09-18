@@ -268,13 +268,22 @@ export async function addPlace(
 export async function addStay(
 	request: APIRequestContext,
 	fixture: ApiFixture,
-	body: { cityId: string; name: string; priceCents?: number; currency?: string }
+	body: {
+		cityId: string;
+		name: string;
+		priceCents?: number;
+		currency?: string;
+		lat?: number;
+		lng?: number;
+	}
 ): Promise<string> {
 	const res = await send(request, fixture, 'POST', `/trips/${fixture.tripId}/discover/stays`, {
 		cityId: body.cityId,
 		name: body.name,
 		priceCents: body.priceCents,
-		currency: body.currency
+		currency: body.currency,
+		lat: body.lat,
+		lng: body.lng
 	});
 	expect(res.status(), await res.text()).toBe(201);
 	return (await res.json()).id as string;

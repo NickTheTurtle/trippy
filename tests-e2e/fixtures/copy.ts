@@ -8,4 +8,4 @@
  * these values, never hardcoded strings, so a reword does not fail the suite.
  */
 export { copy } from '../../packages/copy/src/copy';
-export { formatDay, formatMoney } from '../../packages/copy/src/format';
+export { formatMoney, formatDay } from '../../packages/copy/src/format';

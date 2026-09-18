@@ -104,8 +104,7 @@ export default function TripFormDialog({
 		e.preventDefault();
 		const span = spanDays(startDate, endDate);
 		if (span !== null && span > MAX_DAYS && span > wasSpan) {
-			// COPY: pending owner clearance, wanted as `copy.tripForm.tooLong`.
-			return save.setError('A trip can run for at most a year.');
+			return save.setError(copy.tripForm.tooLong);
 		}
 		void save.run();
 	}

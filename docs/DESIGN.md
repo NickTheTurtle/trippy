@@ -273,6 +273,112 @@ has no old position to travel from. Under `prefers-reduced-motion` all of it is
 removed: the board is read, not watched, and every block is already in the right
 place without the motion.
 
+### M3.3: Reading the board and its map at a glance
+
+**The per-type palette is spread out on purpose.** The five event types are told
+apart first by colour, both as a 3px left border and as a faint background
+(a 10 percent mix of the same colour on white), so on a busy day the eye sorts a
+column of blocks by hue before it reads a word. The earlier palette put activity,
+food, stay, travel and free time close enough together that a green and a blue
+teal, or a brown and a mauve, were a guess at arm's length. The colours are now
+pulled apart around the wheel while staying muted enough to sit behind black text
+and read as one app: activity green, food a warmer orange, stay a clear violet,
+travel a colder blue, and free time the same warm grey it was, kept as the one
+hatched fill so it still reads as "unclaimed" rather than a sixth category. The
+hexes live in two places, `schedule.css` for the CSS variables and `EVENT_COLORS`
+in `Schedule.tsx` for the map markers, because there is no build step that could
+hand one source to both a stylesheet and a canvas-drawn pin; each carries a
+comment pointing at the other so a future edit changes both.
+
+**A journey borrows the colour of the event it feeds.** A leg is drawn directly
+above the event it arrives at, bottom-anchored to that event's top edge, so the
+two already touch. Left as two separate borders in two colours they read as two
+things with a seam between them, when a walk to dinner is really the first minutes
+of dinner. The leg therefore takes the arrival event's `--c` and both facing
+corners are squared (the leg's bottom-left and the event's top-left radius go to
+zero) so one unbroken left border runs down the leg and into the block. This only
+applies when the arrival event is actually on the board and is not free time,
+which never anchors a journey; a leg with nowhere to land keeps the neutral travel
+colour and its own rounded corner, and two stacked legs each join the event below
+them rather than each other. A `tight` leg, whose window is too short for the
+trip, keeps its warning colour over the borrowed one, because the warning is the
+more important thing to see.
+
+**Clicking a block focuses the map; editing is the pencil alone.** A click on a
+block used to open the editor. It now selects the block and aims the map at it and
+nothing else, so the reader's most common gesture answers "what is near this"
+rather than dropping a dialog over the day they are reading. Editing moved onto an
+explicit pencil that fades in on hover in the top-right corner, using the same
+reveal-on-hover idiom the resize grip uses and sat opposite that grip so the two
+never collide on a short block. The pencil is a real button with a real name
+("Edit &lt;title&gt;"), so it opens the editor by mouse and by keyboard alike and
+is announced rather than left a bare glyph; it swallows the pointer and the click
+so a press on it opens the editor instead of starting a drag or focusing the map
+underneath. The block's own accessible name changed with the behaviour, from
+"Open, or drag to reschedule" to "Show on the map, or drag to reschedule", because
+a control should not promise an act it no longer performs. The pencil's label is a
+`// COPY: pending owner clearance` constant in the component rather than a rewrite
+of the owner-authored copy files.
+
+**A click aims the map, and the camera comes back on its own.** The map camera is
+otherwise driven by the bounds of the whole day, which answers "where is the day"
+and not "what is next to this one". A selected block hands the map a `focus` point
+and a `focusKey`, kept apart from the open-dialog state so that looking and editing
+do not drive each other: the key, not the point, is what the map watches, so
+clicking the same block twice re-aims the camera and a change of coordinates alone
+never does. The map remembers the day's own bounds while a focus is live and
+refits them the moment it clears, and it clears on a day change (the focused block
+is not on the new day) or on Escape while no dialog is up (an open dialog owns
+Escape for its own close). A block with no coordinates (free time, or a place not
+yet geocoded) yields no focus and leaves the camera where it is rather than flying
+to nowhere. Both the Google map and the keyless Leaflet fallback honour the same
+two props, so the behaviour does not depend on whether a maps key is present.
+
+**Legs and the agenda are the edges of this.** A journey has no editor of its own
+and reads as part of the event it feeds, so a click on a leg focuses the map on
+that arrival rather than opening anything; the journey is still edited through the
+arrival event's pencil, which is where its dialog already lived, at the cost of no
+longer preselecting the one journey group that was clicked. The stay bands above
+the day were the remaining exception, and the owner ruled they should not be: a
+band now carries the same pencil a block does, so its own click aims the map at
+the building. It is a `div` wrapping two buttons rather than one button, because
+the pencil cannot nest inside the chip's own button; the chip keeps the border
+and the hover tint, the inner face carries the name and the roster, and the
+pencil follows the block's reveal rules (hidden at rest, shown on hover or focus)
+so a band of three stays is not three pencils. The agenda list is now the one
+place a click still opens, because its rows are a list rather than blocks on the
+board and they carry no pencil to move editing onto.
+
+**Every pin is coloured by its category, and stays are on the map.** The map used
+to colour markers per _track_ (one grey "saved" track, one green "day" track),
+which is the wrong axis now that the board colours by type. Markers take a colour
+per item instead, drawn from the same palette as the blocks, so the map and the
+board read as one scheme: an attraction pin is the activity green, a food pin the
+food orange, a stay pin the stay violet. Stays carry coordinates from their
+lodging and simply were not being plotted before; they are now their own map layer
+so the place the group sleeps is visible beside where it spends the day. The
+polyline colours are left on the track so the route still reads as a single
+thread rather than a rainbow.
+
+**Grey is the absence of a type, not a type.** A saved place that is on no day
+has no block, so there is no block colour to borrow: it is `#9aa39c`, and every
+scheduled pin keeps its own type colour from the palette above. That reads the
+map the way the board reads, one glance separating what is planned from what is
+merely noted, without flattening the planned ones into a single green.
+
+**The one thing a map can do about a grey pin is schedule it**, so that is the
+only action its hover card carries: a `+ Add` that opens the add dialog on the
+day already shown, with the place filled in and its type taken from the Discover
+bucket it was saved into. A coloured pin gets no button because the block it
+belongs to is already on the board to be edited.
+
+Making that button reachable took a hover bridge. The card layer is
+`pointer-events: none` so it never swallows a click meant for the map, and the
+card is destroyed by the pin's `mouseout`, which fires while the pointer is still
+crossing the 18px gap between pin and card. So the hide is delayed 160ms and
+cancelled by a `mouseenter` on the card itself, and only a card that carries an
+action takes the pointer back. A button the pointer cannot reach is not a button.
+
 ### M3.1: Events carry people, and travel follows
 
 **The change.** Tracks, parties, `party_day` and `party_membership` are deleted.
@@ -351,32 +457,48 @@ the display and written out on the next edit, because a stored id the menu
 cannot offer could never be unticked and would hold the count permanently short
 of the roster, putting "Everyone" out of reach. A stored list naming only people
 who have left is therefore the empty list by another route, and reads as
-Everyone. And unticking the last remaining name returns to Everyone rather than
-to nobody, which is not a bug but the schema showing through: an event with no
+Everyone. And "nobody" is still not a thing an event can be: an event with no
 people is defined as an event for the whole group, so a one-member trip cannot
-distinguish the two and no trip can express "nobody". Free time, not an empty
-participant list, is how the schedule says somebody is not involved.
+distinguish the two and no trip can store "nobody". Free time, not an empty
+participant list, is how the schedule says somebody is not involved. What the
+field does with a pick it cannot store is the next section.
 
 **A tick that cannot change anything says so.** The consequence above was
 correct and invisible, which is a bad combination for the one row most likely to
 be clicked: the derived Everyone crew sits at the top of the picker's menu, and
 once everyone is picked, clicking it asks to untick the whole trip. That is the
-unrepresentable pick, so the ticks come straight back and the control reads as
+unrepresentable pick, so the ticks came straight back and the control read as
 broken. The reported bug was exactly that: "I cannot click Everyone to deselect
 everyone."
 
-Nobody is still not a thing an event can be, and the fix is not to pretend
-otherwise. An empty field that saved as everyone would be a lie told in the one
-place the two forms are supposed to be reconciled, and there is no third record
-to write: `writePeople` deletes the rows and `toPlanner` reads no rows as the
-whole roster. So the refusal is said instead of performed. `PeoplePicker`
-remembers the tick that asked for nobody and passes a line back to the menu,
-which shows it at the top, where the click was; the same line stays under the
-field once the menu closes. It goes in the menu and not only in the field's hint
-because the open menu is `position: fixed` and covers the line under the field,
-so a hint alone would be written where the reader cannot see it. That is the
-same judgment the People page makes about the locked crew row: a control that
-silently does nothing is worse than one that explains itself.
+The first fix narrated the refusal: the picker remembered the tick that asked
+for nobody and wrote a line at the top of the menu and under the field. It is
+not what ships. Bouncing the tick meant the field disagreed with the click at
+the moment of the click, and the apology had to appear twice (the open menu is
+`position: fixed` and covers the field's own hint) to be read at all. Two lines
+of explanation attached to a gesture that did nothing is a worse control than
+the silent one, not a better one.
+
+**So emptying the field is allowed, and saving it is what is refused.** Clearing
+Participants is a reasonable step on the way to picking somebody else, and the
+field now holds that state and reads "Nobody". What it cannot do is store it:
+`writePeople` deletes the rows and `toPlanner` reads no rows as the whole
+roster, so an event saved with nobody on it would come back as everyone. The
+dialogs therefore refuse the save, with the sentence "An event must involve at
+least one person." in the same footer slot and the same corner toast that
+carries every other refused save. The field stays quiet while it is being
+edited, and the answer arrives when the reader actually asks for one.
+
+That needs three states where the store has two, so the dialogs hold
+`string[] | null`: `[]` is everyone, a list is those people, and `null` is an
+emptied field. The two empties have to stay apart for the whole distance between
+the field and the save, which is why the state is not simply `string[]`. Nothing
+below the dialog sees `null`; both write paths send `people ?? []`, and the
+guard above them means that fallback is never the one that runs.
+
+The refusal is client-side only. The API is unchanged and still reads an empty
+list as everyone, which is the storage convention the rest of the app depends
+on: making the route refuse `[]` would break every legitimate Everyone write.
 
 **"Everyone" is expanded at the persistence boundary, and core reads ids
 literally.** The convention above is a storage convention, and `planLegs` never
@@ -732,6 +854,28 @@ problem.
 `opacity-0 group-hover:opacity-100` row now carries `[@media(hover:none)]`,
 following `discover/card-controls.tsx`, which had it first.
 
+**The hour gutter is one measurement, not four.** The board's left gutter was
+56px written out in four places: `.daygrid`'s `padding-left`, `.lane`'s `left`,
+the width of an `.hourline` label, and the `.stayband`'s `margin-left`. On a
+phone one of them was set back to 0 while the other three kept their value, so
+the stay band sat 56px to the left of every block under it. It is now a single
+`--hourgutter` on `.sched` that all four derive from, which is why the defect
+could exist and why it cannot recur.
+
+Its phone value is 44px, measured rather than guessed: the widest label the
+board ever writes is "12 AM" at 33.56px, so a 36px label box holds it on one
+line with room for the 8px rule. The earlier attempt at 48px was simply more
+room than the text needs. At 390px the band wraps onto two rows, chip above and
+"+ Add stay" below, which matches the house pattern of an action on its own row.
+
+**The calendar's two header gaps were the wrong way round.** Discover reads
+dropdown, 24px, type pills, 16px, body. The calendar read tools, 8px, view
+pills, 24px, body: the same two gaps, swapped. An older comment had justified
+the 24px under the pills by comparing it to Discover's outer `gap-6`, but that
+gap belongs in the slot above them. Swapped, the two pages are pixel-identical
+at 390px, which is the point: the pills are the same control in the same place
+and a reader moving between tabs should not see the page shift under them.
+
 ### M3.5: Destinations and controls
 
 The phone pass left the app with three mechanisms for "switch what I am looking
@@ -857,13 +1001,13 @@ things to reason about, and the divergence would only ever appear on the trips
 that are hardest to test by looking at the app. Measured before and after against
 a copy of the real database, the short trips are byte-identical:
 
-| trip | dates | days before | days after | identical |
-| --- | --- | --- | --- | --- |
-| Athens escape marathon | 2026-04-16..2026-04-20 | 5 | 5 | yes |
-| China, autumn | 2026-10-24..2026-11-08 | 16 | 16 | yes |
-| Test 2 | 2026-09-10..2026-09-10 | 1 | 1 | yes |
-| Pin Trip | 2026-09-08..2026-09-08 | 1 | 1 | yes |
-| Montreal | 2024-09-09..2026-09-12 | 400 | 734 | no, and by design |
+| trip                   | dates                  | days before | days after | identical         |
+| ---------------------- | ---------------------- | ----------- | ---------- | ----------------- |
+| Athens escape marathon | 2026-04-16..2026-04-20 | 5           | 5          | yes               |
+| China, autumn          | 2026-10-24..2026-11-08 | 16          | 16         | yes               |
+| Test 2                 | 2026-09-10..2026-09-10 | 1           | 1          | yes               |
+| Pin Trip               | 2026-09-08..2026-09-08 | 1           | 1          | yes               |
+| Montreal               | 2024-09-09..2026-09-12 | 400         | 734        | no, and by design |
 
 Montreal's new list has the old one as an exact prefix. The one-day trips are in
 the table deliberately: window arithmetic fails first at a length of 1, where
@@ -1019,6 +1163,21 @@ belongs to the API layer, which has an error channel to explain a refusal. The U
 is deliberate: there is no trip timezone to use, since each city carries its own `tz` and an
 expense is not linked to a city, so the client, which knows what day it is where the member
 is standing, should always send the date.
+
+**A payment's date is the one thing about it that can be edited.** Everything else on a
+settlement row is derived from the debt it cleared: the amount, the two sides, the split of
+one participant at full weight. Correcting any of those means deleting the payment and
+recording the real one, which is why `updateExpense` refuses a settlement outright and
+keeps refusing it. The day is different, because it is the only part of a payment that was
+never derived from anything: the row is stamped when somebody gets round to pressing "Mark
+paid", which is rarely the day the transfer actually left an account, and the ledger sorts
+by `spent_on`. A payment stamped with the wrong day sorts into the wrong place and there
+was previously no way to move it.
+
+So there is a second, deliberately tiny route, `PUT /trips/:tripId/expenses/:expenseId/date`,
+behind `updateSettlementDay()`. It touches one column, on a row it first checks is a
+settlement, and it cannot do anything else. A flag on the general edit path would have made
+the function that must refuse payments into the function that sometimes accepts them.
 
 #### Split model (implemented)
 
@@ -2060,7 +2219,7 @@ control on all four views.
 
 Note this was a page bug, not a component one. `EmptyState` measured 340 x 273.8
 on all three Preparation sections before and after; only its y moved.
- It is a first-run page rather than
+It is a first-run page rather than
 a hole in a list: it has a heading, a sentence and the trip's single call to
 action, and it is the only thing on the screen. Folding it into `EmptyState`
 would mean opting out of the drawing, the centring and the caption-only shape,
@@ -4356,6 +4515,22 @@ one button in the header rendered a step under every other button in the app,
 and took the segment's padding and divider border with it. It is `.btn.round`
 now. A variant name that reads naturally is worth nothing if some other
 component already owns it.
+
+**A page filter is the size of the button beside it.** The schedule's "View as"
+was a compact `Select`: 32px and a step of type under the `+ Add` it shares a
+row with, while Discover's type filter and `SectionNav`'s narrow form were full
+size. The same kind of control, answering the same kind of question at the top
+of a page, came out one size on the calendar and another on the next tab. The
+toolbar was already meant to be "the same filter-left, action-right shape
+Discover uses", so the mismatch was against the schedule's own stated intent.
+
+Both "View as" filters are full size now, and `Select` has no compact variant
+left to drift back to. It cost no vertical space anywhere: the `+ Add` beside it
+already set the row at 42px, at every width including the narrow layout where
+the filter and the button take a line of their own. The `Day | Agenda` pills
+stay at 32px on purpose, because that capsule is the same one Discover wears and
+is a switch rather than a field. A dense dropdown is still a real need in a list
+row, which is what `MultiSelect`'s compact form covers in the task list.
 **One picker component, not two.** The trip settings dialog used a native
 `<select>` for currency while every other picker in the app used `Select`. It
 looked different, it did not get the Escape fix, and it opened an OS menu in the
@@ -5689,6 +5864,12 @@ every other list in the app already uses, labelled "Edit <name>". The body
 button stays exactly as it was, because the large target is genuinely the nicer
 way to open the editor once you know it is there.
 
+The pencil ends the footer row rather than joining Vote and Open at its left.
+Vote and Open both act on the thing the card is showing, and Edit acts on the
+card itself, so pushing it to the far right (`ml-auto`) separates the pair from
+the one control that changes what everybody else is voting on, and lands it in
+the corner every other edit affordance in the app already occupies.
+
 **Deleting stays in the editor.** It is one click further, it keeps the
 confirmation that already guards it, and a trash button on every tile of a
 fourteen-tile grid would be the loudest thing on the page. That is the same
@@ -5721,6 +5902,7 @@ says who it found nothing for, in the second person for the reader's own name,
 which is how the rest of the app addresses them. Its sentence is the one string
 here not yet in `@trippy/copy`; it is inline with a `COPY:` note naming the key
 it wants.
+
 ## The console keeps only what somebody has to read
 
 A development console that prints the same expected failure on every page load
@@ -6526,8 +6708,8 @@ The decisions, and why each went the way it did:
 
 - **Roster overlap is not layout overlap, but it is the same predicate.**
   `layoutDay` already computes overlaps, so sharing was considered seriously.
-  The machinery does not transfer: layout clusters events by time *regardless of
-  who is on them*, over everything drawable, to decide column widths, and two
+  The machinery does not transfer: layout clusters events by time _regardless of
+  who is on them_, over everything drawable, to decide column widths, and two
   events overlapping there is the normal case (a split), not a fault. What does
   transfer is the geometric fact, so `rangesOverlap` is now exported from
   `layout.ts` and used by both. One copy of the boundary rule, two questions.
@@ -6551,7 +6733,7 @@ The decisions, and why each went the way it did:
   night's hotel as colliding with every event of the next morning. It is dropped
   before the walk rather than skipped inside it, so it also cannot interrupt a
   travel chain it is not part of.
-- **A `travel` event is the transit, so nothing is checked *into* one.** The
+- **A `travel` event is the transit, so nothing is checked _into_ one.** The
   walk to the airport is inside the flight block by convention, and asking
   whether you can reach the middle of your own flight is not a question. Where
   it lands is a different matter: a located travel event starts the next chain
@@ -6563,7 +6745,7 @@ The decisions, and why each went the way it did:
   across it would be inventing a fact, and warning that it clashes with an
   activity would be warning about the arrangement working.
 - **Tracks are not a concept here.** Two events at the same time with different
-  people are a split, the normal way a day runs. The conflict is one *person*
+  people are a split, the normal way a day runs. The conflict is one _person_
   being on both, so a group of one and a group of twelve need no separate rule.
 - **Times are compared as instants.** A trip crosses zones, so two wall clocks
   on the same day are not comparable: flying west, the later-looking clock time
@@ -6594,9 +6776,9 @@ The decisions, and why each went the way it did:
   is not also flagged as an impossible journey: one mistake, one warning, and
   the overlap is the more useful of the two.
 - **A block with no coordinates breaks the chain.** This is the owner's explicit
-  instruction, in his words: *"if an event is after another event without a
+  instruction, in his words: _"if an event is after another event without a
   location, it should just have no travel time instead of falling through to an
-  event that does."* Falling through measures a journey from the last place
+  event that does."_ Falling through measures a journey from the last place
   anybody named, across a stretch where nobody knows where the group actually
   is, and then draws the result as a fact; no estimate is more honest than a
   confident wrong one. Free time already worked this way and this makes the two

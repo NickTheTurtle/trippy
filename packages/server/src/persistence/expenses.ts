@@ -366,6 +366,50 @@ export function updateExpense(
 }
 
 /**
+ * Moves a settlement to a different day.
+ *
+ * A payment is otherwise not editable: its amount, its two sides and its split
+ * are all derived from the debt it clears, and correcting any of them means
+ * deleting it and recording the real one. The day is the exception, because it
+ * is the one thing about a payment that is not derived from anything: the
+ * transfer is recorded when somebody gets round to pressing the button, which
+ * is rarely the day the money actually moved, and the ledger is ordered by it.
+ *
+ * So this is deliberately not `updateExpense` with a flag. That function
+ * refuses settlements on purpose, and the way to keep it refusing them is to
+ * leave it alone: this one touches a single column and can do nothing else.
+ */
+export function updateSettlementDay(
+	tripId: string,
+	actorId: string,
+	expenseId: string,
+	day: string
+): WriteResult {
+	if (!isMember(tripId, actorId)) return missing;
+
+	const existing = db
+		.prepare(
+			`SELECT COALESCE(settlement, 0) AS settlement, version
+			   FROM expenses WHERE id = ? AND trip_id = ?`
+		)
+		.get(expenseId, tripId) as { settlement: number; version: number } | undefined;
+	if (!existing || existing.settlement !== 1) return missing;
+
+	const normalized = normalizeDay(day);
+	if (!normalized) return missing;
+
+	const next = existing.version + 1;
+	db.prepare(`UPDATE expenses SET spent_on = ?, version = ? WHERE id = ? AND trip_id = ?`).run(
+		normalized,
+		next,
+		expenseId,
+		tripId
+	);
+	publish(tripId, 'expenses');
+	return written(next);
+}
+
+/**
  * Detach a departing member from the ledger, as far as that can be done safely.
  *
  * Removing somebody who has money in the trip is not a bookkeeping detail: it

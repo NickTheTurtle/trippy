@@ -1,4 +1,5 @@
 import type { MapItem, MapTrack } from './GoogleMap';
+import { copy } from '../copy';
 
 const SVG = 'http://www.w3.org/2000/svg';
 
@@ -52,7 +53,11 @@ function warnIcon(): SVGElement {
  * attribute and inject tags. `style.color` is set through the CSSOM, which
  * refuses anything that is not a colour.
  */
-export function mapCard(items: MapItem[], track: Pick<MapTrack, 'name' | 'color'>): HTMLElement {
+export function mapCard(
+	items: MapItem[],
+	track: Pick<MapTrack, 'name' | 'color'>,
+	onAdd?: (poiId: string) => void
+): HTMLElement {
 	const wrap = document.createElement('div');
 	wrap.className = 'mapcard';
 
@@ -94,6 +99,23 @@ export function mapCard(items: MapItem[], track: Pick<MapTrack, 'name' | 'color'
 			const warn = row(item.warn, 'mapcard-warn');
 			warn.prepend(warnIcon());
 		}
+		/* The one thing a card can do. Only an unplanned place carries it, which
+		   is what `addId` means, so a card either offers the day's next stop or
+		   is a plain read. The whole card claims the pointer once it does, since
+		   a button the pointer cannot reach is not a button. */
+		if (item.addId && onAdd) {
+			const id = item.addId;
+			const add = document.createElement('button');
+			add.type = 'button';
+			add.className = 'mapcard-add';
+			add.textContent = copy.ui.mapCard.add;
+			add.addEventListener('click', (e) => {
+				e.stopPropagation();
+				onAdd(id);
+			});
+			entry.append(add);
+			wrap.classList.add('mapcard-act');
+		}
 	}
 
 	return wrap;
@@ -123,6 +145,15 @@ export function cardAnchor(
 /** How far the card sits from the pointer, and how close it may come to an edge. */
 const GAP = 18;
 const EDGE = 8;
+/**
+ * How long a hovered card waits before leaving.
+ *
+ * A card that offers an action has to be reachable, and the pointer gets there
+ * by crossing the gap between the pin and the card, which is over the map: the
+ * pin's `mouseout` fires on the way. Long enough to cross 18px, short enough
+ * that a card the reader has moved away from is gone before it is noticed.
+ */
+const GRACE = 160;
 
 /**
  * Where a hover card is drawn.
@@ -152,6 +183,19 @@ export function createCardLayer() {
 	   a click keeps it, and only a click on the map, on another pin, or a redraw
 	   that takes its pin away puts it back. */
 	let held = false;
+	/** A hide waiting out `GRACE`, cancelled if the pointer arrives on the card. */
+	let pending: ReturnType<typeof setTimeout> | null = null;
+
+	const stopPending = () => {
+		if (pending === null) return;
+		clearTimeout(pending);
+		pending = null;
+	};
+	const clear = () => {
+		stopPending();
+		held = false;
+		if (el) el.replaceChildren();
+	};
 
 	const layer = () => {
 		if (!el) {
@@ -165,7 +209,15 @@ export function createCardLayer() {
 	return {
 		show(card: HTMLElement, x: number, y: number, hold = false) {
 			const host = layer();
+			stopPending();
 			held = hold;
+			/* The card keeps itself alive while the pointer is on it, and leaves
+			   when the pointer leaves. Only a card carrying an action ever gets
+			   the pointer, so for every other card these never fire. */
+			card.addEventListener('mouseenter', stopPending);
+			card.addEventListener('mouseleave', () => {
+				if (!held) clear();
+			});
 			host.replaceChildren(card);
 			/* Measured after mounting rather than guessed: the card is as tall as
 			   the trip made it, and the flip depends on knowing that. */
@@ -186,10 +238,15 @@ export function createCardLayer() {
 		/** `force` closes a held card: the map was clicked, or the pin is gone. */
 		hide(force = false) {
 			if (held && !force) return;
-			held = false;
-			if (el) el.replaceChildren();
+			if (force) {
+				clear();
+				return;
+			}
+			stopPending();
+			pending = setTimeout(clear, GRACE);
 		},
 		destroy() {
+			stopPending();
 			el?.remove();
 			el = null;
 			held = false;

@@ -2,7 +2,8 @@ import {
 	EVENT_TYPE_LABELS,
 	EVENT_TYPES,
 	TRANSPORT_MODES,
-	type EventType
+	type EventType,
+	type PoiKind
 } from '@trippy/core/types';
 import type { Option } from '../../components/ui/Select';
 import type { Cell, SavedPoi } from './types';
@@ -191,6 +192,19 @@ export function typeLabel(t: string): string {
 	return EVENT_TYPE_LABELS[t as EventType] ?? t;
 }
 
+/**
+ * Which Discover bucket a block picks from, or null for "all of them".
+ *
+ * Only the two types that mean a kind of place narrow the list. A journey ends
+ * wherever it ends, which can be either, and a stay picks from the stays, which
+ * are a different table with no kind at all.
+ */
+export function poiKindFor(type: EventType): PoiKind | null {
+	if (type === 'food') return 'food';
+	if (type === 'activity') return 'attraction';
+	return null;
+}
+
 const MODE_LABELS: Record<string, string> = {
 	walk: 'Walk',
 	cycle: 'Cycle',
@@ -212,6 +226,14 @@ export function modeLabel(m: string | null): string {
 /**
  * Discover's saved places, for the location picker.
  *
+ * Filtered by the block being added, because Discover already sorts a place
+ * into Attractions or Food & Drink and the picker was ignoring it: a trip with
+ * forty saved places offered all forty whether the organiser was scheduling
+ * dinner or a museum. A Food & Drinks block offers the food, an Activity block
+ * offers the attractions, and a journey offers everything, since where a
+ * journey ends is not the kind of thing it is. A place saved before the column
+ * existed defaults to an attraction, which is how Discover files it too.
+ *
  * Grouped by city with the day's own city first, because a trip that visits
  * four cities has a list four times longer than the one the reader wants, and
  * the place they mean is almost always in the city they are looking at. The
@@ -225,28 +247,32 @@ export function modeLabel(m: string | null): string {
 export function placeOptions(
 	saved: SavedPoi[],
 	cities: (Cell | null)[],
-	currentCityId: string | null
+	currentCityId: string | null,
+	type: EventType
 ): Option[] {
 	const known = cities.filter((c): c is Cell => c != null);
 	const names = new Map(known.map((c) => [c.id, c.name]));
 	const rank = (id: string) =>
 		id === currentCityId ? -1 : known.findIndex((c) => c.id === id) + 1 || known.length + 1;
 
-	const sorted = [...saved].sort(
+	const wanted = poiKindFor(type);
+	const offered = wanted ? saved.filter((p) => (p.kind ?? 'attraction') === wanted) : saved;
+
+	const sorted = [...offered].sort(
 		(a, b) => rank(a.city_id) - rank(b.city_id) || b.votes - a.votes || a.name.localeCompare(b.name)
 	);
 
-	return [
-		{ value: '', label: 'No location' },
-		...sorted.map((p) => ({
-			value: p.id,
-			label: p.name,
-			hint: p.votes ? `${p.votes} ${p.votes === 1 ? 'vote' : 'votes'}` : undefined,
-			// A place whose city has been removed from the trip still exists and
-			// still has coordinates, so it is offered rather than hidden.
-			section: names.get(p.city_id) ?? 'Elsewhere'
-		}))
-	];
+	/* No "No location" row. The box is typable now, so an empty box is how an
+	   event says it has no place, and a sentinel option beside a text field
+	   would be a second way to say the same thing. */
+	return sorted.map((p) => ({
+		value: p.id,
+		label: p.name,
+		hint: p.votes ? `${p.votes} ${p.votes === 1 ? 'vote' : 'votes'}` : undefined,
+		// A place whose city has been removed from the trip still exists and
+		// still has coordinates, so it is offered rather than hidden.
+		section: names.get(p.city_id) ?? 'Elsewhere'
+	}));
 }
 
 /**
@@ -291,14 +317,30 @@ export function deriveTitle(placeName: string | null, notes: string, type: Event
 /**
  * Whether a place already picked survives a change of type.
  *
- * A stay picks from the stays the group is voting on and every other type picks
- * from Discover's saved places, so crossing that line leaves the field holding
- * an id from the wrong list: it would show as blank and save as a link to
- * something the block is not.
+ * Two ways it does not. A stay picks from the stays the group is voting on and
+ * every other type picks from Discover's saved places, so crossing that line
+ * leaves the field holding an id from the wrong list. And now that the picker
+ * is filtered by kind, switching an Activity to Food & Drinks leaves it holding
+ * an attraction the new list does not offer. Either way the field reads blank
+ * while still saving a link to something the block is not, which is worse than
+ * clearing it: the reader cannot see what they are about to store.
  */
-export function keepsPick(from: EventType, to: EventType): boolean {
-	return (from === 'stay') === (to === 'stay');
+export function keepsPick(from: EventType, to: EventType, picked: SavedPoi | null): boolean {
+	if ((from === 'stay') !== (to === 'stay')) return false;
+	const wanted = poiKindFor(to);
+	return !picked || !wanted || (picked.kind ?? 'attraction') === wanted;
 }
+
+/**
+ * Why an event with an emptied Participants field cannot be saved.
+ *
+ * The field allows being emptied, because clearing it is a normal step on the
+ * way to picking somebody else. What it cannot do is *store* that: an event
+ * with nobody on it would read back as everyone, since no rows at all is how
+ * everyone is kept. So the refusal is held here, at the save, and shown the way
+ * every other refused save in the app is shown.
+ */
+export const NO_PEOPLE = 'An event must include at least one person.';
 
 /**
  * Blocks clip their overflow, so on a busy morning names end up sliced in half.

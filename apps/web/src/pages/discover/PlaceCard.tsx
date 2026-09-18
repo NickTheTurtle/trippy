@@ -69,13 +69,14 @@ export default function PlaceCard({
 			</button>
 
 			<div className="flex flex-none flex-col px-4 pt-2.5 pb-3.5">
-				{/* Three controls, left aligned. The gap that used to sit here was
-				    `justify-between` pushing them to the right edge. */}
+				{/* Vote and link on the left, edit on the right: editing is the one
+				    control that acts on the card rather than describing it, and the
+				    far corner is where it stops competing with the vote count. */}
 				<div className="flex flex-wrap items-center gap-1.5">
 					<VotePill votes={p.votes} youVoted={!!p.you_voted} subject={p.name} onVote={onVote} />
 					{p.url && <OpenLink url={p.url} name={p.name} />}
-					<EditCardButton name={p.name} onEdit={onEdit} />
 					{p.linked > 0 && <OnCalendarMark linked={p.linked} />}
+					<EditCardButton name={p.name} onEdit={onEdit} className="ml-auto" />
 				</div>
 			</div>
 

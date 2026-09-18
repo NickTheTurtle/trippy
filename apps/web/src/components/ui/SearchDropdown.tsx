@@ -1,4 +1,12 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import {
+	Fragment,
+	useEffect,
+	useId,
+	useRef,
+	useState,
+	type KeyboardEvent,
+	type ReactNode
+} from 'react';
 import { useAnchor } from '../../lib/anchor';
 import { FieldShell } from './Field';
 import { copy } from '../../copy';
@@ -51,6 +59,7 @@ export default function SearchDropdown<T>({
 	renderItem,
 	onPick,
 	itemDisabled,
+	sectionOf,
 	empty,
 	footer
 }: {
@@ -92,6 +101,12 @@ export default function SearchDropdown<T>({
 	 * by clicks and Enter, so the only way to reach one is to look at it.
 	 */
 	itemDisabled?: (item: T) => boolean;
+	/**
+	 * The heading a row opens a group with, or null for a row that continues the
+	 * group above it. Lets one menu hold two lists that mean different things
+	 * (the trip's own shortlist and a provider's answer) and say which is which.
+	 */
+	sectionOf?: (item: T) => string | null;
 	/**
 	 * Shown in place of the rows when there are none: "searching", "no matches",
 	 * "keep typing". Pass null to keep the popup shut in that state.
@@ -258,23 +273,35 @@ export default function SearchDropdown<T>({
 						// from firing on an ordinary pick.
 						onMouseDown={(e) => e.preventDefault()}
 					>
-						{items.map((item, i) => (
-							<li
-								key={itemKey(item)}
-								id={optionId(i)}
-								data-index={i}
-								role="option"
-								aria-selected={i === active}
-								aria-disabled={off(i) || undefined}
-								className={`sdropopt${i === active ? ' active' : ''}${off(i) ? ' off' : ''}`}
-								onMouseEnter={() => {
-									if (!off(i)) setActiveIndex(i);
-								}}
-								onClick={() => choose(i)}
-							>
-								{renderItem(item)}
-							</li>
-						))}
+						{items.map((item, i) => {
+							const head = sectionOf?.(item) ?? null;
+							return (
+								<Fragment key={itemKey(item)}>
+									{head && (
+										// A heading is not an option: given the role it would be
+										// offered as one to pick, and it would take a turn in the
+										// arrow order. `aria-hidden` keeps it out of both.
+										<li aria-hidden className={`sdrophead${i > 0 ? ' ruled' : ''}`}>
+											{head}
+										</li>
+									)}
+									<li
+										id={optionId(i)}
+										data-index={i}
+										role="option"
+										aria-selected={i === active}
+										aria-disabled={off(i) || undefined}
+										className={`sdropopt${i === active ? ' active' : ''}${off(i) ? ' off' : ''}`}
+										onMouseEnter={() => {
+											if (!off(i)) setActiveIndex(i);
+										}}
+										onClick={() => choose(i)}
+									>
+										{renderItem(item)}
+									</li>
+								</Fragment>
+							);
+						})}
 					</ul>
 					{/* Outside the listbox: a status line is not an option, and a
 					    screen reader offered it as one would try to pick it. */}

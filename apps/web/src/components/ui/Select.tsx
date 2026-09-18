@@ -45,15 +45,13 @@ export default function Select({
 	value,
 	onChange,
 	placeholder = copy.ui.select.placeholder,
-	ariaLabel = copy.ui.select.ariaLabel,
-	compact = false
+	ariaLabel = copy.ui.select.ariaLabel
 }: {
 	options: Option[];
 	value: string;
 	onChange: (value: string) => void;
 	placeholder?: string;
 	ariaLabel?: string;
-	compact?: boolean;
 }) {
 	// Read when the menu opens. Callers commonly build `options` inline, so
 	// reading them through a ref keeps the highlight from resetting on every
@@ -83,7 +81,7 @@ export default function Select({
 	const selected = options.find((o) => o.value === value) ?? null;
 
 	return (
-		<div {...list.rootProps} className={compact ? 'sel compact' : 'sel'}>
+		<div {...list.rootProps} className="sel">
 			<button {...list.triggerProps} className="seltrigger" aria-label={ariaLabel}>
 				<span className={selected ? 'sellabel' : 'sellabel placeholder'}>
 					{selected?.label ?? placeholder}

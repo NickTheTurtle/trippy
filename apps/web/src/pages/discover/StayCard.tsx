@@ -74,8 +74,8 @@ export default function StayCard({
 			<div className="flex flex-none flex-wrap items-center gap-1.5 px-4 pt-2.5 pb-3.5">
 				<VotePill votes={o.votes} youVoted={!!o.you_voted} subject={o.name} onVote={onVote} />
 				{o.url && <OpenLink url={o.url} name={o.name} />}
-				<EditCardButton name={o.name} onEdit={onEdit} />
 				{o.linked > 0 && <OnCalendarMark linked={o.linked} />}
+				<EditCardButton name={o.name} onEdit={onEdit} className="ml-auto" />
 			</div>
 
 			<VoteRule pct={pct} />

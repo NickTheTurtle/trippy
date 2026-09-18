@@ -125,6 +125,11 @@ export function useDialog({
 		/** Spread onto the <dialog>. */
 		dialogProps: {
 			onCancel: (e: SyntheticEvent) => {
+				// A dialog rendered inside another dialog's tree, which is how the
+				// schedule opens Discover's search popup, would otherwise close both:
+				// `cancel` does not bubble in the DOM, but React replays it up the
+				// React tree, so the outer dialog hears the inner one's Escape.
+				if (e.target !== ref.current) return;
 				// Escape fires `cancel`, which closes the dialog directly and would
 				// leave `open` true. Preventing it keeps React the only thing that
 				// decides whether the dialog is open.

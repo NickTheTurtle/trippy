@@ -12,7 +12,6 @@ import { IconButton, LinkButton } from '../../components/ui/buttons';
 import { MinusIcon, PlusIcon } from '../../components/ui/icons';
 import { CheckBox } from '../../components/ui/CheckBox';
 import type { Expense, Member } from './types';
-import { today } from './day';
 import { copy } from '../../copy';
 
 const c = copy.expenses.addDialog;
@@ -35,6 +34,8 @@ export default function EditExpense({
 	me,
 	currencies,
 	home,
+	firstDay,
+	lastDay,
 	onClose,
 	onSaved,
 	onDelete
@@ -45,6 +46,9 @@ export default function EditExpense({
 	me: string;
 	currencies: string[];
 	home: string;
+	/** The trip's span, which a new expense is dated into. */
+	firstDay: string;
+	lastDay: string;
 	onClose: () => void;
 	onSaved: () => void;
 	/** Null when adding: there is nothing yet to delete. */
@@ -57,12 +61,21 @@ export default function EditExpense({
 		onDelete
 	});
 	const [amount, setAmount] = useState(expense ? (expense.amount_cents / 100).toFixed(2) : '');
-	// An existing expense opens on the day it was stored against, so saving an
-	// edit cannot quietly drag a backdated row forward to today. A new one opens
-	// on today, which is the common case and is also what the server would fall
-	// back to if this field were left empty.
-	const [spentOn, setSpentOn] = useState(expense?.spent_on ?? today());
 	const [currency, setCurrency] = useState(expense?.currency ?? home);
+	/*
+	 * The day the money was spent, which the ledger is ordered by.
+	 *
+	 * A new expense opens on today only when today is a day of the trip.
+	 * Otherwise it opens on the trip's first day: a group settling up in April
+	 * for a trip they took in February is dating a February expense, and the
+	 * server's own default (today) is what made an April trip read as a
+	 * September ledger. Editing opens on what was stored, whatever that is.
+	 */
+	const [spentOn, setSpentOn] = useState(() => {
+		if (expense) return expense.spent_on;
+		const today = new Date().toISOString().slice(0, 10);
+		return today >= firstDay && today <= lastDay ? today : firstDay;
+	});
 	// A new expense is paid by you until you say otherwise. `members[0]` is the
 	// organizer, because the roster is ordered by role, so defaulting to it
 	// meant everyone but the organizer silently logged their own spending
@@ -240,14 +253,14 @@ export default function EditExpense({
 									className="input"
 								/>
 							</FieldShell>
-							{/* What it was and when it was, on one line; how much, in what,
-							    and by whom on the next. Not marked `required`: an empty box
-							    is a defined answer on the wire (the server keeps the stored
-							    day, or uses today when adding), and a native constraint here
-							    would block the submit before the server could say so.
-							    COPY: pending owner clearance, wanted as
-							    `copy.expenses.addDialog.dateLabel: 'Date'`. */}
-							<FieldShell className="col-span-12 sm:col-span-4" label="Date">
+							{/* Deliberately unbounded: a deposit or a flight is often paid
+							    months before the trip, and the ledger is the trip's money
+							    rather than the days it ran. Not marked `required` either: an
+							    empty box is a defined answer on the wire (the server keeps
+							    the stored day, or uses today when adding), and a native
+							    constraint here would block the submit before the server
+							    could say so. */}
+							<FieldShell className="col-span-12 sm:col-span-4" label={c.dateLabel}>
 								<input
 									type="date"
 									value={spentOn}

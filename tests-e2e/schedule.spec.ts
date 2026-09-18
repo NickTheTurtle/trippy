@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { createApiFixture } from './fixtures/api';
-import { addCity, addPlace, apiSend, seedMembers } from './fixtures/seed';
+import { addCity, addPlace, addStay, apiSend, seedMembers } from './fixtures/seed';
 import { copy } from './fixtures/copy';
 import { signIn } from './fixtures/session';
 
@@ -181,10 +181,10 @@ test.describe('adding an event', () => {
 			// are the Acropolis and Plaka rather than "Morning" and "Afternoon".
 			await page.getByRole('button', { name: '+ Add', exact: true }).click();
 			await pickAda();
-			// Exactly "Activity", which is the place picker. An unnamed block is now
-			// previewed under its type's own noun, so the draft on the board answers
-			// to the same word with its time after it.
-			await page.getByRole('button', { name: 'Activity', exact: true }).click();
+			// Exactly "Activity", which is the place picker: a combobox now, since a
+			// location can be typed as well as picked. An unnamed block is still
+			// previewed under its type's own noun.
+			await page.getByRole('combobox', { name: 'Activity' }).click();
 			await page.getByRole('option', { name: 'Acropolis' }).click();
 			await page.getByRole('button', { name: copy.common.add, exact: true }).click();
 			// The block on the board, not the pin the map drops for the same place:
@@ -205,7 +205,7 @@ test.describe('adding an event', () => {
 			await expect(page.getByLabel('Start hour')).toHaveAttribute('aria-valuetext', '2');
 			await expect(page.getByLabel('Start meridiem')).toHaveAttribute('aria-valuetext', 'PM');
 			await pickAda();
-			await page.getByRole('button', { name: 'Activity', exact: true }).click();
+			await page.getByRole('combobox', { name: 'Activity' }).click();
 			await page.getByRole('option', { name: 'Plaka' }).click();
 
 			const journey = page.locator('dialog[open] .jrow');
@@ -220,7 +220,7 @@ test.describe('adding an event', () => {
 			// that outlives the dialog, so wait for the page to stand still: a click
 			// aimed at a block mid-scroll lands on the track beside it.
 			await settled(page);
-			await page.getByRole('button', { name: /^Plaka, / }).click();
+			await page.getByRole('button', { name: 'Edit Plaka' }).click();
 			const saved = page.locator('dialog[open] .jrow');
 			// And it reopens on the clock it was typed on: 2 PM, not 14:45.
 			await expect(page.getByLabel('Start hour')).toHaveAttribute('aria-valuetext', '2');
@@ -233,12 +233,13 @@ test.describe('adding an event', () => {
 	});
 
 	/*
-	 * Everyone is stored as nobody, so asking for nobody is asking for everyone.
-	 * The picker cannot grant it, and the thing being guarded here is that it
-	 * says so rather than swallowing the click: the Everyone crew sits at the top
-	 * of the menu and is the row most likely to be pressed.
+	 * Everyone is stored as nobody, so the field has to keep an emptied pick and
+	 * "everyone" apart all the way to the save. Emptying it is allowed, because
+	 * it is a normal step on the way to picking somebody else; saving it is what
+	 * is refused, and the refusal is the same corner toast every other refused
+	 * save uses.
 	 */
-	test('Everyone cannot be emptied, and the menu says why instead of ignoring the click', async ({
+	test('Participants can be emptied, and saving an empty one is refused', async ({
 		page,
 		request
 	}) => {
@@ -259,25 +260,41 @@ test.describe('adding an event', () => {
 			await expect(everyone).toHaveAttribute('aria-selected', 'true');
 			await expect(ada).toHaveAttribute('aria-selected', 'true');
 
-			// The click that used to do nothing at all.
+			// The crew that covers the trip empties the field rather than bouncing.
 			await everyone.click();
-			await expect(page.getByRole('status')).toHaveText(/means everyone/);
-			// Nobody is not a pick, so the ticks stay and the trigger still reads
-			// the group.
-			await expect(ada).toHaveAttribute('aria-selected', 'true');
-			await expect(participants).toHaveText(/Everyone/);
+			await expect(ada).toHaveAttribute('aria-selected', 'false');
+			await expect(participants).toHaveText(/Nobody/);
 
-			// Naming somebody is a pick, so the line goes: unticking Ada leaves the
-			// rest of the trip named explicitly.
+			// Nothing is said until the save is asked for, and then it is said in
+			// the corner like any other refusal.
+			await page.keyboard.press('Escape');
+			await page.getByRole('button', { name: 'Add', exact: true }).click();
+			await expect(page.locator('.toast.bad')).toHaveText(/at least one person/);
+			await expect(page.getByRole('dialog')).toBeVisible();
+
+			// Naming somebody clears it, and the block saves.
+			await participants.click();
 			await ada.click();
-			await expect(page.getByRole('status')).toHaveCount(0);
-			await expect(participants).not.toHaveText(/Everyone/);
+			await expect(participants).toHaveText(/Ada/);
+			await page.keyboard.press('Escape');
+			await page.getByRole('button', { name: 'Add', exact: true }).click();
+			await expect(page.getByRole('dialog')).toHaveCount(0);
 
-			// And unticking the last name left asks for nobody again, by the other
-			// route, which lands back on everyone with the same line said.
-			await page.getByRole('option', { name: /^E2E User/ }).click();
-			await expect(page.getByRole('status')).toHaveText(/means everyone/);
-			await expect(participants).toHaveText(/Everyone/);
+			// Reopened, the one name is still the one name: an emptied field never
+			// reached the store to come back as everyone.
+			await page.getByRole('button', { name: 'Edit Activity' }).click();
+			const editing = page.getByLabel('Participants');
+			await expect(editing).toHaveText(/Ada/);
+
+			// The edit dialog refuses it the same way, rather than writing an empty
+			// list the server would read back as the whole group.
+			await editing.click();
+			await page.getByRole('option', { name: 'Ada', exact: true }).click();
+			await expect(editing).toHaveText(/Nobody/);
+			await page.keyboard.press('Escape');
+			await page.getByRole('button', { name: 'Save', exact: true }).click();
+			await expect(page.locator('.toast.bad')).toHaveText(/at least one person/);
+			await expect(page.getByRole('dialog')).toBeVisible();
 		} finally {
 			fixture.teardown();
 		}
@@ -527,7 +544,8 @@ test.describe('stays', () => {
 			await page.getByLabel('Check out').fill(day3);
 			await page.getByRole('button', { name: copy.common.add, exact: true }).click();
 
-			const chip = page.getByRole('button', { name: /Harbour rooms/ });
+			const chip = page.getByRole('button', { name: /Harbour rooms\. Show on the map/ });
+			const chipEdit = page.getByRole('button', { name: 'Edit Harbour rooms' });
 			await expect(chip).toBeVisible();
 
 			// The second night it covers, where it is a band just the same.
@@ -539,8 +557,9 @@ test.describe('stays', () => {
 			await expect(chip).toBeVisible();
 
 			// Shortened from the second day, which then becomes its checkout morning.
+			// The band's own click aims the map, so the edit comes off the pencil.
 			await page.goto(`/trips/${fixture.tripId}/schedule?day=${day2}&view=day`);
-			await chip.click();
+			await chipEdit.click();
 			await expect(page.getByLabel('Check in')).toHaveValue(startDate);
 			await page.getByLabel('Check out').fill(day2);
 			await page.getByRole('button', { name: copy.common.save, exact: true }).click();
@@ -601,7 +620,7 @@ test.describe('add event', () => {
 
 			// The mode reached the server on the create, so reopening the block finds
 			// it already set rather than empty.
-			await block.click();
+			await page.getByRole('button', { name: 'Edit Travel' }).click();
 			await expect(page.getByRole('button', { name: 'Mode' })).toContainText('Ferry');
 		} finally {
 			fixture.teardown();
@@ -697,7 +716,7 @@ test.describe('the peeking editor', () => {
 			for (const width of [1100, 1140, 1180, 1280, 1440]) {
 				await page.setViewportSize({ width, height: 900 });
 				await page.goto(`/trips/${fixture.tripId}/schedule?day=${day}&view=day`);
-				await page.getByRole('button', { name: /^Museum, 9:00 AM/ }).click();
+				await page.getByRole('button', { name: 'Edit Museum' }).click();
 
 				const pair = page.locator('.tfpair');
 				await expect(pair).toBeVisible();
@@ -710,6 +729,517 @@ test.describe('the peeking editor', () => {
 					]);
 				expect(rows, `the end time wrapped at ${width}px`).toHaveLength(1);
 			}
+		} finally {
+			fixture.teardown();
+		}
+	});
+});
+
+/**
+ * A block is named by what it is about: the place, the first line of the notes,
+ * or the type's own noun. The Label field is the override for when none of
+ * those reads well, so what it has to get right is both directions: a typed
+ * label wins over the derived name, and clearing it hands the name back rather
+ * than leaving the block called whatever it was called at the time.
+ */
+test.describe('the label', () => {
+	test('names the block, and clearing it hands the name back to the place', async ({
+		page,
+		request
+	}) => {
+		const fixture = await createApiFixture(request);
+		const { startDate } = fixture.tripBody;
+		try {
+			const cityId = await addCity(request, fixture, {
+				name: 'Lisbon',
+				country: 'Portugal',
+				tz: 'Europe/Lisbon'
+			});
+			await addPlace(request, fixture, { cityId, name: 'Museum' });
+			await signIn(page, fixture.sessionCookie);
+			await page.goto(`/trips/${fixture.tripId}/schedule?day=${startDate}&view=day`);
+
+			await page.getByRole('button', { name: '+ Add', exact: true }).click();
+			const dialog = page.getByRole('dialog');
+			// The place field is named after the type, so on a fresh Activity block
+			// the picker is called "Activity".
+			await dialog.getByRole('combobox', { name: 'Activity' }).click();
+			await page.getByRole('option', { name: 'Museum' }).click();
+
+			// Empty, and showing the name the block would get, rather than that name
+			// typed in as if somebody had chosen it.
+			const label = dialog.getByLabel(/^Label/);
+			await expect(label).toHaveValue('');
+			await expect(label).toHaveAttribute('placeholder', 'Museum');
+
+			await label.fill('Tile museum');
+			// The preview is the block as it will be saved, label included.
+			await expect(page.getByRole('button', { name: /^Tile museum, / })).toBeVisible();
+
+			await page.getByRole('button', { name: copy.common.add, exact: true }).click();
+			await expect(dialog).toHaveCount(0);
+
+			const block = page.getByRole('button', { name: /^Tile museum, 9:00 AM/ });
+			await expect(block).toBeVisible();
+
+			// Reopening finds the label as typed, because it is the block's name and
+			// not a derived one.
+			await page.getByRole('button', { name: 'Edit Tile museum' }).click();
+			const editing = page.getByRole('dialog');
+			await expect(editing.getByLabel(/^Label/)).toHaveValue('Tile museum');
+
+			// Cleared, the name goes back to the place the block is still at. The
+			// save sends no place, so this is the server deriving from what the
+			// event already links to rather than from this body alone.
+			await editing.getByLabel(/^Label/).fill('');
+			await page.getByRole('button', { name: copy.common.save, exact: true }).click();
+			await expect(editing).toHaveCount(0);
+			await expect(page.getByRole('button', { name: /^Museum, 9:00 AM/ })).toBeVisible();
+		} finally {
+			fixture.teardown();
+		}
+	});
+});
+
+/**
+ * Discover files a place as an attraction or as food, and the schedule's place
+ * picker used to ignore that: every saved place was offered whatever was being
+ * scheduled, so booking dinner meant reading past the museums.
+ */
+test.describe('the place picker', () => {
+	test('offers the kind of place the block is, and drops a pick the new type cannot hold', async ({
+		page,
+		request
+	}) => {
+		const fixture = await createApiFixture(request);
+		const { startDate } = fixture.tripBody;
+		try {
+			const cityId = await addCity(request, fixture, {
+				name: 'Lisbon',
+				country: 'Portugal',
+				tz: 'Europe/Lisbon'
+			});
+			await addPlace(request, fixture, { cityId, name: 'Museum', kind: 'attraction' });
+			await addPlace(request, fixture, { cityId, name: 'Taberna', kind: 'food' });
+			await signIn(page, fixture.sessionCookie);
+			await page.goto(`/trips/${fixture.tripId}/schedule?day=${startDate}&view=day`);
+
+			await page.getByRole('button', { name: '+ Add', exact: true }).click();
+			const dialog = page.getByRole('dialog');
+
+			// An activity offers the attractions and nothing else.
+			await dialog.getByRole('combobox', { name: 'Activity' }).click();
+			await expect(page.getByRole('option', { name: 'Museum' })).toBeVisible();
+			await expect(page.getByRole('option', { name: 'Taberna' })).toHaveCount(0);
+			await page.getByRole('option', { name: 'Museum' }).click();
+
+			// Made food, it offers the food, and the museum it was holding goes:
+			// a pick the list no longer offers would read blank and still save.
+			await dialog.getByRole('button', { name: 'Type' }).click();
+			await page.getByRole('option', { name: 'Food & Drinks' }).click();
+			const picker = dialog.getByRole('combobox', { name: 'Food & Drinks' });
+			await expect(picker).toHaveValue('');
+			await picker.click();
+			await expect(page.getByRole('option', { name: 'Taberna' })).toBeVisible();
+			await expect(page.getByRole('option', { name: 'Museum' })).toHaveCount(0);
+			await page.getByRole('option', { name: 'Taberna' }).click();
+
+			// A journey ends wherever it ends, so it offers both.
+			await dialog.getByRole('button', { name: 'Type' }).click();
+			await page.getByRole('option', { name: 'Travel' }).click();
+			await dialog.getByRole('combobox', { name: 'Ends at' }).click();
+			await expect(page.getByRole('option', { name: 'Museum' })).toBeVisible();
+			await expect(page.getByRole('option', { name: 'Taberna' })).toBeVisible();
+		} finally {
+			fixture.teardown();
+		}
+	});
+
+	/*
+	 * The reason the field is typable at all: the restaurant chosen on the
+	 * pavement is not in Discover and is not worth adding to it for one meal. A
+	 * typed name names the block and nothing more, so it stays off the map, which
+	 * is the honest record of a place nobody has geocoded.
+	 */
+	test('keeps a location that was typed rather than picked', async ({ page, request }) => {
+		const fixture = await createApiFixture(request);
+		const { startDate } = fixture.tripBody;
+		try {
+			const cityId = await addCity(request, fixture, {
+				name: 'Lisbon',
+				country: 'Portugal',
+				tz: 'Europe/Lisbon'
+			});
+			await addPlace(request, fixture, { cityId, name: 'Castelo', kind: 'attraction' });
+			await signIn(page, fixture.sessionCookie);
+			await page.goto(`/trips/${fixture.tripId}/schedule?day=${startDate}&view=day`);
+
+			await page.getByRole('button', { name: '+ Add', exact: true }).click();
+			const dialog = page.getByRole('dialog');
+			const picker = dialog.getByRole('combobox', { name: 'Activity' });
+			await picker.fill('Bar da Esquina');
+			// Nothing saved matches, and the box says so rather than looking broken.
+			await expect(page.locator('.sdropnote')).toBeVisible();
+			await page.getByRole('button', { name: copy.common.add, exact: true }).click();
+
+			// Named after what was typed, exactly as a picked place would name it.
+			const block = page.getByRole('button', { name: /^Bar da Esquina, / });
+			await expect(block).toBeVisible();
+
+			// And it comes back when the block is reopened, which is only true if it
+			// was stored rather than spent on the title.
+			await settled(page);
+			await page.getByRole('button', { name: 'Edit Bar da Esquina' }).click();
+			await expect(dialog.getByRole('combobox', { name: 'Activity' })).toHaveValue(
+				'Bar da Esquina'
+			);
+
+			// Picking a saved place over it replaces it: the two are one field.
+			await dialog.getByRole('combobox', { name: 'Activity' }).click();
+			await page.getByRole('option', { name: 'Castelo' }).click();
+			await page.getByRole('button', { name: copy.common.save, exact: true }).click();
+			await expect(page.getByRole('button', { name: /^Castelo, / })).toBeVisible();
+		} finally {
+			fixture.teardown();
+		}
+	});
+
+	/*
+	 * Search is the way out of the typed-name compromise: a place nobody
+	 * shortlisted can be found on the provider from the calendar itself, in the
+	 * same list and the same gesture as picking somewhere already saved, and
+	 * what comes back is a real saved place with coordinates rather than a name
+	 * on a block. The provider itself is stubbed, because a live lookup here is
+	 * billed, slow and moves under the test's feet.
+	 */
+	test('searches the provider and links what it adds', async ({ page, request }) => {
+		const fixture = await createApiFixture(request);
+		const { startDate } = fixture.tripBody;
+		try {
+			const cityId = await addCity(request, fixture, {
+				name: 'Lisbon',
+				country: 'Portugal',
+				tz: 'Europe/Lisbon'
+			});
+			expect(cityId).toBeTruthy();
+			await page.route('**/discover/search?**', (route) =>
+				route.fulfill({
+					json: {
+						results: [
+							{
+								id: 'zz-provider-1',
+								name: 'ZZ Cervejaria Ramiro',
+								address: 'Av. Almirante Reis 1, Lisbon',
+								category: 'restaurant',
+								lat: 38.7255,
+								lng: -9.1355,
+								url: null,
+								rating: null,
+								ratingCount: null,
+								priceLevel: null,
+								photo: null,
+								hours: null
+							}
+						]
+					}
+				})
+			);
+			await page.route('**/discover/details?**', (route) => route.fulfill({ json: {} }));
+
+			await signIn(page, fixture.sessionCookie);
+			await page.goto(`/trips/${fixture.tripId}/schedule?day=${startDate}&view=day`);
+
+			await page.getByRole('button', { name: '+ Add', exact: true }).click();
+			const dialog = page.getByRole('dialog').first();
+			await dialog.getByRole('combobox', { name: 'Activity' }).fill('Ramiro');
+
+			// No second dialog: what the provider knows arrives in the field's own
+			// list, under whatever the trip has already saved, with each group
+			// named so the two cannot be mistaken for one another.
+			const hit = page.getByRole('option', { name: /ZZ Cervejaria Ramiro/ });
+			await expect(hit).toBeVisible();
+			await expect(page.locator('dialog[open]')).toHaveCount(1);
+			await expect(page.locator('.sdrophead')).toHaveText(['Found']);
+			// A heading is not something to pick.
+			await expect(page.getByRole('option', { name: /^Found$/ })).toHaveCount(0);
+
+			await hit.click();
+
+			// Back in the block, pointing at the place that now exists.
+			await expect(dialog.getByRole('combobox', { name: /Activity|Food & Drinks/ })).toHaveValue(
+				'ZZ Cervejaria Ramiro'
+			);
+			await dialog.getByRole('button', { name: copy.common.add, exact: true }).click();
+			await expect(page.getByRole('button', { name: /^ZZ Cervejaria Ramiro, / })).toBeVisible();
+
+			// A real saved place, not a name on a block: Discover lists it.
+			await page.goto(`/trips/${fixture.tripId}/discover`);
+			await expect(page.getByText('ZZ Cervejaria Ramiro').first()).toBeVisible();
+		} finally {
+			fixture.teardown();
+		}
+	});
+});
+
+/*
+ * The board and its map share one colour scheme, and a block carries an edit
+ * affordance on hover on top of the whole-block click. These are the parts of
+ * that work that can be asserted without eyeballing a screenshot: the pencil
+ * exists, stays hidden until the block is hovered and opens the editor; a leg
+ * borrows the colour of the event it feeds so the pair reads as one unit; and
+ * a stay is plotted among the map pins rather than left off the map.
+ */
+test.describe('schedule board colour and edit affordance', () => {
+	test('a block click focuses the map and the editor opens only from the edit icon', async ({
+		page,
+		request
+	}) => {
+		const fixture = await createApiFixture(request);
+		const { startDate } = fixture.tripBody;
+		try {
+			const cityId = await addCity(request, fixture, {
+				name: 'Lisbon',
+				country: 'Portugal',
+				tz: 'Europe/Lisbon'
+			});
+			const museum = await addPlace(request, fixture, {
+				cityId,
+				name: 'Museum',
+				kind: 'attraction',
+				lat: 38.7139,
+				lng: -9.1334
+			});
+			await apiSend(request, fixture, 'POST', `/trips/${fixture.tripId}/schedule/events`, {
+				day: startDate,
+				cityId,
+				type: 'activity',
+				start: 540,
+				duration: 60,
+				poiId: museum
+			});
+			await signIn(page, fixture.sessionCookie);
+			await page.goto(`/trips/${fixture.tripId}/schedule?day=${startDate}&view=day`);
+
+			// A plain click no longer opens the editor: it selects the block and
+			// aims the map at it. The accessible name promises that rather than
+			// "Open".
+			const block = page.locator('.sched .block.activity').first();
+			await expect(block).toBeVisible();
+			await expect(block).toHaveAccessibleName(/Show on the map/);
+			await expect(block).not.toHaveAccessibleName(/Open/);
+
+			// The pencil is present but invisible until the block is hovered, which
+			// is the board's reveal-on-hover idiom rather than a permanent control.
+			// Checked before any click, since clicking focuses the block and reveals
+			// the pencil through `:focus-within` (the keyboard path, tested below).
+			const edit = block.getByRole('button', { name: 'Edit Museum' });
+			await expect
+				.poll(async () => await edit.evaluate((el) => getComputedStyle(el).opacity))
+				.toBe('0');
+			await block.hover();
+			await expect
+				.poll(async () => Number(await edit.evaluate((el) => getComputedStyle(el).opacity)))
+				.toBeGreaterThan(0);
+
+			// The click itself focuses the map and does not open the editor.
+			await block.click();
+			await expect(page.getByRole('dialog')).toHaveCount(0);
+
+			// Editing is the pencil's job now. By mouse: clicking it opens the
+			// editor, Delete button and all.
+			await edit.click();
+			const dialog = page.getByRole('dialog');
+			await expect(dialog).toBeVisible();
+			await expect(dialog.getByRole('button', { name: copy.common.delete })).toBeVisible();
+
+			// And by keyboard: on a fresh load, focusing the pencil and pressing
+			// Enter opens the same editor, so the icon is not a mouse-only control.
+			await page.goto(`/trips/${fixture.tripId}/schedule?day=${startDate}&view=day`);
+			const edit2 = page
+				.locator('.sched .block.activity')
+				.first()
+				.getByRole('button', { name: 'Edit Museum' });
+			await edit2.focus();
+			await page.keyboard.press('Enter');
+			await expect(page.getByRole('dialog')).toBeVisible();
+		} finally {
+			fixture.teardown();
+		}
+	});
+
+	test('a leg carries the colour of the event it feeds', async ({ page, request }) => {
+		const fixture = await createApiFixture(request);
+		const { startDate } = fixture.tripBody;
+		try {
+			const cityId = await addCity(request, fixture, {
+				name: 'Lisbon',
+				country: 'Portugal',
+				tz: 'Europe/Lisbon',
+				lat: 38.7223,
+				lng: -9.1393
+			});
+			const museum = await addPlace(request, fixture, {
+				cityId,
+				name: 'Museum',
+				kind: 'attraction',
+				lat: 38.7139,
+				lng: -9.1334
+			});
+			const taberna = await addPlace(request, fixture, {
+				cityId,
+				name: 'Taberna',
+				kind: 'food',
+				lat: 38.7075,
+				lng: -9.1364
+			});
+			const ev = (data: Record<string, unknown>) =>
+				apiSend(request, fixture, 'POST', `/trips/${fixture.tripId}/schedule/events`, {
+					day: startDate,
+					cityId,
+					...data
+				});
+			await ev({ type: 'activity', start: 540, duration: 60, poiId: museum });
+			// A second located stop far enough away that a walking leg is planned
+			// into it; the leg arrives at a food event.
+			await ev({ type: 'food', start: 780, duration: 90, poiId: taberna });
+			await signIn(page, fixture.sessionCookie);
+			await page.goto(`/trips/${fixture.tripId}/schedule?day=${startDate}&view=day`);
+
+			const leg = page.locator('.sched .block.leg').first();
+			await expect(leg).toBeVisible();
+
+			// The leg takes the arrival event's type class, so its left border is
+			// the food colour rather than the old fixed travel blue.
+			await expect(leg).toHaveClass(/\bfood\b/);
+			const legBorder = await leg.evaluate((el) => getComputedStyle(el).borderLeftColor);
+			const foodBorder = await page
+				.locator('.sched .block.food:not(.leg)')
+				.first()
+				.evaluate((el) => getComputedStyle(el).borderLeftColor);
+			expect(legBorder).toBe(foodBorder);
+		} finally {
+			fixture.teardown();
+		}
+	});
+
+	test('a stay is plotted among the map pins', async ({ page, request }) => {
+		const fixture = await createApiFixture(request);
+		const { startDate } = fixture.tripBody;
+		try {
+			const cityId = await addCity(request, fixture, {
+				name: 'Lisbon',
+				country: 'Portugal',
+				tz: 'Europe/Lisbon',
+				lat: 38.7223,
+				lng: -9.1393
+			});
+			const lodging = await addStay(request, fixture, {
+				cityId,
+				name: 'Hotel Central',
+				lat: 38.72,
+				lng: -9.14
+			});
+			await apiSend(request, fixture, 'POST', `/trips/${fixture.tripId}/schedule/events`, {
+				day: startDate,
+				cityId,
+				type: 'stay',
+				poiId: lodging,
+				endDay: null
+			});
+			await signIn(page, fixture.sessionCookie);
+			await page.goto(`/trips/${fixture.tripId}/schedule?day=${startDate}&view=day`);
+
+			// Offline test runs have no maps key, so the Leaflet fallback renders and
+			// the stay is a `.wp-pin` carrying its title. Its presence is the point:
+			// stays used to be left off the map entirely.
+			await expect(page.locator('.wp-pin[title="Hotel Central"]')).toHaveCount(1);
+		} finally {
+			fixture.teardown();
+		}
+	});
+
+	test('an unplanned place is a grey pin whose card schedules it', async ({ page, request }) => {
+		const fixture = await createApiFixture(request);
+		const { startDate } = fixture.tripBody;
+		try {
+			const cityId = await addCity(request, fixture, {
+				name: 'Lisbon',
+				country: 'Portugal',
+				tz: 'Europe/Lisbon',
+				lat: 38.7223,
+				lng: -9.1393
+			});
+			const museum = await addPlace(request, fixture, {
+				cityId,
+				name: 'Museum',
+				kind: 'attraction',
+				lat: 38.7139,
+				lng: -9.1334
+			});
+			const cafe = await addPlace(request, fixture, {
+				cityId,
+				name: 'Cafe',
+				kind: 'food',
+				lat: 38.715,
+				lng: -9.135
+			});
+			await addPlace(request, fixture, {
+				cityId,
+				name: 'Tram stop',
+				kind: 'attraction',
+				lat: 38.71,
+				lng: -9.13
+			});
+			for (const [poiId, type, start] of [
+				[museum, 'activity', 540],
+				[cafe, 'food', 720]
+			] as const) {
+				await apiSend(request, fixture, 'POST', `/trips/${fixture.tripId}/schedule/events`, {
+					day: startDate,
+					cityId,
+					type,
+					start,
+					duration: 60,
+					poiId
+				});
+			}
+			await signIn(page, fixture.sessionCookie);
+			await page.goto(`/trips/${fixture.tripId}/schedule?day=${startDate}&view=day`);
+
+			// A scheduled place wears its block's own colour; an unscheduled one is
+			// grey, which is not a type but the absence of one.
+			const pinColor = (title: string) =>
+				page
+					.locator(`.wp-pin[title="${title}"] .wp-pin-body`)
+					.evaluate((el) => getComputedStyle(el).getPropertyValue('--pin').trim());
+			await expect.poll(() => pinColor('Museum')).toBe('#2f7a4f');
+			await expect.poll(() => pinColor('Cafe')).toBe('#c15a25');
+			await expect.poll(() => pinColor('Tram stop')).toBe('#9aa39c');
+
+			// A grey pin's card offers the one thing there is to do to it, and the
+			// button survives the crossing from the pin: a hovered card waits out a
+			// grace period, so the pointer can reach it over the map.
+			await page.locator('.wp-pin[title="Tram stop"]').hover();
+			const add = page.locator('.mapcard-add');
+			await expect(add).toBeVisible();
+			await add.hover();
+			await expect(add).toBeVisible();
+			await add.click();
+
+			// The dialog opens on the shown day with the place already picked, so
+			// the whole act is: see it on the map, put it on the day.
+			const dialog = page.getByRole('dialog');
+			await expect(dialog.getByLabel('Activity')).toHaveValue('Tram stop');
+			await dialog.getByRole('button', { name: copy.common.add, exact: true }).click();
+			await expect(dialog).toBeHidden();
+
+			// On the board, and no longer grey now that it is planned. The leg that
+			// now feeds it wears the same type class, so it is excluded by name:
+			// `.leg` is a journey, not the thing arrived at.
+			await expect(
+				page.locator('.sched .block.activity:not(.leg)').filter({ hasText: 'Tram stop' })
+			).toHaveCount(1);
+			await expect.poll(() => pinColor('Tram stop')).toBe('#2f7a4f');
 		} finally {
 			fixture.teardown();
 		}
