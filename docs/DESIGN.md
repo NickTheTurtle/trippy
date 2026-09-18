@@ -4316,6 +4316,31 @@ intrinsic width in a toolbar, and an unlayered rule here would beat the Tailwind
 width utility that says so. `.input.compact` is the tight variant, sized to sit
 level with `.btn.small`.
 
+**A field is set at control size, and the label says its own.** One scale is not
+enough on its own: the size has to reach the control, and here it did not.
+`.field` carried `--text-meta` because that is the label's size, so everything
+inside a field inherited a label's size and each control had to climb back out
+of it. A native `input` and `select` did, `.seltrigger` did after being caught
+measuring three different heights, and `.tfield` did after reading a step under
+the box beside it. `.mtrigger` never did, so the same dialog showed a 14.7px
+Select beside a 13.1px MultiSelect at exactly the same height, and a dropdown's
+own menu, positioned `fixed` but still inheriting down the DOM, offered its
+options a step under the value they were about to replace.
+
+Three patches for one cause is the signal. The label is a single span and now
+says its own size in `.flabel`; the wrapper is set at `--text-body`, so a
+control in a field reads as a control unless it asks to be smaller, and the two
+menus state the same size rather than take whatever their trigger sits in. The
+older per-control restatements stay: they are correct, and a control should not
+depend on where it is dropped.
+
+**`.btn.pill` was two rules.** The account button in the top bar was
+`class="btn pill"`, and `.pill` is also the segment of a `.pills` switch, which
+sets `0.82rem`. Neither `.btn.pill` nor `.btn` beat it on that property, so the
+one button in the header rendered a step under every other button in the app,
+and took the segment's padding and divider border with it. It is `.btn.round`
+now. A variant name that reads naturally is worth nothing if some other
+component already owns it.
 **One picker component, not two.** The trip settings dialog used a native
 `<select>` for currency while every other picker in the app used `Select`. It
 looked different, it did not get the Escape fix, and it opened an OS menu in the
