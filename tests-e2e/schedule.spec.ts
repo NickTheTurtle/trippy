@@ -666,3 +666,52 @@ test.describe('the agenda', () => {
 		}
 	});
 });
+
+/**
+ * The editor stands beside the board rather than over it, so its width is a
+ * fraction of the viewport. That fraction has to stay wide enough for what it
+ * holds: at 40vw with no floor, the start and end times fell onto two lines
+ * through the first eighty pixels of the range where the panel peeks at all.
+ */
+test.describe('the peeking editor', () => {
+	test('keeps the start and end times on one line at every peeking width', async ({
+		page,
+		request
+	}) => {
+		const fixture = await createApiFixture(request);
+		const day = fixture.tripBody.startDate;
+		try {
+			const res = await apiSend(
+				request,
+				fixture,
+				'POST',
+				`/trips/${fixture.tripId}/schedule/events`,
+				{ day, type: 'activity', start: 9 * 60, duration: 60, title: 'Museum' }
+			);
+			expect(res.status(), await res.text()).toBeLessThan(300);
+
+			await signIn(page, fixture.sessionCookie);
+
+			// 1100 is where peeking starts, and the widths just above it are the
+			// ones that used to wrap.
+			for (const width of [1100, 1140, 1180, 1280, 1440]) {
+				await page.setViewportSize({ width, height: 900 });
+				await page.goto(`/trips/${fixture.tripId}/schedule?day=${day}&view=day`);
+				await page.getByRole('button', { name: /^Museum, 9:00 AM/ }).click();
+
+				const pair = page.locator('.tfpair');
+				await expect(pair).toBeVisible();
+				await expect(page.locator('.modal.peek')).toBeVisible();
+
+				const rows = await pair
+					.locator('.tfield')
+					.evaluateAll((els) => [
+						...new Set(els.map((el) => Math.round(el.getBoundingClientRect().top)))
+					]);
+				expect(rows, `the end time wrapped at ${width}px`).toHaveLength(1);
+			}
+		} finally {
+			fixture.teardown();
+		}
+	});
+});
