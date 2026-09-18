@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { createApiFixture } from './fixtures/api';
-import { addCity, addPlace, seedMembers } from './fixtures/seed';
+import { addCity, addPlace, apiSend, seedMembers } from './fixtures/seed';
 import { copy } from './fixtures/copy';
 import { signIn } from './fixtures/session';
 
@@ -603,6 +603,64 @@ test.describe('add event', () => {
 			// it already set rather than empty.
 			await block.click();
 			await expect(page.getByRole('button', { name: 'Mode' })).toContainText('Ferry');
+		} finally {
+			fixture.teardown();
+		}
+	});
+});
+
+/**
+ * The agenda reads down a column of times, so the times have to make one.
+ */
+test.describe('the agenda', () => {
+	test('every title starts at the same edge whatever width its time is', async ({
+		page,
+		request
+	}) => {
+		const fixture = await createApiFixture(request);
+		const day = fixture.tripBody.startDate;
+		try {
+			// Hours either side of the one-digit to two-digit boundary, and both
+			// meridiems, which between them are every width the clock prints.
+			for (const [start, title] of [
+				[9 * 60, 'Nine'],
+				[10 * 60, 'Ten'],
+				[11 * 60 + 30, 'Eleven thirty'],
+				[12 * 60, 'Noon'],
+				[19 * 60, 'Seven']
+			] as const) {
+				const res = await apiSend(
+					request,
+					fixture,
+					'POST',
+					`/trips/${fixture.tripId}/schedule/events`,
+					{ day, type: 'activity', start, duration: 45, title }
+				);
+				expect(res.status(), await res.text()).toBeLessThan(300);
+			}
+
+			await signIn(page, fixture.sessionCookie);
+
+			for (const width of [1440, 390]) {
+				await page.setViewportSize({ width, height: 900 });
+				await page.goto(`/trips/${fixture.tripId}/schedule?day=${day}&view=agenda`);
+				await expect(page.locator('.agendarow')).toHaveCount(5);
+
+				const edges = await page
+					.locator('.agendarow .agendawhat')
+					.evaluateAll((els) => [
+						...new Set(els.map((el) => el.getBoundingClientRect().left.toFixed(2)))
+					]);
+
+				// One edge, not one per hour width. Tabular figures alone left four.
+				expect(edges, `titles are ragged at ${width}px`).toHaveLength(1);
+
+				// And the time is never cut off to buy that alignment.
+				const clipped = await page
+					.locator('.agendarow .agendawhen')
+					.evaluateAll((els) => els.filter((el) => el.scrollWidth > el.clientWidth + 1).length);
+				expect(clipped, `a time is clipped at ${width}px`).toBe(0);
+			}
 		} finally {
 			fixture.teardown();
 		}
