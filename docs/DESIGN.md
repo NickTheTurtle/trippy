@@ -3703,6 +3703,31 @@ row, and adds a little air under the last one. Nothing is imposed on a short
 agenda, because the box is a `max-height`: a nine-row day measures 321px tall in
 a box that would allow 500, so it does not scroll and shows no bar at all.
 
+**The agenda's times are a column, so they are sized as one.** The rows are read
+down the left edge, which only works if that edge is straight, and it was not.
+The time was sized to its own content with tabular figures, which hold the digits
+to one width and say nothing about the rest: measured, a one-digit hour is 7.3px
+narrower than a two-digit one, and "AM" is 1.15px narrower than "PM". A day
+holding 9:00 AM, 10:00 AM, 12:00 PM and 7:00 PM therefore started its titles at
+four different places, 8.5px apart, which is what "the times are not aligned
+properly" was.
+
+The column now has a floor of 4.5rem and its times are right-aligned in it, so a
+short hour sets in the way a right-aligned number should and every title begins
+at one x. Floored rather than fixed, which is the opposite of the typed clock's
+segments in `index.css` and for the opposite reason: there a value that outgrew
+its box shunted the colon along, whereas here it would be a meridiem cut off. A
+fallback font that needs more than the floor costs one indented row; a fixed
+width would cost an unreadable one.
+
+The floor is sized off a measurement rather than guessed, and the first guess
+was wrong: 4rem fits every time on Windows and is 0.54px short in CI's Linux
+font, where the widest measures 64.54px, so one row of five still sat out of
+line. That is why the test asserts one edge exactly rather than "close enough":
+a floor that a font can beat is a bug that only shows on someone else's machine.
+Held by `schedule.spec.ts`, which asserts at both 1440px and 390px that the
+titles have exactly one left edge and that no time is clipped to get it.
+
 **The height is measured, not stated.** The box's top depends on a toolbar that
 wraps at narrow widths and a lodging band that may hold nothing or three stays,
 so no `calc()` of viewport units can name it. It is measured in document
@@ -4306,6 +4331,31 @@ intrinsic width in a toolbar, and an unlayered rule here would beat the Tailwind
 width utility that says so. `.input.compact` is the tight variant, sized to sit
 level with `.btn.small`.
 
+**A field is set at control size, and the label says its own.** One scale is not
+enough on its own: the size has to reach the control, and here it did not.
+`.field` carried `--text-meta` because that is the label's size, so everything
+inside a field inherited a label's size and each control had to climb back out
+of it. A native `input` and `select` did, `.seltrigger` did after being caught
+measuring three different heights, and `.tfield` did after reading a step under
+the box beside it. `.mtrigger` never did, so the same dialog showed a 14.7px
+Select beside a 13.1px MultiSelect at exactly the same height, and a dropdown's
+own menu, positioned `fixed` but still inheriting down the DOM, offered its
+options a step under the value they were about to replace.
+
+Three patches for one cause is the signal. The label is a single span and now
+says its own size in `.flabel`; the wrapper is set at `--text-body`, so a
+control in a field reads as a control unless it asks to be smaller, and the two
+menus state the same size rather than take whatever their trigger sits in. The
+older per-control restatements stay: they are correct, and a control should not
+depend on where it is dropped.
+
+**`.btn.pill` was two rules.** The account button in the top bar was
+`class="btn pill"`, and `.pill` is also the segment of a `.pills` switch, which
+sets `0.82rem`. Neither `.btn.pill` nor `.btn` beat it on that property, so the
+one button in the header rendered a step under every other button in the app,
+and took the segment's padding and divider border with it. It is `.btn.round`
+now. A variant name that reads naturally is worth nothing if some other
+component already owns it.
 **One picker component, not two.** The trip settings dialog used a native
 `<select>` for currency while every other picker in the app used `Select`. It
 looked different, it did not get the Escape fix, and it opened an OS menu in the

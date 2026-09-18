@@ -42,7 +42,7 @@
 	border: 1px solid var(--color-line);
 	background: var(--color-surface);
 	color: var(--color-ink-soft);
-	font-size: 1.1rem;
+	font-size: var(--text-section);
 	line-height: 1;
 	text-decoration: none;
 	font-family: inherit;
@@ -71,7 +71,7 @@
 }
 .sched .curday {
 	font-family: var(--font-serif);
-	font-size: 1.1rem;
+	font-size: var(--text-section);
 	min-width: 8rem;
 	text-align: center;
 	position: relative;
@@ -119,7 +119,7 @@
 	display: inline-flex;
 	align-items: center;
 	gap: 0.4rem;
-	font-size: 0.82rem;
+	font-size: var(--text-meta);
 }
 /* `.sel`'s default width is a percentage against a shrink-to-fit parent, which
    cannot be resolved while measuring it, so the box came out narrower than its
@@ -369,7 +369,7 @@
 	top: -0.6rem;
 	width: 48px;
 	text-align: right;
-	font-size: 0.72rem;
+	font-size: var(--text-micro);
 	color: var(--color-ink-faint);
 }
 /* Journeys share the event columns, so the lane takes the whole width. */
@@ -567,7 +567,7 @@
 	gap: 0.4rem;
 	margin-top: 0.05rem;
 	height: 16px;
-	font-size: 0.72rem;
+	font-size: var(--text-micro);
 	color: var(--color-ink-faint);
 }
 .sched .bmeta > span {
@@ -675,8 +675,32 @@
 .sched .agendarow:hover {
 	background: var(--color-surface-2);
 }
+/* The time column is sized for its widest value so the titles beside it start
+   at one x.
+
+   Tabular figures alone did not do this, which is what "not aligned properly"
+   was: they hold the digits to one width, so "10:00" and "11:30" match, but
+   they say nothing about a one-digit hour against a two-digit one (7.3px
+   apart, measured) or about "AM" against "PM" (1.15px). Four times in a day
+   gave four different left edges for the titles, 8.5px across.
+
+   Floored rather than fixed, which is the opposite of the typed clock's
+   segments in `index.css`, and for the opposite reason: there a value that
+   outgrew its box shunted the colon along, here it would be a time with its
+   meridiem cut off. A fallback font that needs more than this costs one
+   indented row; a fixed width would cost a clipped one.
+
+   4.5rem, not the 4rem that fits on Windows: the widest time measures 64.54px
+   in CI's Linux font against a 64px floor, which put one row 0.54px out. The
+   floor is sized off the widest measured value with room for a font that draws
+   wider still, and `schedule.spec.ts` fails if one ever outgrows it.
+
+   Right-aligned, so the column ends flush against the gap before the title and
+   an hour with one digit sets in the way a right-aligned number should. */
 .sched .agendawhen {
 	flex: 0 0 auto;
+	min-width: 4.5rem;
+	text-align: right;
 	font-variant-numeric: tabular-nums;
 	color: var(--color-ink-faint);
 }
