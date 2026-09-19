@@ -18,7 +18,6 @@ import { copy } from '../../copy';
 
 const c = copy.discover.addDialog;
 
-
 /**
  * The one way anything gets added on this page.
  *

@@ -1786,10 +1786,7 @@ export default function Schedule() {
 		return (
 			<div className="stayband">
 				{entry.stays.map((s) => (
-					<div
-						key={s.id}
-						className={preview?.id === s.id ? 'staychip editingnow' : 'staychip'}
-					>
+					<div key={s.id} className={preview?.id === s.id ? 'staychip editingnow' : 'staychip'}>
 						<button
 							type="button"
 							className="stayface"

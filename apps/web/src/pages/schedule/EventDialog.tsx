@@ -119,7 +119,7 @@ export default function EventDialog({
 	   to come back when the dialog is reopened. */
 	const openedOn =
 		((event.type === 'stay' ? stays : saved).find((p) => p.id === savedPick)?.name ??
-		(savedPick ? '' : event.place_text)) ||
+			(savedPick ? '' : event.place_text)) ||
 		'';
 	const [place, setPlace] = useState(openedOn);
 
