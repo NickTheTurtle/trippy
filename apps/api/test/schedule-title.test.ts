@@ -121,6 +121,15 @@ function titleOf(eventId: string): string {
 		.title;
 }
 
+/** A location typed by hand, which is stored beside the links rather than in them. */
+function placeTextOf(eventId: string): string | null {
+	return (
+		db.prepare(`SELECT place_text FROM events WHERE id = ?`).get(eventId) as {
+			place_text: string | null;
+		}
+	).place_text;
+}
+
 async function created(res: Response): Promise<string> {
 	expect(res.status).toBe(201);
 	return ((await res.json()) as { id: string }).id;
@@ -197,7 +206,7 @@ describe('the name of a scheduled block', () => {
 			['travel', 'Travel'],
 			['freetime', 'Free time'],
 			['activity', 'Activity'],
-			['food', 'Food']
+			['food', 'Food & Drinks']
 		] as const) {
 			const id = await created(await post(f, { type }));
 			expect(titleOf(id)).toBe(expected);
@@ -217,6 +226,33 @@ describe('the name of a scheduled block', () => {
 		const poiId = savedPoi(f, 'ZZ Fushimi Inari');
 		const id = await created(await post(f, { type: 'freetime', poiId, notes: '' }));
 		expect(titleOf(id)).toBe('Free time');
+	});
+
+	it('names a block after a location that was typed rather than picked', async () => {
+		const f = fixture();
+		const id = await created(await post(f, { placeName: 'ZZ Bar da Esquina' }));
+		expect(titleOf(id)).toBe('ZZ Bar da Esquina');
+	});
+
+	it('prefers a picked place to a typed one, and keeps only the pick', async () => {
+		const f = fixture();
+		const poiId = savedPoi(f, 'ZZ Fushimi Inari');
+		const id = await created(await post(f, { poiId, placeName: 'ZZ Bar da Esquina' }));
+		expect(titleOf(id)).toBe('ZZ Fushimi Inari');
+		// Not both: a typed name beside a link would leave the row saying two
+		// different things about where the event is.
+		expect(placeTextOf(id)).toBe(null);
+	});
+
+	it('takes a typed location on an edit, and drops the link it replaces', async () => {
+		const f = fixture();
+		const poiId = savedPoi(f, 'ZZ Fushimi Inari');
+		const id = await created(await post(f, { poiId }));
+		expect((await op(f, id, { title: '', poiId: '', placeName: 'ZZ Bar da Esquina' })).status).toBe(
+			200
+		);
+		expect(titleOf(id)).toBe('ZZ Bar da Esquina');
+		expect(placeTextOf(id)).toBe('ZZ Bar da Esquina');
 	});
 
 	it('leaves the stored name alone when an edit is silent about it', async () => {

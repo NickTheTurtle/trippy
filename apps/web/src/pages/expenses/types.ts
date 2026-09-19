@@ -41,6 +41,9 @@ export type Expense = {
 export type ExpensesData = {
 	currency: string;
 	currencies: string[];
+	/** The trip's span, which a new expense is dated into. */
+	firstDay: string;
+	lastDay: string;
 	members: Member[];
 	expenses: Expense[];
 	/**

@@ -51,7 +51,7 @@ export function isEventType(v: string): v is EventType {
  */
 export const EVENT_TYPE_LABELS: Record<EventType, string> = {
 	activity: 'Activity',
-	food: 'Food',
+	food: 'Food & Drinks',
 	stay: 'Stay',
 	travel: 'Travel',
 	freetime: 'Free time'

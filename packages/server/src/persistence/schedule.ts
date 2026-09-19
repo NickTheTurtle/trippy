@@ -58,6 +58,8 @@ export interface EventRow {
 	end_min: number;
 	poi_id: string | null;
 	lodging_id: string | null;
+	/** A location typed by hand. Exclusive with the two links, and never mapped. */
+	place_text: string | null;
 	city_id: string | null;
 	lat: number | null;
 	lng: number | null;
@@ -94,7 +96,7 @@ export interface LegRow {
 	tight: boolean;
 }
 
-const EVENT_COLUMNS = `id, day, end_day, title, type, start_min, end_min, poi_id, lodging_id, city_id, lat, lng, notes, travel_mode, version`;
+const EVENT_COLUMNS = `id, day, end_day, title, type, start_min, end_min, poi_id, lodging_id, place_text, city_id, lat, lng, notes, travel_mode, version`;
 
 function attachPeople(rows: EventRow[]): EventRow[] {
 	const stmt = db.prepare(`SELECT user_id FROM event_people WHERE event_id = ?`);
@@ -475,6 +477,8 @@ export interface NewEvent {
 	endMin: number;
 	poiId?: string | null;
 	lodgingId?: string | null;
+	/** A location typed by hand, used only when neither link is set. */
+	placeText?: string | null;
 	cityId?: string | null;
 	lat?: number | null;
 	lng?: number | null;
@@ -563,10 +567,14 @@ export function createEvent(tripId: string, userId: string, e: NewEvent): string
 	const endDay = stayEnd(type, e.day, e.endDay);
 
 	const id = randomUUID();
+	// A typed location is only ever the answer when nothing was picked: a link
+	// carries coordinates and a typed name does not, so keeping both would leave
+	// the row saying two different things about where the event is.
+	const linked = located && (e.poiId || (type === 'stay' && e.lodgingId));
 	db.prepare(
 		`INSERT INTO events
-		 (id, trip_id, day, end_day, title, type, start_min, end_min, poi_id, lodging_id, city_id, lat, lng, notes, travel_mode, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		 (id, trip_id, day, end_day, title, type, start_min, end_min, poi_id, lodging_id, place_text, city_id, lat, lng, notes, travel_mode, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	).run(
 		id,
 		tripId,
@@ -578,6 +586,7 @@ export function createEvent(tripId: string, userId: string, e: NewEvent): string
 		end,
 		located ? (e.poiId ?? null) : null,
 		type === 'stay' ? (e.lodgingId ?? null) : null,
+		located && !linked ? e.placeText?.trim() || null : null,
 		e.cityId ?? null,
 		located ? (e.lat ?? null) : null,
 		located ? (e.lng ?? null) : null,
@@ -672,16 +681,18 @@ export interface EventEdit {
 	day?: string;
 	endDay?: string;
 	/**
-	 * The saved place this event happens at, already resolved by the caller.
+	 * Where this event happens, already resolved by the caller.
 	 *
-	 * Absent leaves the link alone, null unlinks it. The coordinates travel with
-	 * the link rather than being looked up here, because the chain is planned off
-	 * the event's own lat/lng: a link without them would put the event nowhere
-	 * while claiming a place.
+	 * Absent leaves it alone, null clears it. A resolved saved place carries its
+	 * coordinates, because the chain is planned off the event's own lat/lng and a
+	 * link without them would put the event nowhere while claiming a place. A
+	 * location that was typed instead carries `text` and no coordinates, which is
+	 * the honest record of a name nobody has geocoded.
 	 */
 	place?: {
 		poiId?: string;
 		lodgingId?: string;
+		text?: string;
 		lat: number | null;
 		lng: number | null;
 	} | null;
@@ -692,6 +703,29 @@ export function currentType(eventId: string): string {
 	const row = db.prepare(`SELECT type FROM events WHERE id = ?`).get(eventId) as
 		{ type: string } | undefined;
 	return row?.type ?? '';
+}
+
+/**
+ * The name of the place an event is linked to, for an edit that leaves the link
+ * alone.
+ *
+ * Deriving a name needs the place, and the dialog only sends `poiId` when the
+ * picker actually moved, so for every other save the route has no place to
+ * derive from and would fall through to the notes or the type's noun. Clearing
+ * a label on an event that sits at a saved place would then rename it off that
+ * place, which is the one thing clearing it is meant to restore.
+ */
+export function currentPlaceName(eventId: string): string {
+	const row = db
+		.prepare(
+			`SELECT COALESCE(p.name, l.name, e.place_text, '') AS name
+			   FROM events e
+			   LEFT JOIN pois p ON p.id = e.poi_id
+			   LEFT JOIN lodging_options l ON l.id = e.lodging_id
+			  WHERE e.id = ?`
+		)
+		.get(eventId) as { name: string } | undefined;
+	return row?.name ?? '';
 }
 
 /**
@@ -732,7 +766,7 @@ export function editEvent(
 		// because a block claiming coordinates it does not honour is what made the
 		// old chain plan journeys nobody was making.
 		if (edit.type === 'freetime') {
-			sets.push('lat = NULL', 'lng = NULL', 'poi_id = NULL', 'lodging_id = NULL');
+			sets.push('lat = NULL', 'lng = NULL', 'poi_id = NULL', 'lodging_id = NULL', 'place_text = NULL');
 		}
 	}
 	if (edit.notes !== undefined) {
@@ -742,15 +776,19 @@ export function editEvent(
 	// Free time has just cleared its place above, and re-setting one here would
 	// undo that in the same statement.
 	if (edit.place !== undefined && edit.type !== 'freetime') {
-		// Both columns are always written, because the two links are exclusive:
-		// re-typing a block from an activity to a stay has to release the museum
-		// as it takes the hotel, or the Discover card would keep counting it.
+		// All four are always written, because an event is somewhere for exactly
+		// one reason: the two links are exclusive of each other, and a typed name
+		// is exclusive of both. Re-typing a block from an activity to a stay has
+		// to release the museum as it takes the hotel, or the Discover card would
+		// keep counting it, and picking a saved place has to drop the name that
+		// was typed before it.
 		if (edit.place) {
-			sets.push('poi_id = ?', 'lodging_id = ?', 'lat = ?', 'lng = ?');
+			sets.push('poi_id = ?', 'lodging_id = ?', 'place_text = ?', 'lat = ?', 'lng = ?');
 			args.push(edit.place.poiId ?? null, edit.place.lodgingId ?? null);
+			args.push(edit.place.text?.trim() || null);
 			args.push(edit.place.lat, edit.place.lng);
 		} else {
-			sets.push('poi_id = NULL', 'lodging_id = NULL', 'lat = NULL', 'lng = NULL');
+			sets.push('poi_id = NULL', 'lodging_id = NULL', 'place_text = NULL', 'lat = NULL', 'lng = NULL');
 		}
 	}
 	if (edit.travelMode !== undefined) {

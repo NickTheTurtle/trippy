@@ -10,8 +10,9 @@ import FormError from '../components/ui/FormError';
 import EmptyState from '../components/ui/EmptyState';
 import Select from '../components/ui/Select';
 import WarnMark from '../components/ui/WarnMark';
+import { PencilIcon } from '../components/ui/icons';
 import { useToast } from '../components/ui/Toast';
-import GoogleMap, { type MapTrack } from '../components/GoogleMap';
+import GoogleMap, { type MapTrack, type MapCenter } from '../components/GoogleMap';
 import TripMap from '../components/TripMap';
 
 import { type Layout } from '@trippy/core/layout';
@@ -53,6 +54,31 @@ const VIEW_OPTIONS: { v: ViewMode; label: string }[] = [
 	{ v: 'day', label: 'Day' },
 	{ v: 'agenda', label: 'Agenda' }
 ];
+
+/**
+ * The board's per-type colours as hex, for the one surface CSS cannot reach:
+ * the map pins built in `mapTracks`. These are the same five values that
+ * `.sched .block.<type>` sets as `--c` in schedule.css, kept in step by hand so
+ * the map and the calendar read as a single colour scheme. DESIGN.md records
+ * why the copy has to exist rather than being imported from one place.
+ */
+const EVENT_COLORS: Record<EventType, string> = {
+	activity: '#2f7a4f',
+	food: '#c15a25',
+	stay: '#7b4fa6',
+	travel: '#2f6d9e',
+	freetime: '#8a8578'
+};
+
+/**
+ * A place the trip saved and has not scheduled.
+ *
+ * The one colour on the map that is not a type, because being unplanned is not
+ * a kind of thing: it is the absence of one. Everything on the day wears its
+ * block's colour, so a glance at the map answers both questions at once, what
+ * is in the plan and what each planned thing is.
+ */
+const UNPLANNED = '#9aa39c';
 
 /** The lane holds both kinds of block, and they are laid out together. */
 type LaneItem =
@@ -192,10 +218,18 @@ type BlockProps = {
 	onMove: (e: React.PointerEvent) => void;
 	onUp: () => void;
 	onOpen: (id: string) => void;
+	/** Aim the map at this block. This is what a plain click does now; opening
+	    the editor is the pencil alone. */
+	onFocus: (id: string) => void;
 	onGripDown: (e: React.PointerEvent, ev: EventRow) => void;
 	onGripMove: (e: React.PointerEvent) => void;
 	onGripUp: () => void;
+	/** A journey arrives on top of this block, so its top-left corner squares off
+	    to let the two left borders run as one line. */
+	hasLegAbove: boolean;
 };
+
+const EDIT_ACTION = 'Edit';
 
 const Block = memo(function Block({
 	ev,
@@ -216,9 +250,11 @@ const Block = memo(function Block({
 	onMove,
 	onUp,
 	onOpen,
+	onFocus,
 	onGripDown,
 	onGripMove,
-	onGripUp
+	onGripUp,
+	hasLegAbove
 }: BlockProps) {
 	const bud = whoBudget(width, to - from, ev.title, lanePx);
 	const cls = [
@@ -227,6 +263,7 @@ const Block = memo(function Block({
 		dragging ? 'dragging' : '',
 		resizing ? 'resizing' : '',
 		editing ? 'editingnow' : '',
+		hasLegAbove ? 'joined' : '',
 		width < 0.34 ? 'narrow' : ''
 	]
 		.filter(Boolean)
@@ -237,7 +274,7 @@ const Block = memo(function Block({
 			className={cls}
 			role="button"
 			tabIndex={0}
-			aria-label={`${ev.title}, ${clock(ev.start_min)} to ${clock(ev.end_min)}. Open, or drag to reschedule.`}
+			aria-label={`${ev.title}, ${clock(ev.start_min)} to ${clock(ev.end_min)}. Show on the map, or drag to reschedule.`}
 			style={{
 				left: `${left * 100}%`,
 				width: `calc(${width * 100}% - 6px)`,
@@ -251,13 +288,17 @@ const Block = memo(function Block({
 			onPointerUp={onUp}
 			onClick={(e) => {
 				if ((e.target as HTMLElement).closest('.bresize')) return;
+				if ((e.target as HTMLElement).closest('.bedit')) return;
 				if (didDrag.current) return;
-				onOpen(ev.id);
+				onFocus(ev.id);
 			}}
 			onKeyDown={(e) => {
+				// The pencil is a button of its own; let it keep its own keys rather
+				// than firing the block's focus underneath it.
+				if ((e.target as HTMLElement).closest('.bedit')) return;
 				if (e.key === 'Enter' || e.key === ' ') {
 					e.preventDefault();
-					onOpen(ev.id);
+					onFocus(ev.id);
 				}
 			}}
 		>
@@ -295,6 +336,21 @@ const Block = memo(function Block({
 				onPointerMove={onGripMove}
 				onPointerUp={onGripUp}
 			/>
+			<button
+				type="button"
+				className="bedit"
+				aria-label={`${EDIT_ACTION} ${ev.title}`}
+				// Swallow the pointer so pressing the pencil opens the editor rather
+				// than beginning a drag on the block behind it, and stop the click
+				// from reaching the block, whose own click only focuses the map.
+				onPointerDown={(e) => e.stopPropagation()}
+				onClick={(e) => {
+					e.stopPropagation();
+					onOpen(ev.id);
+				}}
+			>
+				<PencilIcon />
+			</button>
 		</div>
 	);
 });
@@ -323,7 +379,14 @@ type LegProps = {
 	name: string;
 	title: string;
 	editing: boolean;
-	onOpen: (leg: LegRow) => void;
+	/** The type of the event this journey arrives at, or null when that event is
+	    not on the board. It gives the leg its colour, so the leg and its event
+	    read as one. */
+	arrivalType: EventType | null;
+	/** Aim the map at the event this journey feeds. A leg has no editor of its
+	    own; the journey is edited through its arrival event's pencil, and a
+	    click on the leg just focuses the map like any other block. */
+	onFocus: (id: string) => void;
 };
 
 const Leg = memo(function Leg({
@@ -335,7 +398,8 @@ const Leg = memo(function Leg({
 	name,
 	title,
 	editing,
-	onOpen
+	arrivalType,
+	onFocus
 }: LegProps) {
 	const wpx = width * lanePx;
 	const mins = leg.endMin - leg.startMin;
@@ -349,8 +413,12 @@ const Leg = memo(function Leg({
 	const bud = whoBudget(width, mins, name, lanePx);
 	const cls = [
 		'block',
-		'travel',
+		// The journey wears the colour of the event it feeds rather than a colour
+		// of its own, so the pair reads as one. It falls back to `travel` when its
+		// arrival is not on the board and there is nothing to match.
+		arrivalType ?? 'travel',
 		'leg',
+		arrivalType ? 'joined' : '',
 		thin ? 'thin' : '',
 		wpx < TINY_W ? 'tiny' : '',
 		leg.tight ? 'tight' : '',
@@ -365,7 +433,7 @@ const Leg = memo(function Leg({
 			className={cls}
 			role="button"
 			tabIndex={0}
-			aria-label={`${name}, ${clock(leg.startMin)} to ${clock(leg.endMin)}. Open.`}
+			aria-label={`${name}, ${clock(leg.startMin)} to ${clock(leg.endMin)}. Show on the map.`}
 			title={title}
 			style={{
 				left: `${left * 100}%`,
@@ -375,11 +443,11 @@ const Leg = memo(function Leg({
 				['--trows' as string]: bud.trows,
 				['--wrows' as string]: bud.wrows
 			}}
-			onClick={() => onOpen(leg)}
+			onClick={() => onFocus(leg.toEventId)}
 			onKeyDown={(e) => {
 				if (e.key === 'Enter' || e.key === ' ') {
 					e.preventDefault();
-					onOpen(leg);
+					onFocus(leg.toEventId);
 				}
 			}}
 		>
@@ -489,7 +557,6 @@ const Toolbar = memo(function Toolbar({
 					<div className="viewas">
 						<span className="muted">{copy.viewAs.label}</span>
 						<Select
-							compact
 							value={readAs}
 							onChange={onViewAs}
 							options={viewAsOptions}
@@ -686,9 +753,16 @@ export default function Schedule() {
 		day: string;
 		start: number | null;
 		type?: EventType;
+		/** A saved place the dialog opens with already picked. */
+		poi?: { id: string; name: string };
 	} | null>(null);
 	const [openEventId, setOpenEventId] = useState('');
 	const [openLegId, setOpenLegId] = useState('');
+	/** The block whose location the map is aimed at. Clicking a block selects it
+	    and pans the map here; it no longer opens the editor, which is now the
+	    pencil's job alone. Kept apart from `openEventId` so the two acts, looking
+	    and editing, do not drive each other. */
+	const [focusId, setFocusId] = useState('');
 	/** The open edit dialog's unsaved draft, drawn on the board as it is typed. */
 	const [preview, setPreview] = useState<EventDraft | null>(null);
 
@@ -1146,18 +1220,20 @@ export default function Schedule() {
 		return out;
 	}, [board]);
 
-	/* Pointing at a journey opens the event it arrives at, because that is where
-	   a journey is edited: it belongs to its arrival rather than standing on its
-	   own. The id is kept so the dialog can open on the journey that was meant,
-	   since a block can have one arriving group of people or five. */
-	const openLeg = useCallback((leg: LegRow) => {
-		setOpenLegId(leg.id);
-		setOpenEventId(leg.toEventId);
-	}, []);
-	/** The same panel, opened at the event itself rather than at an approach. */
+	/* Opening an event: the pencil on a block, or a stay band, asks for the
+	   editor. Pointing at a block no longer opens it; a click focuses the map
+	   instead, so `openBlock` is reached through the pencil alone. */
 	const openBlock = useCallback((id: string) => {
 		setOpenLegId('');
 		setOpenEventId(id);
+	}, []);
+	/* Opening a journey's arrival, keeping the leg's id so the dialog opens on
+	   the journey that was meant. Reached from the agenda list, whose rows open
+	   the way they always have: the click-focuses-the-map change is the day
+	   board's, and the agenda has no pencil to move editing onto. */
+	const openLeg = useCallback((leg: LegRow) => {
+		setOpenLegId(leg.id);
+		setOpenEventId(leg.toEventId);
 	}, []);
 	/** Add something to the day being read, with no time chosen yet. */
 	const shownDay = data?.day;
@@ -1260,9 +1336,12 @@ export default function Schedule() {
 	const mapTracks: MapTrack[] = useMemo(() => {
 		/* Every place the trip saved in Discover is on the map, so the day is read
 		   against everything that was considered rather than against a blank
-		   field: grey for the places this day does not visit, green for the ones
-		   it does. */
+		   field. The two are told apart by colour: a scheduled place wears its
+		   block's own colour, and an unscheduled one is grey, so the map says both
+		   what is in the plan and what each planned thing is. The day's own stops
+		   also carry their number and the line through them. */
 		const dayPins = (anchor?.events ?? []).filter((e) => e.lat != null && e.lng != null);
+		const stayPins = (anchor?.stays ?? []).filter((s) => s.lat != null && s.lng != null);
 		const scheduledPoiIds = new Set(
 			(anchor?.events ?? []).map((e) => e.poi_id).filter((id): id is string => id !== null)
 		);
@@ -1302,17 +1381,21 @@ export default function Schedule() {
 			);
 			tracks.push({
 				name: 'Saved locations',
-				color: '#9aa39c',
+				color: UNPLANNED,
 				items: restPins.map((p) => ({
 					title: p.name,
 					lat: p.lat,
 					lng: p.lng,
+					color: UNPLANNED,
 					/* Which city it is in, which neither the colour nor the track name
 					   says, and how much appetite there is for it: a saved place is
 					   read to decide whether to schedule it, and the vote is what that
 					   decision turns on. */
 					subtitle: cityName.get(p.city_id),
-					detail: p.votes ? [p.votes === 1 ? '1 vote' : `${p.votes} votes`] : undefined
+					detail: p.votes ? [p.votes === 1 ? '1 vote' : `${p.votes} votes`] : undefined,
+					/* The card's "+ Add": these are exactly the places the day has not
+					   got, so deciding to have one and saying so are the same act. */
+					addId: p.id
 				})),
 				line: false,
 				numbered: false
@@ -1351,6 +1434,7 @@ export default function Schedule() {
 							title: e.title,
 							lat: e.lat,
 							lng: e.lng,
+							color: EVENT_COLORS[e.type],
 							subtitle: `${typeLabel(e.type)} · ${clockRange(e.start_min, e.end_min)}`,
 							detail: [peopleLabel(e.people), ...shown],
 							warn: legs.some((l) => l.tight) ? copy.viewAs.travelWarning : undefined
@@ -1360,8 +1444,94 @@ export default function Schedule() {
 				line: ordered
 			});
 		}
+		/* The night's lodging, shown on the map like any other place now that a
+		   stay carries the coordinates of the room it books. It is its own track
+		   with no line and no number: a stay is a range of nights rather than a
+		   stop on the day's route, so joining it into that route or numbering it
+		   among the stops would both be a claim that is not true. */
+		if (stayPins.length && data) {
+			tracks.push({
+				name: typeLabel('stay'),
+				color: EVENT_COLORS.stay,
+				items: stayPins.map((s) => ({
+					title: s.title,
+					lat: s.lat,
+					lng: s.lng,
+					color: EVENT_COLORS.stay,
+					subtitle: typeLabel(s.type),
+					detail: [peopleLabel(s.people)]
+				})),
+				line: false,
+				numbered: false
+			});
+		}
 		return tracks;
 	}, [anchor, data, readAs, eventById, peopleLabel]);
+
+	/* Clicking a block on the board aims the map at it, so the reader can see
+	   what is around the place they just selected. A click focuses; it does not
+	   open the editor, which is the pencil's job. The focused point is the
+	   clicked event's own, looked up the way the open one is so a stay band
+	   focuses too. An event with no coordinates (free time, or a place not chosen
+	   yet) focuses nothing, which the map reads as "show the day". */
+	const focusEvent = useMemo(() => {
+		if (!focusId) return null;
+		for (const entry of data?.board ?? []) {
+			for (const e of entry.events) if (e.id === focusId) return e;
+			for (const s of entry.stays) if (s.id === focusId) return s;
+		}
+		return null;
+	}, [focusId, data]);
+	const mapFocus = useMemo<MapCenter>(() => {
+		if (!focusEvent || focusEvent.lat == null || focusEvent.lng == null) return null;
+		return { lat: focusEvent.lat, lng: focusEvent.lng, name: focusEvent.title };
+	}, [focusEvent]);
+	const [mapFocusKey, setMapFocusKey] = useState(0);
+	/* Aim the map at a block. The key bumps on every call rather than on a change
+	   of id, so clicking the same block twice re-aims instead of doing nothing. */
+	const focusOnMap = useCallback((id: string) => {
+		setFocusId(id);
+		setMapFocusKey((k) => k + 1);
+	}, []);
+	/* A grey pin is a place nobody has scheduled, so the only thing to do to it
+	   is schedule it. The card's "+ Add" opens the ordinary add dialog with the
+	   place already picked, on the day the board is showing: the map is read
+	   against that day, so it is the day the reader means. The type follows the
+	   Discover bucket, since a restaurant asked for as an activity would have to
+	   be corrected in the dialog every time. */
+	const savedById = useMemo(
+		() => new Map((data?.saved ?? []).map((p) => [p.id, p])),
+		[data?.saved]
+	);
+	const addFromMap = useCallback(
+		(poiId: string) => {
+			const p = savedById.get(poiId);
+			if (!p || !shownDay) return;
+			setAdding({
+				day: shownDay,
+				start: null,
+				type: p.kind === 'food' ? 'food' : 'activity',
+				poi: { id: p.id, name: p.name }
+			});
+		},
+		[savedById, shownDay]
+	);
+	/* The camera returns to the whole day when the selection is dropped: on a day
+	   change, because the focused block is not on the new day, and on Escape while
+	   no dialog is up, since an open dialog owns Escape for its own close. */
+	const shownDayKey = data?.day;
+	useEffect(() => {
+		setFocusId('');
+	}, [shownDayKey]);
+	const dialogUp = !!openEventId || !!adding;
+	useEffect(() => {
+		if (!focusId || dialogUp) return;
+		const onKey = (e: KeyboardEvent) => {
+			if (e.key === 'Escape') setFocusId('');
+		};
+		document.addEventListener('keydown', onKey);
+		return () => document.removeEventListener('keydown', onKey);
+	}, [focusId, dialogUp]);
 
 	const mapPanel = useMemo(
 		() => (
@@ -1371,10 +1541,19 @@ export default function Schedule() {
 						tracks={mapTracks}
 						apiKey={data.mapsKey}
 						center={anchorCity}
+						focus={mapFocus}
+						focusKey={mapFocusKey}
+						onAdd={addFromMap}
 						onUnavailable={() => setMapsOut(true)}
 					/>
 				) : (
-					<TripMap tracks={mapTracks} center={anchorCity} />
+					<TripMap
+						tracks={mapTracks}
+						center={anchorCity}
+						focus={mapFocus}
+						focusKey={mapFocusKey}
+						onAdd={addFromMap}
+					/>
 				)}
 			</aside>
 		),
@@ -1384,7 +1563,7 @@ export default function Schedule() {
 		// Without the dep the swap to Leaflet waits for the next change to
 		// `mapTracks`, which most board edits produce, so the bug would not be a
 		// map that never falls back but one that falls back only sometimes.
-		[data?.mapsKey, mapsOut, mapTracks, anchorCity]
+		[data?.mapsKey, mapsOut, mapTracks, anchorCity, mapFocus, mapFocusKey, addFromMap]
 	);
 
 	// --- Drag and resize ----------------------------------------------------
@@ -1591,11 +1770,12 @@ export default function Schedule() {
 	 * The day's lodgings, drawn above the day rather than inside it.
 	 *
 	 * A stay is a range of nights, not an hour, so it is a band on every day it
-	 * covers and clicking it opens the same dialog a block does: that is the one
-	 * place its dates, its place and who is in it are edited, and editing it on
-	 * any day it covers edits the whole stay. There can be several, because half
-	 * a group can be in one building and half in another, which is exactly what
-	 * the old vote-derived band could not say.
+	 * covers. Clicking it aims the map at the building, the same as a block, and
+	 * the pencil beside the name opens the dialog: that is the one place its
+	 * dates, its place and who is in it are edited, and editing it on any day it
+	 * covers edits the whole stay. There can be several, because half a group
+	 * can be in one building and half in another, which is exactly what the old
+	 * vote-derived band could not say.
 	 *
 	 * The band runs through the morning of checkout, because that morning is
 	 * still spent in the room: it is where the first journey of the day starts
@@ -1606,19 +1786,29 @@ export default function Schedule() {
 		return (
 			<div className="stayband">
 				{entry.stays.map((s) => (
-					<button
-						key={s.id}
-						type="button"
-						className={preview?.id === s.id ? 'staychip editingnow' : 'staychip'}
-						onClick={() => openBlock(s.id)}
-					>
-						<span className="stayname">{s.title}</span>
-						<span className="staywho">
-							{s.people.length === 0 || s.people.length === members.length
-								? 'Everyone'
-								: s.people.map((id) => shortName(id)).join(', ')}
-						</span>
-					</button>
+					<div key={s.id} className={preview?.id === s.id ? 'staychip editingnow' : 'staychip'}>
+						<button
+							type="button"
+							className="stayface"
+							aria-label={`${s.title}. Show on the map.`}
+							onClick={() => focusOnMap(s.id)}
+						>
+							<span className="stayname">{s.title}</span>
+							<span className="staywho">
+								{s.people.length === 0 || s.people.length === members.length
+									? 'Everyone'
+									: s.people.map((id) => shortName(id)).join(', ')}
+							</span>
+						</button>
+						<button
+							type="button"
+							className="stayedit"
+							aria-label={`${EDIT_ACTION} ${s.title}`}
+							onClick={() => openBlock(s.id)}
+						>
+							<PencilIcon />
+						</button>
+					</div>
 				))}
 				<button
 					type="button"
@@ -1631,7 +1821,13 @@ export default function Schedule() {
 		);
 	}
 
-	function blockNode(ev: EventRow, day: string, lanePx: number, place: Layout) {
+	function blockNode(
+		ev: EventRow,
+		day: string,
+		lanePx: number,
+		place: Layout,
+		legTargets: Set<string>
+	) {
 		const p = place.placed.get(ev.id);
 		if (!p) return null;
 
@@ -1656,9 +1852,11 @@ export default function Schedule() {
 				onMove={onPointerMove}
 				onUp={onPointerUp}
 				onOpen={openBlock}
+				onFocus={focusOnMap}
 				onGripDown={onResizeDown}
 				onGripMove={onResizeMove}
 				onGripUp={onResizeUp}
+				hasLegAbove={legTargets.has(ev.id)}
 			/>
 		);
 	}
@@ -1701,9 +1899,19 @@ export default function Schedule() {
 				name={legName(leg, box.width * lanePx)}
 				title={legTitle(leg)}
 				editing={openLegId === leg.id}
-				onOpen={openLeg}
+				arrivalType={legArrivalType(leg)}
+				onFocus={focusOnMap}
 			/>
 		);
+	}
+
+	/* The type of the event a journey arrives at, which the leg borrows as its
+	   colour so the two read as one. Null when that event is not on the board
+	   (view-as can hide it) or is free time, which no journey ever arrives at:
+	   in either case there is nothing below the leg to match. */
+	function legArrivalType(leg: LegRow): EventType | null {
+		const to = eventById.get(leg.toEventId);
+		return to && to.type !== 'freetime' ? to.type : null;
 	}
 
 	function legTitle(leg: LegRow): string {
@@ -1760,6 +1968,11 @@ export default function Schedule() {
 			...entry.events.map((ev) => ({ kind: 'event', ev }) as const)
 		];
 
+		/* Which events have a journey arriving on top of them, so their top-left
+		   corner squares off to meet the leg's border. Read off the drawn bars,
+		   which is exactly the set of legs the board is about to paint. */
+		const legTargets = new Set(bars.map((b) => b.leg.toEventId));
+
 		return (
 			<div
 				className={`daygrid${drag ? ' still' : ''}${drag && openedBy > 0 ? ' opening' : ''}`}
@@ -1786,7 +1999,7 @@ export default function Schedule() {
 				>
 					{items.map((it) =>
 						it.kind === 'event'
-							? blockNode(it.ev, entry.day, opts.lanePx, place)
+							? blockNode(it.ev, entry.day, opts.lanePx, place, legTargets)
 							: legNode(it.leg, opts.lanePx, { left: it.left, width: it.width })
 					)}
 				</div>
@@ -1920,6 +2133,7 @@ export default function Schedule() {
 					day={adding.day}
 					startMin={adding.start}
 					initialType={adding.type}
+					initialPoi={adding.poi}
 					legs={draftLegs}
 					eventOf={(id) => eventById.get(id) ?? null}
 					peopleLabel={peopleLabel}
@@ -1929,6 +2143,7 @@ export default function Schedule() {
 					stays={data.stays}
 					cities={data.cities}
 					cityId={cityOfDay(adding.day)}
+					provider={data.provider}
 					dock={dockSide}
 					peek={roomToDock}
 					onPreview={setPreview}
@@ -1955,6 +2170,7 @@ export default function Schedule() {
 					stays={data.stays}
 					cities={data.cities}
 					cityId={openEvent.city_id ?? cityOfDay(openEvent.day)}
+					provider={data.provider}
 					dock={dockSide}
 					peek={roomToDock}
 					onPreview={setPreview}

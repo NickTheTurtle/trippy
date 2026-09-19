@@ -200,10 +200,12 @@ test.describe('discover', () => {
 			const dialog = page.getByRole('dialog');
 			// The block takes its name from the stay it is booked into, so picking
 			// one is all there is to say.
-			await dialog.getByRole('button', { name: 'Stay', exact: true }).click();
+			await dialog.getByRole('combobox', { name: 'Stay' }).click();
 			await page.getByRole('option', { name: /Alfama rooms/ }).click();
 			await dialog.getByRole('button', { name: copy.common.add, exact: true }).click();
-			await expect(page.getByRole('button', { name: /Alfama rooms/ })).toBeVisible();
+			await expect(
+				page.getByRole('button', { name: /Alfama rooms\. Show on the map/ })
+			).toBeVisible();
 
 			await page.goto(`/trips/${fixture.tripId}/discover`);
 			await expect(page.getByText(copy.discover.card.onCalendar(1), { exact: true })).toHaveCount(

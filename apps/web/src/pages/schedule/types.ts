@@ -1,4 +1,4 @@
-import type { EventType } from '@trippy/core/types';
+import type { EventType, PoiKind } from '@trippy/core/types';
 import type { Crew } from '../people/types';
 
 /**
@@ -43,6 +43,9 @@ export type EventRow = {
 	end_min: number;
 	poi_id: string | null;
 	lodging_id: string | null;
+	/* A location typed by hand rather than picked. Exclusive with the two links
+	   above, and never geocoded: see `PlaceField`. */
+	place_text: string | null;
 	city_id: string | null;
 	lat: number | null;
 	lng: number | null;
@@ -113,6 +116,12 @@ export type SavedPoi = {
 	lng: number | null;
 	/** How many people have voted for it in Discover. */
 	votes: number;
+	/**
+	 * Which Discover bucket it came from, so the place picker can offer the ones
+	 * that match the block being added. Absent on a stay: the stays are their own
+	 * list and their own table, and nothing filters them.
+	 */
+	kind?: PoiKind;
 };
 
 export type BoardDay = {
@@ -160,5 +169,7 @@ export type ScheduleData = {
 	 */
 	stays: SavedPoi[];
 	cities: (Cell | null)[];
+	/** Who answers the place field's search, for the attribution under its results. */
+	provider: 'google' | 'osm';
 	mapsKey: string;
 };

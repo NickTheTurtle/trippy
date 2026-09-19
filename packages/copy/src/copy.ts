@@ -147,7 +147,8 @@ export const copy = {
 		startLabel: 'Start',
 		endLabel: 'End',
 		currencyLabel: 'Currency',
-		currencyAriaLabel: 'Home currency'
+		currencyAriaLabel: 'Home currency',
+		tooLong: 'A trip can run for at most a year.'
 	},
 
 	// Trip shell > header, edit dialog, live-updates notice
@@ -189,7 +190,7 @@ export const copy = {
 		types: {
 			all: 'All',
 			attraction: 'Attractions',
-			food: 'Food & Drink',
+			food: 'Food & Drinks',
 			stay: 'Stays'
 		},
 		noCities: {
@@ -240,6 +241,7 @@ export const copy = {
 				linked === 1 ? 'On the calendar' : `On the calendar ×${linked}`
 		},
 		placeCard: {
+			editLabel: (name: string) => `Edit ${name}`,
 			removeLabel: (name: string) => `Delete ${name}`
 		},
 		stayCard: {
@@ -364,6 +366,7 @@ export const copy = {
 		youTag: 'you',
 		formerTag: 'left the trip',
 		nothingToSettle: 'Nothing to settle',
+		noneForMember: (who: string) => `Nothing here for ${who}`,
 		deletePaymentTitle: (payment: string) => `Delete ${payment}?`,
 		deleteExpenseTitle: (expense: string) => `Delete ${expense}?`,
 		row: {
@@ -402,6 +405,7 @@ export const copy = {
 			editIncomeTitle: 'Edit income',
 			editExpenseTitle: 'Edit expense',
 			descriptionLabel: 'Description',
+			dateLabel: 'Date',
 			amountLabel: 'Amount',
 			currencyLabel: 'Currency',
 			receivedByLabel: 'Received by',
@@ -514,6 +518,10 @@ export const copy = {
 		tripMap: {
 			noPoints: 'Schedule something with a location to see it on the map.',
 			failed: 'Could not draw the map.'
+		},
+		mapCard: {
+			/** Carries the plus, like every other add in the app. */
+			add: '+ Add'
 		}
 	},
 

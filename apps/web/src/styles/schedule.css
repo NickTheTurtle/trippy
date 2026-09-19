@@ -146,6 +146,11 @@
  * end of the page doing its job. */
 .sched {
 	margin-bottom: calc(-1 * var(--tailpull, 0px));
+	/* The clock gutter, in one place: the day grid's indent, the lane's left
+	   edge, the width of an hour label and the lodging band's indent are the
+	   same measurement seen four times, and they read as misaligned the moment
+	   one of them is changed on its own. */
+	--hourgutter: 56px;
 }
 
 .sched .split {
@@ -278,13 +283,13 @@
 	flex-wrap: wrap;
 	align-items: center;
 	gap: 0.4rem;
-	margin: 0 0 0.7rem 56px;
+	margin: 0 0 0.7rem var(--hourgutter);
 }
 .sched .staychip {
 	display: flex;
-	align-items: baseline;
-	gap: 0.45rem;
-	padding: 0.4rem 0.7rem;
+	align-items: center;
+	gap: 0.25rem;
+	padding: 0.4rem 0.45rem 0.4rem 0.7rem;
 	border: 1px solid var(--color-line);
 	border-radius: var(--radius-md);
 	background: var(--color-surface);
@@ -298,6 +303,39 @@
 	min-width: 0;
 	max-width: 100%;
 	overflow-wrap: anywhere;
+}
+.sched .stayface {
+	display: flex;
+	align-items: baseline;
+	gap: 0.45rem;
+	min-width: 0;
+	font: inherit;
+	color: inherit;
+	text-align: left;
+	overflow-wrap: anywhere;
+}
+/* The pencil keeps the chip's own reveal rules: hidden until the chip is
+   hovered or holds focus, so a band of three stays is not three pencils, and
+   still reachable by Tab because focus counts as well as hover. */
+.sched .stayedit {
+	display: inline-flex;
+	flex: none;
+	align-items: center;
+	justify-content: center;
+	padding: 2px;
+	border-radius: var(--radius-sm);
+	color: var(--color-ink-soft);
+	opacity: 0;
+	transition: opacity 120ms ease-out;
+}
+.sched .staychip:hover .stayedit,
+.sched .staychip:focus-within .stayedit {
+	opacity: 0.75;
+}
+.sched .stayedit:hover,
+.sched .stayedit:focus-visible {
+	opacity: 1;
+	color: var(--color-accent-ink);
 }
 .sched .staychip:hover,
 .sched .staychip.editingnow {
@@ -331,7 +369,7 @@
    them was inheriting this clock gutter as a 56px indent. */
 .sched .daygrid {
 	position: relative;
-	padding-left: 56px;
+	padding-left: var(--hourgutter);
 	/* The window can open onto an earlier hour, which makes the grid taller and
 	   moves every block down it. Blocks glide; an axis that jumped would tear
 	   away from them for the length of the glide, so it travels at the same
@@ -367,7 +405,7 @@
 	position: absolute;
 	left: 0;
 	top: -0.6rem;
-	width: 48px;
+	width: calc(var(--hourgutter) - 8px);
 	text-align: right;
 	font-size: var(--text-micro);
 	color: var(--color-ink-faint);
@@ -375,7 +413,7 @@
 /* Journeys share the event columns, so the lane takes the whole width. */
 .sched .lane {
 	position: absolute;
-	left: 56px;
+	left: var(--hourgutter);
 	right: 0;
 	top: 0;
 	bottom: 0;
@@ -439,18 +477,23 @@
 		box-shadow 140ms ease-out;
 	animation: sched-block-in 180ms ease-out;
 }
-/* One colour per type, since the type is what a reader scans a day for. */
+/* One colour per type, since the type is what a reader scans a day for. The
+   five sit on well-separated hues (green, orange, violet, blue, grey) so a busy
+   day is legible at a glance rather than a wash of near neighbours. These hexes
+   are the one colour scheme the map shares: the same values live in
+   EVENT_COLORS in Schedule.tsx, and DESIGN.md records why the two copies exist.
+   Change one, change the other. */
 .sched .block.activity {
-	--c: #2f6d5e;
+	--c: #2f7a4f;
 }
 .sched .block.food {
-	--c: #b4682a;
+	--c: #c15a25;
 }
 .sched .block.stay {
-	--c: #8c5a86;
+	--c: #7b4fa6;
 }
 .sched .block.travel {
-	--c: #4a6d8c;
+	--c: #2f6d9e;
 }
 .sched .block.freetime {
 	--c: #8a8578;
@@ -523,6 +566,19 @@
 	border-color: var(--color-warn);
 	color: var(--color-warn);
 }
+/* A journey and the event it feeds read as one unit. The leg takes the arrival
+   event's colour (set on the class the page hands it) and both drop the radius
+   on their facing corners, so the two 3px left borders meet with no seam and
+   run as a single line down the leg and into the event. The leg sits directly
+   on the event's top edge already, so nothing else has to move. A leg with no
+   arrival event on the board keeps its own rounded corner: there is nothing
+   below it to join. */
+.sched .block.leg.joined {
+	border-bottom-left-radius: 0;
+}
+.sched .block.joined:not(.leg) {
+	border-top-left-radius: 0;
+}
 .sched .bresize {
 	position: absolute;
 	left: 0;
@@ -546,6 +602,37 @@
 }
 .sched .block:hover .bresize::after {
 	opacity: 0.5;
+}
+/* The edit affordance, revealed on hover the same way the resize grip is. The
+   whole block still opens on click; this is the explicit handle for readers who
+   want to be told the block is editable. It sits top-right, clear of the resize
+   grip along the bottom edge, and it is a real button with its own name so the
+   keyboard and a screen reader reach it. It fades in on hover or when it takes
+   focus, which is what lets a keyboard tab land on something visible. */
+.sched .block .bedit {
+	position: absolute;
+	top: 1px;
+	right: 1px;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	padding: 2px;
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: color-mix(in srgb, var(--c) 12%, white);
+	color: var(--c);
+	cursor: pointer;
+	opacity: 0;
+	transition: opacity 120ms ease-out;
+	z-index: 2;
+}
+.sched .block:hover .bedit,
+.sched .block:focus-within .bedit {
+	opacity: 0.75;
+}
+.sched .block .bedit:hover,
+.sched .block .bedit:focus-visible {
+	opacity: 1;
 }
 .sched .bt {
 	font-size: 0.85rem;
@@ -723,16 +810,17 @@
 	color: var(--color-warn);
 }
 
-/* Stacked, the toolbar is a row above the content rather than a header beside a
- * column, and that is the shape every other trip page takes below Tailwind's
- * `lg`: the section dropdown, then 1.5rem, then the card it introduces, which
- * is the grid's own `gap-6`. The calendar had 1rem there and read tighter than
- * the rest of the app on a phone for no reason other than the rule it did not
- * share. Above this width the column layout returns everywhere and the gap goes
- * back to the 1rem a header row takes over its own body. */
+/* Below `lg` every trip page stacks, and on a phone the calendar's toolbar
+ * stacks with it: a row of controls, then the view switch, then the board. That
+ * is the same three-part stack Discover has (its city dropdown, its type pills,
+ * its grid), so it takes the same two gaps: 1.5rem between the two control rows,
+ * which is the grid's own `gap-6`, and 1rem from the last control row to the
+ * body, which is the `mb-4` every header row in the app takes over its own body.
+ * The calendar used to have those two the other way round, 0.5rem then 1.5rem,
+ * which is why the two pages read as spaced differently. */
 @media (max-width: 1023.98px) {
 	.sched .toolbar {
-		margin-bottom: 1.5rem;
+		margin-bottom: 1rem;
 	}
 }
 
@@ -924,7 +1012,10 @@
 @media (max-width: 560px) {
 	.sched .toolbar {
 		flex-wrap: wrap;
-		gap: 0.5rem;
+		/* Two full-width lines, so only the row gap is ever seen: it carries the
+		   1.5rem Discover puts between its city dropdown and its type pills. */
+		column-gap: 0.5rem;
+		row-gap: 1.5rem;
 	}
 	/* Line one: who to read it as, and what to add. */
 	.sched .toolbar .tools {
@@ -961,35 +1052,36 @@
 	   this page. The board got the 320px floor, which is not a day, it is a
 	   slot.
 	 *
-	 * The lodging band was the single worst row. It is indented 56px to line up
-	 * with the day grid's hour gutter, which is worth having beside a wide
-	 * board and not worth 56px of a phone: with the indent the stay chip and
-	 * `+ Add stay` no longer fit on one line, so the band wrapped to two and
-	 * cost 39px. Flush left it is one row again, which also puts the action
-	 * back on its section's own row. Measured, the indent is what breaks it:
-	 * the band fits at 430px with the indent and not at 390px.
+	 * The lodging band was the single worst row. It is indented to line up with
+	 * the day grid's hour gutter, which at 56px is worth having beside a wide
+	 * board and not worth 56px of a phone. It was made flush left, which bought
+	 * a row back and then read as a band that had slipped off the grid, because
+	 * every block beside it still started 56px in. The gutter itself narrows
+	 * instead: the widest label this board writes is "12 AM", which measures
+	 * 34px, so a 36px label box inside a 44px gutter holds it on one line and
+	 * gives 12px back while leaving the band lined up with the blocks below.
+	 * The band wraps to two rows at this width, which is the same shape every
+	 * other section here takes: its contents, then its action under them.
 	 *
 	 * The rest is rhythm. The gaps here were set for a page with room around
 	 * it; each one trimmed is a strip of the day drawn instead, and the day is
 	 * what the reader came for. The toolbar's own bottom margin is not one of
-	 * them any more: it is the gap between this page's header and its body, and
-	 * every other trip page holds that at 1rem at every width, so trimming it
-	 * here bought 5px by making the calendar the odd page out.
+	 * them: it is the gap between this page's header and its body, and every
+	 * other trip page holds that at 1rem at every width.
 	 *
-	 * Together: around 58px back at 390px and a board box that grows from its
-	 * 320px floor. The toolbar's second line is bought out of that: it costs
-	 * the height of one pill row back, which is what the switch is worth once
-	 * it is a target you can hit rather than a capsule wedged beside a
-	 * filter. */
+	 * Together: a board box that grows from its 320px floor. The toolbar's
+	 * second line is bought out of that: it costs the height of one pill row
+	 * back, which is what the switch is worth once it is a target you can hit
+	 * rather than a capsule wedged beside a filter. */
+	.sched {
+		--hourgutter: 44px;
+	}
 	.sched .board {
 		padding-top: 0.6rem;
 	}
 	.sched .boardhead {
 		margin-bottom: 0.6rem;
 		padding-bottom: 0.6rem;
-	}
-	.sched .stayband {
-		margin-left: 0;
 	}
 }
 

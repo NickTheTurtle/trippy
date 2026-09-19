@@ -724,9 +724,6 @@ select.input.compact {
 	   a bare min-width here overflows narrow parents like the modal's field row. */
 	min-width: min(9rem, 100%);
 }
-.sel.compact {
-	min-width: min(7.5rem, 100%);
-}
 /*
  * The trigger takes the same height as a `.btn`, so a Select and a button in
  * the same row line up. It was inheriting its font size from wherever it
@@ -734,6 +731,13 @@ select.input.compact {
  * 38px in another and 43px in a third; both size and line-height are stated
  * here instead. `height`, not `min-height`: the label is a single ellipsised
  * line by design, so there is nothing to grow for.
+ *
+ * There is one height, and no compact variant. A `.sel.compact` existed and was
+ * worn by both "View as" filters: 32px, a step of type smaller than the `+ Add`
+ * button sitting right next to it, while Discover's filter and `SectionNav`'s
+ * narrow one were full size. The same control answering the same kind of
+ * question came out two sizes depending on the page. A dense form is a real
+ * need inside a list row, but that is what `MultiSelect`'s compact form covers.
  */
 .seltrigger {
 	display: flex;
@@ -752,12 +756,6 @@ select.input.compact {
 	color: var(--color-ink);
 	cursor: pointer;
 	text-align: left;
-}
-/* The compact variant matches `.btn.small` the same way. */
-.sel.compact .seltrigger {
-	height: var(--control-h-sm);
-	padding: 0.35rem 0.5rem;
-	font-size: var(--text-meta);
 }
 .seltrigger:hover {
 	border-color: var(--color-accent);
@@ -1251,8 +1249,26 @@ html[data-page-nav='back']::view-transition-new(trippage) {
 	cursor: default;
 	opacity: 0.55;
 }
+/*
+ * The label over a run of options, when one menu holds two lists that mean
+ * different things: the trip's saved places and what the provider offered for
+ * the same query. Styled as `.selopthead` is, because the two menus are the
+ * same menu to the reader. The rule only appears on a heading with rows above
+ * it, so a list that starts with its second group is not opened by a line.
+ */
+.sdrophead {
+	padding: 0.4rem 0.5rem 0.2rem;
+	font-size: var(--text-micro);
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	color: var(--color-ink-faint);
+}
+.sdrophead.ruled {
+	margin-top: 0.25rem;
+	border-top: 1px solid var(--color-line);
+	padding-top: 0.45rem;
+}
 .sdropnote {
-	margin: 0;
 	padding: 0.4rem 0.5rem;
 	font-size: var(--text-meta);
 	color: var(--color-ink-faint);
@@ -1455,18 +1471,6 @@ html[data-page-nav='back']::view-transition-new(trippage) {
 	font-size: var(--text-meta);
 	color: var(--color-ink-faint);
 }
-/* A line about the last tick, at the top of the menu. Ordinary ink rather than
-   the faint grey the headings use: it is there because something the reader
-   asked for did not happen, and faint grey is how this menu writes the things
-   nobody needs to read. It sits on the menu's own surface with a rule under it
-   so it cannot be mistaken for a row that can be ticked. */
-.mnote {
-	padding: 0.45rem 0.5rem;
-	border-bottom: 1px solid var(--color-line);
-	font-size: var(--text-meta);
-	line-height: 1.35;
-	color: var(--color-ink-soft);
-}
 
 /* --- Maps ---------------------------------------------------------------- */
 
@@ -1621,6 +1625,31 @@ html[data-page-nav='back']::view-transition-new(trippage) {
 }
 .mapcard-warn svg {
 	flex: 0 0 auto;
+}
+/* A card with something to do on it takes the pointer, so its button can be
+   reached; every other card still lets it through to the map underneath. The
+   card holds itself open while the pointer is on it, which is what makes the
+   crossing from pin to button possible at all: see `createCardLayer`. */
+.mapcard-act {
+	pointer-events: auto;
+}
+.mapcard-add {
+	align-self: flex-start;
+	margin-top: 0.4rem;
+	padding: 0.2rem 0.55rem;
+	border: 1px solid var(--color-line);
+	border-radius: var(--radius-sm);
+	background: var(--color-surface);
+	color: var(--color-ink-soft);
+	font-family: inherit;
+	font-size: 0.74rem;
+	font-weight: 600;
+	cursor: pointer;
+}
+.mapcard-add:hover,
+.mapcard-add:focus-visible {
+	border-color: var(--color-accent);
+	color: var(--color-accent);
 }
 
 /* --- Toasts -------------------------------------------------------------- */

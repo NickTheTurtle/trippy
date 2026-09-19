@@ -13,6 +13,20 @@ export type MapItem = {
 	detail?: string[];
 	/** A row that reads as a problem rather than a fact, drawn with the warning mark. */
 	warn?: string;
+	/**
+	 * The pin's own colour, overriding the track colour for this one point. A
+	 * track is one line but its stops can be different kinds of place, and the
+	 * schedule colours each pin by category so the map reads in the board's
+	 * palette. Absent falls back to the track colour, which is still what the
+	 * joining line is drawn in.
+	 */
+	color?: string;
+	/**
+	 * The saved place this pin stands for, when it is one the trip has not
+	 * scheduled yet. Its presence is what puts the "+ Add" action on the card:
+	 * an unplanned place is the only kind of pin there is something to do to.
+	 */
+	addId?: string;
 };
 export type MapTrack = {
 	name: string;
@@ -147,11 +161,24 @@ function GoogleMapInner({
 	tracks,
 	apiKey,
 	center = null,
+	focus = null,
+	focusKey = 0,
+	onAdd,
 	onUnavailable
 }: {
 	tracks: MapTrack[];
 	apiKey: string;
 	center?: MapCenter;
+	/**
+	 * A single place to aim the camera at, overriding the fit-to-all-pins view
+	 * until it clears. Null means "show the whole day". Read together with
+	 * `focusKey`, which changes on every focus and every clear so the same place
+	 * clicked twice still re-aims and a clear still zooms back out.
+	 */
+	focus?: MapCenter;
+	focusKey?: number;
+	/** Schedules a saved place a pin stands for. See `MapItem.addId`. */
+	onAdd?: (poiId: string) => void;
 	/**
 	 * Called when this renderer cannot show a map: the script did not load, or
 	 * the key was refused. The caller is expected to switch to the keyless
@@ -180,6 +207,10 @@ function GoogleMapInner({
 	// object from tearing the map down and rebuilding it.
 	const centerRef = useRef(center);
 	centerRef.current = center;
+	/* Read at click time rather than captured, so a card built on an earlier
+	   draw still calls the handler this render has. */
+	const addRef = useRef(onAdd);
+	addRef.current = onAdd;
 
 	/* Read through a ref so a caller passing an inline arrow does not retear the
 	   map down and reload the SDK on every render. */
@@ -209,6 +240,13 @@ function GoogleMapInner({
 	);
 	/** The last set of points the camera was fitted to. */
 	const fitted = useRef('');
+	/* The whole-day view the camera reads when no one pin is focused: the bounds
+	   of every pin and how many there are. Kept fresh on every draw so clearing a
+	   focus can put the camera back without recomputing anything. */
+	const dayView = useRef<{ bounds: Gm | null; count: number }>({ bounds: null, count: 0 });
+	/** The camera aim, held in a ref so a redraw does not have to depend on it. */
+	const focusRef = useRef(focus);
+	focusRef.current = focus;
 
 	useEffect(() => {
 		let cancelled = false;
@@ -300,7 +338,7 @@ function GoogleMapInner({
 		/* The card is the shared one, drawn on the app's own layer rather than in
 		   the library's bubble, so nothing clips it. */
 		const card = (c: { items: MapItem[]; track: Pick<MapTrack, 'name' | 'color'> }) =>
-			mapCard(c.items, c.track);
+			mapCard(c.items, c.track, (id) => addRef.current?.(id));
 
 		/* Work out what the map should show, then reconcile the overlays already
 		   on it towards that, rather than clearing and rebuilding. A Marker that
@@ -334,10 +372,15 @@ function GoogleMapInner({
 				const pos = { lat: pin.lat, lng: pin.lng };
 				const count = pin.items.length;
 				const n = t.numbered === false || count > 1 ? null : pin.index;
+				/* The pin's own colour wins over the track's, so a track whose stops
+				   are different kinds of place draws each in the board's palette.
+				   The line stays the track colour. Co-located items take the first
+				   one's colour, which is the same reasoning the number follows. */
+				const color = pin.items[0]?.color ?? t.color;
 				wantMarkers.push({
 					pos,
-					iconKey: `pin:${t.color}:${n ?? '-'}:${count}`,
-					icon: pinIcon(t.color, n, count),
+					iconKey: `pin:${color}:${n ?? '-'}:${count}`,
+					icon: pinIcon(color, n, count),
 					title: pin.items.map((i) => i.title).join(', '),
 					card: { items: pin.items, track: t }
 				});
@@ -428,6 +471,10 @@ function GoogleMapInner({
 
 		const count = wantMarkers.length;
 		const c = centerRef.current;
+		dayView.current = { bounds, count };
+		// A focused pin owns the camera: the draw must not yank it back to the
+		// whole day while the reader is looking at one place.
+		if (focusRef.current?.lat != null && focusRef.current?.lng != null) return;
 		// Only when the points themselves have changed. Everything above this
 		// redraws on any edit; the camera is the one thing the reader owns.
 		if (fitted.current === fitSig) return;
@@ -442,6 +489,29 @@ function GoogleMapInner({
 			map.setZoom(12);
 		}
 	}, [sig, fitSig, ready]);
+
+	/* Aim the camera at one pin when the page asks, and put it back on the whole
+	   day when the ask clears. Keyed on `focusKey`, which the page changes on
+	   every open and every close, so clicking the same block twice still re-aims
+	   and closing the dialog zooms back out. The fit-to-day branch reuses the
+	   bounds the draw effect last measured, so the two cannot disagree. */
+	useEffect(() => {
+		const map = mapRef.current;
+		if (!map) return;
+		if (focus?.lat != null && focus?.lng != null) {
+			map.panTo({ lat: focus.lat, lng: focus.lng });
+			map.setZoom(16);
+			return;
+		}
+		const { bounds, count } = dayView.current;
+		if (count > 1 && bounds) map.fitBounds(bounds, 40);
+		else if (count === 1 && bounds) {
+			map.setCenter(bounds.getCenter());
+			map.setZoom(14);
+		}
+		// `focus` is read fresh here; `focusKey` is what makes a repeat aim fire.
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [focusKey, ready]);
 
 	return <div ref={elRef} className="gmapbox" />;
 }

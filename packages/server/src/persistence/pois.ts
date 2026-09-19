@@ -80,18 +80,27 @@ export function cityPois(tripId: string, userId: string): CityPois[] {
 	}));
 }
 
-/** POIs available to schedule onto the calendar (all discovered places for the trip). */
+/**
+ * POIs available to schedule onto the calendar (all discovered places for the
+ * trip).
+ *
+ * `kind` rides along because the schedule's place picker is filtered by the
+ * type of block being added: a Food & Drinks block offers the places Discover
+ * files under Food & Drink and an Activity block offers the attractions, so the
+ * two shortlists do not have to be read past each other.
+ */
 export function savedPoisForTrip(tripId: string): {
 	id: string;
 	name: string;
 	city_id: string;
+	kind: PoiKind;
 	lat: number | null;
 	lng: number | null;
 	votes: number;
 }[] {
 	return db
 		.prepare(
-			`SELECT id, name, city_id, lat, lng,
+			`SELECT id, name, city_id, kind, lat, lng,
 			        (SELECT COUNT(*) FROM poi_votes v WHERE v.poi_id = p.id) AS votes
 			 FROM pois p WHERE trip_id = ? ORDER BY name`
 		)
@@ -99,6 +108,7 @@ export function savedPoisForTrip(tripId: string): {
 		id: string;
 		name: string;
 		city_id: string;
+		kind: PoiKind;
 		lat: number | null;
 		lng: number | null;
 		votes: number;

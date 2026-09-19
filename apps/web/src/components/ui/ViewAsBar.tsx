@@ -40,7 +40,6 @@ export default function ViewAsBar({
 			<span className="muted text-meta">{c.label}</span>
 			<div className="w-44">
 				<Select
-					compact
 					options={[
 						{ value: '', label: c.everyone },
 						...members.map((m) => ({

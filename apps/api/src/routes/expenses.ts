@@ -13,7 +13,8 @@ import {
 	settlement,
 	settlementByToken,
 	tripMembers,
-	updateExpense
+	updateExpense,
+	updateSettlementDay
 } from '@trippy/server/expenses';
 import { convertCents, ensureRatesFresh, knownCurrencies } from '@trippy/server/fx';
 import { isSplitMode, type SplitMode } from '@trippy/core/split';
@@ -178,6 +179,12 @@ expenses.get('/', (c) => {
 	return c.json({
 		currency: home,
 		currencies: knownCurrencies().sort(),
+		/* The trip's own span, so the form can default a new expense to a day the
+		   trip actually covers. Stamping today on everything made an April trip
+		   read as a September ledger, and the list is ordered by the day money was
+		   spent, so the default decides where a row lands. */
+		firstDay: trip.start_date,
+		lastDay: trip.end_date,
 		members: tripMembers(trip.id),
 		expenses: listExpenses(trip.id).map((e) => {
 			const split = splits.get(e.id);
@@ -242,6 +249,29 @@ expenses.put('/:expenseId', async (c) => {
 			? fail(c, 409, 'Someone else changed this expense. Reload to see their version.')
 			: fail(c, 404, goneMessage('expense'));
 	}
+	return c.json({ ok: true, version: result.version });
+});
+
+/**
+ * Moves a payment to the day it was actually made.
+ *
+ * Its own route rather than a branch inside `PUT /:expenseId`, because that one
+ * takes a whole expense and refuses settlements outright. A payment has exactly
+ * one editable field, so the route that edits it takes exactly one field.
+ */
+expenses.put('/:expenseId/date', async (c) => {
+	const b = await body(c);
+	const parsed = parseSpentOn(b.spentOn);
+	if ('error' in parsed) return fail(c, 400, parsed.error);
+	if (!parsed.day) return fail(c, 400, 'Pick a valid date.');
+
+	const result = updateSettlementDay(
+		c.get('trip').id,
+		c.get('user').id,
+		c.req.param('expenseId'),
+		parsed.day
+	);
+	if (!result.ok) return fail(c, 404, goneMessage('payment'));
 	return c.json({ ok: true, version: result.version });
 });
 

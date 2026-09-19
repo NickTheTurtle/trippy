@@ -20,6 +20,7 @@ import { isNameLength, MAX_NAME_LENGTH, nameTooLong } from '@trippy/core/validat
 import {
 	createEvent,
 	crewsForTrip,
+	currentPlaceName,
 	currentType,
 	deleteEvent,
 	editEvent,
@@ -46,6 +47,7 @@ import {
 import { routeLegs } from '@trippy/server/routing';
 import { savedPoisForTrip } from '@trippy/server/pois';
 import { stayOptionsForTrip } from '@trippy/server/lodging';
+import { providerStatus } from '@trippy/server/places';
 
 export const schedule = new Hono<Env>();
 
@@ -422,6 +424,11 @@ schedule.get('/', async (c) => {
 		// event ends up linked to the wrong table.
 		stays: stayOptionsForTrip(trip.id),
 		cities: trip.cities.map((x) => cell(x)),
+		// Who is answering the place field's search, which is only ever needed for
+		// the attribution line under its results. `serving` rather than what is
+		// configured: a broken Google key means OSM is answering, and crediting
+		// the wrong provider is the one thing an attribution must not do.
+		provider: providerStatus().serving,
 		mapsKey: env.GOOGLE_MAPS_KEY ?? ''
 	});
 });
@@ -429,7 +436,7 @@ schedule.get('/', async (c) => {
 // --- Events -----------------------------------------------------------------
 
 /**
- * Turn a picked id into the place an event sits at.
+ * Turn what the place field was left holding into the place an event sits at.
  *
  * A stay is booked into a proposed stay and everything else is scheduled at a
  * saved place, so the type decides which list the id is looked up in and which
@@ -439,9 +446,17 @@ schedule.get('/', async (c) => {
  *
  * An unknown id unlinks rather than fails: the alternative is an event that
  * claims a place the trip no longer saves.
+ *
+ * A name that was typed rather than picked resolves to itself, with no
+ * coordinates. That is the whole of the feature: the event is named after
+ * somewhere the trip has not saved, and the map and the travel chain both read
+ * coordinates, so it stays out of each rather than being guessed onto them.
  */
-function placeFor(tripId: string, type: EventType, pickedId: string) {
-	if (!pickedId) return null;
+function placeFor(tripId: string, type: EventType, pickedId: string, typed: string) {
+	if (!pickedId) {
+		const text = typed.trim();
+		return text ? { text, lat: null, lng: null } : null;
+	}
 	if (type === 'stay') {
 		const stay = stayOptionsForTrip(tripId).find((s) => s.id === pickedId);
 		return stay && { lodgingId: stay.id, name: stay.name, lat: stay.lat, lng: stay.lng };
@@ -450,11 +465,34 @@ function placeFor(tripId: string, type: EventType, pickedId: string) {
 	return poi && { poiId: poi.id, name: poi.name, lat: poi.lat, lng: poi.lng };
 }
 
+/** What a resolved place is called, whether it was picked or typed. */
+function placeName(place: ReturnType<typeof placeFor>): string {
+	if (!place) return '';
+	return ('name' in place ? place.name : place.text) ?? '';
+}
+
 /** The type an edited block is ending up as: the one it was sent, or the stored one. */
 function editedType(eventId: string, sent: unknown): EventType {
 	const raw = sent == null ? currentType(eventId) : String(sent);
 	return isEventType(raw) ? raw : 'activity';
 }
+
+/**
+ * What a block with no name of its own is called, per type.
+ *
+ * The type's own noun rather than a single generic string: a board row reading
+ * "Activity" or "Food & Drinks" still says something about the block, where a
+ * column of identical "New event"s says nothing and is harder to tell apart at
+ * a glance. `Travel` and `Free time` were already the defaults for their types,
+ * so this only extends the rule the route already had to the other three.
+ *
+ * Read from `@trippy/core` rather than written out again here. These words were
+ * duplicated deliberately once, on the grounds that core owns literals and not
+ * display text, and the duplicate is what a rename has to remember: the picker
+ * said one thing and a block named by the server said another. Core carries the
+ * map now, so there is one copy and a rename reaches both.
+ */
+const TYPE_TITLES: Record<EventType, string> = EVENT_TYPE_LABELS;
 
 /**
  * A derived name cut down to something the title column will take.
@@ -608,8 +646,8 @@ schedule.post('/events', async (c) => {
 
 	// Free time is deliberately nowhere, so it is the one type with no link. A
 	// journey's link is the far end of it: where it lands.
-	const place = isLocatedType(type) ? placeFor(trip.id, type, str(b.poiId)) : null;
-	const title = sentTitle || derivedTitle(type, place?.name ?? '', str(b.notes));
+	const place = isLocatedType(type) ? placeFor(trip.id, type, str(b.poiId), str(b.placeName)) : null;
+	const title = sentTitle || derivedTitle(type, placeName(place), str(b.notes));
 
 	// Every event, a stay included, occupies real time on its own day, so the
 	// end is always a length from the start. A length is asked for rather than
@@ -637,6 +675,7 @@ schedule.post('/events', async (c) => {
 		endMin: end,
 		poiId: place && 'poiId' in place ? place.poiId : null,
 		lodgingId: place && 'lodgingId' in place ? place.lodgingId : null,
+		placeText: place && 'text' in place ? place.text : null,
 		cityId: str(b.cityId) || trip.cities[0]?.id || null,
 		lat: place?.lat ?? null,
 		lng: place?.lng ?? null,
@@ -853,7 +892,14 @@ schedule.post('/events/:eventId/op', async (c) => {
 			// list the id is looked up in follows the type it is ending up as, not
 			// the one it had. Absent leaves the link alone, empty unlinks.
 			const type = editedType(eventId, b.type);
-			const place = b.poiId === undefined ? undefined : placeFor(trip.id, type, str(b.poiId));
+			/* The place field moves in two ways now: a different saved place, or a
+			   different typed name. Either one present means the body is speaking
+			   about the place, and both are resolved together so picking a place
+			   drops a name that was typed and vice versa. */
+			const placeSent = b.poiId !== undefined || b.placeName !== undefined;
+			const place = placeSent
+				? placeFor(trip.id, type, str(b.poiId), str(b.placeName))
+				: undefined;
 
 			/* Three cases for the name, and the last two are not the same thing:
 			   absent (or null) means the body is silent about it, so the stored name
@@ -864,15 +910,18 @@ schedule.post('/events/:eventId/op', async (c) => {
 
 			   A blank one derives from what this body carries, because the dialog
 			   save writes the whole record back: the place it is ending up at and
-			   the notes it is ending up with are both in front of us. If it carries
-			   neither, the type's own noun is still a real name, so clearing the
-			   field can never leave the block nameless. */
+			   the notes it is ending up with are both in front of us. The place is
+			   only sent when the picker moved, so when it is absent the place the
+			   event already sits at is read instead: otherwise clearing the label
+			   on an untouched place would derive off the notes and rename the block
+			   away from the very place it is at. If there is no place either way,
+			   the type's own noun is still a real name, so clearing the field can
+			   never leave the block nameless. */
 			const sentTitle = b.title === undefined || b.title === null ? null : str(b.title);
 			if (sentTitle && !isNameLength(sentTitle)) return fail(c, 400, nameTooLong());
+			const derivedFrom = place === undefined ? currentPlaceName(eventId) : placeName(place);
 			const title =
-				sentTitle === null
-					? undefined
-					: sentTitle || derivedTitle(type, place?.name ?? '', str(b.notes));
+				sentTitle === null ? undefined : sentTitle || derivedTitle(type, derivedFrom, str(b.notes));
 
 			const result = editEvent(
 				eventId,

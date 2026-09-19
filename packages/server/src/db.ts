@@ -792,6 +792,29 @@ db.exec(
 addColumn('events', 'version', 'INTEGER NOT NULL DEFAULT 1');
 
 /**
+ * A location typed by hand, for somewhere the trip has not saved.
+ *
+ * Until now an event was somewhere only by linking to a Discover place or to a
+ * proposed stay, which is the right default (a link carries coordinates, and
+ * coordinates are what the map draws and what the travel chain is planned off)
+ * and the wrong constraint. A restaurant the group picks on the pavement has no
+ * saved place and is not worth adding to Discover for one meal, and the only
+ * way to record it was to abuse the notes.
+ *
+ * So the column holds a name and nothing else. It is deliberately not
+ * geocoded: a lookup per keystroke costs money on a metered provider, and a
+ * place the organiser typed as "the tapas place near the square" has no honest
+ * coordinates to find. An event with one is therefore named after it but stays
+ * off the map and out of the travel chain, exactly as an event with no place at
+ * all does today.
+ *
+ * Exclusive with the two links, and enforced in `editEvent` rather than by a
+ * constraint: writing one clears the others, so an event is somewhere for
+ * exactly one reason. Existing rows are NULL, which is what they already mean.
+ */
+addColumn('events', 'place_text', 'TEXT');
+
+/**
  * Addresses we must not mail again, fed by Amazon SES bounce and complaint
  * notifications.
  *

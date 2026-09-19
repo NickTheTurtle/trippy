@@ -18,23 +18,17 @@ import { signIn, signedInContext } from './fixtures/session';
 const ce = copy.expenses;
 const usd = (cents: number) => formatMoney(cents, 'USD');
 
-/**
- * The expense form's date label. Written out rather than read from `copy`
- * because the string is still awaiting clearance into `@trippy/copy`; it moves
- * to `ce.addDialog.dateLabel` the moment it lands there.
- */
-const DATE_LABEL = 'Date';
+/** The expense form's date label. */
+const DATE_LABEL = ce.addDialog.dateLabel;
 
 /** How the ledger writes a stored day: the year appears only once it is past. */
 const spentDay = (iso: string) =>
 	formatDay(iso, { year: iso.slice(0, 4) !== String(new Date().getFullYear()) });
 
 /**
- * The caption a ledger filtered to somebody with no rows carries. Written out
- * rather than read from `copy` because the string is still awaiting clearance
- * into `@trippy/copy`; it moves to `ce.noneForMember` once it lands there.
+ * The caption a ledger filtered to somebody with no rows carries.
  */
-const NONE_FOR_MEMBER = (who: string) => `Nothing here for ${who}`;
+const NONE_FOR_MEMBER = ce.noneForMember;
 
 /** Opens a custom Select by its accessible name and chooses one option. */
 async function chooseInSelect(scope: Locator, triggerName: string, option: string) {
@@ -96,6 +90,44 @@ test.describe('expenses', () => {
 			expect(byName['E2E User']).toBe(6000);
 			expect(byName['Alice']).toBe(-3000);
 			expect(byName['Bob']).toBe(-3000);
+		} finally {
+			fixture.teardown();
+		}
+	});
+
+	test('an expense carries the day it was spent, not the day it was entered', async ({
+		page,
+		request
+	}) => {
+		const fixture = await createApiFixture(request);
+		try {
+			await signIn(page, fixture.sessionCookie);
+			await page.goto(`/trips/${fixture.tripId}/expenses`);
+
+			// A deposit paid months before the trip: the field is deliberately not
+			// bounded by the trip's own dates, so a date outside them must stick.
+			await page.getByRole('button', { name: ce.addExpense, exact: true }).click();
+			const dialog = page.getByRole('dialog');
+			await dialog.getByLabel(ce.addDialog.descriptionLabel).fill('Deposit');
+			await dialog.getByLabel(ce.addDialog.dateLabel).fill('2026-11-03');
+			await dialog.getByLabel(ce.addDialog.amountLabel).fill('40');
+			await chooseInSelect(dialog, ce.addDialog.paidByLabel, 'E2E User');
+			await dialog.getByRole('button', { name: copy.common.add, exact: true }).click();
+			await expect(dialog).toBeHidden();
+
+			// The ledger shows that day, and it survives a reload.
+			const row = page.getByRole('listitem').filter({ hasText: 'Deposit' });
+			await expect(row).toContainText(formatDay('2026-11-03'));
+			await page.reload();
+			await expect(page.getByRole('listitem').filter({ hasText: 'Deposit' })).toContainText(
+				formatDay('2026-11-03')
+			);
+
+			// Reopening the row for edit reads the stored day back into the field.
+			await page.getByRole('listitem').filter({ hasText: 'Deposit' }).click();
+			await expect(page.getByRole('dialog').getByLabel(ce.addDialog.dateLabel)).toHaveValue(
+				'2026-11-03'
+			);
 		} finally {
 			fixture.teardown();
 		}
@@ -381,6 +413,43 @@ test.describe('expenses', () => {
 			await expect(page.getByText(ce.nothingToSettle)).toBeVisible();
 			await goToSection(page, ce.sections.balances);
 			await expect(page.getByText(ce.allEven)).toBeVisible();
+		} finally {
+			fixture.teardown();
+		}
+	});
+
+	test('a payment can be moved to the day the money actually moved', async ({ page, request }) => {
+		const fixture = await createApiFixture(request);
+		try {
+			const members = await seedMembers(request, fixture, ['Alice']);
+			await addExpense(request, fixture, fixture.tripId, {
+				description: 'Shared cab',
+				amount: 90,
+				payerId: fixture.userId,
+				participantIds: [fixture.userId, members['Alice']]
+			});
+			await signIn(page, fixture.sessionCookie);
+			await page.goto(`/trips/${fixture.tripId}/expenses`);
+
+			await goToSection(page, ce.sections.settle);
+			await page
+				.getByRole('button', { name: ce.settleRow.markPaidLabel('Alice', 'E2E User', usd(4500)) })
+				.click();
+
+			// The transfer was recorded today, but the money moved earlier. Only the
+			// date is on offer: the amount and its two sides are the debt it cleared.
+			await goToSection(page, ce.sections.expenses);
+			const row = () => page.getByRole('listitem').filter({ hasText: /Payment from Alice/ });
+			await row().click();
+			const dialog = page.getByRole('dialog');
+			await dialog.getByLabel(ce.addDialog.dateLabel).fill('2026-11-03');
+			await dialog.getByRole('button', { name: copy.common.save, exact: true }).click();
+			await expect(dialog).toBeHidden();
+
+			await expect(row()).toContainText(formatDay('2026-11-03'));
+			await page.reload();
+			await goToSection(page, ce.sections.expenses);
+			await expect(row()).toContainText(formatDay('2026-11-03'));
 		} finally {
 			fixture.teardown();
 		}

@@ -187,18 +187,16 @@ export default function Expenses() {
 								// them, is a computed answer: the drawing would say the trip
 								// has no expenses, which is false, and "Nothing added yet"
 								// would be a second false statement beside it.
-								// COPY: pending owner clearance, wanted as
-								// `copy.expenses.noneForMember: (who: string) => \`Nothing here for ${who}\``.
 								<EmptyState
 									graphic={data.expenses.length === 0}
 									message={
 										data.expenses.length === 0
 											? copy.common.nothingAdded
-											: `Nothing here for ${
+											: copy.expenses.noneForMember(
 													viewAs === data.me
-														? 'you'
+														? copy.expenses.youTag
 														: (data.members.find((m) => m.id === viewAs)?.name ?? '')
-												}`
+												)
 									}
 								/>
 							) : (
@@ -309,6 +307,8 @@ export default function Expenses() {
 					me={data.me}
 					currencies={data.currencies}
 					home={data.currency}
+					firstDay={data.firstDay}
+					lastDay={data.lastDay}
 					onClose={() => setEditing(null)}
 					onSaved={reload}
 					onDelete={
@@ -327,9 +327,11 @@ export default function Expenses() {
 
 			{payment && (
 				<PaymentDialog
+					tripId={trip.id}
 					payment={payment}
 					home={data.currency}
 					onClose={() => setPayment(null)}
+					onSaved={reload}
 					onDelete={async () => {
 						await api(`/trips/${trip.id}/expenses/${payment.id}`, { method: 'DELETE' });
 						setPayment(null);

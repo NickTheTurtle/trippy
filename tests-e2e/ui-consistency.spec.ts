@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { createApiFixture } from './fixtures/api';
-import { addCity } from './fixtures/seed';
+import { addCity, seedMembers } from './fixtures/seed';
 import { copy } from './fixtures/copy';
 import { signIn } from './fixtures/session';
 
@@ -251,6 +251,51 @@ test.describe('ui consistency', () => {
 			await option.waitFor();
 			const menu = await option.evaluate((el) => getComputedStyle(el).fontSize);
 			expect([menu], 'the menu disagrees with its own trigger').toEqual(await sizes());
+		} finally {
+			fixture.teardown();
+		}
+	});
+
+	/**
+	 * A page filter and the page's own button are one row, so they are one size.
+	 * The schedule's "View as" was compact and Discover's type filter was not, so
+	 * the same kind of control was 32px on one page and 42px on the next, and on
+	 * the schedule it sat beside a 42px `+ Add` it did not match.
+	 */
+	test('a page filter dropdown matches the button beside it, on every page', async ({
+		page,
+		request
+	}) => {
+		const fixture = await createApiFixture(request);
+		try {
+			await addCity(request, fixture, LISBON);
+			await seedMembers(request, fixture, ['Ana']);
+			await signIn(page, fixture.sessionCookie);
+			await page.setViewportSize({ width: 1440, height: 950 });
+
+			const row = async (path: string) => {
+				await page.goto(`/trips/${fixture.tripId}/${path}`);
+				const trigger = page.locator('.seltrigger').first();
+				await trigger.waitFor();
+				return page.evaluate(() => {
+					const read = (el: Element) => {
+						const r = el.getBoundingClientRect();
+						return { h: Math.round(r.height), font: getComputedStyle(el).fontSize };
+					};
+					const t = document.querySelector('.seltrigger') as HTMLElement;
+					const b = document.querySelector('.btn.primary') as HTMLElement;
+					return { filter: read(t), button: read(b) };
+				});
+			};
+
+			const schedule = await row('schedule');
+			expect(schedule.filter, 'the schedule filter misses its own button').toEqual(
+				schedule.button
+			);
+
+			const discover = await row('discover');
+			expect(discover.filter, 'discover filter misses its own button').toEqual(discover.button);
+			expect(schedule.filter, 'the two pages disagree').toEqual(discover.filter);
 		} finally {
 			fixture.teardown();
 		}

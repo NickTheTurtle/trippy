@@ -82,6 +82,7 @@ export function applyDraft(
 	const row: EventRow = {
 		poi_id: null,
 		lodging_id: null,
+		place_text: null,
 		city_id: entry.city?.id ?? null,
 		notes: null,
 		travel_mode: null,
