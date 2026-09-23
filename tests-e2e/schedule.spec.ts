@@ -1245,3 +1245,148 @@ test.describe('schedule board colour and edit affordance', () => {
 		}
 	});
 });
+
+/**
+ * A block added without pointing at a time is a suggestion, not a decision.
+ *
+ * Two halves, and both matter: the dialog has to open at the end of the day so
+ * far rather than back at nine in the morning, and the block it adds has to
+ * keep following whatever ends up in front of it until somebody moves it
+ * themselves.
+ */
+test.describe('a suggested time', () => {
+	test('opens at the end of the day and then follows the block before it', async ({
+		page,
+		request
+	}) => {
+		const fixture = await createApiFixture(request);
+		const startDate = fixture.tripBody.startDate;
+		const cityId = await addCity(request, fixture, {
+			name: 'Athens',
+			country: 'Greece',
+			arrive: startDate,
+			depart: fixture.tripBody.endDate,
+			lat: 37.9838,
+			lng: 23.7275,
+			tz: 'Europe/Athens'
+		});
+		const museum = await addPlace(request, fixture, {
+			cityId,
+			name: 'Museum',
+			lat: 37.9689,
+			lng: 23.7286
+		});
+		await addPlace(request, fixture, { cityId, name: 'Taverna', lat: 37.9755, lng: 23.7348 });
+
+		const made = await apiSend(
+			request,
+			fixture,
+			'POST',
+			`/trips/${fixture.tripId}/schedule/events`,
+			{ day: startDate, cityId, type: 'activity', start: 600, duration: 60, poiId: museum }
+		);
+		expect(made.status(), await made.text()).toBe(201);
+		const museumEvent = (await made.json()).id as string;
+
+		await signIn(page, fixture.sessionCookie);
+		await page.goto(`/trips/${fixture.tripId}/schedule?day=${startDate}&view=day`);
+		await expect(page.getByRole('button', { name: /^Museum, / })).toBeVisible();
+
+		// The museum runs to 11:00, so that is where the next thing goes.
+		await page.getByRole('button', { name: '+ Add', exact: true }).click();
+		const dialog = page.getByRole('dialog').first();
+		await expect(dialog.getByLabel('Start').first()).toHaveText('11');
+
+		await dialog.getByRole('combobox', { name: 'Activity' }).fill('Taverna');
+		await page.getByRole('option', { name: /Taverna/ }).click();
+		await dialog.getByRole('button', { name: copy.common.add, exact: true }).click();
+
+		const lunch = page.getByRole('button', { name: /^Taverna, / });
+		await expect(lunch).toBeVisible();
+		// Not 11:00: the walk between the two is added to the end of the museum.
+		await expect(lunch).toHaveAttribute('aria-label', /11:10 AM/);
+
+		// Lengthening the museum carries the suggested block with it, walk and all.
+		const res = await apiSend(
+			request,
+			fixture,
+			'POST',
+			`/trips/${fixture.tripId}/schedule/events/${museumEvent}/op`,
+			{ op: 'resize', endMin: 900 }
+		);
+		expect(res.status(), await res.text()).toBeLessThan(300);
+		await page.reload();
+		await expect(page.getByRole('button', { name: /^Taverna, / })).toHaveAttribute(
+			'aria-label',
+			/3:10 PM/
+		);
+	});
+
+	test('leaves a block alone once somebody has dragged it', async ({ page, request }) => {
+		const fixture = await createApiFixture(request);
+		const startDate = fixture.tripBody.startDate;
+		const cityId = await addCity(request, fixture, {
+			name: 'Athens',
+			country: 'Greece',
+			arrive: startDate,
+			depart: fixture.tripBody.endDate,
+			lat: 37.9838,
+			lng: 23.7275,
+			tz: 'Europe/Athens'
+		});
+		const museum = await addPlace(request, fixture, {
+			cityId,
+			name: 'Museum',
+			lat: 37.9689,
+			lng: 23.7286
+		});
+		const taverna = await addPlace(request, fixture, {
+			cityId,
+			name: 'Taverna',
+			lat: 37.9755,
+			lng: 23.7348
+		});
+		const ev = async (data: Record<string, unknown>) => {
+			const res = await apiSend(
+				request,
+				fixture,
+				'POST',
+				`/trips/${fixture.tripId}/schedule/events`,
+				{ day: startDate, cityId, ...data }
+			);
+			expect(res.status(), await res.text()).toBe(201);
+			return (await res.json()).id as string;
+		};
+		const museumEvent = await ev({ type: 'activity', start: 600, duration: 60, poiId: museum });
+		const lunchEvent = await ev({
+			type: 'activity',
+			start: 660,
+			duration: 60,
+			poiId: taverna,
+			timeAuto: true
+		});
+
+		// A drag is somebody choosing a time, so the block stops following.
+		await apiSend(
+			request,
+			fixture,
+			'POST',
+			`/trips/${fixture.tripId}/schedule/events/${lunchEvent}/op`,
+			{ op: 'move', startMin: 1020 }
+		);
+		await apiSend(
+			request,
+			fixture,
+			'POST',
+			`/trips/${fixture.tripId}/schedule/events/${museumEvent}/op`,
+			{ op: 'resize', endMin: 900 }
+		);
+
+		await signIn(page, fixture.sessionCookie);
+		await page.goto(`/trips/${fixture.tripId}/schedule?day=${startDate}&view=day`);
+		await expect(page.getByRole('button', { name: /^Taverna, / })).toHaveAttribute(
+			'aria-label',
+			/5:00 PM/
+		);
+	});
+});

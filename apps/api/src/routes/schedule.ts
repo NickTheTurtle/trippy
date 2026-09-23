@@ -681,7 +681,10 @@ schedule.post('/events', async (c) => {
 		lng: place?.lng ?? null,
 		notes: str(b.notes) || null,
 		travelMode: str(b.travelMode) || null,
-		people
+		people,
+		// A client that never sends this gets the old behaviour: a time nobody
+		// chose is the exception, not the default.
+		timeAuto: b.timeAuto === true
 	});
 	if (!id) return fail(c, 403, 'Could not add that event.');
 	return c.json({ id }, 201);

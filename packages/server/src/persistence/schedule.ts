@@ -2,7 +2,14 @@ import { randomUUID } from 'node:crypto';
 import { db, backfillDone, markBackfillDone } from '../db';
 import { isEventType, isLocatedType, isTransportMode, type EventType } from '@trippy/core/types';
 import { type PlannedLeg } from '@trippy/core/travel';
-import { planDay, resolveLeg, shiftDay, stayBand, type LegOverride } from '@trippy/core/plan';
+import {
+	planDay,
+	reflowAutoTimes,
+	resolveLeg,
+	shiftDay,
+	stayBand,
+	type LegOverride
+} from '@trippy/core/plan';
 import { publish, publishMany } from '../events';
 import { isMember } from './membership';
 import { conflict, isStale, missing, written, type WriteResult } from './versioning';
@@ -301,6 +308,49 @@ function planFor(tripId: string, day: string): PlannedLeg[] {
 }
 
 /**
+ * Move the day's suggested blocks to follow what now comes before them.
+ *
+ * Runs after `recomputeLegs`, because the rule is "the end of the block before,
+ * plus the journey between them", and the journeys are what that write has just
+ * settled. `reflowAutoTimes` in core owns the rule itself.
+ *
+ * The write is deliberately narrow: only `start_min` and `end_min`, only for
+ * the ids core returned, and `version` is left alone. A reflow is not somebody
+ * editing the block, so bumping the version would fail the next save an open
+ * dialog attempts for a change the reader never made.
+ *
+ * Returns whether anything moved, so the caller can re-plan. Moving a block
+ * changes the order the chain is walked in, which can change which journeys
+ * exist at all, and the stored legs would otherwise describe the day as it was
+ * a moment ago.
+ */
+function reflowDay(tripId: string, day: string): boolean {
+	const events = eventsForDay(tripId, day);
+	if (!events.length) return false;
+
+	const auto = new Set(
+		(
+			db
+				.prepare(
+					`SELECT id FROM events WHERE trip_id = ? AND day = ? AND type != 'stay' AND time_auto = 1`
+				)
+				.all(tripId, day) as unknown as { id: string }[]
+		).map((r) => r.id)
+	);
+	if (!auto.size) return false;
+
+	const moved = reflowAutoTimes(
+		events.map((e) => ({ ...e, time_auto: auto.has(e.id) })),
+		legsForDay(tripId, day)
+	);
+	if (!moved.length) return false;
+
+	const upd = db.prepare(`UPDATE events SET start_min = ?, end_min = ? WHERE id = ?`);
+	for (const m of moved) upd.run(m.startMin, m.endMin, m.id);
+	return true;
+}
+
+/**
  * Reconcile the stored legs for a day against what the events now imply.
  *
  * Called after every event write. Cheap enough to run unconditionally: it is
@@ -485,6 +535,13 @@ export interface NewEvent {
 	notes?: string | null;
 	travelMode?: string | null;
 	people?: string[];
+	/**
+	 * Whether the start is the board's suggestion rather than somebody's choice.
+	 *
+	 * Set by an add that never pointed at a time. Everything else leaves it
+	 * false, which is the safe reading: a time nobody chose is the exception.
+	 */
+	timeAuto?: boolean;
 }
 
 /** Members of the trip, used to validate who an event can be assigned to. */
@@ -546,7 +603,13 @@ function touched(tripId: string, day: string, ...alsoNulls: (string | null | und
 	const days = [day, ...alsoNulls.filter((d): d is string => !!d)].sort();
 	const last = days[days.length - 1];
 	// One past the end, because the morning after a stay leaves it.
-	for (let d = days[0]; d <= shiftDay(last, 1); d = shiftDay(d, 1)) recomputeLegs(tripId, d);
+	for (let d = days[0]; d <= shiftDay(last, 1); d = shiftDay(d, 1)) {
+		recomputeLegs(tripId, d);
+		// A suggested block follows the journey that arrives at it, so it can only
+		// be placed once the journeys are settled; moving it then changes the
+		// chain, so the journeys are settled again afterwards.
+		if (reflowDay(tripId, d)) recomputeLegs(tripId, d);
+	}
 	publish(tripId, 'schedule');
 }
 
@@ -573,8 +636,8 @@ export function createEvent(tripId: string, userId: string, e: NewEvent): string
 	const linked = located && (e.poiId || (type === 'stay' && e.lodgingId));
 	db.prepare(
 		`INSERT INTO events
-		 (id, trip_id, day, end_day, title, type, start_min, end_min, poi_id, lodging_id, place_text, city_id, lat, lng, notes, travel_mode, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		 (id, trip_id, day, end_day, title, type, start_min, end_min, poi_id, lodging_id, place_text, city_id, lat, lng, notes, travel_mode, time_auto, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	).run(
 		id,
 		tripId,
@@ -592,6 +655,8 @@ export function createEvent(tripId: string, userId: string, e: NewEvent): string
 		located ? (e.lng ?? null) : null,
 		e.notes?.trim() || null,
 		type === 'travel' && e.travelMode && isTransportMode(e.travelMode) ? e.travelMode : null,
+		// A stay is not on a clock, so there is no suggested start to follow.
+		e.timeAuto && type !== 'stay' ? 1 : 0,
 		Date.now()
 	);
 	if (e.people?.length) writePeople(id, tripId, e.people);
@@ -607,7 +672,12 @@ export function deleteEvent(eventId: string, userId: string, tripId: string): bo
 	return true;
 }
 
-/** Move an event to a new start, keeping its length. Snaps and clamps to the day. */
+/**
+ * Move an event to a new start, keeping its length. Snaps and clamps to the day.
+ *
+ * Dragging a block is somebody choosing where it goes, so it stops being a
+ * suggestion and stops following the day.
+ */
 export function moveEvent(
 	eventId: string,
 	userId: string,
@@ -629,7 +699,7 @@ export function moveEvent(
 	// checkout with it, or the range would invert.
 	const movedEnd = where.end_day && toDay ? shiftDay(toDay, nights(where)) : where.end_day;
 	db.prepare(
-		`UPDATE events SET start_min = ?, end_min = ?, day = COALESCE(?, day), end_day = ? WHERE id = ?`
+		`UPDATE events SET start_min = ?, end_min = ?, day = COALESCE(?, day), end_day = ?, time_auto = 0 WHERE id = ?`
 	).run(clamped, clamped + duration, toDay ?? null, movedEnd, eventId);
 	touched(tripId, where.day, where.end_day, toDay, movedEnd);
 	return true;
@@ -816,6 +886,11 @@ export function editEvent(
 		const end = Math.max(start + MIN_EVENT_MINS, Math.min(Math.round(wantedEnd), 24 * 60));
 		sets.push('start_min = ?', 'end_min = ?');
 		args.push(start, end);
+		// Typing a time is choosing one, so the block stops following the day.
+		// Compared against the stored start rather than merely being present,
+		// because the edit dialog restates every field it shows: saving a change
+		// of place would otherwise pin a time the reader never looked at.
+		if (start !== cur.start_min) sets.push('time_auto = 0');
 	}
 	// A stay is moved by its dates rather than by its clock. Both ends are
 	// written together so a range can never invert: a checkout on or before the
