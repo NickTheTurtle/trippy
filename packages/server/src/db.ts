@@ -325,6 +325,17 @@ addColumn('lodging_options', 'photo', 'TEXT');
 addColumn('lodging_options', 'lat', 'REAL');
 addColumn('lodging_options', 'lng', 'REAL');
 
+// Whether we have already asked the provider where a stay is.
+//
+// A stay typed by hand has no coordinates, and without them the calendar can
+// plan no journey to or from the night. The photo backfill already looks the
+// stay up by name and city, so it can carry the answer back for free, but
+// `lat IS NULL` alone cannot drive that: unlike a photo there is no sentinel
+// for "asked and found nothing", so every board load would re-buy the same
+// misses forever. This is that sentinel. 0 means never asked, and existing
+// rows start there because they genuinely never were.
+addColumn('lodging_options', 'place_checked', 'INTEGER NOT NULL DEFAULT 0');
+
 // Marks an expense that records a transfer between two members rather than a
 // cost the group shared. It changes only how the row is labelled: a settlement
 // has to count towards balances like any other expense, which is the point.

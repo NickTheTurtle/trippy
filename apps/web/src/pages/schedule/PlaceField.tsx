@@ -95,7 +95,7 @@ export default function PlaceField({
 	const headed = typing && !!onPickHit;
 	const items: Row[] = [
 		...saved.map((o, i) => ({ saved: o, head: headed && i === 0 ? 'Saved' : null })),
-		...found.map((h, i) => ({ hit: h, head: headed && i === 0 ? 'Found' : null }))
+		...found.map((h, i) => ({ hit: h, head: headed && i === 0 ? 'Results' : null }))
 	];
 
 	return (

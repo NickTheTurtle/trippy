@@ -197,6 +197,56 @@ export function setLodgingPhoto(optionId: string, photo: string): void {
 }
 
 /**
+ * Give a stay the coordinates its photo lookup happened to find.
+ *
+ * Only ever fills a hole: the `lat IS NULL` guard means a position somebody
+ * chose by picking a search result can never be overwritten by the provider's
+ * guess at a name. Stays typed by hand have no coordinates at all, and without
+ * them the calendar cannot plan a journey to or from the night, which is the
+ * whole reason a stay sits on the board.
+ *
+ * Publishes `schedule`, unlike the photo write beside it: this one changes
+ * travel times rather than a picture.
+ */
+export function fillLodgingPlace(
+	tripId: string,
+	optionId: string,
+	lat: number | null,
+	lng: number | null
+): void {
+	// Recorded either way, so a stay the provider could not find is asked about
+	// once and then left alone. See the `place_checked` migration.
+	const res = db
+		.prepare(
+			`UPDATE lodging_options SET lat = ?, lng = ?, place_checked = 1
+			 WHERE id = ? AND trip_id = ? AND lat IS NULL AND lng IS NULL`
+		)
+		.run(lat, lng, optionId, tripId);
+	if (res.changes > 0 && lat !== null && lng !== null) {
+		publishMany(tripId, ['lodging', 'schedule']);
+	}
+}
+
+/**
+ * Stays that have never been asked where they are.
+ *
+ * Separate from the photo backlog because the two do not coincide: every stay
+ * in an existing trip already has a photo and none of them has coordinates, so
+ * riding on `photo IS NULL` would have repaired nothing. Capped for the same
+ * reason, since each row costs one billed lookup.
+ */
+export function lodgingNeedingPlace(tripId: string, limit = 24): LodgingNeedingPhoto[] {
+	return db
+		.prepare(
+			`SELECT o.id, o.name, c.name AS city, c.country, c.region, c.lat, c.lng
+			 FROM lodging_options o JOIN cities c ON c.id = o.city_id
+			 WHERE o.trip_id = ? AND o.lat IS NULL AND o.place_checked = 0
+			 ORDER BY o.created_at LIMIT ?`
+		)
+		.all(tripId, limit) as unknown as LodgingNeedingPhoto[];
+}
+
+/**
  * Summary for a specific option id.
  *
  * There is deliberately no "what is the lodging on day X" query any more. The

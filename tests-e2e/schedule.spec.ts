@@ -959,9 +959,9 @@ test.describe('the place picker', () => {
 			const hit = page.getByRole('option', { name: /ZZ Cervejaria Ramiro/ });
 			await expect(hit).toBeVisible();
 			await expect(page.locator('dialog[open]')).toHaveCount(1);
-			await expect(page.locator('.sdrophead')).toHaveText(['Found']);
+			await expect(page.locator('.sdrophead')).toHaveText(['Results']);
 			// A heading is not something to pick.
-			await expect(page.getByRole('option', { name: /^Found$/ })).toHaveCount(0);
+			await expect(page.getByRole('option', { name: /^Results$/ })).toHaveCount(0);
 
 			await hit.click();
 
