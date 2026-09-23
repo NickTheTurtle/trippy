@@ -273,6 +273,55 @@ has no old position to travel from. Under `prefers-reduced-motion` all of it is
 removed: the board is read, not watched, and every block is already in the right
 place without the motion.
 
+### Stay search filters on primary types, not the umbrella type
+
+Stay search stopped returning anything in production while `/api/health` kept
+reporting Google as configured and undegraded, which is what made it hard to see.
+`suggestGoogle` passed `includedPrimaryTypes: ['lodging']` and `searchGoogle`
+passed `includedType: 'lodging'`. Both parameters match a place's **primary**
+type only, and Google assigns real hotels a specific primary type (`hotel`,
+`hostel`, `resort_hotel`), reserving the umbrella `lodging` for places it cannot
+classify. So the filter matched almost nothing, Google answered 200 with an empty
+list, the provider was recorded as healthy, and the board showed a search that
+simply found no hotels. Nothing on our side had to be deployed for it to start
+failing.
+
+The fix splits the two calls, because the two parameters are not equally capable:
+
+- **Autocomplete** takes up to five primary types, so it names the five that
+  cover almost every booking: `hotel`, `hostel`, `motel`, `resort_hotel`,
+  `guest_house`.
+- **Text search** takes a single `includedType`, which cannot express that list
+  at all, so it no longer filters server-side. It over-fetches 20 and filters the
+  answer itself against the full 17-entry `GOOGLE_LODGING` set before trimming to
+  8. `places.types` is already in `SEARCH_MASK`, so the filter costs nothing
+  extra. This mirrors what the Photon fallback has always done with OSM tags.
+
+`GOOGLE_LODGING` is now one list rather than two: `categoryOf` used to carry its
+own inline copy, so a type added for classification did not reach the search
+filter.
+
+**None of this is reachable from a test or from local dev.** The e2e config force
+sets `TRIPPY_OFFLINE_PROVIDERS=1`, so every harness run uses keyless Photon, which
+ignores Google's type parameters entirely. A Google-only bug is therefore
+invisible to the browser suites by construction, and the unit tests in
+`places.test.ts` now pin the request shape instead: that the autocomplete list
+contains `hotel`, excludes `lodging` and stays within five, and that the text
+search sends no `includedType` while dropping a restaurant and keeping an inn.
+
+**Existing stays repair themselves, and `place_checked` is why.** Every
+`lodging_options` row in the live database had null `lat`/`lng`, which is the
+other half of the report: the morning's first journey starts at the stay band, so
+a stay with no position gives the next event no travel time. `lookupPhoto` now
+returns `{ photo, lat, lng }` rather than a bare string; `places.location` joins
+a field mask that already requests `places.photos`, and Google prices a request
+at its highest tier, so the coordinates are free. The photo backlog alone could
+not carry the repair, because every affected stay already had a photo, and a bare
+`lat IS NULL` backlog would re-buy the same billed misses on every board load,
+because coordinates have no "asked and found nothing" sentinel the way `photo`
+has `NO_PHOTO`. `lodging_options.place_checked` is that sentinel, and
+`fillLodgingPlace` writes only where the coordinates are still null.
+
 ### M3.3: Reading the board and its map at a glance
 
 **The per-type palette is spread out on purpose.** The five event types are told

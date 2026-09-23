@@ -1,6 +1,11 @@
 import { lookupPhoto } from './providers/places';
 import { citiesNeedingPhotos, setCityPhoto } from './persistence/trips';
-import { lodgingNeedingPhotos, setLodgingPhoto } from './persistence/lodging';
+import {
+	lodgingNeedingPhotos,
+	lodgingNeedingPlace,
+	setLodgingPhoto,
+	fillLodgingPlace
+} from './persistence/lodging';
 import { poisNeedingPhotos, setPoiPhoto } from './persistence/pois';
 
 /**
@@ -75,11 +80,17 @@ async function runJobs(jobs: PhotoJob[], gate?: PhotoGate): Promise<number> {
 }
 
 /**
- * Fill in cover photos for a trip's places and stays.
+ * Fill in cover photos for a trip's places and stays, and coordinates for any
+ * stay that has never been asked where it is.
+ *
+ * The two share one lookup and one budget because they are the same request:
+ * `lookupPhoto` searches for the stay by name and city, and the result carries
+ * a position as well as a picture. A stay with no coordinates cannot be planned
+ * a journey to, so this is what gives a hand-typed hotel a travel time.
  *
  * Returns how many lookups were completed, so a caller can log or test the
  * spend. Safe to call on every board load: once the backlog is drained it costs
- * two indexed queries and no provider traffic.
+ * three indexed queries and no provider traffic.
  */
 export async function backfillTripPhotos(
 	tripId: string,
@@ -89,29 +100,51 @@ export async function backfillTripPhotos(
 	if (cap <= 0) return 0;
 	const places = poisNeedingPhotos(tripId, cap);
 	const stays = lodgingNeedingPhotos(tripId, Math.max(0, cap - places.length));
+	// Stays already holding a photo but no position. The photo backlog cannot
+	// reach them, and in an established trip that is all of them.
+	const seen = new Set(stays.map((s) => s.id));
+	const unplaced = lodgingNeedingPlace(
+		tripId,
+		Math.max(0, cap - places.length - stays.length)
+	).filter((s) => !seen.has(s.id));
 	const jobs: PhotoJob[] = [
 		...places.map((p) => ({
 			run: async () => {
-				setPoiPhoto(
-					p.id,
-					await lookupPhoto(p.name, { city: p.city, country: p.country, region: p.region }, p.lat, p.lng)
+				const found = await lookupPhoto(
+					p.name,
+					{ city: p.city, country: p.country, region: p.region },
+					p.lat,
+					p.lng
 				);
+				setPoiPhoto(p.id, found.photo);
 			}
 		})),
 		// Stays carry no coordinates of their own, so the lookup falls back to the
 		// city's. A hotel name plus its city, state and country is specific enough.
 		...stays.map((s) => ({
 			run: async () => {
-				setLodgingPhoto(
-					s.id,
-					await lookupPhoto(s.name, {
-						city: s.city,
-						country: s.country,
-						region: s.region,
-						lat: s.lat,
-						lng: s.lng
-					})
-				);
+				const found = await lookupPhoto(s.name, {
+					city: s.city,
+					country: s.country,
+					region: s.region,
+					lat: s.lat,
+					lng: s.lng
+				});
+				setLodgingPhoto(s.id, found.photo);
+				// Free: the same response carried it.
+				fillLodgingPlace(tripId, s.id, found.lat, found.lng);
+			}
+		})),
+		...unplaced.map((s) => ({
+			run: async () => {
+				const found = await lookupPhoto(s.name, {
+					city: s.city,
+					country: s.country,
+					region: s.region,
+					lat: s.lat,
+					lng: s.lng
+				});
+				fillLodgingPlace(tripId, s.id, found.lat, found.lng);
 			}
 		}))
 	];
@@ -132,15 +165,13 @@ export async function backfillTripListPhotos(
 	return runJobs(
 		cities.map((city) => ({
 			run: async () => {
-				setCityPhoto(
-					city.id,
-					await lookupPhoto(
-						city.name,
-						{ city: city.name, country: city.country, region: city.region },
-						city.lat,
-						city.lng
-					)
+				const found = await lookupPhoto(
+					city.name,
+					{ city: city.name, country: city.country, region: city.region },
+					city.lat,
+					city.lng
 				);
+				setCityPhoto(city.id, found.photo);
 			}
 		})),
 		gate
