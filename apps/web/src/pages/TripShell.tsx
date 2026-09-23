@@ -135,7 +135,7 @@ export default function TripShell() {
 				<div className="container">
 					<Link
 						to="/trips"
-						className="inline-block pt-3 pb-1.5 text-body text-ink-faint hover:text-accent sm:pt-5 sm:pb-2.5"
+						className="tap inline-block pt-3 pb-1.5 text-body text-ink-faint hover:text-accent sm:pt-5 sm:pb-2.5"
 					>
 						{c.backToTrips}
 					</Link>

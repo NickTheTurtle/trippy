@@ -101,6 +101,47 @@ test.describe('trips', () => {
 		}
 	});
 
+	test('a refused save is readable once and spoken once', async ({ page, request }) => {
+		const user = await registerUser(request);
+		try {
+			await signIn(page, user.sessionCookie);
+			await page.goto('/trips');
+
+			await page.getByRole('button', { name: copy.common.add }).click();
+			const dialog = page.getByRole('dialog');
+			await dialog.getByLabel(copy.tripForm.nameLabel).fill('No dates yet');
+			await dialog.getByRole('button', { name: copy.common.add }).click();
+
+			const reason = 'Pick a start date.';
+			await expect(page.locator('.toast.bad').filter({ hasText: reason })).toBeVisible();
+
+			// Testers driving the page by its text read this sentence twice and
+			// filed it as a duplicate. It is on the page twice on purpose, but only
+			// one of the two is drawn: `showModal()` makes the rest of the document
+			// inert, and inertness takes the corner toast out of the accessibility
+			// tree, so a dialog that only toasted would say nothing to a screen
+			// reader. The second copy is the announcement, and it is `sr-only`.
+			//
+			// So the rule is about what is *visible*, not what is present. Exactly
+			// one copy of the sentence can be seen anywhere on the page.
+			const drawn = await page
+				.getByText(reason, { exact: true })
+				.evaluateAll((els) => els.filter((el) => el.getBoundingClientRect().width > 1).length);
+			expect(drawn).toBe(1);
+
+			// And the one that cannot be seen is the one inside the dialog.
+			const spoken = dialog.getByRole('alert');
+			await expect(spoken).toHaveText(reason);
+			await expect(spoken).not.toBeInViewport();
+
+			// The footer draws no line of its own, so the buttons do not reflow
+			// under a hand already moving towards them.
+			await expect(dialog.locator('.mfoot p:not(.sr-only)')).toHaveCount(0);
+		} finally {
+			user.teardown();
+		}
+	});
+
 	test('a trip longer than a year is refused by the form, before any request', async ({
 		page,
 		request

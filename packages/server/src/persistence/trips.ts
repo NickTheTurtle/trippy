@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { formatDayRange, normalizeDay } from '@trippy/core/tz';
+import { isNameLength, nameTooLong } from '@trippy/core/validate';
 import { db } from '../db';
 import { publish, publishMany } from '../events';
 import { isOrganizer } from './membership';
@@ -181,6 +182,11 @@ export type TripCreateResult = { id: string; error: null } | { id: null; error: 
 export function createTrip(userId: string, input: TripCreate): TripCreateResult {
 	const name = input.name.trim();
 	if (!name) return { id: null, error: 'Enter a name.' };
+	// Held to the same limit as every other name on a trip. It was the one that
+	// was not: a trip name is drawn in the card on the trips list, in the header
+	// of every page and in the tab title, and a 500 character one was accepted
+	// and then rendered in all three.
+	if (!isNameLength(name)) return { id: null, error: nameTooLong() };
 	const range = validateDates(input.startDate, input.endDate);
 	if (typeof range === 'string') return { id: null, error: range };
 	const currency = (input.homeCurrency ?? 'USD').trim().toUpperCase() || 'USD';
@@ -259,6 +265,7 @@ export function updateTrip(tripId: string, actorId: string, e: TripEdit): string
 	if (!isOrganizer(tripId, actorId)) return 'Only the organizer can edit this trip.';
 	const name = e.name.trim();
 	if (!name) return 'Enter a name.';
+	if (!isNameLength(name)) return nameTooLong();
 	const dates = validateDates(e.startDate, e.endDate);
 	if (typeof dates === 'string') return dates;
 	const currency = e.currency.trim().toUpperCase();

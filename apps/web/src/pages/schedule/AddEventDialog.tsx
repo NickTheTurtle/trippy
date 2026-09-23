@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { isLocatedType, STAY_CHECK_IN, type EventType } from '@trippy/core/types';
+import { STAY_CHECK_IN, type EventType } from '@trippy/core/types';
 import { MAX_NAME_LENGTH } from '@trippy/core/validate';
 import { api } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
@@ -9,8 +9,7 @@ import TimeField from '../../components/ui/TimeField';
 import { FieldShell, Field, TextArea } from '../../components/ui/Field';
 import { copy } from '../../copy';
 import PeoplePicker from './PeoplePicker';
-import PlaceField from './PlaceField';
-import { usePlaceLookup } from './usePlaceSearch';
+import { usePlaceField } from './usePlaceField';
 import StayDates from './StayDates';
 import { useJourneys } from './Journeys';
 import {
@@ -21,10 +20,7 @@ import {
 	TYPE_OPTIONS,
 	dayLabel,
 	deriveTitle,
-	keepsPick,
 	NO_PEOPLE,
-	placeLabel,
-	placeOptions,
 	rangeLabel,
 	shiftDay
 } from './shared';
@@ -124,11 +120,6 @@ export default function AddEventDialog({
 	/* `null` once the organiser has emptied the field. Distinct from `[]`, which
 	   is how everyone is stored, and refused at the save rather than at the tick. */
 	const [people, setPeople] = useState<string[] | null>([]);
-	/* Where the block is, as the field holds it: an id when a saved place was
-	   picked, and the text either way. A typed name that matches nothing keeps
-	   the id empty, and that pair is what the save sends. */
-	const [poi, setPoi] = useState(initialPoi?.id ?? '');
-	const [place, setPlace] = useState(initialPoi?.name ?? '');
 	const [notes, setNotes] = useState('');
 	/* What to call the block, when the name it would be given is not the one the
 	   organiser wants. Blank is the normal case and means "name it yourself":
@@ -161,34 +152,24 @@ export default function AddEventDialog({
 
 	// Free time is deliberately nowhere, so it is the one type with no location.
 	// A journey's location is the far end of it: where it puts you.
-	const placeable = isLocatedType(type);
-	const placeFieldLabel = placeLabel(type);
-
-	/* The provider search is biased to a city, so a day without one searches
-	   nothing and the field is the saved list alone. */
-	const searchCity = cities.find((c): c is Cell => c?.id === cityId) ?? null;
-	const { found, onTyped, fieldProps } = usePlaceLookup({
+	const {
+		poi,
+		place,
+		spot,
+		placeable,
+		field: placeField,
+		retype
+	} = usePlaceField({
 		base,
-		city: searchCity,
 		type,
+		cities,
+		cityId,
+		saved,
+		stays,
 		provider,
-		onPicked: (made, stay) => {
-			setPlace(made.name);
-			// Linked only when the block can hold what was added: a hotel found
-			// from an activity is saved to the trip either way, but this block is
-			// not the thing that books it.
-			setPoi(stay === staying ? made.id : '');
-		}
+		initialPoi: initialPoi?.id ?? '',
+		initialPlace: initialPoi?.name ?? ''
 	});
-
-	/* A stay is booked into one of the stays the group is voting on; everything
-	   else happens at a saved place. One picker, two lists, because the field is
-	   asking the same question either way: which of the things we have already
-	   shortlisted is this? Anything the provider search added while this dialog
-	   has been open goes in front of both: the newest thing is the thing being
-	   looked for. */
-	const pickable = staying ? [...found.stays, ...stays] : [...found.places, ...saved];
-	const poiOptions = placeOptions(pickable, cities, cityId, type);
 
 	const journeys = useJourneys({ legs, eventOf, peopleLabel });
 
@@ -200,7 +181,6 @@ export default function AddEventDialog({
 	   reader watches the thing they are describing take its place. */
 	const preview = useRef(onPreview);
 	preview.current = onPreview;
-	const spot = placeable ? (pickable.find((p) => p.id === poi) ?? null) : null;
 	useEffect(() => {
 		preview.current?.({
 			id: DRAFT_ID,
@@ -329,22 +309,7 @@ export default function AddEventDialog({
 					    saving the block and opening it again, and the row it would
 					    otherwise share was left half empty. */}
 					<div className="grid grid-cols-12 gap-x-2.5 gap-y-3.5">
-						{placeable && (
-							<PlaceField
-								label={placeFieldLabel}
-								className="col-span-8"
-								options={poiOptions}
-								value={place}
-								onChange={(text, id) => {
-									setPlace(text);
-									setPoi(id);
-									// Only a typed query searches. A pick puts a name in the
-									// box that nobody asked the provider for.
-									onTyped(id ? '' : text);
-								}}
-								{...fieldProps}
-							/>
-						)}
+						{placeField}
 						<FieldShell
 							label="Type"
 							className={placeable ? 'col-span-4' : 'col-span-12 sm:col-span-5'}
@@ -353,13 +318,7 @@ export default function AddEventDialog({
 								value={type}
 								onChange={(v) => {
 									const next = v as EventType;
-									// A pick the new type cannot hold goes, and the name it put
-									// in the box goes with it: leaving the text behind would
-									// silently turn a picked place into a typed one.
-									if (!keepsPick(type, next, spot)) {
-										setPoi('');
-										setPlace('');
-									}
+									retype(next);
 									setType(next);
 								}}
 								options={TYPE_OPTIONS}

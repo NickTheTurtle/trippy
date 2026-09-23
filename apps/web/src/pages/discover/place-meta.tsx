@@ -56,6 +56,22 @@ export function todayHours(hours: string[] | null | undefined, tz: string): stri
 	return (hours[idx] ?? hours[0]).replace(/^[A-Za-z]+:\s*/, '');
 }
 
+/**
+ * Whether there is anything to describe a venue with.
+ *
+ * Both the row and the wrapper around it need this answer, and for different
+ * reasons: the row has nothing to draw, and the wrapper is a flex line with a
+ * gap, so rendering it empty leaves a stripe of padding under the name. Asked
+ * once so the two can never disagree about whether the row is there.
+ */
+export function hasMeta(m: {
+	rating: number | null;
+	priceLevel: number | null;
+	hours: string | null;
+}): boolean {
+	return !!m.rating || m.priceLevel != null || !!m.hours;
+}
+
 /** Star rating, price band and today's hours: the row that describes a venue. */
 export function MetaBits({
 	rating,
@@ -68,7 +84,7 @@ export function MetaBits({
 	priceLevel: number | null;
 	hours: string | null;
 }) {
-	if (!rating && priceLevel == null && !hours) return null;
+	if (!hasMeta({ rating, priceLevel, hours })) return null;
 	return (
 		<>
 			{rating ? (
@@ -95,7 +111,7 @@ export function HitSummary({ hit, tz, loading }: { hit: PlaceHit; tz: string; lo
 		// when the ratings arrive.
 		return <p aria-hidden="true" className="h-[1.2em] w-36 rounded-sm bg-line opacity-50" />;
 	}
-	if (!hit.rating && hit.priceLevel == null && !hrs) return null;
+	if (!hasMeta({ rating: hit.rating, priceLevel: hit.priceLevel, hours: hrs })) return null;
 	return (
 		<p className="muted m-0 flex flex-wrap items-center gap-1.5 text-meta">
 			<MetaBits

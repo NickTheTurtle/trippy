@@ -192,8 +192,23 @@
  * trap at exactly the width where there is nowhere else to swipe. */
 .sched .boardscroll {
 	max-height: 70vh;
-	overflow-x: hidden;
+	overflow-x: auto;
 	overflow-y: auto;
+	/* One day at a time, and the strip comes to rest on one.
+	 *
+	 * The board can be scrolled sideways through the trip, but a calendar that
+	 * stopped halfway between two days would be showing neither: the hour
+	 * gutter belongs to a day, and half a day beside half another reads as one
+	 * board with the times written twice. So the strip is mandatory-snapped to
+	 * whole panels, which also makes the day the reader has settled on an
+	 * unambiguous answer rather than a measurement, and that answer is what
+	 * becomes the url.
+	 *
+	 * `overscroll-behavior-x: contain`, unlike the vertical axis, which chains
+	 * on purpose. Sideways there is nothing beyond the board worth reaching,
+	 * and on a trackpad the chain was a back navigation out of the trip. */
+	scroll-snap-type: x mandatory;
+	overscroll-behavior-x: contain;
 	/* Room for the hour label that hangs above the first rule.
 	 *
 	 * An hour is written across its own line rather than under it, so the label
@@ -206,45 +221,24 @@
 	 * pushed off the bottom. Paired with `BOARD_PAD_PX` in `Schedule.tsx`, which
 	 * is what the drag uses to keep the block it is holding inside the box. */
 	padding-top: 12px;
-	/* The board is a card, not a window frame, and the platform scrollbar it
-	   grew when the hours moved inside it arrived with stepper arrows and a
-	   white track hard against the card's edge. This is the same bar in the
-	   page's own language: a soft pill in the line colour, thickening under the
-	   pointer. It stays visible rather than fading, because inside a card with
-	   no other edge to read it is the only thing that says the hours go on.
-
-	   The standard properties are quarantined below rather than written here,
-	   because a browser that has both takes the standard pair and drops the
-	   `::-webkit-` rules, and Chromium's `thin` bar comes with the stepper
-	   arrows this is trying to be rid of. Firefox, which has no `::-webkit-`
-	   scrollbar at all, picks them up instead. */
-}
-@supports not selector(::-webkit-scrollbar) {
-	.sched .boardscroll {
-		scrollbar-width: thin;
-		scrollbar-color: color-mix(in srgb, var(--color-ink-faint) 55%, transparent) transparent;
-	}
+	/* No scrollbars.
+	 *
+	 * The board scrolls on both axes now, so a styled bar meant two of them
+	 * boxing in a card that is already a card: one down the right of the hours
+	 * and one across the bottom of the strip, neither of which is a thing the
+	 * reader does anything with. What they used to say, that the hours go on, is
+	 * now said better by the board itself: the day snaps, the stepper names the
+	 * day either side, and the panels move under the hand.
+	 *
+	 * Hidden, not disabled. Every axis still scrolls by wheel, trackpad, touch,
+	 * keyboard and the code that drives the strip; only the painted bar is gone.
+	 * Both spellings are needed and neither is redundant: `scrollbar-width` is
+	 * the standard one Firefox reads, and `::-webkit-scrollbar` is the only one
+	 * Chromium and Safari obey for hiding. */
+	scrollbar-width: none;
 }
 .sched .boardscroll::-webkit-scrollbar {
-	width: 10px;
-}
-.sched .boardscroll::-webkit-scrollbar-track {
-	background: transparent;
-}
-.sched .boardscroll::-webkit-scrollbar-button {
-	/* Chromium still draws stepper arrows once the bar is styled at all. */
 	display: none;
-}
-.sched .boardscroll::-webkit-scrollbar-thumb {
-	/* Drawn into the content box of a transparent border, which is what insets
-	   a 6px pill inside a 10px bar without a second element to pad it. */
-	background-color: color-mix(in srgb, var(--color-ink-faint) 55%, transparent);
-	background-clip: content-box;
-	border: 2px solid transparent;
-	border-radius: 999px;
-}
-.sched .boardscroll::-webkit-scrollbar-thumb:hover {
-	background-color: var(--color-ink-faint);
 }
 /* The agenda in the same box.
  *
@@ -257,6 +251,44 @@
 .sched .boardscroll.list {
 	padding-top: 0;
 	padding-bottom: 0.4rem;
+	/* A list is one day. Nothing beside it to snap to, and a snap axis on a box
+	   with a single child pins its scroll to that child's top. */
+	overflow-x: hidden;
+	scroll-snap-type: none;
+}
+/* The strip itself: the days, side by side, each as wide as the box. */
+.sched .daytrack {
+	display: flex;
+	align-items: flex-start;
+}
+/* One day.
+ *
+ * `flex: 0 0 100%` against a track that is itself the width of the scroll box,
+ * so a panel is exactly a viewport and the snap lands on whole days at any
+ * width, with no breakpoint deciding how many fit. `min-width: 0` because a
+ * flex item defaults to the width of its content and the grid inside is a fixed
+ * number of pixels tall but happily wider than its share.
+ *
+ * `snap-align: start` rather than `center`: the hour gutter is on the left of
+ * each panel, so lining the left edges up is what puts the clock where the eye
+ * already is. */
+.sched .daypanel {
+	flex: 0 0 100%;
+	min-width: 0;
+	scroll-snap-align: start;
+}
+/* While a block is being carried, the strip stops snapping.
+ *
+ * A drag that pushes against the side edge travels the strip a few pixels a
+ * frame, and mandatory snapping fights every one of them: the box is dragged
+ * towards the neighbour and thrown back to the day it started on, so the
+ * neighbour can be seen but never reached. Released on drop, where the strip
+ * settles onto whichever day the block was let go over.
+ *
+ * On the scroller rather than on the strip, because snapping is a property of
+ * the box that scrolls. */
+.sched .boardscroll.held {
+	scroll-snap-type: none;
 }
 /* The board's title bar: the day it is drawing, and the way to the next one.
    Centred over the board rather than left-aligned in the toolbar, because it

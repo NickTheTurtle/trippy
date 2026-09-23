@@ -138,7 +138,10 @@ async function dayLegs(tripId: string, day: string, canBill?: () => boolean) {
  * that ends before it starts describes no days, and the schedule's reach then
  * comes from what is actually scheduled.
  */
-function tripRange(start: string | null, end: string | null): { start: string; end: string } | null {
+function tripRange(
+	start: string | null,
+	end: string | null
+): { start: string; end: string } | null {
 	const from = isoDay(start);
 	const to = isoDay(end);
 	return from && to && from <= to ? { start: from, end: to } : null;
@@ -364,6 +367,8 @@ schedule.get('/', async (c) => {
 	}
 	const day = requested;
 	const days = reach ? tripDays(trip.id, range, reach, day) : [day];
+	const prevDay = reach ? stepDay(trip.id, range, day, -1) : null;
+	const nextDay = reach ? stepDay(trip.id, range, day, 1) : null;
 
 	// Cities are dateless itinerary places, so the first city is the trip-wide
 	// default rather than a schedule. It frames the day view's map; the pins
@@ -372,28 +377,43 @@ schedule.get('/', async (c) => {
 		city ? { id: city.id, name: city.name, tz: city.tz, lat: city.lat, lng: city.lng } : null;
 	const defaultCity = trip.cities[0] ?? null;
 
-	/* One day, held in an array. Every view reads a single day: the people view
-	   is that day laid out sideways. The array is what the client iterates, and
-	   keeping it is what lets a view that spans days be added back without
-	   reshaping the payload. */
-	const board = [
-		{
-			day,
+	/* The day being read, and the one either side of it.
+	 *
+	 * The board is a strip that scrolls sideways and settles on a day, so the
+	 * neighbours have to be drawn before the reader reaches them: a strip that
+	 * fetched the next day when the scroll began would show an empty column for
+	 * as long as the round trip took, which is the whole of the gesture.
+	 *
+	 * Three and no more. The reach is the whole trip, and the trip can be four
+	 * hundred days; the strip covers it by recycling this window as it settles
+	 * rather than by listing it, which keeps the cost of a board flat in the
+	 * length of the trip. Each day costs a routing pass on its first load, so
+	 * the count here is a bill as well as a payload.
+	 *
+	 * The agenda reads one day, so it is served one: there is nothing beside it
+	 * to scroll to.
+	 */
+	const drawn =
+		view === 'agenda' ? [day] : [prevDay, day, nextDay].filter((d): d is string => d !== null);
+
+	const board = await Promise.all(
+		drawn.map(async (on) => ({
+			day: on,
 			city: cell(defaultCity),
-			events: eventsForDay(trip.id, day),
+			events: eventsForDay(trip.id, on),
 			// The day's lodgings, drawn as a band rather than a block: a stay is a
 			// range of days, so it is on every day it covers, the morning of
 			// checkout included, and there may be more than one when the group
 			// sleeps in more than one place.
-			stays: staysOnBoard(trip.id, day),
+			stays: staysOnBoard(trip.id, on),
 			// Where the morning starts. The client needs it to plan the day's travel
 			// the same way the server does, which is what lets an unsaved change to
 			// who is going redraw the journeys as it is typed. It overlaps `stays`
 			// on every day but the first: the same row answers both questions.
-			incoming: incomingStays(trip.id, day),
-			legs: await dayLegs(trip.id, day, routingGate(c.get('user').id))
-		}
-	];
+			incoming: incomingStays(trip.id, on),
+			legs: await dayLegs(trip.id, on, routingGate(c.get('user').id))
+		}))
+	);
 
 	return c.json({
 		days,
@@ -411,8 +431,8 @@ schedule.get('/', async (c) => {
 		firstDay: reach?.first ?? day,
 		lastDay: reach?.last ?? day,
 		dayCount: reach?.count ?? 1,
-		prevDay: reach ? stepDay(trip.id, range, day, -1) : null,
-		nextDay: reach ? stepDay(trip.id, range, day, 1) : null,
+		prevDay,
+		nextDay,
 		board,
 		members: trip.memberList,
 		me: c.get('user').id,
@@ -630,7 +650,7 @@ schedule.post('/events', async (c) => {
 	if (start === null) return fail(c, 400, 'Pick a start time.');
 	if (start < 0 || start >= 24 * 60) return fail(c, 400, 'Pick a start time within the day.');
 	const endDay = stay ? isoDay(b.endDay) || shiftDay(day, 1) : null;
-	if (endDay && endDay <= day) return fail(c, 400, 'Check out after you check in.');
+	if (endDay && endDay <= day) return fail(c, 400, 'Check-out must be after check-in.');
 	// A stay on the trip's last night checks out the morning after it ends, so
 	// the checkout is allowed one day past the range the check-in must sit in.
 	if (endDay && outsideTrip(trip, shiftDay(endDay, -1))) {
@@ -646,7 +666,9 @@ schedule.post('/events', async (c) => {
 
 	// Free time is deliberately nowhere, so it is the one type with no link. A
 	// journey's link is the far end of it: where it lands.
-	const place = isLocatedType(type) ? placeFor(trip.id, type, str(b.poiId), str(b.placeName)) : null;
+	const place = isLocatedType(type)
+		? placeFor(trip.id, type, str(b.poiId), str(b.placeName))
+		: null;
 	const title = sentTitle || derivedTitle(type, placeName(place), str(b.notes));
 
 	// Every event, a stay included, occupies real time on its own day, so the
@@ -753,10 +775,11 @@ function opProblem(op: string, b: Record<string, unknown>): string | null {
 	if (sent(b.endDay) && !isoDay(b.endDay)) return 'Pick a checkout date.';
 	const from = isoDay(b.day);
 	const to = isoDay(b.endDay);
-	// Same rule create holds a stay to. The store clamps an inverted range into
-	// the shortest real stay, which is the right last resort and the wrong thing
-	// to tell somebody who typed two dates and got a third.
-	if (from && to && to <= from) return 'Check out after you check in.';
+	// Same rule create holds a stay to, and the same words the lodging form uses
+	// for it. The store clamps an inverted range into the shortest real stay,
+	// which is the right last resort and the wrong thing to tell somebody who
+	// typed two dates and got a third.
+	if (from && to && to <= from) return 'Check-out must be after check-in.';
 
 	// The version the editor had on screen. A version that is not a whole number
 	// reads as "no version" and quietly turns the conflict check off, which is
@@ -900,9 +923,7 @@ schedule.post('/events/:eventId/op', async (c) => {
 			   about the place, and both are resolved together so picking a place
 			   drops a name that was typed and vice versa. */
 			const placeSent = b.poiId !== undefined || b.placeName !== undefined;
-			const place = placeSent
-				? placeFor(trip.id, type, str(b.poiId), str(b.placeName))
-				: undefined;
+			const place = placeSent ? placeFor(trip.id, type, str(b.poiId), str(b.placeName)) : undefined;
 
 			/* Three cases for the name, and the last two are not the same thing:
 			   absent (or null) means the body is silent about it, so the stored name

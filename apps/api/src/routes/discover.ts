@@ -335,6 +335,27 @@ function checkoutNotAfterCheckIn(checkIn: string | null, checkOut: string | null
 }
 
 /**
+ * Nights that fall outside the trip's own dates, which the night range guard
+ * above cannot see: May 8 to May 9 is a perfectly ordered one-night stay and
+ * was accepted onto a trip running May 10 to May 15, where it then drew a band
+ * on days the board does not have.
+ *
+ * Check-out is bounded by the last day rather than the day after it. The last
+ * night of a May 10 to May 15 trip is the 14th into the 15th, so a checkout on
+ * the 15th is the latest a traveller can mean.
+ *
+ * Each end is judged on its own, so a half-filled range is still undated rather
+ * than invalid, matching `checkoutNotAfterCheckIn`.
+ */
+function outsideTrip(trip: Trip, checkIn: string | null, checkOut: string | null): string | null {
+	const first = trip.start_date;
+	const last = trip.end_date;
+	if (!first || !last) return null;
+	const strays = (day: string | null) => !!day && (day < first || day > last);
+	return strays(checkIn) || strays(checkOut) ? 'Those nights fall outside the trip.' : null;
+}
+
+/**
  * The per-night price of a stay, in whole cents.
  *
  * `priceCents` is the field to send: it is what the column holds, and an
@@ -381,6 +402,8 @@ discover.post('/stays', async (c) => {
 	if (checkoutNotAfterCheckIn(checkIn, checkOut)) {
 		return fail(c, 400, 'Check-out must be after check-in.');
 	}
+	const strayNights = outsideTrip(trip, checkIn, checkOut);
+	if (strayNights) return fail(c, 400, strayNights);
 
 	const stayLink = readLink(b.url);
 	if ('error' in stayLink) return fail(c, 400, stayLink.error);
@@ -463,6 +486,8 @@ discover.patch('/stays/:optionId', async (c) => {
 	if (checkoutNotAfterCheckIn(checkIn, checkOut)) {
 		return fail(c, 400, 'Check-out must be after check-in.');
 	}
+	const editStrays = outsideTrip(c.get('trip'), checkIn, checkOut);
+	if (editStrays) return fail(c, 400, editStrays);
 
 	const editLink = readLink(b.url);
 	if ('error' in editLink) return fail(c, 400, editLink.error);
@@ -491,6 +516,8 @@ discover.patch('/stays/:optionId/dates', async (c) => {
 	if (checkoutNotAfterCheckIn(checkIn, checkOut)) {
 		return fail(c, 400, 'Check-out must be after check-in.');
 	}
+	const dateStrays = outsideTrip(c.get('trip'), checkIn, checkOut);
+	if (dateStrays) return fail(c, 400, dateStrays);
 	return okOr(
 		c,
 		setDates(c.get('trip').id, c.get('user').id, c.req.param('optionId'), checkIn, checkOut),

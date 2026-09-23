@@ -273,6 +273,115 @@ has no old position to travel from. Under `prefers-reduced-motion` all of it is
 removed: the board is read, not watched, and every block is already in the right
 place without the motion.
 
+### The day board is a strip, and a drag can cross dates
+
+The board drew one day and replaced it wholesale on every step, which made two
+things impossible: seeing that tomorrow exists, and moving a block onto it.
+Rescheduling across dates meant deleting a block and adding it again on the
+other day, losing everything typed into it.
+
+It is now a horizontally scroll-snapped strip of full-width day panels inside
+the same box that already scrolled vertically, plus a **Date** field in the
+event editor. Two ways to do the same move, because they answer different
+questions: the strip is for "not today, the next one", the field is for "the
+Thursday after next".
+
+**Still one day on screen.** The strip snaps `x mandatory` to whole panels. Half
+a day beside half another is not two days, it is one board with the hours
+written twice, because the hour gutter belongs to a panel. Snapping also makes
+"which day is the reader on" an answer rather than a measurement, and that
+answer is what becomes the url.
+
+**One scroll container, two axes.** `.boardscroll` gains `overflow-x`; the
+panels are not given a scroller of their own. A box with `overflow-x: auto`
+computes `overflow-y: visible` to `auto`, so a nested horizontal scroller would
+have silently taken over the vertical scroll that the day window and the drag
+code both measure off `scrollRef`. Sideways gets `overscroll-behavior-x:
+contain`, unlike the vertical axis which chains on purpose: on a trackpad the
+horizontal chain was a back navigation out of the trip.
+
+**Three panels, recycled, not a panel per day.** The payload serves
+`[prevDay, day, nextDay]`, so a 400 day trip costs the same as a 3 day one. When
+a scroll settles on the right-hand panel it becomes the middle of a fresh three,
+and a `useLayoutEffect` re-seats `scrollLeft` onto the url's day in the same
+frame the new panels paint. The day under the reader is identical before and
+after; only its index changed, so the re-index is invisible. A passive effect
+would paint the old offset first, which is a flash of the wrong day.
+
+The cost is real and bounded: `dayLegs` runs a routing pass per day served, so
+first load triples. It persists through `saveAutoLeg` and sits behind
+`routingGate`, and the agenda is deliberately still served one day, since a list
+has no neighbour to scroll to.
+
+**A settle writes the url with `replace`.** A flick across the trip is one
+continuous movement, not a series of visits, so it leaves one history entry
+rather than one per day passed. The arrows and the Date field still push,
+because those are decisions. The commit waits `SETTLE_MS` (140ms), long enough
+to sit out the tail of a decelerating flick and short enough that reaching for
+the map does not find the address bar behind.
+
+**The header reads the gesture, not the url.** The stepper and the lodging band
+stay outside the scroller, since they name the day and must not scroll away, but
+they read the day currently under the reader rather than `data.day`. A band
+still naming the day you have scrolled off is worse than no band.
+
+**The arrows stay links.** They now start the same horizontal travel a hand
+would, over the panels already painted, while the new payload loads: `useApi`
+keeps the previous data rather than blanking, which is exactly what makes that
+possible. They remain `<Link>`s so the board stays addressable and the back
+button still walks the days.
+
+**`useSlideIn` no longer fires on a day change.** It scripted a 64px slide of
+the whole card, standing in for a movement the board could not make. The board
+can make it now, and the script became a second motion disagreeing with the
+scroll about how far the board went. A view change still slides, because Day and
+Agenda really do replace what the card draws and there is no gesture between
+them to borrow.
+
+**Carrying a block across dates.** A block is drawn inside its own day's panel,
+so it would slide out from under a still hand as the strip travels. It is
+therefore offset by exactly what the strip has done (`Drag.dx`), which leaves it
+under the pointer while the days pass behind it. Holding it against the left or
+right edge runs the strip at `EDGE_DAY_RATE` panels a second, the sideways twin
+of the existing vertical edge scroll, and the drop sends the day that arrived
+under it along with the existing `move` op, which has always carried a target
+day. Snapping is switched off for the duration: mandatory snap fights every
+few-pixel step and throws the strip back, so the neighbour can be seen but never
+reached.
+
+The reach is deliberately the loaded window, one day either side. Travelling
+further would mean committing the url mid-drag, which refetches and takes the
+panel the block is drawn in out from under the hand holding it. A longer move is
+the Date field's job; leaning on the edge of a screen for a fortnight is nobody's
+shortcut.
+
+**`editEvent` had to be fixed to allow this.** A target `day` was honoured only
+when the block was a stay, so a date change on anything else was accepted and
+silently dropped. It now moves the block and marks both the day it left and the
+day it joined as touched, so each is replanned. It deliberately leaves
+`time_auto` alone: choosing a date is not choosing a time, so a block that was
+still following the day before it keeps following on its new one.
+
+**A free day draws hours, not the drawn bug.** Every other empty list in the app
+shows `EmptyState`, and the day board used to as well. It was the wrong answer
+twice over. A day with nothing on it is not an empty collection, it is a free
+day, and the hours are the reply to "when could this go": the grid is what you
+double-click to put something at four o'clock, and a drawing has nothing to aim
+at. Then the strip made it a geometry bug too. Panels sit side by side in a
+flex row, so a graphic a couple of hundred pixels tall beside a full day of
+hours made the board's height jump as it was scrolled, and a free day read as
+having been scrolled off the end of the trip rather than as a morning with
+nothing in it. The agenda keeps its graphic: a list of nothing really is
+nothing, and there are no hours there to offer instead.
+
+**The window is measured across every drawn day, not the anchor.** The panels
+share one grid origin, which is what makes their hour lines meet across a
+scroll, so the window has to fit the widest of them. Measured off the anchor
+alone, a neighbour's 04:00 block was drawn above the top of its own panel, where
+it is clipped and sitting at the wrong hour. The cost is that a neighbour's
+early start opens the day you are reading too, which is the right way round: an
+hour of empty grid is cheaper than a block in the wrong place.
+
 ### A suggested time follows the day; a chosen one does not
 
 Adding a block used to put it at 09:00 whatever else the day held, and then
@@ -4079,14 +4188,22 @@ lands on the minute it was released at.
 
 **The scrollbar is the page's, not the platform's.** Inside a card, the native
 bar arrived with stepper arrows and a white track hard against the card's edge. It
-is now a 6px pill inset in a 10px bar, `--color-ink-faint` at 55 percent and full
-strength under the pointer, on a transparent track. It does not fade, because in a
-card with no other edge to read it is the only thing that says the hours go on.
-The standard `scrollbar-width` and `scrollbar-color` are quarantined in an
-`@supports not selector(::-webkit-scrollbar)` block: a browser that has both
-prefers the standard pair and drops the `::-webkit-` rules, and Chromium's `thin`
-bar brings the arrows back. Firefox, which has no `::-webkit-` scrollbar, takes
-them instead. The root gutter decision is untouched.
+became a 6px pill inset in a 10px bar, `--color-ink-faint` at 55 percent and full
+strength under the pointer, on a transparent track, kept visible on the reasoning
+that in a card with no other edge to read it was the only thing saying the hours
+go on.
+
+**Superseded: the board has no scrollbars at all.** Once the board scrolled
+sideways as well, a styled bar meant two of them boxing in a card that is already
+a card, and the one thing they were there to say is now said by the board itself:
+the day snaps, the stepper names the day either side, and the panels move under
+the hand. `.boardscroll` takes `scrollbar-width: none` plus
+`::-webkit-scrollbar { display: none }`, the same pair `.tabs` already uses, where
+the fade is the affordance instead. Both spellings are needed and neither is
+redundant: Firefox reads the standard property, and Chromium and Safari obey only
+the pseudo-element for hiding. Nothing is disabled, only unpainted: wheel,
+trackpad, touch, keyboard and the code that drives the strip all still scroll.
+The root gutter decision is untouched.
 
 **The time was cut off at the top, and the gutter was innocent.** An hour is
 written across its own rule rather than under it, so `.hourline span` sits at
@@ -6044,6 +6161,110 @@ anybody signed in?" is a question with a legitimate negative answer; 401 is for
 a request that needed a session and did not have one. Working around it from the
 client (remembering "no session" in storage, or not asking) would trade a
 cosmetic line for a real bug, since a cookie can arrive from another tab.
+
+## What twelve simulated travellers found
+
+A twelve-person usability run drove one shared trip from account creation
+through planning, on a throwaway stack so the real database was never opened.
+Nine of the reports produced changes. Four are worth the rationale, and three
+are worth recording as **not** bugs, because each looked like one.
+
+**The day strip was reading three days to anyone who could not see it.** A
+tester reported that the 11th was showing the 10th's events. It was not: the
+strip keeps the day either side in the DOM so it has something to scroll to, and
+sighted readers see exactly one of them. The accessibility tree saw all three as
+one unbroken list, so yesterday's blocks were announced as today's. The panels
+that are not being read are now `inert`, which takes them out of that tree and
+out of the tab order together, where `aria-hidden` alone would have left
+focusable buttons inside a hidden subtree. It is lifted for the length of a
+drag: a block carried across dates travels with its own panel, and that panel
+stops being the one being read the moment the strip passes halfway, so made
+inert under the hand holding it the gesture would die mid-air.
+
+**A date input's `min` and `max` are not a limit.** They colour the picker and
+do nothing to a typed date. A typed 2027-05-16 on a trip ending on the 15th left
+the field reading one day while the board read another, with nothing to say
+which the save would use. The event editor now clamps in its `onChange` rather
+than trusting the attributes.
+
+**Nights were checked against each other but not against the trip.** May 8 to
+May 9 is a perfectly ordered one-night stay, and it was accepted onto a trip
+running May 10 to May 15, where it drew a band on days the board does not have.
+The night-order rule cannot see this; the trip's dates are known at the route,
+so the refusal lives there, on all three stay-writing paths. Check-out is
+bounded by the last day rather than the day after it, because the last night of
+a May 10 to May 15 trip is the 14th into the 15th.
+
+**A negative share is a typo, not a refund.** The split guard only asked that
+*something* was positive, so `-1 / 2 / 7` passed it and then divided as though
+the first person had asked for nothing: somebody named in the split was silently
+dropped out of it, and the row went on to describe itself as "2 ways". The sign
+an expense can legitimately carry is on the **total**, which is what makes
+income income; the weights only say how it is shared out. Negative weights are
+now refused, which also retires a `Math.max(0, …)` in the exact-mode sum that
+had been hiding a negative part inside a valid total.
+
+Three findings were investigated and rejected:
+
+- **"Settling concurrently inverted the debt into billions."** It did not. A
+  second tester had just entered a ten-digit expense; 123456789000 cents over
+  twelve people is 10,288,065,750 each, and eleven of those is the 113,168,723,190
+  that was reported. The arithmetic was right and the balances still summed to
+  zero.
+- **"The schedule API accepts an event with no title."** By design. `derivedTitle`
+  falls back to the picked place, then the first line of the notes, then the
+  type's own label, so the event is named "Activity" rather than nothing. That
+  fallback is what makes the name genuinely optional on the wire.
+- **"Money parsing should be unified."** Places and stays take **cents**;
+  expenses take **major units** and read a negative as income. Two endpoints,
+  two contracts, on purpose. Unifying them on `parseMoneyToCents`, which rejects
+  anything negative, would delete the income path.
+
+One wording split was closed rather than left: the same rule was telling people
+`Check out after you check in.` from the schedule and `Check-out must be after
+check-in.` from the lodging form. The schedule now uses the lodging wording,
+which is the one `packages/copy` already holds.
+
+### Thumbs, and why the first tap-target count was wrong
+
+The same round reported around forty controls under the 44px a thumb needs. That
+number was measured in a headless browser with no touch, so every
+`@media (pointer: coarse)` rule the app already had was inactive during the
+measurement. The checkbox reported as "14x14" grows to about 40px on a real
+phone through `.cbox input { inset: -12px }`. Re-measured with touch emulation
+at 390px the list was much shorter, and shorter again once it was clear the
+audit trip had no content in it: an empty trip renders only page chrome, so the
+vote buttons, edit pencils and row controls had never been measured at all.
+Seeding the trip first found the rest.
+
+Two mechanisms fix what was left, and the split between them is the point:
+
+- **An invisible overlay** (`.tap`, and the component classes listed beside it)
+  for a control that sits on its own in the chrome. The drawing keeps its size
+  and a centred `max(100%, 44px)` box takes the tap. Raising the drawn size
+  instead would be a different app on a phone, with four controls to a row where
+  there used to be six.
+- **Real height** (`.tap-grow`) for a row in a list. An overlay on a 23px row
+  reaches into the rows above and below, and because the later row paints on top
+  it would quietly answer for taps meant for its neighbour. Rows grow instead,
+  which pushes the list apart rather than stacking it.
+
+`--control-h` also went from 42px to 44px on coarse pointers, which was two
+pixels rather than a design decision, and lifts `.btn`, `.input` and `.mtrigger`
+together. `.daypickfield` needed a real `min-height` because an `<input>` draws
+no pseudo-elements.
+
+Two things were deliberately left under 44px. Leaflet's **map pins** stay at
+34px: a pin is placed at a coordinate rather than laid out in a row, so padding
+it out would have neighbouring pins overlap and answer for each other, and
+tapping the wrong place is worse than reaching for the right one. The map zooms,
+which is the real way to separate two pins. Leaflet's **attribution credit** is
+a legal link, not a control.
+
+One more finding was rejected on measurement: **"nothing shows that the tab
+strip scrolls."** At 390px with touch the strip is 482px of content in 342px of
+room and `.tabswrap` carries `more-r`, so the fade affordance is present and
+active.
 
 ## Implementation status
 

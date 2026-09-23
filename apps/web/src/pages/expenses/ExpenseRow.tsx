@@ -49,7 +49,7 @@ export default function ExpenseRow({
 				type="button"
 				onClick={onOpen}
 				aria-label={settled ? c.openLabel(e.description) : c.editLabel(e.description)}
-				className="flex w-full cursor-pointer flex-wrap items-center gap-x-3 gap-y-1 border-0 bg-transparent p-0 text-left"
+				className="tap-grow flex w-full cursor-pointer flex-wrap items-center gap-x-3 gap-y-1 border-0 bg-transparent p-0 text-left"
 			>
 				<Avatar name={e.payer_name} tone={credit ? 'muted' : 'accent'} />
 				{/* `basis-40` is what makes the row wrap on a phone rather than squeeze:
