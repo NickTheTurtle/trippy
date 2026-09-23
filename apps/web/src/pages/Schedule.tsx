@@ -17,6 +17,7 @@ import TripMap from '../components/TripMap';
 
 import { type Layout } from '@trippy/core/layout';
 import { layoutBoard, legLaneId } from '@trippy/core/travel';
+import { suggestStart } from '@trippy/core/plan';
 import type { EventType } from '@trippy/core/types';
 import { copy } from '../copy';
 import AddEventDialog from './schedule/AddEventDialog';
@@ -1220,6 +1221,19 @@ export default function Schedule() {
 		return out;
 	}, [board]);
 
+	/**
+	 * Where a block added without pointing at a time should start.
+	 *
+	 * The end of the day being added to, or 09:00 for a day with nothing on it.
+	 * The server refines it the moment the block is saved, adding the journey to
+	 * wherever the block turns out to be, which is a number the dialog cannot
+	 * know until a place has been picked.
+	 */
+	const suggestedStart = useMemo(
+		() => (adding ? suggestStart(board.find((e) => e.day === adding.day)?.events ?? []) : 0),
+		[adding, board]
+	);
+
 	/* Opening an event: the pencil on a block, or a stay band, asks for the
 	   editor. Pointing at a block no longer opens it; a click focuses the map
 	   instead, so `openBlock` is reached through the pencil alone. */
@@ -2132,6 +2146,7 @@ export default function Schedule() {
 					base={base}
 					day={adding.day}
 					startMin={adding.start}
+					suggestedStart={suggestedStart}
 					initialType={adding.type}
 					initialPoi={adding.poi}
 					legs={draftLegs}

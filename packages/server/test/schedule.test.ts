@@ -711,3 +711,104 @@ describe('deleting a stay that is booked on the calendar', () => {
 		expect(schedule.eventsForDay(tripId, DAY, alice).map((e) => e.id)).toEqual([other]);
 	});
 });
+
+describe('a suggested time follows the day', () => {
+	const times = (id: string) =>
+		db.prepare(`SELECT start_min, end_min FROM events WHERE id = ?`).get(id) as {
+			start_min: number;
+			end_min: number;
+		};
+
+	it('places a new block after the one before it, plus the journey between them', () => {
+		add({ startMin: 540, endMin: 600, people: [alice, bob], ...HOTEL });
+		const lunch = schedule.createEvent(tripId, alice, {
+			day: DAY,
+			title: 'Lunch',
+			type: 'food',
+			// What the dialog opens at when nobody pointed at a time: the end of
+			// the day so far, with the travel still to be added.
+			startMin: 600,
+			endMin: 660,
+			...MUSEUM,
+			people: [alice, bob],
+			timeAuto: true
+		})!;
+		const at = times(lunch);
+		expect(at.start_min).toBeGreaterThan(600);
+		expect(at.end_min - at.start_min).toBe(60);
+	});
+
+	it('moves a suggested block when the block before it is lengthened', () => {
+		const museum = add({ startMin: 540, endMin: 600, people: [alice, bob], ...HOTEL });
+		const lunch = schedule.createEvent(tripId, alice, {
+			day: DAY,
+			title: 'Lunch',
+			type: 'food',
+			startMin: 600,
+			endMin: 660,
+			...MUSEUM,
+			people: [alice, bob],
+			timeAuto: true
+		})!;
+		const was = times(lunch).start_min;
+
+		schedule.resizeEvent(museum, alice, 780, tripId);
+		const now = times(lunch).start_min;
+		expect(now).toBeGreaterThan(was);
+		expect(now).toBeGreaterThanOrEqual(780);
+		expect(times(lunch).end_min - now).toBe(60);
+	});
+
+	it('leaves a block somebody dragged where they dragged it', () => {
+		const museum = add({ startMin: 540, endMin: 600, people: [alice, bob], ...HOTEL });
+		const lunch = schedule.createEvent(tripId, alice, {
+			day: DAY,
+			title: 'Lunch',
+			type: 'food',
+			startMin: 600,
+			endMin: 660,
+			...MUSEUM,
+			people: [alice, bob],
+			timeAuto: true
+		})!;
+
+		// A drag is a choice, so the block stops following the day.
+		schedule.moveEvent(lunch, alice, 900, tripId);
+		schedule.resizeEvent(museum, alice, 780, tripId);
+		expect(times(lunch).start_min).toBe(900);
+	});
+
+	it('leaves a block nobody marked as suggested alone, which is every old block', () => {
+		const museum = add({ startMin: 540, endMin: 600, people: [alice, bob], ...HOTEL });
+		const lunch = add({ startMin: 660, endMin: 720, people: [alice, bob], ...MUSEUM });
+
+		schedule.resizeEvent(museum, alice, 780, tripId);
+		expect(times(lunch).start_min).toBe(660);
+	});
+
+	it('does not pin a suggested block when an edit restates the time it already had', () => {
+		const museum = add({ startMin: 540, endMin: 600, people: [alice, bob], ...HOTEL });
+		const lunch = schedule.createEvent(tripId, alice, {
+			day: DAY,
+			title: 'Lunch',
+			type: 'food',
+			startMin: 600,
+			endMin: 660,
+			...MUSEUM,
+			people: [alice, bob],
+			timeAuto: true
+		})!;
+		const settled = times(lunch);
+
+		// What the edit dialog sends when only the notes changed: every field it
+		// shows, the unchanged time among them.
+		schedule.editEvent(
+			lunch,
+			alice,
+			{ notes: 'Book a table', startMin: settled.start_min, endMin: settled.end_min },
+			tripId
+		);
+		schedule.resizeEvent(museum, alice, 780, tripId);
+		expect(times(lunch).start_min).toBeGreaterThanOrEqual(780);
+	});
+});

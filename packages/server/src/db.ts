@@ -826,6 +826,21 @@ addColumn('events', 'version', 'INTEGER NOT NULL DEFAULT 1');
 addColumn('events', 'place_text', 'TEXT');
 
 /**
+ * Whether a block's start is still the board's suggestion.
+ *
+ * A block added without pointing at a time is placed after the day so far, and
+ * that placement should follow the day when something before it moves. A block
+ * somebody dragged or typed a time into should not. The two are
+ * indistinguishable from the stored minutes alone, so the intent is recorded
+ * rather than guessed at.
+ *
+ * Defaults to 0, so every block that already exists keeps the time it has: an
+ * existing day was arranged by somebody, and reflowing it on the first write
+ * after this ships would move blocks nobody asked to move.
+ */
+addColumn('events', 'time_auto', 'INTEGER NOT NULL DEFAULT 0');
+
+/**
  * Addresses we must not mail again, fed by Amazon SES bounce and complaint
  * notifications.
  *

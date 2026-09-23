@@ -51,6 +51,7 @@ export default function AddEventDialog({
 	base,
 	day,
 	startMin,
+	suggestedStart,
 	initialType,
 	initialPoi,
 	legs,
@@ -73,6 +74,12 @@ export default function AddEventDialog({
 	day: string;
 	/** Where on the clock the dialog was opened, when it was opened by pointing at a time. */
 	startMin: number | null;
+	/**
+	 * Where a block goes when nobody pointed at a time: the end of the day so
+	 * far. Left untouched it is sent as a suggestion, so the block keeps
+	 * following whatever ends up in front of it.
+	 */
+	suggestedStart: number;
 	/** What the dialog opens as, when it was opened from something type-specific. */
 	initialType?: EventType;
 	/** A saved place the dialog opens with already picked, as the map's "+ Add" does. */
@@ -101,8 +108,14 @@ export default function AddEventDialog({
 	onDone: () => void;
 }) {
 	const [type, setType] = useState<EventType>(initialType ?? 'activity');
-	const [start, setStart] = useState(String(startMin ?? 9 * 60));
-	const [end, setEnd] = useState(String((startMin ?? 9 * 60) + 60));
+	const opensAt = startMin ?? suggestedStart;
+	const [start, setStart] = useState(String(opensAt));
+	const [end, setEnd] = useState(String(opensAt + 60));
+	/* Whether the start is still the one the board proposed. Pointing at a time
+	   to open the dialog is already a choice, so only an add that opened without
+	   one can stay a suggestion, and typing into the field ends it. The server
+	   then keeps a suggested block behind whatever ends up in front of it. */
+	const [timeChosen, setTimeChosen] = useState(startMin != null);
 	/* A stay is asked for by its dates instead of by a clock. Kept beside the
 	   times rather than instead of them, so switching type back and forth does
 	   not lose what was already typed. */
@@ -136,6 +149,7 @@ export default function AddEventDialog({
 
 	/** Moving the start carries the end with it: see `EventDialog`. */
 	const moveStart = (next: string) => {
+		setTimeChosen(true);
 		setStart(next);
 		setEnd(String(Math.min(DAY_END, Number(next) + (endAt - startAt))));
 	};
@@ -252,7 +266,10 @@ export default function AddEventDialog({
 						travelMode: type === 'travel' && mode ? mode : undefined,
 						// Never null here: `submit` refuses an emptied field before it
 						// gets this far.
-						people: people ?? []
+						people: people ?? [],
+						// A start nobody chose is sent as one, so the board can keep
+						// the block behind whatever ends up in front of it.
+						timeAuto: !timeChosen && !staying
 					}
 				})
 			).id;

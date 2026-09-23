@@ -273,6 +273,62 @@ has no old position to travel from. Under `prefers-reduced-motion` all of it is
 removed: the board is read, not watched, and every block is already in the right
 place without the motion.
 
+### A suggested time follows the day; a chosen one does not
+
+Adding a block used to put it at 09:00 whatever else the day held, and then
+leave it there forever. Both halves were wrong. Adding a third thing to an
+afternoon dropped it back into the morning underneath the first two, and a day
+built by accepting those times drifted out of order the moment anything before
+it changed: a museum stretched from 11:00 to 15:00 left lunch sitting at 12:00.
+
+The two halves need different answers, so they got two.
+
+**Where a new block opens.** `suggestStart` in `packages/core/src/plan.ts` is
+the end of the day so far, falling back to 09:00 only for a day with nothing on
+it. Travel is deliberately not added there: the dialog does not know what the
+journey costs until a place has been picked, so guessing a gap would only show a
+number about to be replaced by a real one.
+
+**Whether it keeps following.** This cannot be read off the stored minutes,
+because "the board put it at 11:10" and "somebody typed 11:10" look identical
+once written. So the intent is recorded rather than inferred:
+`events.time_auto`, set by an add that never pointed at a time, and cleared the
+first time somebody drags the block or types a different start.
+
+It defaults to 0, so every block that already exists keeps the time it has. An
+existing day was arranged by somebody, and reflowing it on the first write after
+this ships would move blocks nobody asked to move.
+
+Three details are worth the reasoning:
+
+- **A drag always pins; an edit only pins when the start actually moved.** The
+  edit dialog restates every field it shows, so a saved change of place sends
+  the time along with it. Treating a restated time as a choice would quietly pin
+  a block the reader never looked at, so `editEvent` compares against the stored
+  start instead of merely noticing the field was present. Resizing pins nothing
+  at all: that is a change of length, and a suggested start is still a
+  suggestion after it.
+- **The suggestion is the journey, not a fixed gap.** `reflowAutoTimes` starts a
+  block at the end of whatever comes before it plus the travel between them,
+  which is already planned and already carries a duration. Where several
+  journeys arrive, the group rejoining, the latest wins: the block cannot start
+  before everybody is there. A block with no incoming journey is left alone,
+  which is the first thing of the morning, whose origin is last night's stay and
+  which therefore has nothing to be after.
+- **Reflow runs between two plans, not inside one.** `touched` calls
+  `recomputeLegs`, then `reflowDay`, then `recomputeLegs` again if anything
+  moved. The first plan is what the suggestion is computed from; the second is
+  because moving a block changes the order the chain is walked in, which can
+  change which journeys exist at all. The reflow writes only `start_min` and
+  `end_min` and deliberately leaves `version` alone: it is not somebody editing
+  the block, and bumping the version would fail the next save an open dialog
+  attempts for a change the reader never made.
+
+Blocks are walked in clock order, so a run of suggested blocks cascades in one
+pass, each following the one this pass has just placed. Starts round **up** to
+the same five minutes a drag snaps to, because rounding down would suggest
+leaving before the journey finishes.
+
 ### Stay search filters on primary types, not the umbrella type
 
 Stay search stopped returning anything in production while `/api/health` kept
