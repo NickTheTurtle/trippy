@@ -21,12 +21,19 @@ Run from the repo root:
 |---|---|
 | Typecheck everything | `npm run check` |
 | Single workspace | `npm run check -w @trippy/core` (also `@trippy/server`, `@trippy/api`, `@trippy/web`) |
+| Unit tests (vitest) | `npm test` |
+| End-to-end (Playwright) | `npm run test:e2e` (workspace `@trippy/e2e`, specs in `tests-e2e/`) |
 | Build everything | `npm run build` |
 | Formatting (web sources) | `npm run format:check` |
 
-Default to `npm run check` at the root. Escalate to `npm run build` only when the change
-could break a production build (bundling, imports, asset handling) or when a root check
-passes but the user asked for a build.
+**These mirror the two required CI checks that gate every PR:** `Typecheck, unit tests,
+build, format` and `End-to-end (Playwright)`. A change is not verified until the suites
+covering it pass locally. Run `npm test` for any domain, API, or persistence change, and
+`npm run test:e2e` for any user-facing flow. Unit tests live in `packages/server/test/`
+and `apps/api/test/`.
+
+Escalate to `npm run build` when the change could break a production build (bundling,
+imports, asset handling) or when the user asked for a build.
 
 ## Smoke checks
 
