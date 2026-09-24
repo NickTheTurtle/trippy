@@ -126,10 +126,14 @@
  *
  * The tag stands where the Add button stood, so the row keeps its shape and the
  * absence is legible rather than looking like a control that failed to render.
- * Everything else the lock does is the removal of an affordance, so the rules
- * below only stop the rows that survive from claiming to be pressable.
+ * It is also the footer of the read-only event dialog, which is drawn in a
+ * portal outside the page, so the rule is not scoped to the board.
+ *
+ * Nothing else is taken away. A block, a stay and an agenda row all still open
+ * their event, so they still read as pressable: the lock stops the board being
+ * written, not being looked at.
  */
-.sched .lockmark {
+.lockmark {
 	display: inline-flex;
 	align-items: center;
 	gap: 0.35rem;
@@ -138,14 +142,6 @@
 	border-radius: var(--radius-md);
 	color: var(--color-ink-faint);
 	font-size: var(--text-meta);
-}
-.sched.locked .agendarow,
-.sched.locked .block,
-.sched.locked .stayface {
-	cursor: default;
-}
-.sched.locked .agendarow:hover {
-	background: none;
 }
 /* `.sel`'s default width is a percentage against a shrink-to-fit parent, which
    cannot be resolved while measuring it, so the box came out narrower than its

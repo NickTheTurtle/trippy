@@ -373,8 +373,6 @@ export interface OptionEdit {
 	/** Blank falls back to the trip's home currency, as on `addOption`. */
 	currency: string;
 	url: string | null;
-	checkIn: string | null;
-	checkOut: string | null;
 }
 
 /**
@@ -390,8 +388,13 @@ export interface OptionEdit {
  * name would make the board unusable. The photo is untouched too: it is
  * provider-derived and refreshed from the provider, as on places.
  *
+ * The night range is untouched as well, and for a sharper reason: it is not
+ * edited here at all. Which nights are spent in a room is the calendar's
+ * answer, written through `setDates`, so an edit to a name or a price cannot
+ * quietly move or clear it.
+ *
  * `schedule` is published alongside `lodging` because the calendar renders the
- * day's stay by name, and the night range decides which days it covers.
+ * day's stay by name.
  */
 export function updateOption(
 	tripId: string,
@@ -409,7 +412,7 @@ export function updateOption(
 	const res = db
 		.prepare(
 			`UPDATE lodging_options
-			 SET name = ?, tag = ?, price_cents = ?, currency = ?, url = ?, check_in = ?, check_out = ?
+			 SET name = ?, tag = ?, price_cents = ?, currency = ?, url = ?
 			 WHERE id = ? AND trip_id = ?`
 		)
 		.run(
@@ -418,8 +421,6 @@ export function updateOption(
 			price,
 			edit.currency.trim().toUpperCase() || homeCurrency(tripId),
 			edit.url,
-			edit.checkIn,
-			edit.checkOut,
 			optionId,
 			tripId
 		);

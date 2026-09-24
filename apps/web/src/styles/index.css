@@ -573,6 +573,13 @@ select.input.compact {
 	min-height: 0;
 	flex: 1 1 auto;
 }
+/* A dialog that only shows a thing. The body is inert, so it takes no pointer
+   and no focus; this is the reader's half of that, because a field nothing
+   happens in reads as broken rather than as frozen unless it says so. */
+.mbody[inert] {
+	opacity: 0.7;
+	cursor: not-allowed;
+}
 .mfoot {
 	display: flex;
 	align-items: center;

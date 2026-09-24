@@ -212,14 +212,13 @@ describe('legs follow the events', () => {
 		expect(leg.endMin).toBe(660);
 	});
 
-	it('leaves for the night when the day ends, since a stay is a date not an hour', () => {
+	it('plans no journey to the night, since a room is not somewhere to be on time for', () => {
 		add({ startMin: 540, endMin: 600, people: [alice], ...MUSEUM });
 		add({ type: 'stay', startMin: 21 * 60, endMin: 24 * 60, people: [alice], ...HOTEL });
-		const leg = schedule.legsForDay(tripId, DAY)[0];
-		// Not 21:00 minus the walk: nobody waits three hours for the room to open.
-		expect(leg.startMin).toBe(600);
-		expect(leg.endMin).toBe(600 + leg.resolvedMins);
-		expect(leg.tight).toBe(false);
+		// The museum is the last thing on the day. Going back to the room is not
+		// a journey the day has to make room for, and drawing one put travel time
+		// on the stay itself, which is not a thing a stay has.
+		expect(schedule.legsForDay(tripId, DAY)).toEqual([]);
 	});
 });
 
@@ -481,11 +480,11 @@ describe('a stay is a range of nights', () => {
 		// The morning walk out of last night's hotel.
 		expect(schedule.legsForDay(tripId, NEXT).map((l) => l.toEventId)).toEqual([museum]);
 
-		// Moved a day later: the same morning now ends at the hotel instead of
-		// starting from it, which only shows up because the write recomputed the
-		// days the stay left as well as the ones it moved onto.
+		// Moved a day later: the room is no longer last night's, so the morning
+		// walk out of it stops existing. That only shows up because the write
+		// recomputed the days the stay left as well as the ones it moved onto.
 		expect(schedule.editEvent(stay, alice, { day: NEXT, endDay: THIRD }, tripId).ok).toBe(true);
-		expect(schedule.legsForDay(tripId, NEXT).map((l) => l.fromEventId)).toEqual([museum]);
+		expect(schedule.legsForDay(tripId, NEXT)).toEqual([]);
 	});
 
 	it('will not check out on or before the day it checks in', () => {
@@ -850,6 +849,28 @@ describe('a date moves a block that is not a stay', () => {
 		// One block cannot be a journey, so the leg goes with it.
 		expect(schedule.legsForDay(tripId, DAY)).toHaveLength(0);
 		expect(dayOf(museum).day).toBe(NEXT);
+	});
+
+	/**
+	 * A pin is a fact about how two places are joined, not about the day they
+	 * happen to sit on, so dragging a block to another day has to carry it. The
+	 * legs are stored per day and re-planned from scratch after every write, and
+	 * a plain re-insert lost the pin: the reader set "ferry, 40m" on Tuesday,
+	 * moved the pair to Wednesday, and got the straight-line guess back.
+	 */
+	it('carries a pinned journey to the day the block moves to', () => {
+		add({ startMin: 540, endMin: 600, people: [alice], ...HOTEL });
+		const museum = add({ startMin: 660, endMin: 720, people: [alice], ...MUSEUM });
+		const leg = schedule.legsForDay(tripId, DAY)[0];
+		expect(schedule.editLeg(leg.id, tripId, alice, 'ferry', 40)).toBe(true);
+
+		schedule.editEvent(museum, alice, { day: NEXT }, tripId);
+		schedule.editEvent(museum, alice, { day: DAY }, tripId);
+
+		const back = schedule.legsForDay(tripId, DAY)[0];
+		expect(back.resolvedMode).toBe('ferry');
+		expect(back.resolvedMins).toBe(40);
+		expect(back.manual).toBe(true);
 	});
 
 	it('leaves a block that names the day it is already on where it is', () => {

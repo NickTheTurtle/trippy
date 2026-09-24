@@ -131,16 +131,31 @@ describe('stay nights against the trip', () => {
 		expect(res.status).toBe(201);
 	});
 
-	it('holds an edit to the same range', async () => {
+	// The editor no longer carries the nights, so an edit must not move them: a
+	// range sent to it is ignored, and the one the calendar set survives.
+	it('leaves the night range alone on an edit', async () => {
 		const f = fixture();
 		const id = await stayId(f);
+		const dated = await app.request(`/trips/${f.tripId}/discover/stays/${id}/dates`, {
+			method: 'PATCH',
+			headers: { 'content-type': 'application/json', cookie: f.cookie },
+			body: JSON.stringify({ checkIn: '2026-10-11', checkOut: '2026-10-13' })
+		});
+		expect(dated.status).toBe(200);
+
 		const res = await app.request(`/trips/${f.tripId}/discover/stays/${id}`, {
 			method: 'PATCH',
 			headers: { 'content-type': 'application/json', cookie: f.cookie },
-			body: JSON.stringify({ name: 'ZZ Ryokan', checkIn: '2026-10-08', checkOut: '2026-10-09' })
+			body: JSON.stringify({ name: 'ZZ Ryokan Annex', checkIn: '2026-10-08', checkOut: '2026-10-09' })
 		});
-		expect(res.status).toBe(400);
-		expect(await res.json()).toMatchObject({ error: OUTSIDE });
+		expect(res.status).toBe(200);
+
+		const row = db
+			.prepare(`SELECT name, check_in, check_out FROM lodging_options WHERE id = ?`)
+			.get(id) as { name: string; check_in: string; check_out: string };
+		expect(row.name).toBe('ZZ Ryokan Annex');
+		expect(row.check_in).toBe('2026-10-11');
+		expect(row.check_out).toBe('2026-10-13');
 	});
 
 	// The dates-only path is the one the lodging card uses, and it was the one

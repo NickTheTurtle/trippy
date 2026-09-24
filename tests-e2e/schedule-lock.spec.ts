@@ -7,9 +7,9 @@ import { signIn } from './fixtures/session';
  * The schedule lock, from the organizer's side.
  *
  * The server refusal is covered by the API tests. What is worth a browser is
- * the shape of the page after the switch goes on: the board is still readable,
- * and every way into an edit has gone rather than staying put and failing on
- * save.
+ * the shape of the page after the switch goes on: the board is still readable
+ * and still openable, and every way into an edit has gone rather than staying
+ * put and failing on save.
  */
 test.describe('schedule lock', () => {
 	test('freezes the board and thaws it again', async ({ page, request }) => {
@@ -33,6 +33,21 @@ test.describe('schedule lock', () => {
 		await expect(page.locator('.bresize')).toHaveCount(0);
 		// The plan is still there to be read. That is the point of locking it.
 		await expect(page.getByText('Museum')).toBeVisible();
+
+		// And still there to be opened: with the pencil gone, the block itself is
+		// the way into its own details, and what opens cannot be written to.
+		await page.locator('.block').first().click();
+		const frozen = page.getByRole('dialog');
+		await expect(frozen).toBeVisible();
+		await expect(frozen.getByRole('button', { name: copy.common.save, exact: true })).toHaveCount(
+			0
+		);
+		await expect(frozen.getByText(copy.schedule.lock.tag)).toBeVisible();
+		await frozen
+			.locator('.mfoot')
+			.getByRole('button', { name: copy.ui.modal.closeLabel, exact: true })
+			.click();
+		await expect(page.getByRole('dialog')).toHaveCount(0);
 
 		await lock(page, false);
 		await expect(page.getByText(copy.schedule.lock.tag)).toHaveCount(0);

@@ -20,8 +20,12 @@ const c = copy.discover.editStay;
  * editing was deleting and re-proposing, which threw the group's votes away
  * over a typo.
  *
- * The night range is here rather than only on the calendar because it is what
- * a nightly price multiplies out against, so the two belong on one form.
+ * The nights are not here. A proposal is a room, not a booking, and which
+ * nights are spent in it is settled on the calendar, where the band is drawn
+ * and where moving it moves the journeys around it. Asking twice gave a stay
+ * two ranges that could disagree, and the one on this form was the one nothing
+ * else read.
+ *
  * Currency sits beside the price, because a stay abroad is quoted in the local
  * currency and converting it by hand before typing it loses the real number.
  */
@@ -48,8 +52,6 @@ export default function EditStayDialog({
 	const [cur, setCur] = useState(s.currency || currency);
 	const [url, setUrl] = useState(s.url ?? '');
 	const [notes, setNotes] = useState(s.tag);
-	const [checkIn, setCheckIn] = useState(s.check_in ?? '');
-	const [checkOut, setCheckOut] = useState(s.check_out ?? '');
 
 	// A stay that is booked on the calendar takes those bands with it, the same
 	// way a place takes its events, so the question says so.
@@ -71,9 +73,7 @@ export default function EditStayDialog({
 					priceCents: cents,
 					currency: cur,
 					notes: notes.trim(),
-					url: url.trim(),
-					checkIn: checkIn || null,
-					checkOut: checkOut || null
+					url: url.trim()
 				}
 			}),
 		{ fallback: c.fallback, onSuccess: onSaved }
@@ -85,7 +85,6 @@ export default function EditStayDialog({
 		e.preventDefault();
 		const cents = parseMoneyToCents(price);
 		if (cents === 'bad') return save.setError(c.badPrice);
-		if (checkIn && checkOut && checkIn >= checkOut) return save.setError(c.badDates);
 		void save.run(cents);
 	}
 
@@ -120,24 +119,6 @@ export default function EditStayDialog({
 									value={cur}
 									onChange={setCur}
 									ariaLabel={c.currencyLabel}
-								/>
-							</div>
-							<div className="grid grid-cols-2 gap-3">
-								<Field
-									label={c.checkInLabel}
-									optional
-									type="date"
-									value={checkIn}
-									onChange={(e) => setCheckIn(e.target.value)}
-									inputClassName="w-full"
-								/>
-								<Field
-									label={c.checkOutLabel}
-									optional
-									type="date"
-									value={checkOut}
-									onChange={(e) => setCheckOut(e.target.value)}
-									inputClassName="w-full"
 								/>
 							</div>
 							<LinkField value={url} onChange={setUrl} />

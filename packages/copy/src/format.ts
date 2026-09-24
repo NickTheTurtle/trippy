@@ -110,13 +110,6 @@ export function nightsBetween(checkIn: string | null, checkOut: string | null): 
 	return Math.round(ms / 86400000);
 }
 
-/** "Apr 16 – 20 · 4 nights", or null when there is no usable range. */
-export function formatNights(checkIn: string | null, checkOut: string | null): string | null {
-	const n = nightsBetween(checkIn, checkOut);
-	if (n === null || !checkIn || !checkOut) return null;
-	return `${formatDayRangeShort(checkIn, checkOut)} · ${n} ${n === 1 ? 'night' : 'nights'}`;
-}
-
 /**
  * When something was recorded, in the reader's own zone: this is a fact about
  * the reader's timeline (when the row was written), not about a destination.

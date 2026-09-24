@@ -136,8 +136,8 @@ export function eventsForDay(tripId: string, day: string): EventRow[] {
  * Nights, not days: a stay covers `[day, end_day)`, checked into on its own day
  * and out of on `end_day`, so the last night it covers is the day before
  * checkout. That is the reading `lodging_options.check_in/check_out` has always
- * had, and it is the one the planner wants, because the night is what a journey
- * home ends at.
+ * had, and it is the one the planner wants, because the night is what the next
+ * morning's first journey leaves from.
  *
  * `staysOnBoard` is the wider answer, for what the board draws.
  *
@@ -165,8 +165,8 @@ export function staysCovering(tripId: string, day: string): EventRow[] {
  * sleep, on the one day of the stay most likely to be read.
  *
  * Hence two questions and two answers: `staysCovering` for the nights, which is
- * what the planner books journeys against, and this for the days, which is what
- * is drawn.
+ * what the next morning's first journey leaves from, and this for the days,
+ * which is what is drawn.
  *
  * The de-duplication a drawn checkout day needs is `stayBand` in core, because
  * the client draws the same band from the same rows while a dialog is open and
@@ -282,25 +282,20 @@ function tripRoster(tripId: string): string[] {
 }
 
 /**
- * The day's plan: its blocks, tonight's lodging as the last thing reached, and
- * last night's as the morning's origin.
+ * The day's plan: its blocks, with last night's lodging as the morning's
+ * origin.
  *
- * All this layer does is read the four things a day is made of and hand them to
- * `planDay` in core, which owns every rule about what they mean: the projection
- * to a `PlannerEvent`, "Everyone", which stays are a night of the day, and the
- * midnight anchor at both ends. The client replans the same day from the same
- * function while a dialog is open, so the two answers cannot differ.
- *
- * `staysCovering` already returns only the nights of the day, so `planDay`'s
- * own night filter is a no-op here; it is there for the client, which passes
- * the band it draws, checkout mornings included.
+ * All this layer does is read what a day is made of and hand it to `planDay` in
+ * core, which owns every rule about what it means: the projection to a
+ * `PlannerEvent`, "Everyone", and the midnight origin the morning leaves from.
+ * The client replans the same day from the same function while a dialog is
+ * open, so the two answers cannot differ.
  */
 function planFor(tripId: string, day: string): PlannedLeg[] {
 	return planDay(
 		{
 			day,
 			events: eventsForDay(tripId, day),
-			stays: staysCovering(tripId, day),
 			incoming: incomingStays(tripId, day)
 		},
 		tripRoster(tripId)
@@ -357,38 +352,49 @@ function reflowDay(tripId: string, day: string): boolean {
  * one plan over one day's events and a handful of statements. Working out
  * whether a given edit could possibly have changed the plan is both harder to
  * get right and easy to get subtly wrong in the direction of stale travel.
+ *
+ * A journey is identified by its key, which is the two events and who is going,
+ * so the same two events on another day are the same journey: dragging a block
+ * to the next day does not change how you get there, and neither should the
+ * mode the reader pinned on it. A row is therefore never thrown away for having
+ * stopped being planned. It is moved to whichever day plans it next, and until
+ * some day does it simply sits there unread, because `legsForDay` only returns
+ * rows the plan asked for. The row dies with either of its two events, which is
+ * the only moment the journey it describes can no longer happen.
+ *
+ * That also means a routed answer is looked up once per pair of places rather
+ * than once per day they land on, which matters because routing costs money.
  */
 export function recomputeLegs(tripId: string, day: string): void {
 	const planned = planFor(tripId, day);
 
 	const existing = db
-		.prepare(`SELECT id, leg_key FROM travel_legs WHERE trip_id = ? AND day = ?`)
-		.all(tripId, day) as unknown as { id: string; leg_key: string }[];
-	const have = new Map(existing.map((r) => [r.leg_key, r.id]));
+		.prepare(`SELECT leg_key FROM travel_legs WHERE trip_id = ? AND day = ?`)
+		.all(tripId, day) as unknown as { leg_key: string }[];
+	const have = new Set(existing.map((r) => r.leg_key));
 
+	const prior = db.prepare(
+		`SELECT id FROM travel_legs
+		 WHERE trip_id = ? AND leg_key = ? AND day <> ? ORDER BY day LIMIT 1`
+	);
+	const claim = db.prepare(
+		`UPDATE travel_legs
+		    SET day = ?, from_event_id = ?, to_event_id = ?, people = ?
+		  WHERE id = ?`
+	);
 	const ins = db.prepare(
-		`INSERT INTO travel_legs (id, trip_id, day, leg_key, from_event_id, to_event_id, people)
+		`INSERT INTO travel_legs
+		   (id, trip_id, day, leg_key, from_event_id, to_event_id, people)
 		 VALUES (?, ?, ?, ?, ?, ?, ?)`
 	);
-	const del = db.prepare(`DELETE FROM travel_legs WHERE id = ?`);
 
 	for (const leg of planned) {
-		if (have.has(leg.key)) {
-			have.delete(leg.key);
-			continue;
-		}
-		ins.run(
-			randomUUID(),
-			tripId,
-			day,
-			leg.key,
-			leg.fromEventId,
-			leg.toEventId,
-			leg.people.join(',')
-		);
+		if (have.has(leg.key)) continue;
+		const people = leg.people.join(',');
+		const kept = prior.get(tripId, leg.key, day) as unknown as { id: string } | undefined;
+		if (kept) claim.run(day, leg.fromEventId, leg.toEventId, people, kept.id);
+		else ins.run(randomUUID(), tripId, day, leg.key, leg.fromEventId, leg.toEventId, people);
 	}
-	// Whatever is left was planned once and is not any more.
-	for (const id of have.values()) del.run(id);
 }
 
 /**
@@ -402,9 +408,8 @@ export function recomputeLegs(tripId: string, day: string): void {
  * happened to drag something on it.
  *
  * It is the ordinary per-day reconciliation run over the whole database, so it
- * inserts what is newly planned, prunes what is no longer planned, and leaves
- * every row whose key still stands, overrides and all. Nothing is dropped and
- * no table is rebuilt.
+ * inserts what is newly planned and leaves every row whose key still stands,
+ * overrides and all. Nothing is dropped and no table is rebuilt.
  *
  * Returns the number of (trip, day) pairs it visited, which is what the caller
  * logs or a test asserts on.
