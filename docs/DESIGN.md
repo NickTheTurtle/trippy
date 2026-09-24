@@ -3757,6 +3757,12 @@ accessible label naming the thing, and let the primary action fill the rest of t
 Two-button confirmation sheets are the exception because they are the destructive decision
 itself: Cancel and Delete both stay visible there.
 
+**Native People keeps roster-owned edits separate from account-owned identities.** The
+organizer may create stand-ins, attach an invite email to them and remove non-organizers,
+but a registered member still owns their own name and address. Opening a registered
+member's row as the organizer is therefore a read-only sheet with only the destructive
+trip action, while opening your own row saves through account profile just like web.
+
 **Native Expenses keeps the web ledger model, not a simplified phone ledger.** The phone
 screen still separates Expenses, Balances and Settle up, groups the ledger by the stored
 `spent_on` day, and opens settlement rows in a payment sheet where only the date is editable.

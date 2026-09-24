@@ -1,0 +1,345 @@
+import { useEffect, useMemo, useState } from 'react';
+import { Pressable, ScrollView, Text, View } from 'react-native';
+import { copy } from '@trippy/copy';
+import { api } from '../lib/api';
+import { useMutation } from '../hooks/useMutation';
+import { useAuth } from '../auth';
+import { Button, Field, FormError } from '../ui';
+import { CheckBox } from '../ui/controls';
+import { Sheet } from '../ui/Sheet';
+import { SheetFooter } from '../ui/SheetFooter';
+import { ConfirmSheet } from '../ui/ConfirmSheet';
+import { color, fieldLabel, radius, space, type } from '../theme';
+
+export type Person = {
+	id: string;
+	name: string;
+	email: string;
+	role: string;
+	placeholder: boolean;
+	seeded: boolean;
+	invitedEmail?: string | null;
+};
+export type Crew = { id: string; name: string; color: string; members: string[]; locked: boolean };
+
+export function AddPersonSheet({
+	open,
+	tripId,
+	onClose,
+	onDone
+}: {
+	open: boolean;
+	tripId: string;
+	onClose: () => void;
+	onDone: (message: string) => void;
+}) {
+	const [name, setName] = useState('');
+	const [email, setEmail] = useState('');
+	useEffect(() => {
+		if (!open) return;
+		setName('');
+		setEmail('');
+		add.reset();
+	}, [open]);
+	const add = useMutation(
+		async () => {
+			const { message } = await api<{ message: string }>(`/trips/${tripId}/people/invites`, {
+				method: 'POST',
+				body: { name, email }
+			});
+			onDone(message);
+		},
+		{ fallback: copy.people.add.fallback }
+	);
+	return (
+		<Sheet open={open} title={copy.people.add.title} onClose={onClose}>
+			<Field
+				label={copy.people.add.nameLabel}
+				value={name}
+				onChangeText={setName}
+				autoCapitalize="words"
+			/>
+			<Field
+				label={`${copy.people.add.emailLabel}${copy.ui.field.optionalSuffix}`}
+				value={email}
+				onChangeText={setEmail}
+				autoCapitalize="none"
+				keyboardType="email-address"
+			/>
+			<FormError message={add.error} />
+			<SheetFooter
+				primaryLabel={copy.common.add}
+				primaryBusyLabel={copy.common.adding}
+				primaryBusy={add.busy}
+				primaryDisabled={!name.trim()}
+				onPrimary={() => void add.run()}
+			/>
+		</Sheet>
+	);
+}
+
+export function MemberSheet({
+	open,
+	tripId,
+	person,
+	me,
+	organizer,
+	onClose,
+	onSaved,
+	onDone
+}: {
+	open: boolean;
+	tripId: string;
+	person: Person | null;
+	me: string;
+	organizer: boolean;
+	onClose: () => void;
+	onSaved: () => void;
+	onDone: (message: string) => void;
+}) {
+	const { refresh } = useAuth();
+	const [name, setName] = useState('');
+	const [email, setEmail] = useState('');
+	const [confirmDelete, setConfirmDelete] = useState(false);
+	const own = !!person && person.id === me && !person.placeholder && !person.seeded;
+	const editable = !!person && (person.placeholder || person.seeded || own);
+	const editableEmail = !!person?.placeholder;
+	const canRemove = !!person && person.id !== me && organizer;
+	useEffect(() => {
+		if (!open || !person) return;
+		setName(person.name);
+		setEmail(person.invitedEmail ?? '');
+		setConfirmDelete(false);
+		save.reset();
+		remove.reset();
+	}, [open, person?.id]);
+	const save = useMutation(
+		async () => {
+			if (!person) return;
+			if (editable && name.trim() !== person.name) {
+				if (own) {
+					await api('/account/profile', { method: 'PATCH', body: { name } });
+					await refresh();
+				} else {
+					await api(`/trips/${tripId}/people/${person.id}`, { method: 'PATCH', body: { name } });
+				}
+			}
+			const next = email.trim().toLowerCase();
+			if (editableEmail && next !== (person.invitedEmail ?? '')) {
+				const { message } = await api<{ message: string }>(
+					`/trips/${tripId}/people/${person.id}/email`,
+					{ method: 'PATCH', body: { email: next } }
+				);
+				onDone(message);
+			}
+		},
+		{ fallback: copy.people.edit.fallback, onSuccess: onSaved }
+	);
+	const remove = useMutation(
+		async () => {
+			if (!person) return;
+			await api(`/trips/${tripId}/people/${person.id}`, { method: 'DELETE' });
+		},
+		{ fallback: copy.people.edit.fallback, onSuccess: onSaved }
+	);
+	if (!person) return null;
+	return (
+		<>
+			<Sheet
+				open={open && !confirmDelete}
+				title={editable ? copy.people.edit.title : person.name}
+				onClose={onClose}
+			>
+				{editable ? (
+					<>
+						<Field label={copy.people.edit.nameLabel} value={name} onChangeText={setName} />
+						{editableEmail ? (
+							<Field
+								label={`${copy.people.edit.emailLabel}${copy.ui.field.optionalSuffix}`}
+								value={email}
+								onChangeText={setEmail}
+								autoCapitalize="none"
+								keyboardType="email-address"
+							/>
+						) : null}
+					</>
+				) : (
+					<Text style={type.small}>{person.email}</Text>
+				)}
+				<FormError message={save.error} />
+				<SheetFooter
+					primaryLabel={editable ? copy.common.save : undefined}
+					primaryBusyLabel={copy.common.saving}
+					primaryBusy={save.busy}
+					onPrimary={editable ? () => void save.run() : undefined}
+					destructiveLabel={canRemove ? copy.common.deleteLabel(person.name) : undefined}
+					onDestructive={canRemove ? () => setConfirmDelete(true) : undefined}
+				/>
+			</Sheet>
+			<ConfirmSheet
+				open={confirmDelete}
+				title={copy.common.deleteTitle(person.name)}
+				message={copy.mobilePeople.removeMemberMessage}
+				confirmLabel={copy.common.delete}
+				busyLabel={copy.common.deleting}
+				busy={remove.busy}
+				error={remove.error}
+				onCancel={() => setConfirmDelete(false)}
+				onConfirm={() => void remove.run()}
+			/>
+		</>
+	);
+}
+
+export function CrewSheet({
+	open,
+	tripId,
+	crew,
+	people,
+	onClose,
+	onDone
+}: {
+	open: boolean;
+	tripId: string;
+	crew: Crew | null;
+	people: Person[];
+	onClose: () => void;
+	onDone: () => void;
+}) {
+	const [name, setName] = useState('');
+	const [members, setMembers] = useState<string[]>([]);
+	const [confirmDelete, setConfirmDelete] = useState(false);
+	useEffect(() => {
+		if (!open) return;
+		setName(crew?.name ?? '');
+		setMembers(crew ? [...crew.members].filter((id) => people.some((p) => p.id === id)) : []);
+		setConfirmDelete(false);
+		save.reset();
+		remove.reset();
+	}, [open, crew?.id]);
+	const base = `/trips/${tripId}/people/crews`;
+	const save = useMutation(
+		() =>
+			api(crew ? `${base}/${crew.id}` : base, {
+				method: crew ? 'PATCH' : 'POST',
+				body: { name: name.trim(), people: members }
+			}),
+		{ fallback: copy.people.crews.fallback, onSuccess: onDone }
+	);
+	const remove = useMutation(() => api(`${base}/${crew?.id}`, { method: 'DELETE' }), {
+		fallback: copy.people.crews.fallback,
+		onSuccess: onDone
+	});
+	return (
+		<>
+			<Sheet
+				open={open && !confirmDelete}
+				title={crew ? copy.people.crews.editTitle : copy.people.crews.addTitle}
+				onClose={onClose}
+			>
+				<Field label={copy.people.crews.nameLabel} value={name} onChangeText={setName} />
+				<MemberMultiSelect
+					label={copy.people.crews.peopleLabel}
+					people={people}
+					selected={members}
+					onChange={setMembers}
+				/>
+				<FormError message={save.error} />
+				<SheetFooter
+					primaryLabel={crew ? copy.common.save : copy.common.add}
+					primaryBusyLabel={crew ? copy.common.saving : copy.common.adding}
+					primaryBusy={save.busy}
+					primaryDisabled={!name.trim()}
+					onPrimary={() => void save.run()}
+					destructiveLabel={crew && !crew.locked ? copy.common.deleteLabel(crew.name) : undefined}
+					onDestructive={crew && !crew.locked ? () => setConfirmDelete(true) : undefined}
+				/>
+			</Sheet>
+			<ConfirmSheet
+				open={confirmDelete}
+				title={crew ? copy.common.deleteTitle(crew.name) : ''}
+				confirmLabel={copy.common.delete}
+				busyLabel={copy.common.deleting}
+				busy={remove.busy}
+				error={remove.error}
+				onCancel={() => setConfirmDelete(false)}
+				onConfirm={() => void remove.run()}
+			/>
+		</>
+	);
+}
+
+function MemberMultiSelect({
+	label,
+	people,
+	selected,
+	onChange
+}: {
+	label: string;
+	people: Person[];
+	selected: string[];
+	onChange: (ids: string[]) => void;
+}) {
+	const selectedSet = useMemo(() => new Set(selected), [selected]);
+	const toggle = (id: string) => {
+		const next = new Set(selectedSet);
+		if (!next.delete(id)) next.add(id);
+		onChange([...next]);
+	};
+	return (
+		<View style={{ gap: space.sm }}>
+			<Text style={fieldLabel}>{label}</Text>
+			<ScrollView
+				horizontal
+				showsHorizontalScrollIndicator={false}
+				keyboardShouldPersistTaps="handled"
+			>
+				<View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
+					{people.map((person) => {
+						const on = selectedSet.has(person.id);
+						return (
+							<Pressable
+								key={person.id}
+								onPress={() => toggle(person.id)}
+								style={({ pressed }) => ({
+									flexDirection: 'row',
+									alignItems: 'center',
+									gap: space.xs,
+									paddingHorizontal: space.sm,
+									paddingVertical: 6,
+									borderRadius: 999,
+									borderWidth: 1,
+									borderColor: on ? color.accent : color.line,
+									backgroundColor: on ? color.accentSoft : color.surface,
+									opacity: pressed ? 0.7 : 1
+								})}
+							>
+								<CheckBox checked={on} label={person.name} onPress={() => toggle(person.id)} />
+								<Text style={type.small}>{person.name}</Text>
+							</Pressable>
+						);
+					})}
+				</View>
+			</ScrollView>
+		</View>
+	);
+}
+
+export function Tag({ label }: { label: string }) {
+	return (
+		<Text
+			style={{
+				...type.faint,
+				color: color.accentInk,
+				backgroundColor: color.accentSoft,
+				borderRadius: radius.sm,
+				paddingHorizontal: 6,
+				paddingVertical: 1,
+				overflow: 'hidden',
+				fontSize: 11
+			}}
+		>
+			{label}
+		</Text>
+	);
+}
