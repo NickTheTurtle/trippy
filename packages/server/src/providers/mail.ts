@@ -12,8 +12,9 @@ import { isSuppressed } from '../persistence/suppressions';
  * set: `AWS_ACCESS_KEY_ID` may well be in the environment for other reasons,
  * but `MAIL_FROM` on a domain SES has verified is not an accident.
  *
- * Only two messages go out, and both belong to signing in: the link that turns
- * a pending registration into an account, and the one that resets a password.
+ * Three messages go out, and all belong to signing in: the link that turns
+ * a pending registration into an account, the one that moves an account onto a
+ * new address, and the one that resets a password.
  * Adding somebody to a trip deliberately sends nothing. They are on the roster
  * the moment they are added and are linked to their account when they register
  * at the address recorded for them, so an email would announce a thing that had
@@ -217,6 +218,38 @@ export function verifyEmailMail(args: { to: string; name: string; token: string 
 	});
 
 	return { to: args.to, subject: 'Confirm your email for Trippy', text, html };
+}
+
+/**
+ * The link that moves an existing account onto a new address.
+ *
+ * Sent to the NEW address, because the whole point is to prove that whoever
+ * asked for the change can read mail there. Until it is opened the account
+ * keeps its old address, and nothing (not an invite, not a sign-in) follows the
+ * new one. The copy says so, so somebody who did not ask knows there is nothing
+ * to undo.
+ */
+export function emailChangeMail(args: { to: string; name: string; token: string }): Mail {
+	const url = `${env.APP_URL}/verify-email?token=${encodeURIComponent(args.token)}`;
+	const tail =
+		'Works for 24 hours. Until then your account keeps its current address. If you did not ask for this, ignore this.';
+	const text = [
+		`Hi ${args.name},`,
+		'',
+		'Confirm this address to make it the email on your Trippy account:',
+		url,
+		'',
+		tail
+	].join('\n');
+
+	const html = layout({
+		lead: `Hi ${esc(args.name)}, confirm this address to make it the email on your Trippy account.`,
+		url,
+		action: 'Confirm my new email',
+		tail
+	});
+
+	return { to: args.to, subject: 'Confirm your new email for Trippy', text, html };
 }
 
 /**

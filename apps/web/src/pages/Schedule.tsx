@@ -6,11 +6,11 @@ import { useLiveSection } from '../hooks/useTripEvents';
 import useMediaQuery from '../hooks/useMediaQuery';
 import useSlideIn from '../hooks/useSlideIn';
 import { useTrip } from './TripShell';
-import FormError from '../components/ui/FormError';
+import LoadError from '../components/ui/LoadError';
+import Loading from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
 import Select from '../components/ui/Select';
-import WarnMark from '../components/ui/WarnMark';
-import { LockIcon, PencilIcon } from '../components/ui/icons';
+import { LockIcon, PencilIcon, WarningIcon } from '../components/ui/icons';
 import { useToast } from '../components/ui/Toast';
 import GoogleMap, { type MapTrack, type MapCenter } from '../components/GoogleMap';
 import TripMap from '../components/TripMap';
@@ -86,8 +86,11 @@ const UNPLANNED = '#9aa39c';
 type LaneItem =
 	{ kind: 'event'; ev: EventRow } | { kind: 'leg'; leg: LegRow; left: number; width: number };
 
-/** Lane keys are namespaced, so a leg cannot collide with an event. */
-const legKey = legLaneId;
+/* A leg's React key and lane id, namespaced so a leg cannot collide with an
+   event. Not core's `legKey`, which is the journey's identity (`from>to`) and
+   is what stored rows and edits are matched on; this one only has to be unique
+   on the board. */
+const laneKey = legLaneId;
 
 /**
  * The shortest journey that can be drawn with a name on one line and its times
@@ -133,6 +136,8 @@ type Drag = {
 	id: string;
 	day: string;
 	pointerStartY: number;
+	/** Where the pointer went down across the strip, so a sideways drag counts as a drag. */
+	pointerStartX: number;
 	/** Where the pointer is now, so the edge loop can run without one moving. */
 	pointerY: number;
 	/** Where the pointer is across the strip, for the same reason sideways. */
@@ -212,6 +217,31 @@ const BOARD_PAD_PX = 12;
 const SETTLE_MS = 140;
 
 /**
+ * How far a pointer may wander, in pixels, and still have been a click.
+ *
+ * A click that moved nothing must write nothing. Every drop snaps to five
+ * minutes, so a block at 9:07 that was merely pressed used to be posted back as
+ * 9:05: a plain click, the one gesture that is documented as only aiming the
+ * map, silently moved it. Below this the gesture is a click, whatever the snap
+ * would have said.
+ */
+const DRAG_SLOP_PX = 3;
+
+/**
+ * How long a finger has to rest on a block before it picks it up.
+ *
+ * With a mouse a press is unambiguous, so a drag starts at once. A finger
+ * crossing the board is almost always scrolling it, and a block that started
+ * moving on touch made a phone's board impossible to scroll without
+ * rescheduling whatever the swipe began on. So on touch the board pans as any
+ * page does, and a block is lifted only by a press held still for this long:
+ * about the platform's own long-press, short enough not to feel like waiting.
+ */
+const LONG_PRESS_MS = 400;
+/** How far a resting finger may drift before the press counts as a scroll instead. */
+const HOLD_SLOP_PX = 8;
+
+/**
  * Where a dragged block sits: the pointer's own travel, plus whatever the edge
  * loop has added to it.
  *
@@ -265,6 +295,8 @@ type BlockProps = {
 	onDown: (e: React.PointerEvent, ev: EventRow, day: string) => void;
 	onMove: (e: React.PointerEvent) => void;
 	onUp: () => void;
+	/** The gesture was taken away (a system pan, a lost capture): end it, write nothing. */
+	onCancel: () => void;
 	onOpen: (id: string) => void;
 	/** Aim the map at this block. This is what a plain click does now; opening
 	    the editor is the pencil alone. */
@@ -301,6 +333,7 @@ const Block = memo(function Block({
 	onDown,
 	onMove,
 	onUp,
+	onCancel,
 	onOpen,
 	onFocus,
 	onGripDown,
@@ -323,14 +356,22 @@ const Block = memo(function Block({
 		.filter(Boolean)
 		.join(' ');
 
+	/* The block is a box that holds two controls side by side: its face, which
+	   is the button that selects or opens it, and the pencil. The face used to be
+	   the box itself, with the pencil nested inside it, which is a button inside
+	   a button: invalid, announced as one control with two names, and a click on
+	   the pencil that the block underneath also had to be told to ignore. So the
+	   box carries the geometry and the gesture, and the face fills it. */
+	const open = () => {
+		// Frozen, the block is the only way into its own details: there is no
+		// pencil to reach them through and nothing on the block to drag.
+		if (locked) onOpen(ev.id);
+		else onFocus(ev.id);
+	};
+
 	return (
 		<div
 			className={cls}
-			role="button"
-			tabIndex={0}
-			aria-label={`${ev.title}, ${clock(ev.start_min)} to ${clock(ev.end_min)}. ${
-				locked ? cs.block.openLabel : cs.block.moveLabel
-			}`}
 			style={{
 				left: `${left * 100}%`,
 				width: `calc(${width * 100}% - 6px)`,
@@ -343,51 +384,73 @@ const Block = memo(function Block({
 			onPointerDown={(e) => onDown(e, ev, day)}
 			onPointerMove={onMove}
 			onPointerUp={onUp}
+			// On the box, not the face, because the box is what holds the pointer
+			// capture during a press: the click that follows is dispatched to the
+			// captured element, so a handler on the face never heard a mouse click.
+			// A click that bubbles up from the pencil or the grip is theirs.
 			onClick={(e) => {
-				if ((e.target as HTMLElement).closest('.bresize')) return;
-				if ((e.target as HTMLElement).closest('.bedit')) return;
+				const from = e.target as HTMLElement;
+				if (from.closest('.bresize') || from.closest('.bedit')) return;
 				if (didDrag.current) return;
-				// Frozen, the block is the only way into its own details: there is no
-				// pencil to reach them through and nothing on the block to drag.
-				if (locked) onOpen(ev.id);
-				else onFocus(ev.id);
+				open();
 			}}
-			onKeyDown={(e) => {
-				// The pencil is a button of its own; let it keep its own keys rather
-				// than firing the block's focus underneath it.
-				if ((e.target as HTMLElement).closest('.bedit')) return;
-				if (e.key === 'Enter' || e.key === ' ') {
+			onPointerCancel={onCancel}
+			onLostPointerCapture={(e) => {
+				// The face losing a capture is the touch handover in `pressThen`: a
+				// touch is captured to what it landed on, and the long press moves
+				// that capture up onto the block. Only the box's own loss (or the
+				// grip's) is the gesture being taken away.
+				if (!(e.target as HTMLElement).closest('.bface')) onCancel();
+			}}
+			onContextMenu={(e) => {
+				// A long press on a phone is how a block is picked up, and the same
+				// press is what raises the platform's context menu. The menu has
+				// nothing to offer a block, so it gives way to the gesture.
+				if (e.nativeEvent instanceof PointerEvent && e.nativeEvent.pointerType === 'touch') {
 					e.preventDefault();
-					if (locked) onOpen(ev.id);
-					else onFocus(ev.id);
 				}
 			}}
 		>
-			<div className="bt">{ev.title}</div>
-			<div className="bmeta">
-				{bud.showTime && <span>{bud.compact ? clock(from) : clockRange(from, to)}</span>}
-			</div>
-			<div className="bwho">
-				{ev.people.length === 0 || ev.people.length === memberCount ? (
-					<span className="who all">{copy.common.everyone}</span>
-				) : ev.people.length <= bud.fit ? (
-					ev.people.map((id) => (
-						<span key={id} className="who">
-							{shortName(id)}
-						</span>
-					))
-				) : bud.fit > 0 ? (
-					<>
-						{ev.people.slice(0, bud.fit - 1).map((id) => (
+			<div
+				className="bface"
+				role="button"
+				tabIndex={0}
+				aria-label={`${ev.title}, ${clock(ev.start_min)} to ${clock(ev.end_min)}. ${
+					locked ? cs.block.openLabel : cs.block.moveLabel
+				}`}
+				onKeyDown={(e) => {
+					if (e.key === 'Enter' || e.key === ' ') {
+						e.preventDefault();
+						open();
+					}
+				}}
+			>
+				<div className="bt">{ev.title}</div>
+				<div className="bmeta">
+					{bud.showTime && <span>{bud.compact ? clock(from) : clockRange(from, to)}</span>}
+				</div>
+				<div className="bwho">
+					{ev.people.length === 0 || ev.people.length === memberCount ? (
+						<span className="who all">{copy.common.everyone}</span>
+					) : ev.people.length <= bud.fit ? (
+						ev.people.map((id) => (
 							<span key={id} className="who">
 								{shortName(id)}
 							</span>
-						))}
-						<span className="who more" title={ev.people.map((id) => shortName(id)).join(', ')}>
-							+{ev.people.length - (bud.fit - 1)}
-						</span>
-					</>
-				) : null}
+						))
+					) : bud.fit > 0 ? (
+						<>
+							{ev.people.slice(0, bud.fit - 1).map((id) => (
+								<span key={id} className="who">
+									{shortName(id)}
+								</span>
+							))}
+							<span className="who more" title={ev.people.map((id) => shortName(id)).join(', ')}>
+								+{ev.people.length - (bud.fit - 1)}
+							</span>
+						</>
+					) : null}
+				</div>
 			</div>
 			{!locked && (
 				<>
@@ -404,13 +467,9 @@ const Block = memo(function Block({
 						className="bedit"
 						aria-label={copy.common.editLabel(ev.title)}
 						// Swallow the pointer so pressing the pencil opens the editor rather
-						// than beginning a drag on the block behind it, and stop the click
-						// from reaching the block, whose own click only focuses the map.
+						// than beginning a drag on the block behind it.
 						onPointerDown={(e) => e.stopPropagation()}
-						onClick={(e) => {
-							e.stopPropagation();
-							onOpen(ev.id);
-						}}
+						onClick={() => onOpen(ev.id)}
 					>
 						<PencilIcon />
 					</button>
@@ -627,7 +686,7 @@ const Toolbar = memo(function Toolbar({
 							value={readAs}
 							onChange={onViewAs}
 							options={viewAsOptions}
-							ariaLabel="View the schedule as"
+							ariaLabel={cs.viewAsAriaLabel}
 						/>
 					</div>
 				)}
@@ -849,7 +908,8 @@ export default function Schedule() {
 		/** A saved place the dialog opens with already picked. */
 		poi?: { id: string; name: string };
 	} | null>(null);
-	const [openEventId, setOpenEventId] = useState('');
+	const [opened, setOpened] = useState<EventRow | null>(null);
+	const openEventId = opened?.id ?? '';
 	const [openLegId, setOpenLegId] = useState('');
 	/** The block whose location the map is aimed at. Clicking a block selects it
 	    and pans the map here; it no longer opens the editor, which is now the
@@ -1127,19 +1187,22 @@ export default function Schedule() {
 	 * Pins survive, because a replanned journey is matched to its stored row by
 	 * key.
 	 */
-	const planned: BoardDay[] = useMemo(
-		() =>
-			(data?.board ?? []).map((entry) => {
-				const { events, stays } = applyDraft(entry, preview);
-				return {
-					...entry,
-					events,
-					stays,
-					legs: preview ? replanLegs(entry, preview, memberIds) : entry.legs
-				};
-			}),
-		[data, preview, memberIds]
-	);
+	const planned: BoardDay[] = useMemo(() => {
+		// Every stored journey in the window, so a block sent to a neighbouring
+		// day keeps a pin that the server is about to carry across with it.
+		const known = new Map(
+			(data?.board ?? []).flatMap((entry) => entry.legs.map((l) => [l.key, l] as const))
+		);
+		return (data?.board ?? []).map((entry) => {
+			const { events, stays } = applyDraft(entry, preview);
+			return {
+				...entry,
+				events,
+				stays,
+				legs: preview ? replanLegs(entry, preview, memberIds, known) : entry.legs
+			};
+		});
+	}, [data, preview, memberIds]);
 
 	/* The same board, through "view as". An event with nobody on it belongs to
 	   the whole group and is always shown; otherwise the chosen person has to be
@@ -1234,6 +1297,11 @@ export default function Schedule() {
 	useLayoutEffect(() => {
 		const el = scrollRef.current;
 		if (!el || !data || data.view === 'agenda') return;
+		// Not under a hand. A live reload that lands while a block is being carried
+		// to the next day would otherwise throw the strip back onto the url's day,
+		// out from under the block and the pointer holding it. The drop reloads,
+		// and the seat is taken then.
+		if (dragRef.current) return;
 		const i = board.findIndex((b) => b.day === data.day);
 		if (i < 0) return;
 		placing.current = true;
@@ -1247,6 +1315,70 @@ export default function Schedule() {
 		});
 		return () => cancelAnimationFrame(id);
 	}, [data, board]);
+
+	/**
+	 * Keep the seat when the box changes width.
+	 *
+	 * The seat is a pixel offset, `index * width`, taken when the payload lands.
+	 * Anything that changes the box's width afterwards without a window resize
+	 * (a page scrollbar arriving once the map has drawn, a font swap reflowing
+	 * the toolbar, a phone rotating) left that offset pointing part-way into
+	 * the neighbour: the stepper named one day while the url's day sat clipped
+	 * at the edge. Whatever the reader is looking at is put back square.
+	 */
+	useEffect(() => {
+		const el = scrollRef.current;
+		if (!el || data?.view === 'agenda') return;
+		let w = el.clientWidth;
+		const ro = new ResizeObserver(() => {
+			const now = el.clientWidth;
+			if (!now || now === w || dragRef.current) return;
+			const i = Math.round(el.scrollLeft / w);
+			w = now;
+			placing.current = true;
+			el.scrollLeft = i * now;
+			requestAnimationFrame(() => {
+				placing.current = false;
+			});
+		});
+		ro.observe(el);
+		return () => ro.disconnect();
+	}, [data?.view, !!data]);
+
+	/**
+	 * Open a day on its first block when the box would otherwise hide it.
+	 *
+	 * The window starts at six, which a box 70% of a desktop screen tall shows
+	 * with most of the day under it. A phone gets the 320px floor, which is five
+	 * hours: a day that starts at eleven opened on an empty grid with the
+	 * morning's first block a sliver along the bottom edge, and nothing to say
+	 * the rest was there. Only on arriving at a day, and only when the first
+	 * thing on it would sit in the lower half of what is on screen, so a board
+	 * the reader has scrolled is never taken away from them and a desktop board,
+	 * whose box shows the morning whole, does not move at all.
+	 */
+	const openedOn = useRef<string | null>(null);
+	useLayoutEffect(() => {
+		const el = scrollRef.current;
+		if (!el || !data || data.view === 'agenda' || !viewH) return;
+		const key = `${data.day}|${data.view}`;
+		if (openedOn.current === key) return;
+		openedOn.current = key;
+		const today = board.find((b) => b.day === data.day);
+		const firsts = [
+			...(today?.events.map((e) => e.start_min) ?? []),
+			...(today?.legs.map((l) => l.startMin) ?? [])
+		];
+		if (!firsts.length) return;
+		const first = BOARD_PAD_PX + topPx(Math.min(...firsts), boardStart);
+		// What of the box is actually on screen: on a phone the box's floor is
+		// taller than what the chrome above it leaves, so its bottom is below the
+		// fold and "inside the box" is not the same as "in sight".
+		const box = el.getBoundingClientRect();
+		const seen = Math.min(box.bottom, window.innerHeight) - Math.max(box.top, 0);
+		if (first - el.scrollTop <= seen / 2) return;
+		el.scrollTop = Math.max(0, first - 30 * PX_PER_MIN);
+	});
 
 	/**
 	 * Follow the strip, and commit the day it comes to rest on.
@@ -1470,18 +1602,46 @@ export default function Schedule() {
 	   editor. Pointing at a block no longer opens it; a click focuses the map
 	   instead, so `openBlock` is reached through the pencil alone. A frozen
 	   board has no pencil, so there the block itself opens it: the lock takes
-	   away the writing, not the reading. */
+	   away the writing, not the reading.
+
+	   What is opened is the row as it stood at that moment, held in state, not
+	   an id the dialog re-reads out of every payload. The board reloads live
+	   whenever anybody writes, and a dialog fed the reloaded row was always
+	   holding the newest version: its save then passed the server's lost-update
+	   check by construction and wrote this form's stale copy of every field over
+	   whatever the other person had just saved. Held still, the version is the
+	   one the form was filled in against, and a save after somebody else's is
+	   refused with the conflict message, which is the whole point of sending
+	   it. Held still is also what keeps the dialog on screen when somebody else
+	   moves the block out of the three days the board has loaded: a dialog
+	   looked up by id vanished mid-sentence, taking the unsaved edit with it. */
+	const dataRef = useRef(data);
+	dataRef.current = data;
+	const savedRow = (id: string): EventRow | null => {
+		for (const entry of dataRef.current?.board ?? []) {
+			for (const e of entry.events) if (e.id === id) return e;
+			for (const s of entry.stays) if (s.id === id) return s;
+		}
+		return null;
+	};
 	const openBlock = useCallback((id: string) => {
+		const row = savedRow(id);
+		if (!row) return;
 		setOpenLegId('');
-		setOpenEventId(id);
+		setOpened(row);
+		// `savedRow` only reads the ref, so it has nothing to depend on.
+		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 	/* Opening a journey's arrival, keeping the leg's id so the dialog opens on
 	   the journey that was meant. Reached from the agenda list, whose rows open
 	   the way they always have: the click-focuses-the-map change is the day
 	   board's, and the agenda has no pencil to move editing onto. */
 	const openLeg = useCallback((leg: LegRow) => {
+		const row = savedRow(leg.toEventId);
+		if (!row) return;
 		setOpenLegId(leg.id);
-		setOpenEventId(leg.toEventId);
+		setOpened(row);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 	/** Add something to the day being read, with no time chosen yet.
 	 *
@@ -1493,37 +1653,25 @@ export default function Schedule() {
 		if (addDay && !locked) setAdding({ day: addDay, start: null });
 	}, [addDay, locked]);
 	const closeEvent = () => {
-		setOpenEventId('');
+		setOpened(null);
 		setOpenLegId('');
 	};
-
-	/* The saved row, deliberately not the previewed one: the dialog is the
-	   source of the draft and handing it back its own edit would make the two
-	   states race. It also keeps the delete confirmation naming the event as it
-	   stands on the server rather than as it is being renamed. */
-	const openEvent = useMemo(() => {
-		if (!openEventId) return null;
-		for (const entry of data?.board ?? []) {
-			for (const e of entry.events) if (e.id === openEventId) return e;
-			for (const s of entry.stays) if (s.id === openEventId) return s;
-		}
-		return null;
-	}, [openEventId, data]);
 
 	/* The journeys a dialog edits, replanned live: an edit to who is going makes
 	   groups split and merge as it is typed, and this is the same list the board
 	   is drawing behind the panel.
 
+	   Read off `planned` rather than off `board`, for the add and the edit alike.
 	   A block being added is on the board under the draft id, so it has journeys
-	   before it exists. Those are read off `planned` rather than off `board`:
-	   adding a block while reading as one person would otherwise hide the other
-	   groups converging on it, and the same block reopened as everyone would
-	   show them. A dialog about who is coming has to list everyone who is. */
+	   before it exists; adding one while reading as one person would otherwise
+	   hide the other groups converging on it, and the same block reopened as
+	   everyone would show them. A dialog about who is coming has to list
+	   everyone who is, and the edit dialog used to be the one that did not. */
 	const legsTo = (entries: BoardDay[], eventId: string) =>
 		entries.flatMap((entry) => entry.legs.filter((l) => l.toEventId === eventId));
 	const openLegs = useMemo(
-		() => (openEventId ? legsTo(board, openEventId) : []),
-		[openEventId, board]
+		() => (openEventId ? legsTo(planned, openEventId) : []),
+		[openEventId, planned]
 	);
 	const draftLegs = useMemo(() => (adding ? legsTo(planned, DRAFT_ID) : []), [adding, planned]);
 
@@ -1647,11 +1795,18 @@ export default function Schedule() {
 					subtitle: cityName.get(p.city_id),
 					detail: p.votes ? [p.votes === 1 ? '1 vote' : `${p.votes} votes`] : undefined,
 					/* The card's "+ Add": these are exactly the places the day has not
-					   got, so deciding to have one and saying so are the same act. */
-					addId: p.id
+					   got, so deciding to have one and saying so are the same act. A
+					   frozen board offers no add anywhere else, so it offers none
+					   here either: a button that opens a dialog with nothing to save
+					   is an add that fails at the last step. */
+					addId: locked ? undefined : p.id
 				})),
 				line: false,
-				numbered: false
+				numbered: false,
+				// Every saved place in the trip, across every city, so fitting the
+				// camera to these framed the whole itinerary, which on a two-city
+				// trip is most of a hemisphere. The camera is the day's.
+				fit: false
 			});
 		}
 		if (dayPins.length && data) {
@@ -1719,7 +1874,7 @@ export default function Schedule() {
 			});
 		}
 		return tracks;
-	}, [anchor, data, readAs, eventById, peopleLabel]);
+	}, [anchor, data, readAs, eventById, peopleLabel, locked]);
 
 	/* Clicking a block on the board aims the map at it, so the reader can see
 	   what is around the place they just selected. A click focuses; it does not
@@ -1746,6 +1901,14 @@ export default function Schedule() {
 		setFocusId(id);
 		setMapFocusKey((k) => k + 1);
 	}, []);
+	/* Drop the selection and hand the camera back to the whole day. The key
+	   bumps here too: the map only re-aims when it changes, so clearing the id
+	   alone left the camera zoomed on a block that was no longer selected, or
+	   no longer on the day at all. */
+	const clearFocus = useCallback(() => {
+		setFocusId('');
+		setMapFocusKey((k) => k + 1);
+	}, []);
 	/* A grey pin is a place nobody has scheduled, so the only thing to do to it
 	   is schedule it. The card's "+ Add" opens the ordinary add dialog with the
 	   place already picked, on the day the board is showing: the map is read
@@ -1759,32 +1922,44 @@ export default function Schedule() {
 	const addFromMap = useCallback(
 		(poiId: string) => {
 			const p = savedById.get(poiId);
-			if (!p || !shownDay || locked) return;
+			// `addDay`, the same day the Add button uses: the day under the reader
+			// in either view. This read `shownDay`, which only the day board's
+			// strip ever sets, so in the agenda the button did nothing on a fresh
+			// load and added to whatever day the strip was last on after a switch.
+			if (!p || !addDay || locked) return;
 			setAdding({
-				day: shownDay,
+				day: addDay,
 				start: null,
 				type: p.kind === 'food' ? 'food' : 'activity',
 				poi: { id: p.id, name: p.name }
 			});
 		},
-		[savedById, shownDay, locked]
+		[savedById, addDay, locked]
 	);
 	/* The camera returns to the whole day when the selection is dropped: on a day
 	   change, because the focused block is not on the new day, and on Escape while
 	   no dialog is up, since an open dialog owns Escape for its own close. */
 	const shownDayKey = data?.day;
+	const hadFocus = useRef(false);
+	hadFocus.current = !!focusId;
 	useEffect(() => {
-		setFocusId('');
-	}, [shownDayKey]);
+		// Only when something was focused: a bumped key on every day change would
+		// refit a camera the reader had panned for no reason.
+		if (hadFocus.current) clearFocus();
+	}, [shownDayKey, clearFocus]);
 	const dialogUp = !!openEventId || !!adding;
+	// Read through a ref by one listener that is always there, rather than
+	// added when a block is focused: a listener added by that render's effect
+	// could miss an Escape pressed in the same moment as the click.
+	const escapable = useRef(false);
+	escapable.current = !!focusId && !dialogUp;
 	useEffect(() => {
-		if (!focusId || dialogUp) return;
 		const onKey = (e: KeyboardEvent) => {
-			if (e.key === 'Escape') setFocusId('');
+			if (e.key === 'Escape' && escapable.current) clearFocus();
 		};
 		document.addEventListener('keydown', onKey);
 		return () => document.removeEventListener('keydown', onKey);
-	}, [focusId, dialogUp]);
+	}, [clearFocus]);
 
 	const mapPanel = useMemo(
 		() => (
@@ -1796,7 +1971,7 @@ export default function Schedule() {
 						center={anchorCity}
 						focus={mapFocus}
 						focusKey={mapFocusKey}
-						onAdd={addFromMap}
+						onAdd={locked ? undefined : addFromMap}
 						onUnavailable={() => setMapsOut(true)}
 					/>
 				) : (
@@ -1805,7 +1980,7 @@ export default function Schedule() {
 						center={anchorCity}
 						focus={mapFocus}
 						focusKey={mapFocusKey}
-						onAdd={addFromMap}
+						onAdd={locked ? undefined : addFromMap}
 					/>
 				)}
 			</aside>
@@ -1816,7 +1991,7 @@ export default function Schedule() {
 		// Without the dep the swap to Leaflet waits for the next change to
 		// `mapTracks`, which most board edits produce, so the bug would not be a
 		// map that never falls back but one that falls back only sometimes.
-		[data?.mapsKey, mapsOut, mapTracks, anchorCity, mapFocus, mapFocusKey, addFromMap]
+		[data?.mapsKey, mapsOut, mapTracks, anchorCity, mapFocus, mapFocusKey, addFromMap, locked]
 	);
 
 	// --- Drag and resize ----------------------------------------------------
@@ -1832,36 +2007,136 @@ export default function Schedule() {
 		return startFor(ev) + (ev.end_min - ev.start_min);
 	}
 
+	/**
+	 * A touch that has gone down on a block but has not yet become a drag.
+	 *
+	 * See `LONG_PRESS_MS`. Held in a ref, since a timer and a pointer move both
+	 * have to see it in the tick that changes it.
+	 */
+	const hold = useRef<{ timer: number; x: number; y: number } | null>(null);
+	const dropHold = useCallback(() => {
+		if (!hold.current) return;
+		window.clearTimeout(hold.current.timer);
+		hold.current = null;
+	}, []);
+	useEffect(() => dropHold, [dropHold]);
+
+	/**
+	 * Start a gesture now for a mouse or a pen, or after a still long press for a
+	 * finger. `start` is handed the element to capture the pointer on.
+	 *
+	 * The long press only works because the board lets the browser pan on touch
+	 * (`touch-action` in `schedule.css`) and then, once a block is lifted, stops
+	 * the pan itself: see the `touchmove` guard below.
+	 */
+	const pressThen = useCallback(
+		(e: React.PointerEvent, start: () => void) => {
+			const el = e.currentTarget as HTMLElement;
+			const id = e.pointerId;
+			const begin = () => {
+				try {
+					el.setPointerCapture(id);
+				} catch {
+					// The pointer has already gone; the gesture never started.
+					return;
+				}
+				start();
+			};
+			dropHold();
+			if (e.pointerType !== 'touch') return begin();
+			hold.current = {
+				x: e.clientX,
+				y: e.clientY,
+				timer: window.setTimeout(() => {
+					hold.current = null;
+					navigator.vibrate?.(10);
+					begin();
+				}, LONG_PRESS_MS)
+			};
+		},
+		[dropHold]
+	);
+
+	/** A resting finger that moved is a scroll, not a press: let the page have it. */
+	const holdMoved = useCallback(
+		(e: React.PointerEvent) => {
+			const h = hold.current;
+			if (h && Math.hypot(e.clientX - h.x, e.clientY - h.y) > HOLD_SLOP_PX) dropHold();
+		},
+		[dropHold]
+	);
+
+	/* While a block is lifted by a finger, the finger moves the block and not the
+	   page. `touch-action` is decided when the touch lands, and on a coarse
+	   pointer it allows panning so that a swipe scrolls; the only way to take
+	   the pan back once the long press has lifted a block is to cancel the touch
+	   moves. Registered only for the length of a gesture, because a non-passive
+	   touch listener makes every scroll on the page wait for script. */
+	const gestureOn = drag !== null || resize !== null;
+	useEffect(() => {
+		if (!gestureOn) return;
+		const stop = (e: TouchEvent) => {
+			if (e.cancelable) e.preventDefault();
+		};
+		document.addEventListener('touchmove', stop, { passive: false });
+		return () => document.removeEventListener('touchmove', stop);
+	}, [gestureOn]);
+
+	/**
+	 * The gesture was taken away before it was let go: a pointer cancelled by
+	 * the system, or a capture lost. Whatever the block was doing under the
+	 * pointer is dropped and nothing is written, because nobody let go of it
+	 * anywhere. It used to stay drawn wherever the pointer was last seen, with
+	 * the edge loop still running, until the next pointer event on the page.
+	 */
+	const cancelGesture = useCallback(() => {
+		dropHold();
+		if (dragRef.current) putDrag(null);
+		if (resizeRef.current) putResize(null);
+	}, [dropHold, putDrag, putResize]);
+
 	const onPointerDown = useCallback(
 		(e: React.PointerEvent, ev: EventRow, day: string) => {
+			// Before the lock is checked, not after it. A frozen board still opens a
+			// block on click, and that click reads this flag: left over from the
+			// last drag before the lock went on, it made every click on the board
+			// look like the end of a drag, and nothing would open.
+			didDrag.current = false;
 			if (locked) return;
 			// Let the resize grip through.
 			if ((e.target as HTMLElement).closest('.bresize')) return;
-			(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-			didDrag.current = false;
-			putDrag({
-				id: ev.id,
-				day,
-				pointerStartY: e.clientY,
-				pointerY: e.clientY,
-				pointerX: e.clientX,
-				origStart: ev.start_min,
-				mins: ev.end_min - ev.start_min,
-				creep: 0,
-				liveStart: ev.start_min,
-				scrollLeft0: scrollRef.current?.scrollLeft ?? 0,
-				dx: 0
-			});
+			const { clientX: x, clientY: y } = e;
+			pressThen(e, () =>
+				putDrag({
+					id: ev.id,
+					day,
+					pointerStartY: y,
+					pointerStartX: x,
+					pointerY: y,
+					pointerX: x,
+					origStart: ev.start_min,
+					mins: ev.end_min - ev.start_min,
+					creep: 0,
+					liveStart: ev.start_min,
+					scrollLeft0: scrollRef.current?.scrollLeft ?? 0,
+					dx: 0
+				})
+			);
 		},
-		[putDrag, locked]
+		[putDrag, locked, pressThen]
 	);
 
 	const onPointerMove = useCallback(
 		(e: React.PointerEvent) => {
+			holdMoved(e);
 			const d = dragRef.current;
 			if (!d) return;
 			const y = e.clientY;
-			if (Math.abs(y - d.pointerStartY) > 3) didDrag.current = true;
+			// Either way counts: a block carried sideways to tomorrow is dragged
+			// without its time ever changing.
+			if (Math.hypot(e.clientX - d.pointerStartX, y - d.pointerStartY) > DRAG_SLOP_PX) {
+				didDrag.current = true;
+			}
 			// The ref is the truth and is right immediately; the frame draws it.
 			dragRef.current = {
 				...d,
@@ -1871,7 +2146,7 @@ export default function Schedule() {
 			};
 			touch();
 		},
-		[touch]
+		[touch, holdMoved]
 	);
 
 	/**
@@ -1906,7 +2181,11 @@ export default function Schedule() {
 			const d = dragRef.current;
 			const el = scrollRef.current;
 			const box = el?.getBoundingClientRect();
-			if (d && el && box) {
+			// Only once the pointer has really moved. A block pressed near a side
+			// of a phone's board is inside the edge band before it has gone
+			// anywhere, and a still press used to start the strip travelling to the
+			// next day, which the release then wrote as a move.
+			if (d && el && box && didDrag.current) {
 				const pastTop = box.top + EDGE_PX - d.pointerY;
 				const pastBottom = d.pointerY - (box.bottom - EDGE_PX);
 				const rate = (past: number) => (Math.min(past, EDGE_PX) / EDGE_PX) * EDGE_RATE * dt;
@@ -1953,6 +2232,7 @@ export default function Schedule() {
 	}, [drag !== null]);
 
 	const onPointerUp = useCallback(async () => {
+		dropHold();
 		const d = dragRef.current;
 		if (!d) return;
 		const snapped = Math.round(d.liveStart / 5) * 5;
@@ -1962,6 +2242,10 @@ export default function Schedule() {
 		const w = el?.clientWidth ?? 0;
 		const toDay = (w ? board[Math.round(el!.scrollLeft / w)]?.day : null) ?? day;
 		putDrag(null);
+		// A press that never moved is a click, and a click writes nothing: see
+		// `DRAG_SLOP_PX`. Checked before the snap is compared, because the snap is
+		// exactly what made a still press on 9:07 read as a move to 9:05.
+		if (!didDrag.current) return;
 		if (snapped === origStart && toDay === day) return;
 		setPending({ id, start: snapped });
 		// Hold the window where the gesture left it until the day comes back.
@@ -1973,53 +2257,70 @@ export default function Schedule() {
 		// The day rides along because a move carries one, and sending the day the
 		// block was let go over is the whole of dragging across dates.
 		await act(() => eventOp(id, { op: 'move', startMin: snapped, day: toDay }));
-	}, [act, eventOp, putDrag, board, data, navigate]);
+	}, [act, eventOp, putDrag, board, data, navigate, dropHold]);
 
 	const onResizeDown = useCallback(
 		(e: React.PointerEvent, ev: EventRow) => {
+			didDrag.current = false;
 			if (locked) return;
 			e.stopPropagation();
-			(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-			didDrag.current = false;
-			putResize({
-				id: ev.id,
-				pointerStartY: e.clientY,
-				startMin: ev.start_min,
-				origEnd: ev.end_min,
-				liveEnd: ev.end_min
-			});
+			const y = e.clientY;
+			// The same long press as the block itself: an 8px grip along every
+			// block's bottom edge is somewhere a swipe lands all the time.
+			pressThen(e, () =>
+				putResize({
+					id: ev.id,
+					pointerStartY: y,
+					startMin: ev.start_min,
+					origEnd: ev.end_min,
+					liveEnd: ev.end_min
+				})
+			);
 		},
-		[putResize, locked]
+		[putResize, locked, pressThen]
 	);
 
 	const onResizeMove = useCallback(
 		(e: React.PointerEvent) => {
+			holdMoved(e);
 			const r = resizeRef.current;
 			if (!r) return;
 			const y = e.clientY;
-			if (Math.abs(y - r.pointerStartY) > 3) didDrag.current = true;
+			if (Math.abs(y - r.pointerStartY) > DRAG_SLOP_PX) didDrag.current = true;
 			resizeRef.current = {
 				...r,
-				liveEnd: Math.max(
-					r.startMin + MIN_EVENT_MINS,
-					Math.round((r.origEnd + (y - r.pointerStartY) / PX_PER_MIN) / 5) * 5
+				// Bounded at both ends, like a drag: no shorter than the server will
+				// store, and no later than the midnight the board ends at. The top
+				// bound was missing, so a grip pulled past the bottom of the day drew
+				// the block off the end of the grid and posted a time the server
+				// then refused.
+				liveEnd: Math.min(
+					DAY_END,
+					Math.max(
+						r.startMin + MIN_EVENT_MINS,
+						Math.round((r.origEnd + (y - r.pointerStartY) / PX_PER_MIN) / 5) * 5
+					)
 				)
 			};
 			touch();
 		},
-		[touch]
+		[touch, holdMoved]
 	);
 
 	const onResizeUp = useCallback(async () => {
+		dropHold();
 		const r = resizeRef.current;
 		if (!r) return;
 		const snapped = Math.round(r.liveEnd / 5) * 5;
 		const { id, origEnd } = r;
 		putResize(null);
+		// A tap on the grip is not a resize, for the same reason a click on the
+		// block is not a move: the snap alone would change an end at 10:07.
+		if (!didDrag.current) return;
 		if (snapped === origEnd) return;
 		setPending({ id, end: snapped });
 		await act(() => eventOp(id, { op: 'resize', endMin: snapped }));
-	}, [act, eventOp, putResize]);
+	}, [act, eventOp, putResize, dropHold]);
 
 	/**
 	 * The board's entrance when the view changes under it.
@@ -2042,7 +2343,11 @@ export default function Schedule() {
 		data ? VIEW_OPTIONS.findIndex((o) => o.v === data.view) : 0
 	);
 
-	if (!data) return error ? <FormError message={error} variant="banner" /> : null;
+	/* Three states before there is a page, as on every other trip page: still
+	   loading, failed, or here. This drew nothing at all while the first day
+	   loaded, and a failure was a banner with no way to ask again short of
+	   reloading the whole app. */
+	if (!data) return error ? <LoadError message={error} onRetry={reload} /> : <Loading />;
 
 	const view = data.view;
 
@@ -2151,6 +2456,7 @@ export default function Schedule() {
 				onDown={onPointerDown}
 				onMove={onPointerMove}
 				onUp={onPointerUp}
+				onCancel={cancelGesture}
 				onOpen={openBlock}
 				onFocus={focusOnMap}
 				onGripDown={onResizeDown}
@@ -2192,7 +2498,7 @@ export default function Schedule() {
 	function legNode(leg: LegRow, lanePx: number, box: { left: number; width: number }) {
 		return (
 			<Leg
-				key={legKey(leg)}
+				key={laneKey(leg)}
 				leg={leg}
 				lanePx={lanePx}
 				left={box.left}
@@ -2385,7 +2691,7 @@ export default function Schedule() {
 			open: () => openBlock(ev.id)
 		})),
 		...(anchor?.legs ?? []).map((leg) => ({
-			key: legKey(leg),
+			key: laneKey(leg),
 			start: leg.startMin,
 			title: agendaLegName(leg),
 			meta: `${modeLabel(leg.resolvedMode)} · ${leg.resolvedMins}m`,
@@ -2407,11 +2713,19 @@ export default function Schedule() {
 								onClick={row.open}
 							>
 								<span className="agendawhen">{clock(row.start)}</span>
-								<span className="agendawhat">{row.title}</span>
-								<span className="agendameta">
-									{row.meta}
-									{row.tight && <WarnMark label={copy.viewAs.travelWarning} />}
+								<span className="agendawhat">
+									<span className="agendatitle">{row.title}</span>
+									{/* Said in words under the name, not left to a triangle's
+									    tooltip: a tooltip is a hover, and the phone this list
+									    is most read on has none. */}
+									{row.tight && (
+										<span className="agendawarn">
+											<WarningIcon />
+											{copy.viewAs.travelWarning}
+										</span>
+									)}
 								</span>
+								<span className="agendameta">{row.meta}</span>
 							</button>
 						</li>
 					))}
@@ -2536,6 +2850,10 @@ export default function Schedule() {
 					firstDay={data.firstDay}
 					lastDay={data.lastDay}
 					provider={data.provider}
+					// A lock that arrives while a block is being described turns the
+					// dialog into a view of what was typed, with nothing to save,
+					// rather than letting it fail at the Add button.
+					locked={locked}
 					dock={dockSide}
 					peek={roomToDock}
 					onPreview={setPreview}
@@ -2547,12 +2865,12 @@ export default function Schedule() {
 				/>
 			)}
 
-			{openEvent && (
+			{opened && (
 				<EventDialog
-					key={openEvent.id}
+					key={opened.id}
 					base={base}
-					event={openEvent}
-					day={openEvent.day}
+					event={opened}
+					day={opened.day}
 					legs={openLegs}
 					focusLegId={openLegId}
 					eventOf={(id) => eventById.get(id) ?? null}
@@ -2562,7 +2880,7 @@ export default function Schedule() {
 					saved={data.saved}
 					stays={data.stays}
 					cities={data.cities}
-					cityId={openEvent.city_id ?? cityOfDay(openEvent.day)}
+					cityId={opened.city_id ?? cityOfDay(opened.day)}
 					firstDay={data.firstDay}
 					lastDay={data.lastDay}
 					provider={data.provider}

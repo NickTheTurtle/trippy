@@ -37,10 +37,10 @@ export default function CrewList({
 		<section className="card px-5 py-5">
 			<ul className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-x-6 gap-y-2 p-0">
 				{crews.map((crew) => {
-					const who =
-						crew.members.length === 0
-							? c.nobody
-							: crew.members.map((id) => names[id] ?? '').join(', ');
+					// A member who has left the trip is still on the crew row, but has
+					// no name here to print; joined as-is they came out as ", , Ana".
+					const known = crew.members.filter((id) => !!names[id]);
+					const who = known.length === 0 ? c.nobody : known.map((id) => names[id]).join(', ');
 					const body = (
 						<span className="flex min-w-0 flex-1 flex-col">
 							<span className="truncate font-medium" title={crew.name}>

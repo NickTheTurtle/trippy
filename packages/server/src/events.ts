@@ -122,8 +122,10 @@ export type SubscribeResult =
 			 * - `forbidden` not a member of the trip (or no such trip: the two are
 			 *   deliberately indistinguishable, as everywhere else in this codebase).
 			 * - `busy` a subscriber cap was hit. Answer 503 and let the client back off.
+			 * - `user-busy` this user already holds the most streams one person may.
+			 *   Answer 429: it is the caller's own load, not the server's capacity.
 			 */
-			error: 'forbidden' | 'busy';
+			error: 'forbidden' | 'busy' | 'user-busy';
 	  };
 
 export interface SubscribeOptions {
@@ -161,6 +163,14 @@ const RING_TTL_MS = 5 * 60 * 1000;
 const MAX_SUBSCRIBERS_PER_TRIP = 32;
 /** Open streams across all trips. */
 const MAX_SUBSCRIBERS_TOTAL = 512;
+/**
+ * Open streams for one user, across every trip. A person has a phone and a
+ * laptop and a few tabs; six is past that. Without it one account could open
+ * all 32 slots of a trip (locking its other members out of live updates) or
+ * walk every trip it belongs to until the global 512 was spent, which is a
+ * denial of service against every other user of the process.
+ */
+const MAX_SUBSCRIBERS_PER_USER = 6;
 
 interface Sub {
 	tripId: string;
@@ -181,6 +191,8 @@ interface TripChannel {
 const channels = new Map<string, TripChannel>();
 let totalSubs = 0;
 let nextId = 0;
+/** Open streams per user id, for the per-user cap. Entries at zero are deleted. */
+const userSubs = new Map<string, number>();
 
 function channel(tripId: string): TripChannel {
 	let ch = channels.get(tripId);
@@ -208,7 +220,12 @@ function detach(sub: Sub, reason: CloseReason | null): void {
 	if (sub.closed) return;
 	sub.closed = true;
 	const ch = channels.get(sub.tripId);
-	if (ch?.subs.delete(sub)) totalSubs--;
+	if (ch?.subs.delete(sub)) {
+		totalSubs--;
+		const held = (userSubs.get(sub.userId) ?? 1) - 1;
+		if (held > 0) userSubs.set(sub.userId, held);
+		else userSubs.delete(sub.userId);
+	}
 	if (reason && sub.onClose) {
 		try {
 			sub.onClose(reason);
@@ -309,6 +326,12 @@ export function subscribe(
 	if (!isMember(tripId, userId)) return { ok: false, error: 'forbidden' };
 
 	const ch = channel(tripId);
+	// The caller's own ceiling first, so one account that has opened too many
+	// streams is told so (and told it is theirs to fix) before it is allowed to
+	// count against, or be blamed on, the trip's shared capacity.
+	if ((userSubs.get(userId) ?? 0) >= MAX_SUBSCRIBERS_PER_USER) {
+		return { ok: false, error: 'user-busy' };
+	}
 	// Reject rather than evict. Evicting the oldest subscriber would let anyone
 	// who can open streams push other members off the trip, which is a denial of
 	// service dressed up as a fairness policy. A rejected client retries.
@@ -345,6 +368,7 @@ export function subscribe(
 	const sub: Sub = { tripId, userId, listener, onClose: options.onClose, closed: false };
 	ch.subs.add(sub);
 	totalSubs++;
+	userSubs.set(userId, (userSubs.get(userId) ?? 0) + 1);
 	prune();
 
 	const handle: TripSubscription = {

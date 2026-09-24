@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
+import { stayNightsProblem } from '@trippy/core/validate';
 import { db } from '../db';
 import { publish, publishMany } from '../events';
 import { cityInTrip, homeCurrency, isMember, isOrganizer } from './membership';
+import { eventSpansWhere, settleEventSpans } from './schedule';
 
 export interface LodgingOption {
 	id: string;
@@ -207,6 +209,14 @@ export function setLodgingPhoto(optionId: string, photo: string): void {
  *
  * Publishes `schedule`, unlike the photo write beside it: this one changes
  * travel times rather than a picture.
+ *
+ * The bands already booked into the stay get the same coordinates. An event
+ * copies its place's position when it is created (the chain is planned off the
+ * event's own lat/lng), so a stay typed by hand and booked onto the calendar
+ * before its lookup finished kept a band with no position, and the stay
+ * learning where it was changed nothing on the board. Only bands still holding
+ * no position are filled, for the same reason the option's own guard exists,
+ * and their days are settled so the journeys to and from the night appear.
  */
 export function fillLodgingPlace(
 	tripId: string,
@@ -223,6 +233,19 @@ export function fillLodgingPlace(
 		)
 		.run(lat, lng, optionId, tripId);
 	if (res.changes > 0 && lat !== null && lng !== null) {
+		const bands = db
+			.prepare(
+				`SELECT day, end_day FROM events
+				  WHERE lodging_id = ? AND trip_id = ? AND lat IS NULL AND lng IS NULL`
+			)
+			.all(optionId, tripId) as unknown as { day: string; end_day: string | null }[];
+		if (bands.length) {
+			db.prepare(
+				`UPDATE events SET lat = ?, lng = ?
+				  WHERE lodging_id = ? AND trip_id = ? AND lat IS NULL AND lng IS NULL`
+			).run(lat, lng, optionId, tripId);
+			settleEventSpans(tripId, bands);
+		}
 		publishMany(tripId, ['lodging', 'schedule']);
 	}
 }
@@ -325,19 +348,26 @@ export function lockOption(tripId: string, actorId: string, optionId: string): b
  */
 export function removeOption(tripId: string, actorId: string, optionId: string): boolean {
 	if (!isMember(tripId, actorId)) return false;
+	// Read before the delete, so the nights the bands covered (and the mornings
+	// after them, which planned their first journey from the bed) are settled.
+	const spans = eventSpansWhere(tripId, 'lodging_id', [optionId]);
+	let removed = false;
 	db.exec('BEGIN');
 	try {
 		db.prepare(`DELETE FROM events WHERE lodging_id = ? AND trip_id = ?`).run(optionId, tripId);
 		const res = db
 			.prepare(`DELETE FROM lodging_options WHERE id = ? AND trip_id = ?`)
 			.run(optionId, tripId);
+		removed = Number(res.changes) > 0;
 		db.exec('COMMIT');
-		if (Number(res.changes) > 0) publishMany(tripId, ['lodging', 'schedule']);
-		return Number(res.changes) > 0;
 	} catch (err) {
 		db.exec('ROLLBACK');
 		throw err;
 	}
+	if (!removed) return false;
+	settleEventSpans(tripId, spans);
+	publishMany(tripId, ['lodging', 'schedule']);
+	return true;
 }
 
 /**
@@ -357,7 +387,10 @@ export function setDates(
 	checkOut: string | null
 ): boolean {
 	if (!isMember(tripId, actorId)) return false;
-	if (checkIn && checkOut && checkIn >= checkOut) return false;
+	// The order half of the shared rule in `@trippy/core/validate`. The trip-range
+	// half needs the trip's dates and is asked by the route, which has them and
+	// has somewhere to put the reason.
+	if (stayNightsProblem(checkIn, checkOut) === 'order') return false;
 	const res = db
 		.prepare(`UPDATE lodging_options SET check_in = ?, check_out = ? WHERE id = ? AND trip_id = ?`)
 		.run(checkIn, checkOut, optionId, tripId);

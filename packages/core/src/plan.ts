@@ -27,9 +27,10 @@
  * lets the same code run in the API process and in a browser.
  */
 
-import { isLocatedType, type EventType } from './types';
+import { DAY_END_MIN, isLocatedType, type EventType } from './types';
 import {
 	guessLeg,
+	legKey,
 	placeLeg,
 	planLegs,
 	type PlacedLeg,
@@ -90,6 +91,23 @@ export function shiftDay(iso: string, delta: number): string {
 	return new Date(Date.UTC(y, m - 1, d + delta)).toISOString().slice(0, 10);
 }
 
+/**
+ * Whole calendar days from `from` to `to`, negative when `to` is earlier.
+ *
+ * The inverse of `shiftDay`, and on UTC parts for the same reason: a DST
+ * boundary between two local midnights is 23 or 25 hours, and rounding that
+ * back to a day is a trap the three hand-written copies of this each stepped
+ * around slightly differently. The number of nights in a stay is
+ * `daysBetween(day, end_day)`; the days in an inclusive range are one more.
+ */
+export function daysBetween(from: string, to: string): number {
+	const at = (iso: string) => {
+		const [y, m, d] = iso.split('-').map(Number);
+		return Date.UTC(y, m - 1, d);
+	};
+	return Math.round((at(to) - at(from)) / 86400000);
+}
+
 /** The day a stay is checked out of, which is one day past its last night. */
 export function stayEndOf(row: StayRange): string {
 	return row.end_day ?? shiftDay(row.day, 1);
@@ -144,9 +162,11 @@ function stayKey(row: StayIdentity): string {
  * The end of a day, in minutes from its own midnight.
  *
  * The board's last minute, and the ceiling a reflowed block is held under so a
- * suggestion cannot be pushed off the end of the day it is on.
+ * suggestion cannot be pushed off the end of the day it is on. The same number
+ * as `DAY_END_MIN` in `types.ts`, and defined as it so the two cannot drift;
+ * both names stay exported because both have readers.
  */
-export const MIDNIGHT_MIN = 24 * 60;
+export const MIDNIGHT_MIN = DAY_END_MIN;
 
 /**
  * A stored event as the planner needs it, with "Everyone" put back.
@@ -281,51 +301,85 @@ export interface ReflowedTime {
  * so a run of suggested blocks cascades in one pass, each one following the
  * block this pass has just placed.
  *
- * A block with no incoming journey is left alone. That is the first thing of
- * the morning, whose origin is last night's stay and which therefore has
- * nothing to be "after": it is where the day starts rather than where the day
- * has got to.
+ * A block with no incoming journey follows the end of whatever each of its
+ * people was doing just before it, with no travel added. That covers the two
+ * ways a chain can have a predecessor and still plan no journey: the block
+ * before is at the same place (inside `SAME_PLACE_KM`), or it says nowhere at
+ * all (free time, or a block with no location), which breaks the travel chain
+ * but still ends at a time. Leaving such a block where it was made a day of
+ * accepted suggestions drift out of order as soon as it contained either.
+ *
+ * The first thing of the morning still stays where it is: its only origin is
+ * last night's stay, which is not a block on this day and has no end to follow,
+ * so it is where the day starts rather than where the day has got to.
+ *
+ * "Its people" needs Everyone put back, so `roster` is the trip's members, the
+ * same list `planDay` takes. Without one, everybody named anywhere on the day
+ * plus a single stand-in for everybody else gives the same chains, because an
+ * Everyone block is on all of them and a named block only on its names.
  *
  * Pure, and returns only what changed, so the server can write the moves and
  * the client can preview them without either owning the rule.
  */
 export function reflowAutoTimes(
 	events: readonly AutoTimedRow[],
-	legs: readonly { toEventId: string; fromEventId: string; resolvedMins: number }[]
+	legs: readonly { toEventId: string; fromEventId: string; resolvedMins: number }[],
+	roster?: readonly string[]
 ): ReflowedTime[] {
 	const now = new Map(events.map((e) => [e.id, { start: e.start_min, end: e.end_min }]));
 	const arriving = new Map<string, typeof legs>();
+	const legMins = new Map<string, number>();
 	for (const leg of legs) {
 		arriving.set(leg.toEventId, [...(arriving.get(leg.toEventId) ?? []), leg]);
+		legMins.set(legKey(leg.fromEventId, leg.toEventId), leg.resolvedMins);
 	}
+
+	const members = roster ?? [...new Set(events.flatMap((e) => e.people)), EVERYONE_ELSE];
+	/** The person's latest block so far in the walk, which is what they are coming from. */
+	const lastOf = new Map<string, string>();
 
 	const moved: ReflowedTime[] = [];
 	const order = [...events].sort((a, b) => a.start_min - b.start_min || (a.id < b.id ? -1 : 1));
 	for (const e of order) {
-		if (!e.time_auto) continue;
-		let earliest = -1;
-		for (const leg of arriving.get(e.id) ?? []) {
-			// An origin that is not on the day's clock is last night's stay, which
-			// has no end time to leave from.
-			const from = now.get(leg.fromEventId);
-			if (!from) continue;
-			earliest = Math.max(earliest, from.end + leg.resolvedMins);
+		const people = toPlannerEvent(e, members).people;
+		if (e.time_auto) {
+			let earliest = -1;
+			for (const leg of arriving.get(e.id) ?? []) {
+				// An origin that is not on the day's clock is last night's stay, which
+				// has no end time to leave from.
+				const from = now.get(leg.fromEventId);
+				if (!from) continue;
+				earliest = Math.max(earliest, from.end + leg.resolvedMins);
+			}
+			for (const person of people) {
+				const prevId = lastOf.get(person);
+				if (!prevId) continue;
+				const prev = now.get(prevId)!;
+				// A planned journey from that block has already been counted above;
+				// with none, the same place or an unknown one both mean no travel.
+				earliest = Math.max(earliest, prev.end + (legMins.get(legKey(prevId, e.id)) ?? 0));
+			}
+			if (earliest >= 0) {
+				const at = now.get(e.id)!;
+				const length = at.end - at.start;
+				const start = Math.max(
+					0,
+					Math.min(Math.ceil(earliest / SUGGEST_SNAP) * SUGGEST_SNAP, MIDNIGHT_MIN - length)
+				);
+				if (start !== at.start) {
+					at.start = start;
+					at.end = start + length;
+					moved.push({ id: e.id, startMin: at.start, endMin: at.end });
+				}
+			}
 		}
-		if (earliest < 0) continue;
-
-		const at = now.get(e.id)!;
-		const length = at.end - at.start;
-		const start = Math.max(
-			0,
-			Math.min(Math.ceil(earliest / SUGGEST_SNAP) * SUGGEST_SNAP, MIDNIGHT_MIN - length)
-		);
-		if (start === at.start) continue;
-		at.start = start;
-		at.end = start + length;
-		moved.push({ id: e.id, startMin: at.start, endMin: at.end });
+		for (const person of people) lastOf.set(person, e.id);
 	}
 	return moved;
 }
+
+/** The roster stand-in `reflowAutoTimes` uses for everybody nobody named. */
+const EVERYONE_ELSE = '\u0000everyone-else';
 
 /**
  * What a block added without pointing at a time should start at.

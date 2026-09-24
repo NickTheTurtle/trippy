@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Modal from './Modal';
 import { DialogError } from './Toast';
 import { copy } from '../../copy';
@@ -44,6 +44,15 @@ export default function ConfirmDialog({
 }) {
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState('');
+
+	// A refusal answers the attempt it came from. Left in state it greeted the
+	// next opening of the same dialog, often for a different row, as though
+	// that one had already failed too. Cleared whenever the dialog opens (the
+	// cancel path included, since cancelling closes it), not on close, so the
+	// message does not blink out while the dialog animates away.
+	useEffect(() => {
+		if (open) setError('');
+	}, [open]);
 
 	async function confirm() {
 		setBusy(true);

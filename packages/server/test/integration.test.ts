@@ -955,18 +955,54 @@ describe('event bus', () => {
 
 	it('refuses the 33rd subscriber for one trip with busy and closes back to zero subscribers', () => {
 		const f = createTripFixture('cap');
+		// Six people, because one person may now hold at most six streams: filling
+		// the trip's 32 slots takes several members, which is the real shape of it.
+		const people = [f.organizer, f.member];
+		for (let i = 0; i < 4; i++) {
+			const extra = createUser(`cap-extra-${i}`);
+			expect(
+				members.addPerson(f.tripId, f.organizer, 'Guest', auth.findUserById(extra)!.email)
+			).toBe('added');
+			people.push(extra);
+		}
 		const subs: import('../src/events.ts').TripSubscription[] = [];
 		for (let i = 0; i < 32; i++) {
-			const sub = events.subscribe(f.tripId, f.organizer, () => undefined);
+			const sub = events.subscribe(f.tripId, people[i % people.length], () => undefined);
 			expect(sub.ok).toBe(true);
 			if (sub.ok) subs.push(sub.sub);
 		}
 
-		expect(events.subscribe(f.tripId, f.organizer, () => undefined)).toEqual({
+		// people[2] holds five streams, under its own ceiling, so this is the trip's.
+		expect(events.subscribe(f.tripId, people[2], () => undefined)).toEqual({
 			ok: false,
 			error: 'busy'
 		});
 
+		for (const sub of subs) sub.close();
+		expect(events.busStats().subscribers).toBe(0);
+	});
+
+	it('refuses a seventh stream for one user with user-busy, and frees the slot on close', () => {
+		const f = createTripFixture('user-cap');
+		const subs: import('../src/events.ts').TripSubscription[] = [];
+		for (let i = 0; i < 6; i++) {
+			const sub = events.subscribe(f.tripId, f.organizer, () => undefined);
+			expect(sub.ok).toBe(true);
+			if (sub.ok) subs.push(sub.sub);
+		}
+		expect(events.subscribe(f.tripId, f.organizer, () => undefined)).toEqual({
+			ok: false,
+			error: 'user-busy'
+		});
+		// Someone else on the same trip is not held to the organizer's count.
+		const other = events.subscribe(f.tripId, f.member, () => undefined);
+		expect(other.ok).toBe(true);
+		if (other.ok) other.sub.close();
+
+		subs[0].close();
+		const again = events.subscribe(f.tripId, f.organizer, () => undefined);
+		expect(again.ok).toBe(true);
+		if (again.ok) subs[0] = again.sub;
 		for (const sub of subs) sub.close();
 		expect(events.busStats().subscribers).toBe(0);
 	});

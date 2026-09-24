@@ -24,10 +24,6 @@ export type CityRow = {
 	region?: string | null;
 	/** The count shown beside the name, which follows the current view. */
 	badge: number;
-	/** Everything saved in the city, whatever its type. */
-	items: number;
-	/** Calendar items scheduled from a place in this city. */
-	linked: number;
 };
 
 /**

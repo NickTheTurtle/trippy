@@ -1,7 +1,7 @@
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import { session, requireUser } from './middleware';
+import { session, requireUser, limitBody } from './middleware';
 import { billingGate, quota429 } from './provider-quota';
 import { fail } from './respond';
 import { auth } from './routes/auth';
@@ -52,6 +52,7 @@ if (process.env.NODE_ENV !== 'production') {
 }
 
 app.use('*', session);
+app.use('/api/*', limitBody);
 
 void env.GOOGLE_SERVER_KEY;
 
@@ -136,8 +137,13 @@ if (process.env.NODE_ENV !== 'production') ensureDemoAccount();
 purgeExpiredSessions();
 
 const port = Number(process.env.PORT ?? 5175);
-serve({ fetch: app.fetch, port }, (info) => {
-	console.log(`api listening on http://localhost:${info.port}`);
+// `HOST` unset keeps Node's default (every interface), which is what lets a
+// phone on the LAN reach a dev server. The deploy sets 127.0.0.1: Caddy runs on
+// the same box and proxies to loopback, so a socket on the public interface is
+// only a way around the proxy, its TLS and its security headers.
+const hostname = env.HOST;
+serve({ fetch: app.fetch, port, ...(hostname ? { hostname } : {}) }, (info) => {
+	console.log(`api listening on http://${hostname ?? 'localhost'}:${info.port}`);
 });
 
 /**

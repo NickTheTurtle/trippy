@@ -14,7 +14,6 @@ export default defineConfig({
 			{ find: '@trippy/core/geo', replacement: core('geo.ts') },
 			{ find: '@trippy/core/travel', replacement: core('travel.ts') },
 			{ find: '@trippy/core/plan', replacement: core('plan.ts') },
-			{ find: '@trippy/core/conflicts', replacement: core('conflicts.ts') },
 			{ find: '@trippy/core/currency', replacement: core('currency.ts') },
 			// `validate` is aliased like the rest so a route under test resolves it
 			// the way the app does. Without it, the first test to load a route that

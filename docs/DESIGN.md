@@ -421,17 +421,31 @@ Three details are worth the reasoning:
   block at the end of whatever comes before it plus the travel between them,
   which is already planned and already carries a duration. Where several
   journeys arrive, the group rejoining, the latest wins: the block cannot start
-  before everybody is there. A block with no incoming journey is left alone,
-  which is the first thing of the morning, whose origin is last night's stay and
-  which therefore has nothing to be after.
+  before everybody is there.
+- **No journey is not the same as nothing before.** A block used to be left
+  alone whenever no journey arrived at it, which also caught the two ordinary
+  cases where there is a block before and simply no travel: the one before is
+  at the same place (inside `SAME_PLACE_KM`, so no leg is planned), or it says
+  nowhere (free time, a block with no location), which breaks the travel chain
+  but still ends at a time. A day of accepted suggestions then drifted out of
+  order as soon as it held either. Now each of the block's people is followed
+  from their own previous block on the day, plus the planned journey from it if
+  there is one and nothing if there is not, and the latest of those wins. Only
+  the first thing of the morning is left where it is: its origin is last
+  night's stay, which is not on the day's clock and has nothing to be after.
+  "Its people" needs Everyone expanded, so the server passes the roster; with
+  none, core uses everybody named on the day plus one stand-in for the rest,
+  which gives the same chains.
 - **Reflow runs between two plans, not inside one.** `touched` calls
   `recomputeLegs`, then `reflowDay`, then `recomputeLegs` again if anything
   moved. The first plan is what the suggestion is computed from; the second is
   because moving a block changes the order the chain is walked in, which can
   change which journeys exist at all. The reflow writes only `start_min` and
-  `end_min` and deliberately leaves `version` alone: it is not somebody editing
-  the block, and bumping the version would fail the next save an open dialog
-  attempts for a change the reader never made.
+  `end_min`, and bumps `version` without checking it. It used to leave the
+  version alone on the grounds that a reflow is not somebody editing the block;
+  but a dialog opened before the reflow then saved the old clock back with no
+  conflict, which is exactly the silent revert versions exist to stop. See
+  "Events are versioned like everything else".
 
 Blocks are walked in clock order, so a run of suggested blocks cascades in one
 pass, each following the one this pass has just placed. Starts round **up** to
@@ -485,6 +499,25 @@ not carry the repair, because every affected stay already had a photo, and a bar
 because coordinates have no "asked and found nothing" sentinel the way `photo`
 has `NO_PHOTO`. `lodging_options.place_checked` is that sentinel, and
 `fillLodgingPlace` writes only where the coordinates are still null.
+
+**The bands already booked into the stay get the coordinates too.** An event
+copies its place's position when it is created, because the chain is planned off
+the event's own `lat`/`lng`. So a hand-typed stay booked onto the calendar before
+its lookup finished kept a band with no position, and the stay learning where it
+was changed nothing on the board. `fillLodgingPlace` now fills every band linked
+to the option that still has no position (never one somebody placed), then
+settles those days so the morning journeys out of the night appear.
+
+**No key means no answer, not "asked and found nothing".** With no
+`GOOGLE_SERVER_KEY`, `lookupPhoto` answers `NO_PHOTO` and no position without
+asking, and the drain used to write that back: the sentinel on the photo and
+`place_checked = 1` on the stay, both permanent. A database run keyless, which is
+every development and test database, marked everything it saw as looked-up and
+empty, and a key added later found nothing to look up. The drain now does
+nothing at all when no key is configured, so the backlog is intact when one is.
+It is also de-duplicated per trip (and per user for the trip list): Discover
+awaits it on every GET, and two loads at once each used to buy the same
+lookups, since rows are only marked once a lookup returns.
 
 ### M3.3: Reading the board and its map at a glance
 
@@ -748,9 +781,10 @@ Three consequences, all deliberate:
   the roster, and a list that names only people who have left empties to
   **nobody**, not to everybody: somebody chose those names, and the choice was
   not "the whole group".
-- **Leg keys change where an event was on Everyone**, because the key carries
-  the sorted travellers. Nothing is orphaned in practice, since those days
-  previously planned no legs to store. To catch days nobody writes to again,
+- **Leg keys used to change where an event was on Everyone**, because the key
+  carried the sorted travellers. The key is now the pair of events alone (see
+  "The leg key is the pair of events" below), so a roster change no longer
+  touches it. To catch days nobody writes to again,
   `reconcileAllLegs()` runs the ordinary per-day reconciliation across every
   stored day once, guarded by a row in `schema_backfills`; it inserts what is
   newly planned and prunes what is not, keeping every row whose key still stands
@@ -814,11 +848,37 @@ That is the whole of splitting and rejoining. Three rules keep it honest:
 - **Two stops within ~30 m are one place** (`SAME_PLACE_KM`), which is inside the
   error of a geocoded address and well inside the width of a hotel.
 
-**The leg key is `fromId>toId>sortedPeople`**, and this is what makes a manual
-override survive an unrelated edit: dragging an event ten minutes does not change
-who is going where, so the key is stable and the override is matched back to it.
-Changing **who** is travelling changes the key deliberately, because a ferry
-booked for two is not a fact about the journey one of them now makes alone.
+**The leg key is the pair of events: `fromId>toId`** (`legKey` in core), and
+this is what makes a manual override survive an unrelated edit: dragging an event
+ten minutes does not change which two events a journey joins, so the key is
+stable and the override is matched back to it.
+
+It used to be `fromId>toId>sortedPeople`, on the argument that "a ferry booked
+for two is not a fact about the journey one of them now makes alone". That
+argument lost to what the travellers actually are: wherever an event is on
+Everyone (most of them), the sorted travellers are the expanded roster, so the
+key moved every time somebody was added, joined through an invite, left, was
+removed, or was merged from a placeholder into a real account. None of those is
+a schedule write, so nothing re-reconciled, and `legsForDay` dropped any planned
+journey without a row: travel vanished from every day of the trip at once, and
+each pinned mode and paid-for route sat orphaned under the old key. The people
+part never disambiguated anything either, because `planLegs` buckets by the pair
+and so plans at most one journey between two events on a day. What a reader pins
+(a mode, a duration, a name) describes the route between two places, which is
+the same whoever is on it; the headcount is shown from the plan's own `people`,
+which the stored row now mirrors (`travel_legs.people` is kept current) but no
+longer keys on.
+
+Rows written under the old key were re-keyed once (`rekeyLegacyLegs`, marker
+`travel-legs-pair-key`): per pair, the row somebody pinned or named wins, else
+one with a routed answer, else the newest. The losers are left in place under
+their old key rather than deleted, unread and dying with their events, so the
+migration stays additive. The re-key runs before the older Everyone
+reconciliation backfill, which would otherwise insert unpinned `from>to` rows
+first and leave the key taken; and where a `from>to` row exists anyway, the
+legacy row's pin (title, mode and minutes together, only onto a row with none)
+and routed answer are merged into it rather than skipped. `rekeyLeg` still
+accepts a three-part key from a stale client and rewrites it to the pair.
 
 **A journey is anchored to its arrival, not its departure** (`placeLeg`): a table
 booked at seven means leaving at half six. When the duration exceeds the gap the
@@ -827,7 +887,8 @@ unachievable day should show the problem instead of hiding it.
 
 **Reconciliation.** Travel has to be both derived and editable, so `travel_legs`
 rows are reconciled on every event write: keep rows whose key is still planned
-(preserving the override), insert newly planned keys, delete the rest.
+(preserving the override), insert newly planned keys, and leave the rest unread
+(see "A journey's pin belongs to the pair of places" in 5.0.15).
 `auto_mode` / `auto_mins` hold the provider's answer, `mode` / `mins` hold the
 user's, and the user's win. Clearing both hands the leg back to the provider,
 which is how somebody undoes a guess without having to remember what the
@@ -835,6 +896,28 @@ automatic answer was. Every write recomputes **the day and the day after**,
 unconditionally: a stay is the previous night for the morning that follows it, and
 doing it only for stays leaves a bug where an event changes type into one and the
 next morning is never told.
+
+**Reads reconcile too, and so do the writes that are not event writes.**
+`legsForDay` inserts a row for any planned journey that has none before it
+answers, instead of dropping it. The insert-only pass is one plan over one day,
+cheap enough for a read, and it turns every path that changes the plan from
+outside the schedule into, at worst, a suggested time not yet reflowed rather
+than a day with its travel missing. Those paths also settle explicitly, so the
+reflow happens too: a roster change (`addPerson`, `consumeInvites`, a
+placeholder merge, `removeMember`, `leaveTrip`) settles every day of the trip
+(`settleTrip`), and a delete that takes events with it (`removePoi`,
+`removeOption`, `removeCity`) or a stay learning its coordinates
+(`fillLodgingPlace`) settles the spans of the events it touched
+(`settleEventSpans`), each span on its own, since a place's events can be months
+apart.
+
+Those settles run after the caller's own write has committed, so they are
+built not to undo it: the days are de-duplicated first (every block's span is
+its day and the next, so settling span by span did most days two or three
+times), the whole settle runs inside one `SAVEPOINT` (which nests under any
+transaction a caller holds), and a failure rolls the savepoint back and is
+logged, not thrown. The member who added a person is not told the add failed
+because a re-plan behind it did, and nothing is lost, since reads reconcile.
 
 **One planner, called twice** (`packages/core/src/plan.ts`). Deriving the legs is
 `planLegs`, which is pure and knows nothing about storage. Getting from stored
@@ -1156,6 +1239,18 @@ reads as a bug.
   only when `doneCount === people.length`.
   - `trip_tasks.done` survives as the shared flag for tasks with **no** assignees
     (a one-off the group needs once, e.g. "collect everyone's flight numbers").
+    `updateTask` clears it as a task gains assignees, because from then on their
+    own ticks are the answer, and a stale flag resurfaced as "done" the moment
+    the roster was emptied again.
+  - **The move to per-person rows ran once, and now only once.** The two
+    statements that match `assignee` names to users and copy a set `done` into
+    `task_done` used to run on every boot. The second re-ticked, on every
+    restart, anybody who had unticked a task still carrying the legacy flag
+    (every saved file, under `tsx watch`). Both sit behind the
+    `task-assignees-from-names` marker in `schema_backfills`, and run only when
+    `task_assignees` did not exist before that boot: a database that already had
+    the tables has been through them many times, and running them once more
+    under the new marker would only re-tick one last time.
   - `trip_tasks.assignee` (a comma-joined name string) is now display-only legacy;
     do not read it for logic.
   - **Anyone may tick anyone's box**: `toggleTask` takes a `targetId` and accepts
@@ -1519,9 +1614,35 @@ billable server APIs again. During the production env migration,
 
 **Reads re-plan rather than reading structure back** (`legsForDay`), because
 placing a leg needs the times of the two events it joins, and those change more
-often than the leg does. A planned leg with no stored row is skipped: a read
-racing a write shows one fewer journey for a moment, rather than inventing an id
-the client would immediately try to edit.
+often than the leg does. A planned leg with no stored row is given one before the
+read answers (see "Reads reconcile too" in M3.1); it used to be skipped, which
+was meant to cover a read racing a write and in practice hid every journey a
+roster change or a Discover delete had left without a row.
+
+**A board load routes only what it does not already know.** `dayLegs` in the
+schedule route used to send every planned journey to `routeLegs` on every load.
+The route cache is in memory, and the API runs under `tsx watch`, so every saved
+file emptied it and the next load re-bought every leg of every day anybody had
+open. The load now skips a journey whose stored `auto_mins` is a real route in
+the mode it wants (the pinned mode, else the distance guess). "Real" needs a
+column: `travel_legs.auto_routed` (INTEGER NOT NULL DEFAULT 0) records whether
+the stored minutes came from a provider or from the straight-line fallback the
+ladder drops to when a provider is down, and a fallback is retried rather than
+kept forever. Existing rows start at 0 and are routed once more, through the
+same cache and quota, then skipped. A pair keeps its row across days and roster
+changes now, so an answer is bought once per pair of events.
+
+That is also why "the mode it wants" is not enough. The route cache used to be
+keyed on coordinates, so a moved event asked a new question by construction;
+the stored row is keyed on the pair of events, which keep their ids when one is
+moved 200 km, and a skip on mode alone kept the old drive time. So the stored
+answer carries `travel_legs.auto_key` (TEXT, nullable): `routeKey` in core, the
+mode plus both endpoints' coordinates to four decimals, the same string the
+route cache now uses. The board skips only while it still matches, and
+`legsForDay` ignores a routed answer whose key no longer matches the leg's
+points (falling back to the straight-line guess) until the next load routes it.
+Rows from before the column have no key; they are trusted on read as before and
+routed once more on their next load.
 
 Legs that cross zones recompute local arrival correctly.
 
@@ -1586,6 +1707,23 @@ now exists exactly when it can be converted with the network down, and an
 unconvertible code **throws** rather than defaulting: a bug about money should be
 loud.
 
+**Every write is held to that list, and the list offered is that list.** The
+throw above made an unknown code loud, but at read time, which is the wrong
+time: any three letters were accepted on the way in (the trip's home currency
+was checked against `^[A-Z]{3}$`, an expense, an estimate and a stay price not
+at all), and the first ledger read that converted the row threw, answering the
+whole Expenses or Preparation page with a 500 for every member of the trip. The
+trip create and edit paths in `persistence/trips.ts`, `cleanCurrency` in
+`persistence/costs.ts`, and the expense, estimate and stay routes now all ask
+`isCurrencyCode` from `@trippy/core/currency` and refuse with a 400, "Pick a
+currency from the list." `knownCurrencies()` in `providers/fx.ts` used to be
+every key of the live table, roughly a hundred and sixty codes once a refresh
+landed, so a member could pick VND while the feed was up and then have the
+trip's ledger throw after the next restart without it. It now returns
+`CURRENCY_CODES`: the live table still refines those codes' rates, it no longer
+adds codes the offline table cannot back. Rows already stored in a code outside
+the list are not rewritten; editing one asks for a supported currency.
+
 Store the original currency and amount; convert only for display and settlement.
 
 **A recorded expense is locked to the rate it was entered at.** Balances used to
@@ -1617,8 +1755,9 @@ trip's total spend disagreed with the balances they were supposed to explain.
 The only rows that still convert live are those with no stored rate to use.
 
 **The currency field is a typeahead, not a dropdown.** The offline table is
-twenty codes, but every field is filled from whatever the server sends, and once
-live rates land that is roughly a hundred and sixty. A `Select` over that many
+twenty codes, and every field is filled from whatever the server sends, which
+was roughly a hundred and sixty once live rates landed. It is the offline table
+again now (see above); the typeahead stays because it searches by name. A `Select` over that many
 unlabelled three-letter codes can only be scrolled, so all five currency fields
 (expense, estimate, stay price in both the add and the edit dialog, and the
 trip's home currency) are `CurrencyPicker`, a thin wrapper around the existing
@@ -1655,16 +1794,28 @@ count only the address and a botnet grinds one account from a thousand of them.
 A blocked request is refused before the key derivation runs, which is the whole
 point, and does _not_ extend its own block, so a third party cannot keep an
 account locked out by hammering it. Login, register and the password-change
-endpoint all go through it; register counts successes rather than failures,
-since one person signing up is one account. State is in memory and lost on
+endpoint all go through it. Register now counts **every** attempt from an
+address, the refused ones included: it used to count only successes, which left
+the "already registered" answer free, so one address could test any number of
+emails for whether they held an account. With mail configured it also caps each
+_target_ address at three verification mails before backoff (keyed on the
+address whether or not it has an account, so the limit says nothing about which),
+because every registration mails a stranger-typed address. Login runs a dummy
+scrypt derivation (`burnPasswordCheck`) when the account does not exist, so the
+two identical 401s are no longer told apart by the clock: a missing account used
+to answer in a fraction of the time. State is in memory and lost on
 restart, which is the honest trade here: a persistent counter would mean a disk
 write per failed guess, handing the attacker a cheaper lever than the one being
 defended against.
 
-**An invite is addressed to an email, not to an account.** So changing your
-profile email consumes any invites waiting at the new address, the same way
+**An invite is addressed to an email, not to an account.** So moving your
+account onto a new address consumes any invites waiting there, the same way
 registering does. Without it, somebody invited at their work address who then
-corrected their profile would simply never appear in the trip.
+corrected their profile would simply never appear in the trip. That same rule
+made the old profile form a way to steal invites: it wrote any address straight
+into `users.email` and then ran `consumeInvites`, so anyone signed in could type
+a stranger's address and be handed every trip that stranger had been invited to.
+Changing the email is now password-gated and verified; see §4.7.
 
 ### 4.5a Who the caller is, and why the throttle depends on it
 
@@ -1861,6 +2012,56 @@ configured.** See §4.6: the E2E suite and a fresh clone register through this
 route, and a deployment that cannot send mail should not be one where nobody
 can sign up.
 
+**With mail configured, a taken address gets the same 202 as a fresh one.**
+Registration used to answer "That email is already registered." with a 409,
+which told any stranger which addresses hold accounts, and the throttle only
+counted successful sign-ups, so asking was free. The verification link is the
+only channel that reaches the real owner, and `completeRegistration` already
+refuses a taken address there, so the 409 only ever informed the wrong person.
+The taken path still runs the scrypt derivation and the mail send is not awaited
+on either path, so the two 202s also take the same time. No mail is sent to the
+owner of a taken address (a "someone tried to register" note was considered and
+left out: it is more mail to an address a stranger chose). **Without mail the
+409 stays**, deliberately: whoever runs a mail-less instance is a developer who
+needs to be told, and there is no verification step that could tell them.
+
+**Changing the account email is a claim, like registering.** The address is the
+sign-in identity and the key every invite is matched on (§4.8), so
+`PATCH /api/account/profile` treats a different address (compared lower-cased)
+as its own flow:
+
+- The current password is required (`currentPassword`), so a session left open
+  on a shared machine, or stolen, cannot re-home the account. It is throttled on
+  the same `password:<userId>` key `POST /account/password` uses: it is the same
+  guess against the same secret, and two endpoints must not mean twice the
+  guesses. A missing password is refused without counting as a guess.
+- "That email is already registered." (register's own wording) is only reached
+  after the password verifies, so it is not an oracle a stolen session can
+  query for free. With the password it is: the owner of an account is told the
+  address they want is taken, which is the honest answer and costs a guess.
+- With mail configured nothing about `users.email` changes. A single-use token
+  (hashed, 24 hours, in the additive `pending_email_changes` table, keyed by
+  user so a second request voids the first link) is mailed to the **new**
+  address as a link to `/verify-email?token=…`, and the route answers
+  `202 { ok: true, pendingEmail }`. Name and home zone in the same request still
+  apply. `POST /api/auth/verify-email { token }` needs no session (the link may
+  be opened on a phone that never signed in), re-checks that the address is
+  still free, writes it, and only **then** runs `consumeInvites`. It does not
+  sign anyone in: it proved a mailbox, not a password.
+- Without mail, the change applies at once and answers
+  `200 { ok: true, pendingEmail: null }`. This mirrors registration, which
+  already takes an address on trust in that mode; a deployment cannot be safer
+  on its profile page than on its sign-up page, and refusing would make a
+  mail-less instance unable to fix a typo in an address.
+- `GET /api/account` reports `profile.pendingEmail` (or null) so the form can
+  say where the link went.
+- Every check runs before anything is written, so a refused request changes
+  nothing, name included.
+
+The old address is not notified. It was considered, and it is the natural next
+step if account takeover by a stolen session and a known password becomes a
+concern; today the password gate is the control.
+
 #### 4.7.1 Trusting a POST from Amazon: the SES bounce receiver
 
 `/api/ses/notifications` is mounted outside `requireUser`, because SNS holds no
@@ -1874,6 +2075,18 @@ service we inflicted on ourselves.
 A shared secret in the query string was rejected: it leaks into proxy and
 access logs, cannot be rotated per message, and is copied verbatim by anyone who
 sees it once. The defence is the asymmetric signature AWS already attaches.
+
+**The signature is not enough on its own, so the topic is checked first.** A
+valid SNS signature proves AWS wrote a message, not that it was written for us:
+any AWS account can create a topic, subscribe this public URL to it, confirm the
+subscription (a genuine `SubscribeURL` was followed) and publish correctly
+signed "complaints" naming any address it likes. `TopicArn` is one of the signed
+fields, so every message, subscription confirmations included, is dropped unless
+its topic is listed in `SES_SNS_TOPIC_ARN` (comma-separated). Unset refuses
+everything and logs a warning once: a receiver nobody configured must do
+nothing rather than trust the world. The check runs before the signature, since
+it is free and verification can fetch a certificate; a forged topic still has to
+survive the signature below.
 
 Four gates, all failing closed, in this order:
 
@@ -2018,6 +2231,107 @@ the search still showing one city's results after the dropdown moved to another,
 which lands hundreds of kilometres out. It refuses only when it can know: a city
 the geocoder never placed, or a place typed by hand with no coordinates, passes.
 
+**Every other number a request can carry has a ceiling too** (pre-1.0 review).
+`int()` in `apps/api/src/parse.ts` accepts only safe integers: `1e21` is an
+integer to `Number.isInteger`, but past 2^53 neighbouring values share a double
+and `node:sqlite` throws reading one back, the same failure the amount bound
+exists for. A stay's price is held to `isAmountInRange` like every other money
+field. A `shares` weight is capped at `MAX_SHARE_WEIGHT` (a million) and must be
+finite: two weights of `1e308` summed to Infinity and every balance on the trip
+came back NaN. `exact` weights need no separate cap because they must add up to
+the already-bounded total, and `splitByWeight` itself now rescales by the
+largest weight whenever the sum or a product would overflow, so a bad row
+already stored cannot poison a ledger read. A place's provider details are held
+to the provider's own ranges (rating 0 to 5, price level 0 to 4, a rating count
+under a hundred million, at most 14 lines of hours of at most 200 characters,
+and a photo shaped `places/<id>/photos/<id>`): they come from the search result
+rather than from a person, but the client is only a client, and each is drawn
+on a card.
+
+**The 200-character name cap reaches every name.** Registration, the profile,
+crews, journey titles, a place's category, a city's name, country and region,
+and an estimate's label (which had a private 120) all use `isNameLength`, and
+`members.ts` dropped its private 80 so the store no longer refuses a name the
+route just accepted with a vaguer message.
+
+**Time zones are asked of `Intl`.** `isIanaZone` in core tries an
+`Intl.DateTimeFormat` with the zone and refuses offsets and junk. It replaced
+`^[A-Za-z]+/[A-Za-z0-9_+-]+$`, which refused `UTC` (every account's default) and
+accepted `Mars/Olympus_Mons`, which then threw out of every clock drawn for that
+city. It guards cities and a profile's home zone; a home zone already stored is
+only judged when it changes, so an old odd value cannot block a rename.
+
+**One day window, one stay-night rule.** `DAY_MIN`/`DAY_MAX` (2000 to 2100)
+moved from the expenses route into core and now bound the trip's own dates too:
+an expense was held to the window while the trip it belonged to could run in
+the year 1200. `isOutsideTrip` replaced the schedule's private copy, and
+`stayNightsProblem` replaced the three stay-night checks (the Discover add and
+dates routes, the schedule, and `setDates`). They disagreed: the board let a
+stay check out the morning after the trip's last day, and Discover capped
+checkout at the last day, which made a check-in on the last day impossible
+there (it passed the check-in rule, and then no checkout could pass both).
+The board's rule won: the last _night_ must be a trip day. It is the looser of
+the two, so no stay the calendar already holds becomes invalid, and the calendar
+is where nights are settled.
+
+**Creating an event is held to the rules editing one is.** `POST /events` turned
+an unknown type into an activity, stored a misspelt travel mode as none (handing
+the journey back to the router the caller was trying to overrule) and stored any
+`cityId`, including another trip's. The type and mode checks are now shared
+functions used by create, the edit op and the leg editor, and a city must be one
+of this trip's. Dragging a stay (`op: 'move'`) only carried the day it landed on,
+and the stay keeps its length in nights, so the checkout was never checked: a
+four-night stay dropped on the last day checked out three days after the trip.
+The route now works out the moved checkout (`movedStayCheckout`, which uses the
+store's own `nights` rule) and refuses it by the rule above.
+
+**A member refused on role is told 403.** The trip edit and the three city
+routes answered a non-organizer with 400 and sentences like "Could not add that
+city.", which read as a bad value and sent people hunting for a typo. The role
+is now checked first and answered 403 per `respond.ts`; the city functions gained
+`*Result` forms that say why (`forbidden`, `invalid`, `duplicate`, `missing`,
+`last`), so a vanished city is a 404 rather than "A trip needs at least one
+city.". **An omitted `scheduleLocked` keeps the stored lock**: it was read as
+`=== true`, so any edit that did not restate it unfroze the board.
+
+### The API's own perimeter
+
+**Bodies are capped at 256 KB** (`limitBody` in `middleware.ts`, on `/api/*`).
+The largest real request is an event save with a 4000-character note; without a
+ceiling `c.req.json()` buffers whatever arrives, per connection. Refused with
+413 in the standard envelope.
+
+**Live streams are capped per person** at six, checked before the per-trip (32)
+and global (512) caps. Without it one account could fill a trip's 32 slots,
+locking its other members out of live updates, or walk its trips until the
+global cap was spent. The refusal is 429 with `Retry-After`, not the 503 the
+shared caps answer, because it is the caller's own load and closing a tab fixes
+it.
+
+**The listen address is configurable** (`HOST`). Unset keeps Node's default of
+every interface, which a phone on the LAN needs to reach a dev server. The
+deploy writes `HOST=127.0.0.1`, because `deploy/ec2-setup.sh` runs Caddy on the
+same host with `reverse_proxy 127.0.0.1:<port>`: a public socket was only a way
+around Caddy, its TLS and its security headers (the security group already
+closes the port, but this should not rest on one control).
+
+**Photo widths are bucketed** to 160, 320, 640 and 1200, rounding up so nothing
+is drawn blurry. Every distinct width was a distinct billed Places request and a
+distinct `photo_cache` row, and the width came straight from the query string.
+
+**The database waits five seconds for a lock** (`PRAGMA busy_timeout = 5000`).
+The API is the only writer, but not the only process that opens the file:
+Litestream checkpoints it in production and the e2e teardown deletes rows from
+it. Without a wait either of those turned an ordinary write into "database is
+locked", which the suite had started to show as intermittent failures.
+
+**A new account starts on the browser's zone.** Registration sends
+`Intl.DateTimeFormat().resolvedOptions().timeZone`, carried through the pending
+registration to the account the link creates. Anything that is not a real IANA
+zone falls back to UTC without refusing the sign-up, because the person never
+typed it. Everyone used to start on UTC, so "today" rolled over in the
+afternoon across the Americas until they found the account page.
+
 ### Deleting something other people can see
 
 Two rules, both learned the same way.
@@ -2027,6 +2341,14 @@ Two rules, both learned the same way.
 nothing and said nothing about why. Places were given an explicit cascade first;
 stays now match them, in one transaction, and the confirmation is told the count
 beforehand so the question names what is about to go.
+
+Removing a city follows the same rule: the events booked at its places and stays
+are deleted with them (the city cascade took the places and stays but only nulled
+the events' links, leaving blocks that claimed coordinates for somewhere the trip
+no longer had). Events that merely carry the city's id are kept, because
+`events.city_id` defaults to the trip's first city on create and so says nothing
+about where a block is. All three deletes then settle the days those events were
+on, so the journey that ran through a deleted block is re-planned past it.
 
 **A 404 on a write says who did it.** In a trip several people are editing, by
 far the commonest way to reach one is that somebody deleted the row while this
@@ -2043,10 +2365,30 @@ which writes the whole record back, silently erased whatever the other person ha
 just saved. Dialog saves now carry the version they opened on and are refused
 with a 409.
 
-Drags and resizes are deliberately left unversioned. They carry exactly one
+Drags and resizes are deliberately left unchecked. They carry exactly one
 field each, so there is nothing stale riding along to overwrite, and holding a
 gesture to a version the board refetches constantly would refuse perfectly good
 drags whenever somebody else touched an unrelated event.
+
+**Unchecked is not unversioned.** A drag, a resize, a people save and a reflow
+all bump `version` now, without checking the caller's. They used to leave it
+alone, and that was the hole: a dialog opened before the drag still held the old
+clock, its save passed the version check, and the block went back where it had
+been with no conflict reported. The reflow was left alone on purpose ("a reflow
+is not somebody editing the block"), which is true and beside the point, since a
+stale dialog reverts it just as silently.
+
+Bumping would make a dialog refuse its own second write, because the dialog
+saves the event and then, on a separate request, the people. So every one of
+these writes answers with the version it left behind and the dialog carries that
+forward:
+
+- `POST /events/:id/op` with `op: 'move'` or `op: 'resize'` answers
+  `{ ok: true, version }` (was `{ ok: true }`); `op: 'edit'` already did, and
+  its `version` is now read back after the day is settled, since settling can
+  reflow the very block being saved.
+- `PUT /events/:id/people` answers `{ ok: true, version }` (was `{ ok: true }`).
+- `op: 'delete'` is unchanged.
 
 ### 4.9 Paid providers: failing loudly, staying honest, and not spending
 
@@ -2348,6 +2690,18 @@ participant. If they do not, they are deleted as before. If they do, they are
 treated exactly like a registered member who leaves: the membership goes, the
 `users` row stays, and the expenses stand. The invite row is deleted either way,
 so the address can always be invited again.
+
+**Leaving and being removed do the same thing to the money.** `removeMember`
+calls `detachMemberFromLedger` once the membership is gone, so the leaver's
+share of an even or shares split is re-divided across whoever remains and a
+stated split, or anything they paid, is left flagged for review. `leaveTrip`
+did not, so a member who left on their own kept being charged a share of every
+proportional expense by a trip they were no longer on, while the same person
+removed by the organizer did not. It now makes the same call (and settles the
+schedule, as every roster change does). `detachMemberFromLedger` no longer
+returns counts: nothing read them, and the review count double-counted an
+expense the leaver both paid and shared in. Review state is derived on read
+(`needsReview` on the ledger row).
 
 Keeping the row costs nothing elsewhere. A placeholder's email is the synthetic
 `placeholder-<uuid>@waypoint.invalid`, so a tombstone never occupies the real
@@ -3725,8 +4079,8 @@ which is the server's answer to give, not a guess the board can draw.
 used to be per-day scratch: every write re-planned the day and deleted the rows
 the plan no longer asked for. Drag the pair to Wednesday and the reader's "ferry,
 40m" was deleted on Tuesday and re-inserted as a straight-line guess. The row is
-now the **override store** for a journey, keyed by `leg_key` (the two events and
-who is going) and carrying `day` as a fact that can be updated. A day that stops
+now the **override store** for a journey, keyed by `leg_key` (the two events;
+who is going used to be part of it, see M3.1) and carrying `day` as a fact that can be updated. A day that stops
 planning a journey no longer deletes it; the next day to plan it claims it,
 `day` and all, and until one does the row sits unread, because `legsForDay` only
 returns rows the plan asked for. The row dies with either of its two events,
@@ -5227,7 +5581,7 @@ morning, because the thing it leaves is not on the day being drawn.
 
 **Journey edits are keyed by leg key, not by row id.** A journey the reader
 sets up may have no row yet: the row only exists once the server replans off
-the people just saved. `leg_key` (`from>to>sortedPeople`) is computed the same
+the people just saved. `leg_key` (`from>to`, formerly `from>to>sortedPeople`) is computed the same
 way on both sides, so the dialog holds edits under the key, and the save reads
 the day back afterwards and matches. That also reorders the save: the event and
 its people go first, then the journeys, which is the reverse of the old order.
@@ -6265,9 +6619,13 @@ than trusting the attributes.
 May 9 is a perfectly ordered one-night stay, and it was accepted onto a trip
 running May 10 to May 15, where it drew a band on days the board does not have.
 The night-order rule cannot see this; the trip's dates are known at the route,
-so the refusal lives there, on all three stay-writing paths. Check-out is
-bounded by the last day rather than the day after it, because the last night of
-a May 10 to May 15 trip is the 14th into the 15th.
+so the refusal lives there, on all three stay-writing paths. Check-out was at
+first bounded by the last day rather than the day after it, on the reading that
+the last night of a May 10 to May 15 trip is the 14th into the 15th. That
+disagreed with the board, which lets a stay check out the morning after the last
+day, and it left a check-in on the last day with no valid checkout at all; the
+pre-1.0 review unified both on core's `stayNightsProblem`, where the last night
+must be a trip day (see "Bounds on what a member may type").
 
 **A negative share is a typo, not a refund.** The split guard only asked that
 _something_ was positive, so `-1 / 2 / 7` passed it and then divided as though
@@ -6381,7 +6739,7 @@ going, what the notes are, and how the journeys were planned. With the pencil
 gone there was then no way into any of it, and a block that still looked like a
 control and did nothing read as broken. So a locked board still opens its
 events: the block itself is the way in, since it no longer has a pencil to be
-reached through, and what opens is the same dialog with its body `inert`, a
+reached through, and what opens is the same dialog with its fields `inert`, a
 **Locked** mark where the delete would be, and Close as the only button. `inert`
 rather than a field-by-field disable, because the clock and the pickers are
 spans and buttons of the app's own with no one attribute they all honour, and
@@ -6414,6 +6772,23 @@ organizer does not quietly demote them. No membership is inserted for the
 account either: the placeholder's own row moves across, which adds somebody new
 and leaves an existing member's role alone in one statement.
 
+**The list of what moves is held against the schema.** `absorbPlaceholder`
+deletes the placeholder at the end, and every foreign key to `users(id)`
+cascades, so anything it forgets to move is destroyed with no undo. Two tables
+added after it was written were exactly that: `cost_item_people` (a one-person
+estimate silently widened to the whole trip, since no rows means everyone) and
+`trip_tasks.owner_id` (the stand-in's packing list deleted). Both move now, and
+so, defensively, do `trips.organizer_id` and `trip_invites.invited_by`, which a
+placeholder should never hold but whose cascades would take a trip or someone
+else's invite. The statements live in `ABSORBED_USER_REFERENCES`, with
+`UNABSORBED_USER_REFERENCES` naming what is deliberately left to the cascade and
+why (sessions, password resets, pending email changes, and the SET NULL
+`trip_invites.placeholder_id`). `absorb-placeholder.test.ts` reads
+`PRAGMA foreign_key_list` over every table and fails on any reference in
+neither list, so the next table to point at a user cannot be missed the same
+way. A merge also settles the trip's schedule, since the stand-in's journeys
+now belong to someone else.
+
 ### Two smaller ones
 
 **The map is a column, so it gets a column's height.** The day grid draws
@@ -6426,6 +6801,218 @@ height on every day of the trip.
 **The map's "nothing to show" caption is gone.** An empty map is already an
 empty map, and the line sat under a card that is mostly tiles, where it read as
 a caption for the map rather than as the reason it was blank.
+
+## The schedule before 1.0: writes nobody asked for
+
+A review of the board, its dialog and its map found a family of bugs that all
+fail silently: nothing on screen says a click just moved a block two minutes, or
+that a save just replaced somebody else's edit. What each fix is, and why it
+has the shape it has.
+
+**The dialog holds the row it was opened on.** The edit dialog used to be handed
+the event re-read out of every payload, so its `version` was always the newest
+one and the server's lost-update check passed by construction: a stale form
+wrote its copy of every field over whoever had saved in the meantime. The page
+now keeps the opened row in state (`opened`), the way Expenses keeps the expense
+its dialog is editing, and the version moves in one place only: each of the
+dialog's own writes answers with the version it left behind (`took` in
+`EventDialog`), so a save refused halfway (the edit landed, the people write
+failed) can be pressed again without being refused by its own first half. The
+people write bumps the version as well (re-peopling replans the day) and
+answers with it, so the version held after a full save is the people write's,
+not the edit's; storing the edit's would make the next save refuse itself. A
+reply without a number leaves the last one standing. The same snapshot is what keeps the dialog on
+screen when the block leaves the three loaded days. Worth knowing when reading
+the e2e spec: the live stream defers its refetch while any dialog is open
+(`userIsBusy`), so in practice the stale version arrived through a reload that
+was already in flight, not through the stream. The snapshot is the guarantee;
+the deferral was a lucky mitigation.
+
+**A click writes nothing.** Every drop snaps to five minutes, so a still press on
+a block at 9:07 posted 9:05. A gesture now counts as a drag only once the
+pointer has moved `DRAG_SLOP_PX` (3px) in any direction, measured in both axes
+because a block carried sideways to tomorrow never changes its time, and a
+release below that writes nothing whatever the snap says. The grip gets the same
+rule. The edge loop is gated the same way: a block pressed near the side of a
+phone's board sits inside the 72px edge band before it has moved, and the still
+press used to start the strip travelling to the next day.
+
+**On touch, a long press lifts a block.** With `touch-action: none` every swipe
+that began on a block moved it, which on a phone is most swipes. On a coarse
+pointer the blocks now allow `manipulation`, so the board pans like any page,
+and a block is lifted by a finger held still for `LONG_PRESS_MS` (400ms, about
+the platform's own long press). Once lifted, the pan the browser would start is
+cancelled by a non-passive `touchmove` listener, registered only for the length
+of a gesture because a non-passive touch listener makes every scroll on the page
+wait for script. That listener is the only way to take a pan back after
+`touch-action` has already allowed it; the pointer handover (the touch is
+implicitly captured to the face and the long press moves the capture to the box)
+is why the face's `lostpointercapture` is not read as a cancel. The platform's
+long-press callout and context menu give way to the gesture.
+
+**The block's face is a sibling of its pencil.** The block used to be a
+`role="button"` with a real `<button>` inside it. It is now a box carrying the
+geometry and the gesture, holding a face (the button, filling the box, with the
+padding inherited) beside the pencil and the grip. The click handler stays on
+the box, not the face: the box holds the pointer capture during a press, and a
+click is dispatched to the captured element, so a handler on the face never
+heard a mouse click. On a screen with no hover the pencil is always drawn, and
+on a coarse pointer it gets a 44px target anchored to the block's corner rather
+than centred on the icon, since a centred one lost half its reach to the block's
+clipped edge. The general `.tap` rule in `index.css` used to set
+`position: relative` on the pencil too, which on a phone dropped it out of its
+corner and onto the title; it was taken out of that list.
+
+**Inert goes on what the read-only dialog holds, not on its body.** `.mbody` is
+the dialog's only scroll box, and an inert box takes no wheel and no touch, so a
+locked event on a phone could not be scrolled to its notes or its journeys. The
+fields and the journeys are inert; the body stays live and dims what it holds.
+
+**The place field opens on a press, not on focus.** The dialog puts the caret in
+the place field, and a menu that opened on focus came up with its first row
+highlighted, so the Enter a reader pressed to save swapped the block's place. A
+tap is a mousedown, so a phone still opens the list on touch; a keyboard asks
+with the down arrow like every other combobox.
+
+**The map frames the day, not the trip.** Every saved place in the trip is a grey
+pin, across every city, and fitting the camera to all of them put a two-city
+trip at world zoom. `MapTrack.fit: false` keeps a track drawn but out of what the
+camera frames, and with nothing left to frame the camera falls back to the city.
+Clearing a selection (Escape, a day change) now bumps the focus key as well as
+clearing the id, since the map only re-aims when the key changes.
+
+**The board opens on its first block when a phone would hide it.** The box has a
+320px floor, and at 390x844 the chrome above it leaves less than that on
+screen, so a day starting at nine opened on three empty hours and a sliver of
+block along the fold. On arriving at a day, and only when the first block would
+sit in the lower half of what is actually visible (measured against the
+viewport, not the box), the box scrolls to half an hour before it. A desktop box
+shows the morning whole and never moves.
+
+**The strip keeps its seat through a width change.** The seat is `index *
+width` taken when the payload lands; a width change without a window resize (a
+page scrollbar arriving, a font swap) left the offset part-way into the
+neighbour, with the stepper naming one day and the url's day clipped at the
+edge. A `ResizeObserver` on the box re-squares it, and neither it nor the seat
+runs while a block is being carried, since a reload mid-drag would otherwise
+throw the strip back out from under the hand.
+
+**A journey's pin previews across days, within the window.** A journey is keyed
+by its two events (`from>to`), not by its day, and the server carries a
+pinned row across dates when its block moves. The dialog's preview matched only
+the destination day's rows, so a block sent to tomorrow previewed its ferry at
+the bare estimate and snapped to the pin on save. `replanLegs` now also matches
+every stored row the window has loaded. A move beyond the window still previews
+the estimate: the payload would have to carry the trip's pinned rows by
+`leg_key` for that, which is an API field, not a client fix.
+
+**A warning is written, not only drawn.** The triangle's explanation was a
+`title`, which a phone cannot show. The agenda row and the journey card now say
+"Not enough time to get there" in words under the name; the map card already
+did. Titles in the agenda wrap to two lines, and below 560px the row's meta moves
+under the title, because on a phone every journey was "Transit from" and then
+nothing: the part that told two apart was the part cut.
+
+## The client before 1.0: what a review found, and why each fix has its shape
+
+A review of `apps/web` against a running stack turned up bugs that type-checked
+fine and failed only in time: a reconnect, an expired cookie, a second tap. The
+fixes are small; the reasons are not obvious from the code, so they are here.
+
+**A live reconnect now refetches what it missed.** On every reconnect the stream
+set `live` and queued a reload for every section. Status and `subscribe` shared
+one context value, so the status change handed every subscriber a new object,
+every `useLiveSection` effect re-ran, and each cleanup deleted the reload queued
+for it 120ms before the flush. The control half (`subscribe`, `retry`) is now a
+context of its own with a stable identity, and only `LiveOff` reads the status.
+A detach no longer drops a queued reload either (running one against a section
+that has gone is a no-op), and each section invalidates through one stable
+function so a resubscribe cannot queue it twice. "Has this tab been connected to
+this trip before" moved from a local of the connect effect into a ref keyed by
+trip, because the manual Reconnect re-runs that effect and reset it, so the first
+open after Reconnect looked like a first connection and fetched nothing.
+
+**A 401 signs the tab out, after asking once.** `api()` tells a listener that
+`AuthProvider` registers about any 401 outside `/auth/*`. The provider does not
+take the 401 at its word: it asks `/auth/me` and signs out only on a definite
+401 from that, so an endpoint that ever answers 401 for something other than a
+missing session cannot log somebody out, and an unreachable server changes
+nothing. `/auth/*` is exempt because a 401 there is about the request: a wrong
+password on `/auth/login` and a visitor on `/auth/me`. The route guard already
+carried the attempted URL to `/login`, so returning to the page is free.
+
+**A trip that disappears while open is final.** `useApi` keeps the last good
+response through a failed reload, which is what stops a blip blanking a page and
+is wrong for a trip the reader has lost. A 404 or 403 on a reload of a trip this
+tab had already shown now toasts and goes to `/trips`. A first load that fails
+the same way is still "Trip not found", and any other first-load failure is a
+`LoadError` with a retry, because calling a 500 "not found" sent people away from
+a trip that was fine. `useApi` exposes `errorStatus` for this.
+
+**Votes are optimistic, and the intent is stored, not the flip.** The shown count
+is the server's count with the viewer's own vote swapped for the intended one.
+Stored as a flip, a refetch that lands before the request resolves would already
+contain the vote and the flip would count it twice. Stays hold "which stay in
+this city has my vote", mirroring the server's one-vote-per-city rule. The pill
+refuses a second press while its request is out (a ref, so two taps in one frame
+cannot both pass) using `aria-disabled` rather than `disabled`, because a
+disabled button drops keyboard focus to the page on every vote.
+
+**The stay lock is on the card, organizer only.** `POST /stays/:id/lock` is a
+toggle and moves the lock between a city's stays. It sits in the card footer, not
+the edit dialog, because it is a decision among stays like a vote, and the edit
+dialog is deliberately the proposer's own fields. It is worded ("Lock", "Unlock")
+because a padlock alone reads as the state, which the chip already shows.
+
+**Deletes from an edit dialog throw.** The stay delete went through a mutation
+whose `run` never throws, so `ConfirmDialog` closed over a refusal. It now calls
+the API directly like the place and city deletes, and the confirmation clears
+its old error whenever it opens, so a refusal never greets the next question.
+
+**The account menu is a disclosure.** It said `role="menu"` without the arrow
+keys, roving focus and typeahead that role promises. Two ordinary controls in a
+panel need only Tab, Escape and click-away. A long account name truncates inside
+the trigger; at 390px it had widened the page by 191px.
+
+**Email changes wait for their link.** The address is not changed by a 202: the
+form goes back to the address that still signs in and a live region under it
+says where the link went. The region stays mounted (`sr-only` while empty, and
+the form is not remounted for a pending address) because a region created with
+its text already in it is not announced. The current password is asked for only
+once the address differs, compared case-folded as the server compares it.
+`/verify-email` is public and never signs anyone in: the link proves a mailbox,
+not a password.
+
+**The trip tabs bleed to the screen edge and centre the active tab.** Five tabs
+need about 482px and a 390px phone has 342px inside the container padding, so
+they scroll. Cut inside the padding, under a fade the colour of the band, the row
+looked finished: on Expenses, People was wholly out of view. The strip now runs
+to the screen edge (below the container's max width only, or it would overshoot
+the margins) so a partial label is cut by the screen, and the active tab is
+centred, clamped to the ends, so a neighbour peeks out on each side that has
+more. Arrival and a font reflow jump; only a tab change glides.
+
+**Settle-up and ledger rows wrap.** A transfer names two people, and "Die... pays
+Ali..." is the one thing on the row that must be read whole. The ledger's split
+line and a settlement's "Payment from A to B" wrap for the same reason.
+
+**The home time zone is typed, not scrolled.** Four hundred IANA zones in a
+`Select` had no search. `CurrencyPicker`'s value-versus-query logic became
+`SearchPicker`, which both it and `TimeZonePicker` use, rather than a second copy.
+
+**Smaller ones.** The page transition no longer treats "Loading..." as content
+(`Loading` marks itself `data-loading`), or it slid the placeholder in. The
+search dropdown's progress bar is a `progressbar` only while busy; at rest it
+announced "Searching..." beside every idle box. A search that fails shows the
+server's reason instead of "No matches", which sent people to retype a name that
+was fine. A new expense defaults to the reader's own calendar day, not the UTC
+one. Crews skip members who have left instead of printing blank names. Tab
+titles read "<Page> - <Trip> - Trippy", most specific first because tab strips
+cut from the right; set by the shell for trip tabs, so section pages need not.
+
+**Not done: registration's time zone.** `POST /auth/register` does not accept a
+zone (new accounts start on `UTC`), so the client does not send the browser's.
+That is an API change first.
 
 ## Implementation status
 
@@ -7111,8 +7698,9 @@ would mean converting on every read and back on every drag, and a block would
 move when a city's zone was corrected. The zone lives on the city and is applied
 when rendering (4.1, 7.3).
 
-`people` on a leg is the denormalised, sorted member list, because it is half of
-the leg key and re-deriving it on read would let the two disagree.
+`people` on a leg is the denormalised, sorted member list. It was half of the
+leg key; it no longer is (the key is the pair of events, M3.1), but it is kept
+current on every reconcile so the row still says who the journey is for.
 
 Enums: `role`, `event_type` (see 2.2),
 `travel_mode (walk|cycle|transit|drive|ferry|flight)`.
@@ -7173,7 +7761,25 @@ before `A.end`, the journey does not fit, and the leg is returned `tight` and
 drawn filling the gap rather than shrunk to it (4.2, `placeLeg`). Shrinking it
 would make an impossible day look fine.
 
-#### 7.2.1 Per-person conflicts (`packages/core/src/conflicts.ts`)
+#### 7.2.1 Per-person conflicts (removed; was `packages/core/src/conflicts.ts`)
+
+**Removed, unused.** `findConflicts` and `conflictsForEvent` were written and
+tested but never wired to anything: no route, no page and no hook called them,
+and the board's only warning is the `tight` flag on a journey (`placeLeg`),
+drawn as a `WarnMark` on the leg in `Schedule.tsx` and `Journeys.tsx`. A pure
+module with a 350-line test and no consumer is not shared code; it is a second
+statement of the chain rules (free time, location-less blocks, travel events,
+stays) that every change to `planLegs` had to remember to repeat, with nothing
+to show when it did not. It is deleted along with its test, its `index.ts`
+re-export, its `package.json` export and its vitest alias. `rangesOverlap` in
+`layout.ts` and `zonedMinutesToUtc` in `tz.ts`, which it used, stay: both are
+small, pure and tested, and the second is what a zone-aware planner would need.
+The notes below are kept as the record of the design, should a per-person
+warning be built for real; they describe code that no longer exists. One of
+them matters beyond it: this module compared **instants** across zones, while
+`planLegs`, `placeLeg` and the reflow compare wall clocks within a day, so a
+day that crosses zones can still order and gap its journeys wrongly. That is
+known and not yet fixed.
 
 `placeLeg`'s `tight` flag answers a question about a **journey**: does this leg
 fit in the gap it was drawn into. It cannot answer the question the owner asked

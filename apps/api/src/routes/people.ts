@@ -45,6 +45,9 @@ people.post('/crews', async (c) => {
 	const b = await body(c);
 	const name = str(b.name);
 	if (!name) return fail(c, 400, 'Enter a name.');
+	// A crew name is drawn as a chip in the people picker and on the People page,
+	// so it answers to the same ceiling as every other name.
+	if (!isNameLength(name)) return fail(c, 400, nameTooLong());
 	const id = createCrew(c.get('trip').id, c.get('user').id, name, strList(b.people));
 	if (!id) return fail(c, 403, 'Not allowed');
 	return c.json({ id }, 201);
@@ -54,6 +57,7 @@ people.patch('/crews/:crewId', async (c) => {
 	const b = await body(c);
 	const name = str(b.name);
 	if (b.name !== undefined && !name) return fail(c, 400, 'Enter a name.');
+	if (name && !isNameLength(name)) return fail(c, 400, nameTooLong());
 	return okOr(
 		c,
 		editCrew(

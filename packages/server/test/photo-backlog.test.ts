@@ -23,14 +23,16 @@ let db: Awaited<typeof import('../src/db.ts')>['db'];
 let auth: typeof import('../src/infra/auth.ts');
 let trips: typeof import('../src/persistence/trips.ts');
 let pois: typeof import('../src/persistence/pois.ts');
+let lodging: typeof import('../src/persistence/lodging.ts');
 let photos: typeof import('../src/photos.ts');
 
 beforeAll(async () => {
-	[{ db }, auth, trips, pois, photos] = await Promise.all([
+	[{ db }, auth, trips, pois, lodging, photos] = await Promise.all([
 		import('../src/db.ts'),
 		import('../src/infra/auth.ts'),
 		import('../src/persistence/trips.ts'),
 		import('../src/persistence/pois.ts'),
+		import('../src/persistence/lodging.ts'),
 		import('../src/photos.ts')
 	]);
 });
@@ -118,5 +120,48 @@ describe('the cover-photo backlog', () => {
 		expect(await photos.backfillTripPhotos(tripId)).toBe(3);
 		expect(calls()).toBe(3);
 		expect(pois.poisNeedingPhotos(tripId)).toEqual([]);
+	});
+
+	it('shares one drain between requests for the same trip that arrive together', async () => {
+		const calls = stubPhotoLookup();
+		const tripId = tripWithPhotolessPois(3);
+
+		// Two Discover loads at once, as two members opening the trip would make.
+		const [a, b] = await Promise.all([
+			photos.backfillTripPhotos(tripId),
+			photos.backfillTripPhotos(tripId)
+		]);
+		expect(a).toBe(3);
+		expect(b).toBe(3);
+		// Each place bought once, not once per request.
+		expect(calls()).toBe(3);
+		// And the next visit, once that drain is over, starts a fresh one.
+		expect(await photos.backfillTripPhotos(tripId)).toBe(0);
+	});
+
+	it('writes nothing with no key, so the backlog is still there when one is set', async () => {
+		const calls = stubPhotoLookup();
+		delete process.env.GOOGLE_SERVER_KEY;
+		const tripId = tripWithPhotolessPois(2);
+		const organizer = (
+			db.prepare(`SELECT organizer_id FROM trips WHERE id = ?`).get(tripId) as {
+				organizer_id: string;
+			}
+		).organizer_id;
+		const cityId = (
+			db.prepare(`SELECT id FROM cities WHERE trip_id = ?`).get(tripId) as { id: string }
+		).id;
+		const stay = lodging.addOption(tripId, organizer, cityId, 'ZZ Typed Hotel')!;
+
+		expect(await photos.backfillTripPhotos(tripId)).toBe(0);
+		expect(calls()).toBe(0);
+		expect(pois.poisNeedingPhotos(tripId).length).toBe(2);
+		expect(
+			db.prepare(`SELECT photo, place_checked FROM lodging_options WHERE id = ?`).get(stay)
+		).toEqual({ photo: null, place_checked: 0 });
+
+		// A key arrives, and everything is still waiting to be looked up.
+		process.env.GOOGLE_SERVER_KEY = 'test-key';
+		expect(await photos.backfillTripPhotos(tripId)).toBe(3);
 	});
 });

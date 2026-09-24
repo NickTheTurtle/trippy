@@ -137,6 +137,8 @@ function CitySearch({
 	const [query, setQuery] = useState('');
 	const [hits, setHits] = useState<Suggestion[]>([]);
 	const [searching, setSearching] = useState(false);
+	/** Why the last search failed. Not the same thing as it finding nothing. */
+	const [searchError, setSearchError] = useState('');
 	/** Whether the results overlay is showing. Closed by picking, reopened by typing. */
 	const [open, setOpen] = useState(false);
 	const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -154,6 +156,7 @@ function CitySearch({
 	);
 
 	function run(q: string) {
+		setSearchError('');
 		if (q.length < MIN_QUERY) {
 			setHits([]);
 			setSearching(false);
@@ -166,8 +169,13 @@ function CitySearch({
 		inflight.current = ctl;
 		api<{ results: Suggestion[] }>(`/citysearch?q=${encodeURIComponent(q)}`, { signal: ctl.signal })
 			.then((d) => setHits(d.results ?? []))
-			.catch(() => {
-				if (!ctl.signal.aborted) setHits([]);
+			.catch((err) => {
+				if (ctl.signal.aborted) return;
+				setHits([]);
+				// The geocoder's own refusal (a rate limit, a provider that is down)
+				// or the client's "could not reach the server", in place of the
+				// results. "No cities matched" is kept for a search that worked.
+				setSearchError(err instanceof ApiError ? err.message : copy.api.requestFailed);
 			})
 			.finally(() => {
 				if (inflight.current === ctl) {
@@ -227,7 +235,13 @@ function CitySearch({
 				itemDisabled={(s) => onTrip.has(key(s))}
 				// Nothing to say yet on one letter, so the popup stays shut until the
 				// query is long enough to have searched.
-				empty={query.trim().length < MIN_QUERY ? null : searching ? c.searching : c.noMatches}
+				empty={
+					query.trim().length < MIN_QUERY
+						? null
+						: searching
+							? c.searching
+							: searchError || c.noMatches
+				}
 			/>
 
 			{picked && (

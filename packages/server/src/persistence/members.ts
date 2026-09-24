@@ -1,9 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { isValidEmail } from '@trippy/core';
+import { isNameLength } from '@trippy/core/validate';
 import { db } from '../db';
 import { publish, publishMany } from '../events';
 import { detachMemberFromLedger } from './expenses';
 import { isMember, isOrganizer } from './membership';
+import { settleTrip } from './schedule';
 export { isOrganizer };
 
 export interface Person {
@@ -100,7 +102,10 @@ export function addPerson(
 ): InviteResult {
 	if (!isOrganizer(tripId, actorId)) return 'forbidden';
 	const cleanName = name.trim();
-	if (!cleanName || cleanName.length > 80) return 'invalid';
+	// The shared name ceiling, not a private 80: the route checks the same limit
+	// first with the shared message, and a store that quietly refused a name the
+	// route had just accepted answered it with "Enter a display name."
+	if (!cleanName || !isNameLength(cleanName)) return 'invalid';
 	const clean = email.trim().toLowerCase();
 	if (clean && !isValidEmail(clean)) return 'invalid';
 	if (clean) {
@@ -112,7 +117,10 @@ export function addPerson(
 				tripId,
 				user.id
 			);
-			publish(tripId, 'members');
+			// A new member is on every Everyone block, so the day's journeys and the
+			// suggested times that follow them can change. See `settleTrip`.
+			settleTrip(tripId);
+			publishMany(tripId, ['members', 'schedule']);
 			return 'added';
 		}
 		const already = db
@@ -157,7 +165,8 @@ export function addPerson(
 	}
 	// After COMMIT: an invalidation that names a change readers cannot see yet
 	// would send every client to refetch the old roster and never correct itself.
-	publish(tripId, 'members');
+	settleTrip(tripId);
+	publishMany(tripId, ['members', 'schedule']);
 	return clean ? 'invited' : 'created';
 }
 
@@ -261,6 +270,7 @@ function merge(tripId: string, placeholderId: string, userId: string): EmailEdit
 		db.exec('ROLLBACK');
 		throw err;
 	}
+	settleTrip(tripId);
 	publishMany(tripId, [...ABSORB_TOPICS]);
 	return 'merged';
 }
@@ -283,7 +293,7 @@ export function renameMember(
 	if (!isOrganizer(tripId, actorId)) return false;
 	if (!isMember(tripId, userId)) return false;
 	const clean = name.trim();
-	if (!clean || clean.length > 80) return false;
+	if (!clean || !isNameLength(clean)) return false;
 	const user = db.prepare(`SELECT password_hash FROM users WHERE id = ?`).get(userId) as
 		{ password_hash: string } | undefined;
 	if (!user) return false;
@@ -337,7 +347,8 @@ function inLedger(tripId: string, userId: string): boolean {
  *    `expenses.payer_id` (the expense and all of its shares),
  *    `expense_participants.user_id`, `lodging_votes.user_id`,
  *    `poi_votes.user_id`, `event_people.user_id`, `task_assignees.user_id`,
- *    `task_done.user_id`, `crew_members.user_id`.
+ *    `task_done.user_id`, `crew_members.user_id`, `cost_item_people.user_id`,
+ *    `trip_tasks.owner_id`.
  *    `trip_invites.placeholder_id` is ON DELETE SET NULL, so it does NOT
  *    cascade; this function deletes that row explicitly instead.
  *  - **A placeholder who is named on an expense** is treated as a member
@@ -387,6 +398,7 @@ export function removeMember(tripId: string, actorId: string, userId: string): b
 		// Either branch can touch votes, assignments, crew segments and the
 		// ledger, so every section that could have shown this person is
 		// invalidated rather than guessing which ones moved.
+		settleTrip(tripId);
 		publishMany(tripId, ['members', 'expenses', 'schedule', 'pois', 'lodging', 'tasks']);
 		return true;
 	}
@@ -399,6 +411,7 @@ export function removeMember(tripId: string, actorId: string, userId: string): b
 		// flagged for a human instead of being guessed at. Done before the events
 		// so the refetch they trigger already sees the settled state.
 		detachMemberFromLedger(tripId, userId);
+		settleTrip(tripId);
 		publishMany(tripId, ['members', 'expenses', 'schedule']);
 	}
 	return res.changes > 0;
@@ -432,47 +445,154 @@ export function removeMember(tripId: string, actorId: string, userId: string): b
  */
 function absorbPlaceholder(userId: string, placeholderId: string): void {
 	if (!db.prepare(`SELECT 1 FROM users WHERE id = ?`).get(placeholderId)) return;
-	const relinks = [
-		// PK (trip_id, user_id): collides when the real account is already a member
-		// of the trip they were invited to.
-		`UPDATE OR IGNORE memberships SET user_id = ? WHERE user_id = ?`,
-		// payer_id is a plain column under no unique index, so it cannot collide
-		// and a plain UPDATE is correct: every expense the placeholder paid moves.
-		`UPDATE expenses SET payer_id = ? WHERE payer_id = ?`,
-		// PK (expense_id, user_id): collides when both identities were listed as
-		// participants on one expense. Keeping the real account's row is also the
-		// only safe answer for money, since merging two shares into one would
-		// double-count a stake that the split already apportioned.
-		`UPDATE OR IGNORE expense_participants SET user_id = ? WHERE user_id = ?`,
-		// PK (poi_id, user_id): collides when both voted for the same POI. A vote
-		// is a boolean per person, so the surviving single row is the right count.
-		`UPDATE OR IGNORE poi_votes SET user_id = ? WHERE user_id = ?`,
-		// PK (city_id, user_id): one vote per city, so a collision means both
-		// identities voted for that city. The real account's choice wins; taking
-		// the placeholder's instead would silently overwrite a live preference.
-		`UPDATE OR IGNORE lodging_votes SET user_id = ? WHERE user_id = ?`,
-		// PK (event_id, user_id): collides when the real account is already on the
-		// same event. Being on an event is set membership, so one row is the whole
-		// meaning and the duplicate is dropped.
-		`UPDATE OR IGNORE event_people SET user_id = ? WHERE user_id = ?`,
-		// PK (task_id, user_id): same shape as event_people, one row per person
-		// per task.
-		`UPDATE OR IGNORE task_assignees SET user_id = ? WHERE user_id = ?`,
-		// PK (task_id, user_id) plus a `done_at` payload. `done_at` is a timestamp,
-		// never a counter or an accumulated total, so collapsing two rows into one
-		// cannot double-count anything. On a collision the real account keeps its
-		// own `done_at`: it ticked that task under its own identity, and that
-		// timestamp is the truer record than the placeholder's.
-		`UPDATE OR IGNORE task_done SET user_id = ? WHERE user_id = ?`,
-		// PK (crew_id, user_id). A crew is only a saved selection of people, so a
-		// collision means both identities were already in it and the surviving row
-		// says everything the two said. The time-segmented crew membership this
-		// replaced needed a hand-written merge; a plain set does not.
-		`UPDATE OR IGNORE crew_members SET user_id = ? WHERE user_id = ?`
-	];
-	for (const sql of relinks) db.prepare(sql).run(userId, placeholderId);
+	for (const r of ABSORBED_USER_REFERENCES) db.prepare(r.sql).run(userId, placeholderId);
 	db.prepare(`DELETE FROM users WHERE id = ?`).run(placeholderId);
 }
+
+/**
+ * Every column that references `users(id)` and is handed over by
+ * `absorbPlaceholder`, with the statement that hands it over.
+ *
+ * A list of table and column as well as SQL so a test can hold it against
+ * `PRAGMA foreign_key_list` over the whole schema: a new table that references
+ * a user and is in neither this list nor `UNABSORBED_USER_REFERENCES` fails
+ * that test, rather than being silently destroyed by the cascade the first time
+ * a placeholder is merged. `cost_item_people` and `trip_tasks.owner_id` were
+ * exactly that: added after this list was written, and lost on every merge.
+ */
+export const ABSORBED_USER_REFERENCES: readonly { table: string; column: string; sql: string }[] = [
+	// PK (trip_id, user_id): collides when the real account is already a member
+	// of the trip they were invited to.
+	{
+		table: 'memberships',
+		column: 'user_id',
+		sql: `UPDATE OR IGNORE memberships SET user_id = ? WHERE user_id = ?`
+	},
+	// payer_id is a plain column under no unique index, so it cannot collide
+	// and a plain UPDATE is correct: every expense the placeholder paid moves.
+	{
+		table: 'expenses',
+		column: 'payer_id',
+		sql: `UPDATE expenses SET payer_id = ? WHERE payer_id = ?`
+	},
+	// PK (expense_id, user_id): collides when both identities were listed as
+	// participants on one expense. Keeping the real account's row is also the
+	// only safe answer for money, since merging two shares into one would
+	// double-count a stake that the split already apportioned.
+	{
+		table: 'expense_participants',
+		column: 'user_id',
+		sql: `UPDATE OR IGNORE expense_participants SET user_id = ? WHERE user_id = ?`
+	},
+	// PK (poi_id, user_id): collides when both voted for the same POI. A vote
+	// is a boolean per person, so the surviving single row is the right count.
+	{
+		table: 'poi_votes',
+		column: 'user_id',
+		sql: `UPDATE OR IGNORE poi_votes SET user_id = ? WHERE user_id = ?`
+	},
+	// PK (city_id, user_id): one vote per city, so a collision means both
+	// identities voted for that city. The real account's choice wins; taking
+	// the placeholder's instead would silently overwrite a live preference.
+	{
+		table: 'lodging_votes',
+		column: 'user_id',
+		sql: `UPDATE OR IGNORE lodging_votes SET user_id = ? WHERE user_id = ?`
+	},
+	// PK (event_id, user_id): collides when the real account is already on the
+	// same event. Being on an event is set membership, so one row is the whole
+	// meaning and the duplicate is dropped.
+	{
+		table: 'event_people',
+		column: 'user_id',
+		sql: `UPDATE OR IGNORE event_people SET user_id = ? WHERE user_id = ?`
+	},
+	// PK (task_id, user_id): same shape as event_people, one row per person
+	// per task.
+	{
+		table: 'task_assignees',
+		column: 'user_id',
+		sql: `UPDATE OR IGNORE task_assignees SET user_id = ? WHERE user_id = ?`
+	},
+	// PK (task_id, user_id) plus a `done_at` payload. `done_at` is a timestamp,
+	// never a counter or an accumulated total, so collapsing two rows into one
+	// cannot double-count anything. On a collision the real account keeps its
+	// own `done_at`: it ticked that task under its own identity, and that
+	// timestamp is the truer record than the placeholder's.
+	{
+		table: 'task_done',
+		column: 'user_id',
+		sql: `UPDATE OR IGNORE task_done SET user_id = ? WHERE user_id = ?`
+	},
+	// PK (crew_id, user_id). A crew is only a saved selection of people, so a
+	// collision means both identities were already in it and the surviving row
+	// says everything the two said. The time-segmented crew membership this
+	// replaced needed a hand-written merge; a plain set does not.
+	{
+		table: 'crew_members',
+		column: 'user_id',
+		sql: `UPDATE OR IGNORE crew_members SET user_id = ? WHERE user_id = ?`
+	},
+	// PK (item_id, user_id): who an estimated cost is for. Same set semantics
+	// as event_people, so a collision keeps one row and loses nothing. Missing
+	// from this list, the cascade quietly widened a one-person estimate to the
+	// whole trip (no rows means everyone) on every merge.
+	{
+		table: 'cost_item_people',
+		column: 'user_id',
+		sql: `UPDATE OR IGNORE cost_item_people SET user_id = ? WHERE user_id = ?`
+	},
+	// Whose packing list a row is. No unique index, so a plain UPDATE moves
+	// every item: the real account ends up with both lists, which is better
+	// than the cascade deleting what the stand-in had packed.
+	{
+		table: 'trip_tasks',
+		column: 'owner_id',
+		sql: `UPDATE trip_tasks SET owner_id = ? WHERE owner_id = ?`
+	},
+	// A placeholder is never made an organizer and cannot invite anybody, so
+	// these two should never match. They are here anyway because the cascade on
+	// either is out of all proportion: `trips.organizer_id` would take a whole
+	// trip, `trip_invites.invited_by` an invite somebody else is waiting on.
+	{
+		table: 'trips',
+		column: 'organizer_id',
+		sql: `UPDATE trips SET organizer_id = ? WHERE organizer_id = ?`
+	},
+	{
+		table: 'trip_invites',
+		column: 'invited_by',
+		sql: `UPDATE trip_invites SET invited_by = ? WHERE invited_by = ?`
+	}
+];
+
+/**
+ * The columns referencing `users(id)` that `absorbPlaceholder` deliberately
+ * leaves to the cascade, each with the reason. See `ABSORBED_USER_REFERENCES`.
+ */
+export const UNABSORBED_USER_REFERENCES: readonly { table: string; column: string; why: string }[] =
+	[
+		{
+			table: 'sessions',
+			column: 'user_id',
+			why: 'a placeholder cannot sign in, and a session is not trip history'
+		},
+		{
+			table: 'password_resets',
+			column: 'user_id',
+			why: 'a placeholder has no password to reset'
+		},
+		{
+			table: 'pending_email_changes',
+			column: 'user_id',
+			why: 'a placeholder cannot sign in to ask for one, and it is not trip history'
+		},
+		{
+			table: 'trip_invites',
+			column: 'placeholder_id',
+			why: 'ON DELETE SET NULL, and both callers delete the placeholder invite themselves'
+		}
+	];
 
 /** What a placeholder turning into a real account changes, for anyone reading. */
 const ABSORB_TOPICS = ['members', 'expenses', 'schedule', 'pois', 'lodging', 'tasks'] as const;
@@ -514,5 +634,6 @@ export function consumeInvites(userId: string, email: string): void {
 	// so anyone with the trip open is looking at a stale name on stale rows.
 	// Topics are the `TRIP_TOPICS` names from `events.ts`; `schedule` covers both
 	// item assignees and party membership, which the calendar reads together.
+	for (const trip of new Set(invites.map((inv) => inv.trip_id))) settleTrip(trip);
 	for (const inv of invites) publishMany(inv.trip_id, [...ABSORB_TOPICS]);
 }

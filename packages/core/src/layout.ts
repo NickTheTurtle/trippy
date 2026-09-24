@@ -45,20 +45,17 @@ export type Placed = {
 export type Layout = {
 	placed: Map<string, Placed>;
 	flows: Flow[];
-	/** Number of flow arrows that cross, after ordering. Lower is better. */
-	crossings: number;
 };
 
 /**
  * Two half-open ranges share an open interval. Touching endpoints do not count,
  * so a block that ends exactly when the next begins does not overlap it.
  *
- * Exported because it is the one geometric fact two different questions both
- * need: this module asks "must these be drawn side by side", and `conflicts.ts`
- * asks "is one person booked into both". The questions differ in what they run
- * over (every drawable block on the day, against one person's own timeline in
- * absolute time) but the predicate is the same, and two copies of it would be
- * free to disagree about the boundary case.
+ * Exported because it is a geometric fact worth one copy: this module asks
+ * "must these be drawn side by side", and any later question of the same
+ * shape (a per-person double-booking check, say) should read the boundary case
+ * from here rather than restate it. The per-person conflict detector that once
+ * shared it was removed unused; see docs/DESIGN.md 7.2.1.
  */
 export function rangesOverlap(
 	aStart: number,
@@ -162,6 +159,11 @@ export function rankEvents(events: LayoutEvent[], flows: Flow[], passes = 12): M
 /**
  * Arrows cross when one starts left of another but ends right of it. Counted over
  * every pair of flows so the result is comparable between candidate orderings.
+ *
+ * A measure of how well `rankEvents` did, for tests. `layoutDay` used to compute
+ * it on every call and hand it back as `crossings`, which nothing read, so every
+ * board draw paid an O(n^2) pass over the flows for a number that was thrown
+ * away.
  */
 export function countCrossings(flows: Flow[], rank: Map<string, number>): number {
 	let n = 0;
@@ -248,5 +250,5 @@ export function layoutDay(events: LayoutEvent[]): Layout {
 		}
 	}
 
-	return { placed, flows, crossings: countCrossings(flows, rank) };
+	return { placed, flows };
 }

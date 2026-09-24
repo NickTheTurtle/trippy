@@ -161,6 +161,7 @@ function requireThrowawayDbPath(): string {
 function removeUserRows(dbPath: string, userId: string): void {
 	const db = new DatabaseSync(dbPath);
 	try {
+		db.exec('PRAGMA busy_timeout = 5000');
 		db.exec('PRAGMA foreign_keys = ON');
 		db.prepare('DELETE FROM users WHERE id = ?').run(userId);
 	} finally {

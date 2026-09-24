@@ -57,11 +57,15 @@ export interface PlannerEvent {
 
 /** A journey the day requires, before anyone has said how long it takes. */
 export interface PlannedLeg {
-	/** Stable across recomputes, so a manual override can be matched back to its leg. */
+	/**
+	 * Stable across recomputes, so a manual override can be matched back to its
+	 * leg. `fromId>toId`, built by `legKey`: the pair of events and nothing else,
+	 * so it does not move when the roster or the travellers do.
+	 */
 	key: string;
 	fromEventId: string;
 	toEventId: string;
-	/** Sorted, so the key is stable whatever order the assignees were written in. */
+	/** Sorted, so two runs over the same day describe the same travellers the same way. */
 	people: string[];
 	fromLat: number;
 	fromLng: number;
@@ -92,9 +96,48 @@ export interface PlannedLeg {
  */
 export const SAME_PLACE_KM = 0.03;
 
-/** The people key half of a leg key: sorted ids, so it does not depend on write order. */
+/** Sorted, de-duplicated ids, so a list of travellers does not depend on write order. */
 export function peopleKey(people: readonly string[]): string {
 	return [...new Set(people)].sort().join(',');
+}
+
+/**
+ * The identity of a journey: the event it leaves and the event it arrives at.
+ *
+ * It used to carry the sorted travellers as a third part, so that "a ferry
+ * booked for two" would not leak onto the journey one of them later made
+ * alone. In practice the travellers are the expanded roster wherever an event
+ * is left on Everyone, so the key moved every time somebody joined, left, was
+ * removed or was merged into a real account, none of which touches the
+ * schedule. Each of those orphaned the stored row, and with it the reader's
+ * pinned mode and the routed answer that had already been paid for.
+ *
+ * The travellers never disambiguated anything: `planLegs` buckets by the pair,
+ * so a day has at most one journey between two given events. What a reader
+ * pins on a journey (the mode, the minutes, a name) is a fact about the route
+ * between two places, not about the headcount. See docs/DESIGN.md, "The leg
+ * key is the pair of events".
+ */
+export function legKey(fromEventId: string, toEventId: string): string {
+	return `${fromEventId}>${toEventId}`;
+}
+
+/**
+ * The identity of a routing question: the mode and both ends' coordinates, to
+ * four decimal places (about 11 m, well inside `SAME_PLACE_KM`).
+ *
+ * Distinct from `legKey`, which is the identity of a journey. A journey keeps
+ * its key when one of its events is moved somewhere else, and that is right for
+ * what a reader pinned on it; it is wrong for what a router answered, which was
+ * an answer about two points. The routing cache is keyed on this, and a stored
+ * answer carries it (`travel_legs.auto_key`) so a moved endpoint is noticed.
+ */
+export function routeKey(
+	leg: Pick<PlannedLeg, 'fromLat' | 'fromLng' | 'toLat' | 'toLng'>,
+	mode: string
+): string {
+	const r = (n: number) => n.toFixed(4);
+	return `${mode}:${r(leg.fromLat)},${r(leg.fromLng)}>${r(leg.toLat)},${r(leg.toLng)}`;
 }
 
 /**
@@ -104,11 +147,14 @@ export function peopleKey(people: readonly string[]): string {
  * so what the reader said about its journeys has to survive the swap. Keys are
  * built here, so they are rewritten here too, and anything that is not a key is
  * handed back untouched rather than turned into one that matches nothing.
+ *
+ * A three-part key is the old `from>to>people` form, which a client holding a
+ * stale payload may still send; it is rewritten to the current form.
  */
 export function rekeyLeg(key: string, toEventId: string): string {
 	const parts = key.split('>');
-	if (parts.length !== 3) return key;
-	return `${parts[0]}>${toEventId}>${parts[2]}`;
+	if (parts.length !== 2 && parts.length !== 3) return key;
+	return legKey(parts[0], toEventId);
 }
 
 /**
@@ -299,7 +345,7 @@ export function planLegs(
 		if (km < SAME_PLACE_KM) continue;
 		const sorted = [...people].sort();
 		legs.push({
-			key: `${from.id}>${to.id}>${peopleKey(sorted)}`,
+			key: legKey(from.id, to.id),
 			fromEventId: from.id,
 			toEventId: to.id,
 			people: sorted,

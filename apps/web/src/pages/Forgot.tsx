@@ -5,6 +5,7 @@ import { Field } from '../components/ui/Field';
 import { useErrorSlot } from '../components/ui/Toast';
 import { useAuth } from '../auth';
 import { api } from '../lib/api';
+import useDocumentTitle from '../hooks/useDocumentTitle';
 import { copy } from '../copy';
 
 const c = copy.auth.forgot;
@@ -12,6 +13,7 @@ const c = copy.auth.forgot;
 export default function Forgot() {
 	const { status } = useAuth();
 	const failure = useErrorSlot();
+	useDocumentTitle([c.title]);
 	const [email, setEmail] = useState('');
 	const [sent, setSent] = useState(false);
 	const [submitting, setSubmitting] = useState(false);

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, Navigate, useSearchParams } from 'react-router';
 import { AuthNotice } from '../components/ui/AuthShell';
 import { useAuth } from '../auth';
+import useDocumentTitle from '../hooks/useDocumentTitle';
 import { copy } from '../copy';
 
 const c = copy.auth.verify;
@@ -16,6 +17,7 @@ export default function Verify() {
 	const [params] = useSearchParams();
 	const token = params.get('token') ?? '';
 	const [error, setError] = useState<string | null>(null);
+	useDocumentTitle([error ? c.failedTitle : c.title]);
 	// The token is single use, so a second POST would always fail. React runs
 	// effects twice in development, which would otherwise turn every successful
 	// confirmation into a failure on screen.
@@ -36,9 +38,17 @@ export default function Verify() {
 				title={c.failedTitle}
 				blurb={error}
 				footer={
-					<Link to="/register" className="font-medium text-accent-ink">
-						{c.retry}
-					</Link>
+					// Both ways on. A link that failed may be one that already worked
+					// (opened twice, or from a second device), and then the account
+					// exists and logging in is the way forward, not signing up again.
+					<span className="flex flex-wrap justify-center gap-x-4 gap-y-1">
+						<Link to="/login" className="font-medium text-accent-ink">
+							{c.logIn}
+						</Link>
+						<Link to="/register" className="font-medium text-accent-ink">
+							{c.retry}
+						</Link>
+					</span>
 				}
 			/>
 		);

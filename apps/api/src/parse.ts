@@ -47,10 +47,16 @@ export function num(v: unknown): number | null {
  * Money in minor units, pixel widths and minute offsets are all counts, and a
  * fractional one is a bad request rather than something to round: `1.5` cents
  * is not a price a client meant to send.
+ *
+ * Only safe integers. `1e300` is an integer as far as `Number.isInteger` is
+ * concerned, and past 2^53 neighbouring values are the same double, so a count
+ * that large cannot be stored or compared exactly. `node:sqlite` also throws
+ * reading one back, which is how a single oversized row once took a whole page
+ * down for every member of a trip.
  */
 export function int(v: unknown): number | null {
 	const n = num(v);
-	return n === null || !Number.isInteger(n) ? null : n;
+	return n === null || !Number.isSafeInteger(n) ? null : n;
 }
 
 /**

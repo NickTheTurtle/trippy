@@ -112,6 +112,7 @@ export AWS_ACCESS_KEY_ID='...'
 export AWS_SECRET_ACCESS_KEY='...'
 export SES_REGION='us-east-1'
 # export RESEND_API_KEY='...'               # used only if the SES keys are absent
+export SES_SNS_TOPIC_ARN='arn:aws:sns:us-east-1:<account>:ses-bounces'  # topic(s) the SES bounce receiver trusts
 export TRIPPY_REGISTER_LIMIT='5'            # signups per IP before backoff
 export TRIPPY_TRUSTED_PROXIES='1'           # Caddy sits one proxy hop in front of the API
 # export TRIPPY_PROVIDER_LIMIT='60'         # paid provider calls per user before backoff
@@ -299,9 +300,11 @@ The server never crashes on a missing key; each feature simply degrades.
 | `MAIL_FROM` (+ SES or Resend creds) | Email verification and password reset | Registration completes instantly with no email step; password reset cannot send |
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `SES_REGION` | Amazon SES as the mail provider (preferred) | Mail via Resend if that key is set, otherwise mail is off |
 | `RESEND_API_KEY` | Resend as the mail provider | Used only when SES creds are absent |
+| `SES_SNS_TOPIC_ARN` | The SNS topic ARN(s), comma-separated, whose SES bounce and complaint notifications `/api/ses/notifications` will act on. A valid SNS signature only proves AWS wrote a message, and any AWS account can subscribe the URL to a topic of its own, so the topic is what ties a notification to this deployment | Every notification (subscription confirmations included) is refused and a warning is logged once, so bounces and complaints never reach the suppression list |
 | `APP_URL` | The origin used in emailed links | Defaults to `http://localhost:5174`, which is wrong in production, so set it |
 | `TRIPPY_DB` | Database file path | Defaults to `/opt/trippy/data/app.db`; the setup script pins it to `/var/lib/trippy/app.db` |
 | `PORT` | API loopback port | Defaults to `5175` |
+| `HOST` | Interface the API binds | Unset binds every interface (fine for local dev, where a phone on the LAN may need it). The setup script sets `127.0.0.1`, because Caddy runs on the same host and proxies to loopback, so the API is not reachable around it |
 | `TRIPPY_REGISTER_LIMIT` | Signups per client IP before exponential backoff | Defaults to `20` (loose, meant for the test suite); the setup script sets `5` |
 | `TRIPPY_TRUSTED_PROXIES` | Number of trusted reverse proxy hops for `X-Forwarded-For` client IP parsing | Defaults to `0` in the app; the setup script sets `1` because Caddy sits directly in front of the API |
 | `TRIPPY_PROVIDER_LIMIT` | Paid provider calls per user before exponential backoff | Defaults to `60` |

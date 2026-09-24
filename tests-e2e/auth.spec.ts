@@ -90,6 +90,32 @@ test.describe('auth and session', () => {
 		}
 	});
 
+	test('a signed-in visitor to the front page lands on their trips, and each page names the tab', async ({
+		page,
+		request
+	}) => {
+		const fixture = await createApiFixture(request);
+		try {
+			await signIn(page, fixture.sessionCookie);
+			await page.goto('/');
+			await expect(page).toHaveURL(/\/trips$/);
+			// The pitch is for people without an account; it never flashes first.
+			await expect(page.getByText(copy.landing.heading)).toHaveCount(0);
+			await expect(page).toHaveTitle(`${copy.trips.heading} - ${copy.shell.brand}`);
+
+			await page.goto(`/trips/${fixture.tripId}/expenses`);
+			await expect(page).toHaveTitle(
+				`${copy.nav.expenses} - ${fixture.tripBody.name} - ${copy.shell.brand}`
+			);
+			await page.getByRole('link', { name: copy.nav.people, exact: true }).click();
+			await expect(page).toHaveTitle(
+				`${copy.nav.people} - ${fixture.tripBody.name} - ${copy.shell.brand}`
+			);
+		} finally {
+			fixture.teardown();
+		}
+	});
+
 	test('visiting a trip URL while signed out redirects to the login page', async ({
 		page,
 		request

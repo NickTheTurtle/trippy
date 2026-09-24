@@ -9,7 +9,7 @@
  * These rates are today's. A recorded transaction must not be revalued by
  * them: see `rateTo`, and the `fx_rate` column expenses store it in.
  */
-import { FALLBACK_RATES } from '@trippy/core/currency';
+import { CURRENCY_CODES, FALLBACK_RATES } from '@trippy/core/currency';
 import { env } from '../infra/env';
 
 // Units of each currency per 1 USD. Static fallback; refreshed at runtime.
@@ -22,9 +22,18 @@ let fetchedAt = 0;
 let refreshing = false;
 const MAX_AGE_MS = 12 * 60 * 60 * 1000; // 12 hours
 
-/** Currencies we can render as choices in the UI. */
+/**
+ * Currencies a member may pick: exactly the ones convertible offline.
+ *
+ * This used to be every key of the live table, roughly a hundred and sixty once
+ * a refresh landed. A code picked from that list (VND, say) converted while the
+ * feed was up and threw from `perUsd` the first time the process restarted
+ * without it, which took the trip's whole expenses page down. Offering only what
+ * the fallback table carries means every stored code converts with the network
+ * gone; the live rates still refine those codes, they just no longer add new ones.
+ */
 export function knownCurrencies(): string[] {
-	return Object.keys(rates);
+	return [...CURRENCY_CODES];
 }
 
 async function doRefresh(): Promise<void> {

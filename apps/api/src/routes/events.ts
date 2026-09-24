@@ -128,6 +128,12 @@ events.get('/', (c) => {
 	});
 
 	if (!result.ok) {
+		if (result.error === 'user-busy') {
+			// The caller's own streams, not the server's capacity, so 429: closing a
+			// tab is the fix, and the Retry-After keeps a reconnect loop from forming.
+			c.header('Retry-After', BUSY_RETRY_AFTER);
+			return fail(c, 429, 'You have too many live connections open. Close a tab and try again.');
+		}
 		if (result.error === 'busy') {
 			c.header('Retry-After', BUSY_RETRY_AFTER);
 			return fail(c, 503, 'Too many live connections for this trip. Try again shortly.');

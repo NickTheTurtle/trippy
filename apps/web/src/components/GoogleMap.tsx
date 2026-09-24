@@ -47,6 +47,16 @@ export type MapTrack = {
 	 * whose events overlap is not a sequence, and numbering it would invent one.
 	 */
 	numbered?: boolean;
+	/**
+	 * False to leave these pins out of what the camera frames.
+	 *
+	 * The pins are still drawn and still answer a hover; they just do not decide
+	 * where the map looks. The schedule's grey pins are every place saved across
+	 * the whole trip, and framing them put a two-city itinerary on screen at
+	 * world zoom when the reader was looking at one day in one city. With nothing
+	 * left to frame, the camera falls back to the city it was given.
+	 */
+	fit?: boolean;
 };
 export type MapCenter = {
 	lat: number | null;
@@ -236,7 +246,9 @@ function GoogleMapInner({
 	 * to about a metre so that a re-read of the same places, which can differ in
 	 * the last float digit, is not a move. */
 	const fitSig = JSON.stringify(
-		tracks.map((t) => t.items.map((i) => [i.lat?.toFixed(5) ?? null, i.lng?.toFixed(5) ?? null]))
+		tracks
+			.filter((t) => t.fit !== false)
+			.map((t) => t.items.map((i) => [i.lat?.toFixed(5) ?? null, i.lng?.toFixed(5) ?? null]))
 	);
 	/** The last set of points the camera was fitted to. */
 	const fitted = useRef('');
@@ -356,6 +368,8 @@ function GoogleMapInner({
 		const wantMarkers: Want[] = [];
 		const wantLines: { path: { lat: number; lng: number }[]; color: string }[] = [];
 		const bounds = new g.maps.LatLngBounds();
+		/** How many framed points went into `bounds`, which is what the camera reads. */
+		let framed = 0;
 
 		for (const t of tracksRef.current) {
 			const located = t.items.filter((i) => i.lat != null && i.lng != null);
@@ -363,7 +377,10 @@ function GoogleMapInner({
 			for (const i of located) {
 				const pos = { lat: i.lat as number, lng: i.lng as number };
 				path.push(pos);
-				bounds.extend(pos);
+				if (t.fit !== false) {
+					bounds.extend(pos);
+					framed++;
+				}
 			}
 			/* One pin per point rather than one per item. The line still runs
 			   through every item in order: it is the route, and the route really
@@ -469,7 +486,8 @@ function GoogleMapInner({
 		for (let i = wantLines.length; i < lines.current.length; i++) lines.current[i].setMap(null);
 		lines.current.length = wantLines.length;
 
-		const count = wantMarkers.length;
+		// Points, not pins: two things at one address frame as a single spot.
+		const count = framed;
 		const c = centerRef.current;
 		dayView.current = { bounds, count };
 		// A focused pin owns the camera: the draw must not yank it back to the
@@ -479,15 +497,7 @@ function GoogleMapInner({
 		// redraws on any edit; the camera is the one thing the reader owns.
 		if (fitted.current === fitSig) return;
 		fitted.current = fitSig;
-		if (count > 1) {
-			map.fitBounds(bounds, 40);
-		} else if (count === 1) {
-			map.setCenter(bounds.getCenter());
-			map.setZoom(14);
-		} else if (c?.lat != null && c?.lng != null) {
-			map.setCenter({ lat: c.lat, lng: c.lng });
-			map.setZoom(12);
-		}
+		frame(map, bounds, count, c);
 	}, [sig, fitSig, ready]);
 
 	/* Aim the camera at one pin when the page asks, and put it back on the whole
@@ -504,16 +514,30 @@ function GoogleMapInner({
 			return;
 		}
 		const { bounds, count } = dayView.current;
-		if (count > 1 && bounds) map.fitBounds(bounds, 40);
-		else if (count === 1 && bounds) {
-			map.setCenter(bounds.getCenter());
-			map.setZoom(14);
-		}
+		frame(map, bounds, count, centerRef.current);
 		// `focus` is read fresh here; `focusKey` is what makes a repeat aim fire.
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [focusKey, ready]);
 
 	return <div ref={elRef} className="gmapbox" />;
+}
+
+/**
+ * Put the camera on the framed points, or on the city when there are none.
+ *
+ * One rule for the first draw and for a cleared focus, so the two cannot
+ * disagree about what "the whole day" looks like.
+ */
+function frame(map: Gm, bounds: Gm, count: number, c: MapCenter): void {
+	if (count > 1 && bounds && !bounds.getNorthEast().equals(bounds.getSouthWest())) {
+		map.fitBounds(bounds, 40);
+	} else if (count >= 1 && bounds) {
+		map.setCenter(bounds.getCenter());
+		map.setZoom(14);
+	} else if (c?.lat != null && c?.lng != null) {
+		map.setCenter({ lat: c.lat, lng: c.lng });
+		map.setZoom(12);
+	}
 }
 
 /**

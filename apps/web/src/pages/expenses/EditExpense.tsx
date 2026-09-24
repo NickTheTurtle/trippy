@@ -12,6 +12,7 @@ import { IconButton, LinkButton } from '../../components/ui/buttons';
 import { MinusIcon, PlusIcon } from '../../components/ui/icons';
 import { CheckBox } from '../../components/ui/CheckBox';
 import type { Expense, Member } from './types';
+import { today } from './day';
 import { copy } from '../../copy';
 
 const c = copy.expenses.addDialog;
@@ -73,8 +74,12 @@ export default function EditExpense({
 	 */
 	const [spentOn, setSpentOn] = useState(() => {
 		if (expense) return expense.spent_on;
-		const today = new Date().toISOString().slice(0, 10);
-		return today >= firstDay && today <= lastDay ? today : firstDay;
+		// The reader's own calendar day, as `formatSpentOn` reads it back. The
+		// UTC day this used to take is yesterday or tomorrow for part of every
+		// day anywhere but Greenwich, so an expense logged over dinner in Los
+		// Angeles was dated the next morning.
+		const now = today();
+		return now >= firstDay && now <= lastDay ? now : firstDay;
 	});
 	// A new expense is paid by you until you say otherwise. `members[0]` is the
 	// organizer, because the roster is ordered by role, so defaulting to it

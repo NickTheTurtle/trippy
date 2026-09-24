@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { isCurrencyCode } from '@trippy/core/currency';
+import { isNameLength } from '@trippy/core/validate';
 import { db } from '../db';
 import { publish } from '../events';
 import { convertCents } from '../providers/fx';
@@ -6,9 +8,17 @@ import { homeCurrency, isMember } from './membership';
 
 /** The trip's home currency, which an estimate with no currency of its own is in. */
 
-/** Stored as typed or not at all: blank stays blank, and blank means home. */
-function cleanCurrency(currency: string | undefined): string {
-	return (currency ?? '').trim().toUpperCase();
+/**
+ * Stored as typed or not at all: blank stays blank, and blank means home.
+ *
+ * Null for a code nothing can convert. Every read of the budget converts every
+ * item, so one row in an unknown currency made `perUsd` throw and took the
+ * Preparation page down for the whole trip. The writers refuse on null.
+ */
+function cleanCurrency(currency: string | undefined): string | null {
+	const code = (currency ?? '').trim().toUpperCase();
+	if (!code) return '';
+	return isCurrencyCode(code) ? code : null;
 }
 
 export const COST_CATEGORIES = ['lodging', 'activities', 'food', 'travel'] as const;
@@ -178,7 +188,10 @@ function validItem(
 	cents: number
 ): { label: string; category: string; cents: number } | null {
 	const l = label.trim();
-	if (!l || l.length > 120) return null;
+	// The same ceiling as every other name, rather than a private 120: the route
+	// now refuses an over-long label with the shared message, and a store that
+	// refused a shorter one would answer that with "Could not add that item."
+	if (!l || !isNameLength(l)) return null;
 	if (!(COST_CATEGORIES as readonly string[]).includes(category)) return null;
 	if (!Number.isFinite(cents) || cents < 0) return null;
 	return { label: l, category, cents: Math.round(cents) };
@@ -220,6 +233,8 @@ export function addCostItem(tripId: string, actorId: string, input: CostItemInpu
 	if (!isMember(tripId, actorId)) return false;
 	const ok = validItem(input.label, input.category, input.cents);
 	if (!ok) return false;
+	const currency = cleanCurrency(input.currency);
+	if (currency === null) return false;
 	const people = validMembers(tripId, input.assignees);
 	const id = randomUUID();
 	const next = db
@@ -237,7 +252,7 @@ export function addCostItem(tripId: string, actorId: string, input: CostItemInpu
 			ok.category,
 			ok.label,
 			ok.cents,
-			cleanCurrency(input.currency),
+			currency,
 			next.n,
 			Date.now()
 		);
@@ -260,6 +275,8 @@ export function updateCostItem(
 	if (!isMember(tripId, actorId)) return false;
 	const ok = validItem(input.label, input.category, input.cents);
 	if (!ok) return false;
+	const currency = cleanCurrency(input.currency);
+	if (currency === null) return false;
 	const exists = !!db
 		.prepare(`SELECT 1 FROM cost_items WHERE id = ? AND trip_id = ?`)
 		.get(itemId, tripId);
@@ -271,7 +288,7 @@ export function updateCostItem(
 		db.prepare(
 			`UPDATE cost_items SET category = ?, label = ?, amount_cents = ?, currency = ?
 			 WHERE id = ? AND trip_id = ?`
-		).run(ok.category, ok.label, ok.cents, cleanCurrency(input.currency), itemId, tripId);
+		).run(ok.category, ok.label, ok.cents, currency, itemId, tripId);
 		setPeople(itemId, people);
 		db.exec('COMMIT');
 	} catch (err) {

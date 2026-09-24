@@ -247,12 +247,15 @@ export default function SearchDropdown<T>({
 						onChange={(e) => onChange(e.target.value)}
 					/>
 					{/* Overlays the input's lower edge rather than sitting under it, so
-					    starting a search adds no height either. */}
+					    starting a search adds no height either. Drawn always, so the
+					    line can fade in and out, but it is a progress bar only while
+					    something is in progress: left in the accessibility tree at rest
+					    it announced "Searching..." beside every idle search box. */}
 					<div
 						className={`progress pointer-events-none absolute right-3 bottom-px left-3 h-0.5 overflow-hidden rounded-full ${busy ? 'on' : ''}`}
-						role="progressbar"
-						aria-label={copy.ui.searchDropdown.busyLabel}
-						aria-busy={busy}
+						{...(busy
+							? { role: 'progressbar', 'aria-label': copy.ui.searchDropdown.busyLabel }
+							: { 'aria-hidden': true })}
 					>
 						<span />
 					</div>

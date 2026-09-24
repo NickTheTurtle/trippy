@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { api } from '../lib/api';
+import { api, ApiError } from '../lib/api';
 import { useApi } from '../hooks/useApi';
 import { useLiveSection } from '../hooks/useTripEvents';
 import { useMutation } from '../hooks/useMutation';
@@ -15,6 +15,7 @@ import CityList, { type CityRow } from './discover/CityList';
 import PlaceCard from './discover/PlaceCard';
 import StayCard from './discover/StayCard';
 import AddDialog from './discover/AddDialog';
+import { useVotes } from './discover/useVotes';
 import EditPlaceDialog from './discover/EditPlaceDialog';
 import EditStayDialog from './discover/EditStayDialog';
 import NoCities from './discover/NoCities';
@@ -59,25 +60,27 @@ export default function Discover() {
 	// API answers 400 / 403 / 404 for a write it declines where it used to
 	// answer `{ok:true}`, so a member pressing an organizer-only control now
 	// gets told rather than shown a change that never happened.
-	const votePlace = useMutation<[string]>(
-		(id) => api(`${base}/pois/${id}/vote`, { method: 'POST' }),
-		{ fallback: cd.errors.votePlace, onSuccess: reload, onError: toast.error }
-	);
-	const voteStay = useMutation<[string]>(
-		(id) => api(`${base}/stays/${id}/vote`, { method: 'POST' }),
-		{
-			fallback: cd.errors.voteStay,
-			onSuccess: reload,
-			onError: toast.error
+	const votes = useVotes({ base, data, reload, onError: toast.error });
+	/**
+	 * A delete from an edit dialog's confirmation. It throws on a refusal so the
+	 * confirmation stays open and says why, and on a 404 (somebody else deleted
+	 * it first) it resyncs the grid before throwing, so the card that is no
+	 * longer there does not stay drawn behind the message.
+	 */
+	const deleteRow = async (path: string) => {
+		try {
+			await api(path, { method: 'DELETE' });
+		} catch (err) {
+			if (err instanceof ApiError && err.status === 404) reload();
+			throw err;
 		}
-	);
-	const removeStay = useMutation<[string]>(
-		(id) => api(`${base}/stays/${id}`, { method: 'DELETE' }),
-		{
-			fallback: cd.errors.removeStay,
-			onSuccess: reload,
-			onError: toast.error
-		}
+		reload();
+	};
+	// The organizer's pick for a city. A toggle on the server, and one stay per
+	// city holds it, so locking one releases whichever held it before.
+	const lockStay = useMutation<[string]>(
+		(id) => api(`${base}/stays/${id}/lock`, { method: 'POST' }),
+		{ fallback: cd.errors.lockStay, onSuccess: reload, onError: toast.error }
 	);
 
 	/* Three states before there is a page: still loading, failed, or here. The
@@ -99,11 +102,12 @@ export default function Discover() {
 	const current = cities.find((c) => c.id === activeCity) ?? cities[0];
 	if (!current) return null;
 
-	const staysIn = (cityId: string) => (withStays ? (data.stays[cityId] ?? []) : []);
+	const staysIn = (cityId: string) =>
+		withStays ? (data.stays[cityId] ?? []).map((s) => votes.stay(cityId, s)) : [];
 	const placesIn = (city: (typeof cities)[number]) =>
 		city.pois.filter((p) => kinds.includes(p.kind));
 	const stays = staysIn(current.id);
-	const places = placesIn(current);
+	const places = placesIn(current).map(votes.place);
 
 	/* One grid ordered by votes, whatever the filter says.
 	 *
@@ -144,9 +148,7 @@ export default function Discover() {
 		region: regionOf(c.id),
 		// The badge counts what the current view would show, so it never reads as
 		// a places count while you are comparing stays.
-		badge: placesIn(c).length + staysIn(c.id).length,
-		items: c.pois.length + (data.stays[c.id]?.length ?? 0),
-		linked: c.pois.reduce((n, p) => n + p.linked, 0)
+		badge: placesIn(c).length + staysIn(c.id).length
 	}));
 
 	/** Share of the group behind an option, for the bar along the card's edge. */
@@ -229,8 +231,11 @@ export default function Discover() {
 									stay={it.stay}
 									currency={data.currency}
 									pct={pct(it.stay.votes)}
+									voteBusy={it.stay.voteBusy}
 									onEdit={() => setEditStay(it.stay)}
-									onVote={() => void voteStay.run(it.stay.id)}
+									onVote={() => votes.toggleStay(current.id, it.stay)}
+									onLock={data.isOrganizer ? () => void lockStay.run(it.stay.id) : undefined}
+									lockBusy={lockStay.busy}
 								/>
 							) : (
 								<PlaceCard
@@ -239,8 +244,9 @@ export default function Discover() {
 									poi={it.poi}
 									tz={tzOf(current.id)}
 									pct={pct(it.poi.votes)}
+									voteBusy={it.poi.voteBusy}
 									onEdit={() => setEditPoi(it.poi)}
-									onVote={() => void votePlace.run(it.poi.id)}
+									onVote={() => votes.togglePlace(it.poi)}
 								/>
 							)
 						)}
@@ -278,9 +284,8 @@ export default function Discover() {
 						reload();
 					}}
 					onDelete={async () => {
-						await api(`${base}/pois/${editPoi.id}`, { method: 'DELETE' });
+						await deleteRow(`${base}/pois/${editPoi.id}`);
 						setEditPoi(null);
-						reload();
 					}}
 				/>
 			)}
@@ -297,7 +302,11 @@ export default function Discover() {
 						reload();
 					}}
 					onDelete={async () => {
-						await removeStay.run(editStay.id);
+						// Thrown, not caught: a failed delete keeps the confirmation open
+						// with the refusal on it, as the place and city deletes do. This
+						// went through a mutation whose `run` never throws, so a refused
+						// delete closed the dialog as though it had worked.
+						await deleteRow(`${base}/stays/${editStay.id}`);
 						setEditStay(null);
 					}}
 				/>

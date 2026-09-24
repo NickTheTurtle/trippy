@@ -573,13 +573,6 @@ select.input.compact {
 	min-height: 0;
 	flex: 1 1 auto;
 }
-/* A dialog that only shows a thing. The body is inert, so it takes no pointer
-   and no focus; this is the reader's half of that, because a field nothing
-   happens in reads as broken rather than as frozen unless it says so. */
-.mbody[inert] {
-	opacity: 0.7;
-	cursor: not-allowed;
-}
 .mfoot {
 	display: flex;
 	align-items: center;
@@ -681,6 +674,16 @@ select.input.compact {
  * because it needs ::before/::after and a gradient in the header's own colour,
  * and the scrollbar is hidden because the fade is the affordance: two of them
  * on one row read as two different controls.
+ *
+ * The strip bleeds to the edges of the screen, out through the container's
+ * padding, and pads its own content back in by the same amount, so at rest it
+ * sits exactly where it did. What changes is where a tab that does not fit
+ * is cut. Inside the padding it was cut 24px short of the screen edge, under a
+ * fade the colour of the band, which at 390px looked like the end of the row:
+ * with Expenses showing, People was entirely out of view and nothing on screen
+ * said so. Cut by the screen edge instead, a half-visible label is the
+ * ordinary sign that a row carries on, and the fade sits over it rather than
+ * over empty space.
  */
 .tabswrap {
 	position: relative;
@@ -693,6 +696,18 @@ select.input.compact {
 	overflow-x: auto;
 	scrollbar-width: none;
 	scroll-behavior: smooth;
+}
+/* Only while the container is the full width of the screen, which is the
+ * container's max-width. Wider than that it has margins of its own, the bleed
+ * would reach past them into a horizontal scroll, and the tabs fit anyway. */
+@media (max-width: 1120px) {
+	.tabswrap {
+		margin-inline: -1.5rem;
+	}
+	.tabs {
+		padding-inline: 1.5rem;
+		scroll-padding-inline: 1.5rem;
+	}
 }
 /*
  * The active tab's underline. Positioned against the scrolled content rather
@@ -1519,8 +1534,7 @@ html[data-page-nav='back']::view-transition-new(trippage) {
 	.pill,
 	.sched .navbtn,
 	.sched .daypick,
-	.sched .stayadd,
-	.sched .block .bedit {
+	.sched .stayadd {
 		position: relative;
 	}
 	.tap::after,
@@ -1528,8 +1542,7 @@ html[data-page-nav='back']::view-transition-new(trippage) {
 	.pill::after,
 	.sched .navbtn::after,
 	.sched .daypick::after,
-	.sched .stayadd::after,
-	.sched .block .bedit::after {
+	.sched .stayadd::after {
 		content: '';
 		position: absolute;
 		left: 50%;

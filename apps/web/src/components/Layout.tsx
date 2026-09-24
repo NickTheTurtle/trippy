@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { Link, Outlet, useNavigate } from 'react-router';
 import { useAuth } from '../auth';
 import { CaretIcon } from './ui/icons';
@@ -30,6 +30,7 @@ function TopBar() {
 	const [menuOpen, setMenuOpen] = useState(false);
 	const menuWrapRef = useRef<HTMLDivElement>(null);
 	const triggerRef = useRef<HTMLButtonElement>(null);
+	const panelId = useId();
 
 	// Any click that is not on the trigger closes the menu. Registered on the
 	// window rather than a backdrop element so the click that dismisses the menu
@@ -52,10 +53,17 @@ function TopBar() {
 					<span>{copy.shell.brand}</span>
 				</Link>
 
-				<nav className="flex items-center gap-6 text-body font-medium">
+				<nav className="flex min-w-0 items-center gap-6 text-body font-medium">
 					{status === 'authenticated' ? (
+						/* A disclosure, not an ARIA menu. It was marked up as
+						   `role="menu"` with `menuitem`s, which promises arrow keys,
+						   roving focus and typeahead that were never built, so a screen
+						   reader user was told to use keys that did nothing. Two links'
+						   worth of choices do not need a menu: a button that shows and
+						   hides a panel of ordinary controls is the honest pattern, and
+						   Tab, Escape and click-away are all it has to handle. */
 						<div
-							className="relative"
+							className="relative min-w-0"
 							ref={menuWrapRef}
 							onKeyDown={(e) => {
 								if (e.key === 'Escape' && menuOpen) {
@@ -77,8 +85,8 @@ function TopBar() {
 							<button
 								type="button"
 								ref={triggerRef}
-								aria-haspopup="menu"
 								aria-expanded={menuOpen}
+								aria-controls={panelId}
 								onClick={(e) => {
 									// Without this the window listener above would see the same
 									// click and close the menu in the same tick it opened.
@@ -89,10 +97,15 @@ function TopBar() {
 								// control in the app rather than the 38px its own padding
 								// happened to give it. `round` rounds it around the avatar and
 								// `quiet` drops the border until it is hovered or open.
-								className={menuOpen ? 'btn round' : 'btn round quiet'}
+								// `max-w-full` and the truncating name keep a long account
+								// name from pushing the bar past a phone's width: at 390px a
+								// fifty-letter name widened the page by 191px.
+								className={`${menuOpen ? 'btn round' : 'btn round quiet'} max-w-full`}
 							>
 								<Avatar tone="solid" name={user.name} />
-								<span>{user.name}</span>
+								<span className="min-w-0 max-w-[9rem] truncate sm:max-w-[16rem]" title={user.name}>
+									{user.name}
+								</span>
 								<span className="flex text-ink-faint">
 									<CaretIcon />
 								</span>
@@ -100,20 +113,20 @@ function TopBar() {
 
 							{menuOpen && (
 								<div
-									role="menu"
+									id={panelId}
 									className="absolute right-0 top-[calc(100%+8px)] z-30 flex min-w-48 flex-col rounded-sm border border-line bg-surface p-1.5 shadow-card"
 								>
 									<Link
 										to="/account"
-										role="menuitem"
+										onClick={() => setMenuOpen(false)}
 										className="rounded-sm px-2.5 py-2 text-left text-body hover:bg-surface-2 hover:text-accent-ink"
 									>
 										{copy.shell.accountSettings}
 									</Link>
 									<button
 										type="button"
-										role="menuitem"
 										onClick={async () => {
+											setMenuOpen(false);
 											await logOut();
 											navigate('/', { replace: true });
 										}}

@@ -193,7 +193,9 @@ describe('cost items are member-only and validated', () => {
 	it('rejects a blank or over-long label, a bad category and a negative amount', () => {
 		const f = makeTrip('cost-validation');
 		expect(costs.addCostItem(f.tripId, f.member, { ...base, label: '   ' })).toBe(false);
-		expect(costs.addCostItem(f.tripId, f.member, { ...base, label: 'x'.repeat(121) })).toBe(false);
+		// The shared name ceiling, which the route also checks with its message.
+		expect(costs.addCostItem(f.tripId, f.member, { ...base, label: 'x'.repeat(201) })).toBe(false);
+		expect(costs.addCostItem(f.tripId, f.member, { ...base, label: 'x'.repeat(200) })).toBe(true);
 		expect(costs.addCostItem(f.tripId, f.member, { ...base, category: 'not-a-category' })).toBe(
 			false
 		);

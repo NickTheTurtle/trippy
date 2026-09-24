@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { type PlannedLeg, type PlannerEvent } from '@trippy/core/travel';
-import { isLocatedType } from '@trippy/core/types';
+import { DAY_END_MIN, isLocatedType } from '@trippy/core/types';
 import {
+	daysBetween,
 	isDayOf,
 	isNightOf,
 	MIDNIGHT_MIN,
@@ -12,10 +13,33 @@ import {
 	stayBand,
 	stayEndOf,
 	suggestStart,
+	SUGGEST_SNAP,
 	toPlannerEvent,
 	type LegOverride,
 	type PlannableStay
 } from '@trippy/core/plan';
+
+describe('day arithmetic in one place', () => {
+	it('counts calendar days, not 24-hour spans, across a DST change', () => {
+		// Europe moves its clocks on the last Sunday of March and October; the
+		// arithmetic is on UTC parts so neither boundary can shave a day off.
+		expect(daysBetween('2026-03-28', '2026-03-30')).toBe(2);
+		expect(daysBetween('2026-10-24', '2026-10-26')).toBe(2);
+		expect(daysBetween('2026-10-05', '2026-10-01')).toBe(-4);
+		expect(daysBetween('2024-02-28', '2024-03-01')).toBe(2);
+	});
+
+	it('is the inverse of shiftDay', () => {
+		for (const n of [-40, -1, 0, 1, 7, 400]) {
+			expect(daysBetween('2026-10-01', shiftDay('2026-10-01', n))).toBe(n);
+		}
+	});
+
+	it('has one end of the day and one snap', () => {
+		expect(MIDNIGHT_MIN).toBe(DAY_END_MIN);
+		expect(SUGGEST_SNAP).toBe(5);
+	});
+});
 
 /* ------------------------------------------------------------------ fixtures */
 
@@ -871,5 +895,64 @@ describe('suggested times', () => {
 	it('suggests the end of the day so far, and nine in the morning for an empty one', () => {
 		expect(suggestStart([])).toBe(9 * 60);
 		expect(suggestStart([block('museum', 600, 720), block('lunch', 400, 500)])).toBe(720);
+	});
+
+	it('follows the block before when there is no journey, because it is the same place', () => {
+		// Two blocks in one building plan no leg (inside SAME_PLACE_KM), so the
+		// suggestion is simply "when the one before ends".
+		const moved = reflowAutoTimes(
+			[block('museum', 600, 720, false), block('cafe', 900, 930)],
+			[]
+		);
+		expect(moved).toEqual([{ id: 'cafe', startMin: 720, endMin: 750 }]);
+	});
+
+	it('follows a block with no location, which breaks the travel chain but still ends', () => {
+		const moved = reflowAutoTimes(
+			[block('call', 600, 690, false), block('lunch', 800, 860)],
+			// No leg: the planner will not measure a journey out of nowhere.
+			[]
+		);
+		expect(moved).toEqual([{ id: 'lunch', startMin: 690, endMin: 750 }]);
+	});
+
+	it("follows only its own people's blocks, not somebody else's", () => {
+		const own = { ...block('lunch', 800, 860), people: ['ana'] };
+		const moved = reflowAutoTimes(
+			[
+				{ ...block('museum', 600, 660, false), people: ['ana'] },
+				// Ben's long afternoon is nothing to do with Ana's lunch.
+				{ ...block('hike', 600, 780, false), people: ['ben'] },
+				own
+			],
+			[],
+			['ana', 'ben']
+		);
+		expect(moved).toEqual([{ id: 'lunch', startMin: 660, endMin: 720 }]);
+	});
+
+	it('waits for the last of its people, whether they travel or not', () => {
+		// Ana arrives by a planned journey; Ben comes from a call with no place.
+		const moved = reflowAutoTimes(
+			[
+				{ ...block('museum', 600, 660, false), people: ['ana'] },
+				{ ...block('call', 600, 720, false), people: ['ben'] },
+				block('dinner', 900, 960)
+			],
+			[leg('museum', 'dinner', 20)],
+			['ana', 'ben']
+		);
+		// Ana: 660 + 20 = 680; Ben: 720 + 0. The block waits for Ben.
+		expect(moved).toEqual([{ id: 'dinner', startMin: 720, endMin: 780 }]);
+	});
+
+	it('reads Everyone as everyone even without a roster', () => {
+		// A named block before an Everyone block: its person is on the Everyone
+		// block too, so it is followed.
+		const moved = reflowAutoTimes(
+			[{ ...block('museum', 600, 700, false), people: ['ana'] }, block('dinner', 900, 960)],
+			[]
+		);
+		expect(moved).toEqual([{ id: 'dinner', startMin: 700, endMin: 760 }]);
 	});
 });

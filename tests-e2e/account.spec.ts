@@ -30,13 +30,18 @@ test.describe('account', () => {
 
 			await profile.getByLabel(ca.profile.nameLabel).fill('Nova Traveler');
 			await profile.getByLabel(ca.profile.emailLabel).fill(newEmail);
-			// The home zone is a custom Select, opened by its accessible name.
-			await profile.getByRole('button', { name: ca.profile.timeZoneAriaLabel }).click();
+			// A different address asks for the current password, and only then.
+			await profile.getByLabel(ca.profile.currentPasswordLabel).fill(user.password);
+			// The home zone is a typeahead over the IANA list: typed, then picked.
+			const zone = profile.getByRole('combobox', { name: ca.profile.timeZoneAriaLabel });
+			await zone.click();
+			await zone.fill('new york');
 			await page.getByRole('option', { name: 'America/New York', exact: true }).click();
 			await profile.getByRole('button', { name: copy.common.save }).click();
 
 			// The confirmation is a corner toast, so it is on the page rather than in
 			// the card: the save outlives the form, which remounts on a new email.
+			// With no mail provider (this suite has none) the address applies at once.
 			await expect(page.locator('.toast.ok').filter({ hasText: ca.profile.saved })).toBeVisible();
 
 			// A reload reseeds the fields from what was stored, so surviving it is the
@@ -44,7 +49,9 @@ test.describe('account', () => {
 			await page.reload();
 			await expect(profile.getByLabel(ca.profile.nameLabel)).toHaveValue('Nova Traveler');
 			await expect(profile.getByLabel(ca.profile.emailLabel)).toHaveValue(newEmail);
-			await expect(profile.locator('button.seltrigger')).toContainText('America/New York');
+			await expect(zone).toHaveValue('America/New York');
+			// Back to the address on file, so no password is being asked for.
+			await expect(profile.getByLabel(ca.profile.currentPasswordLabel)).toHaveCount(0);
 
 			// And the server agrees, underscore and all, not just the rendered label.
 			const account = await page.request.get(`${apiURL}/account`);
@@ -55,6 +62,70 @@ test.describe('account', () => {
 		} finally {
 			user.teardown();
 		}
+	});
+
+	test('an email change asks for the password, and one waiting on its link says where it went', async ({
+		page,
+		request
+	}) => {
+		const user = await registerUser(request);
+		const pending = `waiting-${randomUUID()}@example.test`;
+		try {
+			await signIn(page, user.sessionCookie);
+			await page.goto('/account');
+			const profile = page
+				.locator('section')
+				.filter({ has: page.getByRole('heading', { name: ca.profile.heading }) });
+
+			// Only a changed address asks for a password.
+			await expect(profile.getByLabel(ca.profile.currentPasswordLabel)).toHaveCount(0);
+			await profile.getByLabel(ca.profile.emailLabel).fill(pending);
+			const password = profile.getByLabel(ca.profile.currentPasswordLabel);
+			await expect(password).toBeVisible();
+
+			// The wrong one is refused by the server and nothing changes.
+			await password.fill('not-my-password');
+			await profile.getByRole('button', { name: copy.common.save }).click();
+			await expect(page.locator('.toast.bad')).toBeVisible();
+			const unchanged = await (await page.request.get(`${apiURL}/account`)).json();
+			expect(unchanged.profile.email).toBe(user.email);
+
+			// With a mail provider the server answers 202 and changes nothing until
+			// the link is opened. This suite has no provider, so that answer is
+			// stood in for here: the form's half of the contract is what is tested.
+			await page.route(
+				(u) => u.pathname === '/api/account/profile',
+				(route) => route.fulfill({ status: 202, json: { ok: true, pendingEmail: pending } })
+			);
+			await page.route(
+				(u) => u.pathname === '/api/account',
+				async (route) => {
+					const res = await route.fetch();
+					const body = await res.json();
+					body.profile.pendingEmail = pending;
+					await route.fulfill({ response: res, json: body });
+				}
+			);
+			await password.fill(user.password);
+			await profile.getByRole('button', { name: copy.common.save }).click();
+
+			await expect(profile.getByRole('status')).toHaveText(ca.profile.emailPending(pending));
+			// The field is back on the address that still signs in.
+			await expect(profile.getByLabel(ca.profile.emailLabel)).toHaveValue(user.email);
+			await expect(profile.getByLabel(ca.profile.currentPasswordLabel)).toHaveCount(0);
+			await expect(page.locator('.toast.ok')).toHaveCount(0);
+		} finally {
+			user.teardown();
+		}
+	});
+
+	test('an email link that is not one says so, and offers the way on', async ({ page }) => {
+		const v = copy.auth.verifyEmail;
+		await page.goto('/verify-email?token=not-a-real-token');
+		await expect(page.getByRole('heading', { name: v.failedTitle })).toBeVisible();
+		await expect(page.getByText('That link is no longer valid. Ask for a new one.')).toBeVisible();
+		await expect(page.getByRole('link', { name: copy.shell.logIn }).last()).toBeVisible();
+		await expect(page).toHaveTitle(`${v.failedTitle} - ${copy.shell.brand}`);
 	});
 
 	/**

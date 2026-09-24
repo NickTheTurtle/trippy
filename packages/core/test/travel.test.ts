@@ -3,10 +3,12 @@ import type { LayoutEvent } from '@trippy/core/layout';
 import {
 	layoutBoard,
 	legLaneId,
+	legKey,
 	peopleKey,
 	placeLeg,
 	planLegs,
 	rekeyLeg,
+	routeKey,
 	type BoardLeg,
 	type PlannedLeg,
 	type PlannerEvent
@@ -74,6 +76,21 @@ describe('rekeyLeg', () => {
 
 	it('hands back anything that is not a key, rather than making one that matches nothing', () => {
 		expect(rekeyLeg('nonsense', 'real')).toBe('nonsense');
+	});
+
+	it('rewrites an old three-part key into the pair form', () => {
+		expect(rekeyLeg('from>draft>u1,u2', 'real')).toBe(legKey('from', 'real'));
+	});
+});
+
+describe('routeKey', () => {
+	const leg = { fromLat: 37.975, fromLng: 23.734, toLat: 37.99, toLng: 23.742 };
+	it('names the mode and both points, so a moved end is a different question', () => {
+		expect(routeKey(leg, 'walk')).not.toBe(routeKey(leg, 'drive'));
+		expect(routeKey({ ...leg, toLat: 37.955 }, 'walk')).not.toBe(routeKey(leg, 'walk'));
+	});
+	it('ignores a wobble below four decimal places', () => {
+		expect(routeKey({ ...leg, toLat: 37.99001 }, 'walk')).toBe(routeKey(leg, 'walk'));
 	});
 });
 
@@ -261,15 +278,20 @@ describe('planLegs', () => {
 		expect(after).toBe(before);
 	});
 
-	it('changes the key when the travelling group changes, so an override does not leak', () => {
+	it('keeps the key when the travelling group changes, so a roster change cannot orphan a pin', () => {
 		const a = at(P.hotel, { startMin: 540, endMin: 600, people: ['u1', 'u2'] });
 		const b = at(P.museum, { startMin: 660, endMin: 720, people: ['u1', 'u2'] });
-		const both = planLegs([a, b])[0].key;
+		const both = planLegs([a, b])[0];
 		const alone = planLegs([
 			{ ...a, people: ['u1'] },
 			{ ...b, people: ['u1'] }
-		])[0].key;
-		expect(alone).not.toBe(both);
+		])[0];
+		// Same two events, so the same journey: the pinned ferry is still the ferry.
+		expect(alone.key).toBe(both.key);
+		expect(alone.key).toBe(`${a.id}>${b.id}`);
+		// Who is on it is still reported, it just is not part of the identity.
+		expect(both.people).toEqual(['u1', 'u2']);
+		expect(alone.people).toEqual(['u1']);
 	});
 
 	it('returns the same list in the same order over two runs', () => {

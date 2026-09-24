@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { env } from '@trippy/server/env';
 import {
 	verifySnsSignature,
 	isAllowedSnsApiUrl,
@@ -46,6 +47,32 @@ async function confirm(subscribeUrl: string | undefined): Promise<void> {
 	}
 }
 
+let warnedNoTopics = false;
+
+/**
+ * Whether a message came from one of OUR topics.
+ *
+ * A valid signature only proves AWS wrote the message. Any AWS account can
+ * create an SNS topic, subscribe this public URL to it, confirm the
+ * subscription (we used to follow any genuine `SubscribeURL`) and then publish
+ * correctly signed "complaints" naming any address it liked, suppressing that
+ * person's mail from us for good. `TopicArn` is one of the signed fields, so
+ * holding it to `SES_SNS_TOPIC_ARN` is what binds a genuine message to our own
+ * SES identity. Unset refuses everything, and says so once in the log: a
+ * receiver nobody has configured should do nothing, not trust the world.
+ */
+function ourTopic(arn: unknown): boolean {
+	const allowed = env.SES_SNS_TOPIC_ARN;
+	if (!allowed.length) {
+		if (!warnedNoTopics) {
+			warnedNoTopics = true;
+			console.warn('[ses] SES_SNS_TOPIC_ARN is not set; refusing every SNS message.');
+		}
+		return false;
+	}
+	return typeof arn === 'string' && allowed.includes(arn);
+}
+
 ses.post('/notifications', async (c) => {
 	let message: SnsMessage;
 	try {
@@ -54,6 +81,12 @@ ses.post('/notifications', async (c) => {
 		// Not JSON at all: nothing to verify, nothing to do.
 		return c.body(null, 200);
 	}
+
+	// The topic gate, before the signature, because it is free and the
+	// signature check can fetch a certificate: a message for somebody else's
+	// topic is dropped without costing us a request. It is still re-proven by
+	// the signature below, since `TopicArn` is part of the signed string.
+	if (!ourTopic(message?.TopicArn)) return c.body(null, 200);
 
 	// The signature gate. Until this passes, the body is just bytes a stranger
 	// sent, so no field of it is allowed to influence anything.

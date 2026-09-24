@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { expect, test } from '@playwright/test';
-import { createApiFixture, registerUser } from './fixtures/api';
+import { apiURL, createApiFixture, registerUser } from './fixtures/api';
 import { invite } from './fixtures/seed';
 import { copy } from './fixtures/copy';
 import { signIn } from './fixtures/session';
@@ -229,6 +229,38 @@ test.describe('people', () => {
 			await expect(page).toHaveURL(/\/trips$/);
 			await page.goto(`/trips/${fixture.tripId}/discover`);
 			await expect(page.getByText(copy.tripShell.notFound)).toBeVisible();
+		} finally {
+			fixture.teardown();
+			member.teardown();
+		}
+	});
+
+	test('a member removed while the trip is open is told, and sent to their list', async ({
+		page,
+		request
+	}) => {
+		const fixture = await createApiFixture(request);
+		const member = await registerUser(request, { name: 'Evicted' });
+		await invite(request, fixture, member.email);
+		try {
+			await signIn(page, member.sessionCookie);
+			await page.goto(`/trips/${fixture.tripId}/discover`);
+			await expect(page.getByRole('heading', { name: fixture.tripBody.name })).toBeVisible();
+
+			// The organizer takes them off the trip from elsewhere. The open page
+			// hears about it over the live stream and reloads into a 404, which on a
+			// trip it had already shown is final rather than a blip to ride out.
+			const removed = await request.delete(
+				`${apiURL}/trips/${fixture.tripId}/people/${member.userId}`,
+				{ headers: { cookie: fixture.sessionCookie } }
+			);
+			expect(removed.status()).toBe(200);
+
+			await expect(page).toHaveURL(/\/trips$/);
+			await expect(
+				page.locator('.toast.bad').filter({ hasText: copy.tripShell.gone })
+			).toBeVisible();
+			await expect(page.getByRole('heading', { name: fixture.tripBody.name })).toHaveCount(0);
 		} finally {
 			fixture.teardown();
 			member.teardown();

@@ -12,10 +12,10 @@ import { apiSend, invite } from './fixtures/seed';
  * from the handler would pass every unit test and still let a member delete the
  * group's trip; only a request-level test catches that.
  *
- * They also pin the two different shapes the refusal takes on the wire, which is
- * easy to get wrong: delete answers 403 (a member asking to destroy the trip is
- * refused outright), while edit answers 400 because the route forwards whatever
- * message the server function returns rather than choosing a status itself.
+ * They also pin the shape the refusal takes on the wire: both answer 403, the
+ * `respond.ts` status for "a member, but not allowed". Edit used to answer 400
+ * because the route forwarded the server function's message without choosing a
+ * status, which told a member their values were wrong when their role was.
  */
 test.describe('organizer guards are wired into the routes', () => {
 	test('a member cannot delete the trip (403)', async ({ request }) => {
@@ -36,7 +36,7 @@ test.describe('organizer guards are wired into the routes', () => {
 		}
 	});
 
-	test('a member cannot edit the trip, and the refusal keeps its wording (400)', async ({
+	test('a member cannot edit the trip, and the refusal keeps its wording (403)', async ({
 		request
 	}) => {
 		const fixture = await createApiFixture(request);
@@ -50,9 +50,9 @@ test.describe('organizer guards are wired into the routes', () => {
 				endDate: '2027-02-12',
 				currency: 'USD'
 			});
-			// The route forwards the server's message verbatim, so it lands as a 400
-			// rather than a 403, and the organizer-only wording still reaches the client.
-			expect(res.status(), await res.text()).toBe(400);
+			// Refused on role, before any value is looked at, with the
+			// organizer-only wording.
+			expect(res.status(), await res.text()).toBe(403);
 			expect((await res.json()).error).toBe('Only the organizer can edit this trip.');
 		} finally {
 			member.teardown();

@@ -2,6 +2,8 @@ import { expect, test } from '@playwright/test';
 import { DatabaseSync } from 'node:sqlite';
 import { resolve } from 'node:path';
 import { apiURL, registerUser, sessionValue } from './fixtures/api';
+import { copy } from './fixtures/copy';
+import { signIn } from './fixtures/session';
 
 /**
  * The session middleware's 401, from the outside.
@@ -54,5 +56,72 @@ test.describe('session middleware', () => {
 		} finally {
 			user.teardown();
 		}
+	});
+
+	test('a tab whose session ends is sent to log in, and back to where it was', async ({
+		page,
+		request
+	}) => {
+		const user = await registerUser(request);
+		try {
+			const created = await request.post(`${apiURL}/trips`, {
+				headers: { cookie: user.sessionCookie },
+				data: {
+					name: 'Expiring trip',
+					dates: '',
+					startDate: '2027-02-10',
+					endDate: '2027-02-12',
+					homeCurrency: 'USD'
+				}
+			});
+			expect(created.status()).toBe(201);
+			const tripId = ((await created.json()) as { trip: { id: string } }).trip.id;
+
+			await signIn(page, user.sessionCookie);
+			await page.goto(`/trips/${tripId}/expenses`);
+			await expect(
+				page.getByRole('button', { name: copy.expenses.addExpense, exact: true })
+			).toBeVisible();
+
+			// The session ends underneath the open tab.
+			const db = throwawayDb();
+			try {
+				db.prepare(`UPDATE sessions SET expires_at = ? WHERE id = ?`).run(
+					Date.now() - 1,
+					sessionValue(user.sessionCookie)
+				);
+			} finally {
+				db.close();
+			}
+
+			// The next thing the tab loads is refused, and the tab stops pretending.
+			await page.getByRole('link', { name: copy.nav.people, exact: true }).click();
+			await expect(page).toHaveURL(/\/login$/);
+			await expect(page.getByRole('heading', { name: copy.auth.login.title })).toBeVisible();
+
+			// Logging in again returns to the page that was being opened.
+			await page.getByLabel(copy.auth.login.emailLabel).fill(user.email);
+			await page.getByLabel(copy.auth.login.passwordLabel).fill(user.password);
+			await page.getByRole('button', { name: copy.auth.login.submitLabel }).click();
+			await expect(page).toHaveURL(new RegExp(`/trips/${tripId}/people$`));
+		} finally {
+			user.teardown();
+		}
+	});
+
+	test('the public pages do not bounce a signed-out visitor around', async ({ page }) => {
+		// A 401 from /auth/me is the answer for a visitor, not a session ending.
+		await page.goto('/');
+		await expect(
+			page.getByRole('main').getByRole('link', { name: copy.landing.primaryCta })
+		).toBeVisible();
+		await page.goto('/login');
+		await expect(page).toHaveURL(/\/login$/);
+		// A wrong password is a 401 too, and must not be read as one either.
+		await page.getByLabel(copy.auth.login.emailLabel).fill('nobody@example.test');
+		await page.getByLabel(copy.auth.login.passwordLabel).fill('not-a-password');
+		await page.getByRole('button', { name: copy.auth.login.submitLabel }).click();
+		await expect(page.locator('.toast.bad')).toBeVisible();
+		await expect(page).toHaveURL(/\/login$/);
 	});
 });

@@ -17,6 +17,7 @@ export default function PlaceCard({
 	flipKey,
 	tz,
 	pct,
+	voteBusy = false,
 	onEdit,
 	onVote
 }: {
@@ -26,6 +27,8 @@ export default function PlaceCard({
 	/** The city's IANA zone, so "today's hours" means today *there*. */
 	tz: string;
 	pct: number;
+	/** The viewer's vote on this place is on its way to the server. */
+	voteBusy?: boolean;
 	onEdit: () => void;
 	onVote: () => void;
 }) {
@@ -66,7 +69,13 @@ export default function PlaceCard({
 				    control that acts on the card rather than describing it, and the
 				    far corner is where it stops competing with the vote count. */}
 				<div className="flex flex-wrap items-center gap-1.5">
-					<VotePill votes={p.votes} youVoted={!!p.you_voted} subject={p.name} onVote={onVote} />
+					<VotePill
+						votes={p.votes}
+						youVoted={!!p.you_voted}
+						subject={p.name}
+						onVote={onVote}
+						busy={voteBusy}
+					/>
 					{p.url && <OpenLink url={p.url} name={p.name} />}
 					<EditCardButton name={p.name} onEdit={onEdit} className="ml-auto" />
 				</div>

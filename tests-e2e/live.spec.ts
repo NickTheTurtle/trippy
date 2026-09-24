@@ -103,6 +103,63 @@ test.describe('live collaboration', () => {
 		}
 	});
 
+	test('reconnecting after the stream gave up fetches what changed while it was off', async ({
+		browser,
+		request
+	}) => {
+		const fixture = await createApiFixture(request);
+		const { context, page } = await signedInContext(browser, fixture.sessionCookie);
+		try {
+			// The first stream this page opens is answered with the server's own
+			// "access revoked" close, which is terminal: the page stops listening and
+			// says so. Every stream after it is the real one.
+			let served = false;
+			await page.route(/\/api\/trips\/[^/]+\/events$/, async (route) => {
+				if (served) return route.continue();
+				served = true;
+				await route.fulfill({
+					status: 200,
+					headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' },
+					body: 'event: closed\ndata: {"reason":"revoked"}\n\n'
+				});
+			});
+			// The revoke itself refetches every section already listening (that is
+			// how a page learns it has lost the trip), and the ledger's own first
+			// load may still be on its way. Both are waited out, as "no API request
+			// for most of a second", so the write below lands after them and only
+			// a later refetch can show it.
+			let lastApiRequest = Date.now();
+			page.on('request', (req) => {
+				if (new URL(req.url()).pathname.startsWith('/api/')) lastApiRequest = Date.now();
+			});
+			await page.goto(`/trips/${fixture.tripId}/expenses`);
+			await expect(page.getByText(copy.tripShell.liveOff)).toBeVisible();
+			await expect(page.getByText(copy.common.nothingAdded, { exact: true })).toBeVisible();
+			await expect.poll(() => Date.now() - lastApiRequest).toBeGreaterThan(800);
+
+			// Written while nothing is listening, so only a refetch can show it.
+			await addExpense(request, fixture, fixture.tripId, {
+				description: 'Missed while offline',
+				amount: 12,
+				payerId: fixture.userId,
+				participantIds: [fixture.userId]
+			});
+			await page.waitForTimeout(500);
+			await expect(
+				page.getByRole('listitem').filter({ hasText: 'Missed while offline' })
+			).toHaveCount(0);
+
+			await page.getByRole('button', { name: copy.tripShell.reconnect }).click();
+			await expect(page.getByText(copy.tripShell.liveOff)).toBeHidden();
+			await expect(
+				page.getByRole('listitem').filter({ hasText: 'Missed while offline' })
+			).toBeVisible();
+		} finally {
+			await context.close();
+			fixture.teardown();
+		}
+	});
+
 	test('closing one session does not break the other session live stream', async ({
 		browser,
 		request

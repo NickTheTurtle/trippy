@@ -42,10 +42,11 @@ async function addSessionCookie(context: BrowserContext, sessionCookie: string):
  * Logs out through the account menu, the only path a real user has.
  *
  * The menu trigger has no stable text (it shows the signed-in name), so it is
- * reached by its `aria-haspopup="menu"`, which is the accessible fact that it
- * opens a menu. The items inside are proper `menuitem` roles.
+ * reached as the header's one disclosure button, by its `aria-expanded`. The
+ * panel it opens holds ordinary controls, not ARIA menu items, so Log out is
+ * found as a button.
  */
 export async function logOut(page: Page): Promise<void> {
-	await page.locator('header button[aria-haspopup="menu"]').click();
-	await page.getByRole('menuitem', { name: copy.shell.logOut }).click();
+	await page.locator('header button[aria-expanded]').click();
+	await page.getByRole('button', { name: copy.shell.logOut }).click();
 }

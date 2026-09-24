@@ -1,18 +1,22 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { isValidEmail } from '@trippy/core';
+import { isNameLength, nameTooLong } from '@trippy/core/validate';
 import { issueSession, clearSession, requireUser, sessionId, wantsToken } from '../middleware';
 import { clientIp } from '../client-ip';
 import { body, rawStr, str } from '../parse';
 import { fail, ok } from '../respond';
 import {
+	burnPasswordCheck,
 	createUser,
 	findUserByEmail,
+	hashPassword,
 	verifyPassword,
 	createSession,
 	deleteSession,
 	startRegistration,
 	completeRegistration,
+	completeEmailChange,
 	startPasswordReset,
 	completePasswordReset,
 	pruneExpiredTokens,
@@ -29,6 +33,13 @@ import {
 type Env = { Variables: { user: SessionUser | null } };
 
 export const auth = new Hono<Env>();
+
+/**
+ * Verification mails any one address is sent before backoff applies. Three
+ * covers a lost first mail and an impatient second try; past that, somebody is
+ * using the form to fill that inbox.
+ */
+const REGISTER_MAILS_PER_ADDRESS = 3;
 
 /**
  * Failed logins are counted against the account *and* against the caller.
@@ -91,7 +102,10 @@ auth.post('/login', async (c) => {
 
 	// One message and one code for both a missing account and a wrong password.
 	// Distinguishing them turns this endpoint into a test for which addresses
-	// are registered.
+	// are registered. The same goes for how long the answer takes: a missing
+	// account used to skip the key derivation and come back in a fraction of the
+	// time, so it burns one against a throwaway hash instead.
+	if (!user) burnPasswordCheck(password);
 	if (!user || !verifyPassword(password, user.password_hash)) {
 		for (const k of keys) recordFailure(k);
 		return fail(c, 401, 'Wrong email or password.');
@@ -111,6 +125,10 @@ auth.post('/register', async (c) => {
 	const email = str(b.email).toLowerCase();
 	const name = str(b.name);
 	const password = rawStr(b.password);
+	// Optional: the browser's own zone, so a new account's "today" is the
+	// reader's. Anything that is not a real zone quietly falls back to UTC; the
+	// person never typed it, so refusing the sign-up over it would be wrong.
+	const homeTz = str(b.homeTz) || undefined;
 
 	// Registering also derives a key, so this endpoint is the same CPU lever as
 	// login with none of the guessing. Counted by address only: the email is by
@@ -133,46 +151,82 @@ auth.post('/register', async (c) => {
 		c.header('retry-after', String(Math.ceil(wait / 1000)));
 		return fail(c, 429, 'Too many attempts. Try again in a moment.');
 	}
-
 	// One field per message, in the order the form presents them: "Name and
 	// email are required" makes the reader work out which of the two they
 	// missed, and they are looking at the form while they read it.
 	if (!name) return fail(c, 400, 'Enter a name.');
+	if (!isNameLength(name)) return fail(c, 400, nameTooLong());
 	if (!email) return fail(c, 400, 'Enter an email address.');
 	// Registration used to take the address on trust while the invite form and
 	// the profile form both checked it, so `nope` could own an account it could
 	// never be invited to or mailed at.
 	if (!isValidEmail(email)) return fail(c, 400, 'Enter a valid email address.');
 	if (password.length < 8) return fail(c, 400, 'Use at least 8 characters.');
-	if (findUserByEmail(email)) return fail(c, 409, 'That email is already registered.');
 
-	// Counted on success rather than on failure: one person signing up is one
-	// account, so it is the rate of real registrations that needs a ceiling.
+	// Every well-formed attempt counts, not just the ones that create an
+	// account. Counting only successes left the "already registered" answer
+	// free, so an address could test as many emails as it liked for whether they
+	// held an account. Form mistakes above are not counted: they reveal nothing
+	// and derive no key, and a group behind one NAT fixing typos should not spend
+	// the budget its later members need.
 	recordFailure(key, Date.now(), REGISTER_ATTEMPTS);
+	const taken = !!findUserByEmail(email);
 
 	// With no mail provider there is no way to prove an address, so the account
 	// is created outright. This is not a convenience: it is what lets a fresh
 	// clone and the end-to-end suite register at all, and it is the honest
 	// behaviour for a deployment that cannot send mail rather than one that
-	// silently refuses every sign-up.
+	// silently refuses every sign-up. The 409 stays in this mode for the same
+	// reason: whoever is running a mail-less instance is a developer who needs
+	// to be told the address is taken, and there is no verification step that
+	// could tell them instead.
 	if (!mailConfigured()) {
-		const user = createUser(email, name, password);
+		if (taken) return fail(c, 409, 'That email is already registered.');
+		const user = createUser(email, name, password, homeTz);
 		return c.json({ user, ...grant(c, user.id) }, 201);
 	}
 
+	// Each address is mailed at most a few times an hour however many callers
+	// ask, because every registration mails a stranger-typed address and an
+	// unthrottled one is a way to use us to fill somebody's inbox. Keyed on the
+	// address whether or not it has an account, so the limit says nothing about
+	// which one it is.
+	const mailKey = `register:email:${email}`;
+	const mailWait = retryAfterMs(mailKey);
+	if (mailWait > 0) {
+		c.header('retry-after', String(Math.ceil(mailWait / 1000)));
+		return fail(c, 429, 'Too many attempts. Try again in a moment.');
+	}
+	recordFailure(mailKey, Date.now(), REGISTER_MAILS_PER_ADDRESS);
+
+	// With mail on, a taken address gets the same 202 a fresh one does. The
+	// verification link is the one place that can tell the real owner anything
+	// (and `completeRegistration` refuses a taken address there), so saying
+	// "already registered" here only ever informed a stranger. The key
+	// derivation still runs, and the mail is not awaited on either path, so the
+	// two answers also take the same time.
+	if (taken) {
+		hashPassword(password);
+		return c.json({ pending: true, email }, 202);
+	}
+
 	pruneExpiredTokens();
-	const { token } = startRegistration(email, name, password);
+	const { token } = startRegistration(email, name, password, homeTz);
 	// `sendMail` returns 'suppressed' when the address is on the bounce/complaint
 	// list and sends nothing, but this route deliberately does NOT branch on the
 	// result. The response is the same 202 "check your email" whether the mail
-	// went out, was suppressed, or the address was already registered above would
-	// have 409'd. Branching would turn registration into the very enumeration
-	// oracle that `/forgot` goes to such lengths to avoid: a different answer for
-	// a suppressed address tells a stranger that address once bounced or
-	// complained here, which is information about a real person's mailbox. The
-	// pending row is written either way and simply expires unused; the person who
-	// owns a suppressed address gets no mail, exactly as with a mistyped one.
-	await sendMail(verifyEmailMail({ to: email, name, token }));
+	// went out, was suppressed, or the address was already registered. Branching
+	// would turn registration into the very enumeration oracle that `/forgot`
+	// goes to such lengths to avoid: a different answer for a suppressed address
+	// tells a stranger that address once bounced or complained here, which is
+	// information about a real person's mailbox. The pending row is written
+	// either way and simply expires unused; the person who owns a suppressed
+	// address gets no mail, exactly as with a mistyped one.
+	//
+	// Not awaited, for the timing reason above: a provider round trip on one
+	// path and not the other would tell the two apart. `sendMail` catches its own
+	// failures; the catch here is only so nothing can surface as unhandled.
+	void sendMail(verifyEmailMail({ to: email, name, token })).catch(() => undefined);
 	return c.json({ pending: true, email }, 202);
 });
 
@@ -191,6 +245,23 @@ auth.post('/verify', async (c) => {
 	const result = completeRegistration(token);
 	if (!result.ok) return fail(c, 400, result.error);
 	return c.json({ user: result.user, ...grant(c, result.user.id) }, 201);
+});
+
+/**
+ * Apply an email change from the link sent to the new address.
+ *
+ * No session required: the link may well be opened on a phone that has never
+ * signed in, and the token is the whole credential, exactly as for `/verify`.
+ * It does not sign anyone in either, because it did not prove a password, only
+ * a mailbox. `completeEmailChange` re-checks that the address is still free,
+ * writes it, and only then hands the account the invites waiting there.
+ */
+auth.post('/verify-email', async (c) => {
+	const token = str((await body(c)).token);
+	if (!token) return fail(c, 400, 'That link is no longer valid. Ask for a new one.');
+	const result = completeEmailChange(token);
+	if (!result.ok) return fail(c, 400, result.error);
+	return ok(c);
 });
 
 /**

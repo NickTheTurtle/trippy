@@ -13,6 +13,7 @@ import {
 } from '@trippy/server/costs';
 import { ensureRatesFresh, knownCurrencies } from '@trippy/server/fx';
 import { crewsForTrip } from '@trippy/server/schedule';
+import { isCurrencyCode, unknownCurrency } from '@trippy/core/currency';
 import { amountTooLarge, isAmountInRange, isNameLength, nameTooLong } from '@trippy/core/validate';
 
 export const pretrip = new Hono<Env>();
@@ -119,7 +120,9 @@ function readItem(b: Record<string, unknown>) {
 	return {
 		category: str(b.category),
 		label: str(b.label),
-		currency: str(b.currency),
+		// Upper-cased here so the check below judges exactly what gets stored.
+		// Blank stays blank, and blank means the trip's home currency.
+		currency: str(b.currency).toUpperCase(),
 		assignees: strList(b.assignees),
 		cents: amount === null ? null : Math.round(amount * 100)
 	};
@@ -147,6 +150,8 @@ pretrip.post('/costs', async (c) => {
 	// Checked here rather than left to `addCostItem`, which can only answer
 	// false and would report a missing description as "Could not add that item."
 	if (!item.label) return fail(c, 400, 'Enter a description.');
+	if (!isNameLength(item.label)) return fail(c, 400, nameTooLong());
+	if (item.currency && !isCurrencyCode(item.currency)) return fail(c, 400, unknownCurrency());
 	const bad = amountProblem(item.cents);
 	if (bad) return fail(c, 400, bad);
 	if (!addCostItem(c.get('trip').id, c.get('user').id, { ...item, cents: item.cents as number })) {
@@ -158,6 +163,8 @@ pretrip.post('/costs', async (c) => {
 pretrip.put('/costs/:itemId', async (c) => {
 	const item = readItem(await body(c));
 	if (!item.label) return fail(c, 400, 'Enter a description.');
+	if (!isNameLength(item.label)) return fail(c, 400, nameTooLong());
+	if (item.currency && !isCurrencyCode(item.currency)) return fail(c, 400, unknownCurrency());
 	const bad = amountProblem(item.cents);
 	if (bad) return fail(c, 400, bad);
 	return okOr(

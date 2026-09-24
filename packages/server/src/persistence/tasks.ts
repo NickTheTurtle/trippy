@@ -199,8 +199,13 @@ export function updateTask(
 
 	db.exec('BEGIN');
 	try {
+		// A task with people on it is answered by their own ticks, so the shared
+		// flag is released as it gains them. Left set, it resurfaced as "done" the
+		// moment the roster was emptied again, and a boot-time backfill that read
+		// it re-ticked everyone who had unticked (see TASK_ROSTER_BACKFILL).
 		db.prepare(
-			`UPDATE trip_tasks SET label = ?, assignee = ?, version = ? WHERE id = ? AND trip_id = ?`
+			`UPDATE trip_tasks SET label = ?, assignee = ?, version = ?${valid.length ? ', done = 0' : ''}
+			 WHERE id = ? AND trip_id = ?`
 		).run(label, names, next, taskId, tripId);
 		db.prepare(
 			`DELETE FROM task_assignees WHERE task_id = ?${valid.length ? ` AND user_id NOT IN (${holes})` : ''}`
