@@ -66,18 +66,13 @@ export default function Expenses() {
 		if (settle.error) toast.error(settle.error);
 	}, [settle.error, toast]);
 
+	// A refused save keeps the version the sheet opened on, as on web, so a
+	// second Save is refused again rather than written over the other person's
+	// change. Taking the fresh row's version while the draft stayed on screen
+	// turned the conflict check into a lost update one tap later. The list
+	// behind the sheet reloads so their version is there to read.
 	function refreshEditingAfterConflict() {
-		if (!editing) {
-			reload();
-			return;
-		}
-		void api<ExpensesData>(`/trips/${tripId}/expenses`)
-			.then((fresh) => {
-				const next = fresh.expenses.find((expense) => expense.id === editing.id);
-				if (next) setEditing(next);
-				reload();
-			})
-			.catch(() => reload());
+		reload();
 	}
 
 	if (loading && !data) return <Loading />;

@@ -11,6 +11,7 @@ import { SheetFooter } from '../ui/SheetFooter';
 import { ConfirmSheet } from '../ui/ConfirmSheet';
 import { color, fieldLabel, radius, space, type } from '../theme';
 import { currencyName } from '@trippy/core/currency-names';
+import { parseAmount } from '../lib/amount';
 
 type Member = { id: string; name: string };
 type Crew = { id: string; name: string; members: string[]; locked?: boolean };
@@ -25,12 +26,6 @@ type CostItem = {
 
 function currencyOptions(currencies: readonly string[]) {
 	return currencies.map((code) => ({ key: code, label: code, detail: currencyName(code) }));
-}
-
-function parseAmount(value: string): number {
-	const trimmed = value.trim();
-	const normalized = trimmed.includes('.') ? trimmed : trimmed.replace(',', '.');
-	return Number(normalized);
 }
 
 export function CostSheet({

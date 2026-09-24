@@ -12,6 +12,7 @@ import { Sheet } from '../ui/Sheet';
 import { SheetFooter } from '../ui/SheetFooter';
 import { ConfirmSheet } from '../ui/ConfirmSheet';
 import { color, fieldLabel, radius, space, type } from '../theme';
+import { parseAmount } from '../lib/amount';
 
 export type Member = { id: string; name: string };
 export type Expense = {
@@ -65,12 +66,6 @@ function today(): string {
 
 function currencyOptions(currencies: readonly string[]) {
 	return currencies.map((code) => ({ key: code, label: code, detail: currencyName(code) }));
-}
-
-function parseAmount(value: string): number {
-	const trimmed = value.trim();
-	const normalized = trimmed.includes('.') ? trimmed : trimmed.replace(',', '.');
-	return Number(normalized);
 }
 
 export function ExpenseSheet({
@@ -142,7 +137,7 @@ export function ExpenseSheet({
 	const chosenMembers = data.members.filter((m) => chosen.includes(m.id));
 
 	function weightOf(id: string): number {
-		const raw = mode === 'exact' ? parseAmount(weights[id] ?? '') : Number(weights[id]);
+		const raw = parseAmount(weights[id] ?? '');
 		if (!Number.isFinite(raw) || raw <= 0) return 0;
 		return mode === 'exact' ? Math.round(raw * 100) : raw;
 	}
