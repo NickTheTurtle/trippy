@@ -58,6 +58,7 @@ export default function EditExpense({
 	const [description, setDescription] = useState(expense?.description ?? '');
 	const del = useDeleteAction({
 		title: copy.common.deleteTitle(expense?.description ?? ''),
+		name: expense?.description ?? '',
 		busyLabel: copy.common.deleting,
 		onDelete
 	});

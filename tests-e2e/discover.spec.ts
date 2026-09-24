@@ -93,7 +93,7 @@ test.describe('discover', () => {
 			await page.getByRole('button', { name: 'Oceanario', exact: true }).click();
 			await page
 				.getByRole('dialog')
-				.getByRole('button', { name: copy.common.delete, exact: true })
+				.getByRole('button', { name: copy.common.deleteLabel('Oceanario'), exact: true })
 				.click();
 			const confirm = page.getByRole('dialog');
 			// The house wording, and a confirm button that repeats the bare verb.
@@ -166,7 +166,7 @@ test.describe('discover', () => {
 			await page.getByRole('button', { name: copy.common.editLabel('Pensao Flor') }).click();
 			await page
 				.getByRole('dialog')
-				.getByRole('button', { name: copy.common.delete, exact: true })
+				.getByRole('button', { name: copy.common.deleteLabel('Pensao Flor'), exact: true })
 				.click();
 			const confirm = page.getByRole('dialog');
 			await confirm.getByRole('button', { name: copy.common.delete, exact: true }).click();
@@ -179,7 +179,7 @@ test.describe('discover', () => {
 			await confirm.getByRole('button', { name: copy.common.cancel, exact: true }).click();
 			await page
 				.getByRole('dialog')
-				.getByRole('button', { name: copy.common.delete, exact: true })
+				.getByRole('button', { name: copy.common.deleteLabel('Pensao Flor'), exact: true })
 				.click();
 			await expect(page.getByRole('dialog').getByText(copy.ui.confirmDialog.undone)).toBeVisible();
 			await expect(page.locator('.toast.bad').filter({ hasText: reason })).toHaveCount(0);

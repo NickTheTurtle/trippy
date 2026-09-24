@@ -58,6 +58,7 @@ export default function EditMember({
 
 	const del = useDeleteAction({
 		title: copy.common.deleteTitle(person.name),
+		name: person.name,
 		busyLabel: copy.common.deleting,
 		onDelete: onRemove
 	});

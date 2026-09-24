@@ -60,6 +60,7 @@ export default function EditStayDialog({
 			s.linked > 0
 				? copy.discover.deleteStay.linkedTitle(s.name, s.linked)
 				: copy.common.deleteTitle(s.name),
+		name: s.name,
 		busyLabel: copy.common.deleting,
 		onDelete
 	});

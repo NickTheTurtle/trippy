@@ -40,6 +40,7 @@ export default function CrewDialog({
 
 	const del = useDeleteAction({
 		title: copy.common.deleteTitle(crew?.name ?? ''),
+		name: crew?.name ?? '',
 		busyLabel: copy.common.deleting,
 		onDelete:
 			crew &&

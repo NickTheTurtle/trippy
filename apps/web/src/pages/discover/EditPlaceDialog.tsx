@@ -49,6 +49,7 @@ export default function EditPlaceDialog({
 			p.linked > 0
 				? copy.discover.deletePlace.linkedTitle(p.name, p.linked)
 				: copy.common.deleteTitle(p.name),
+		name: p.name,
 		busyLabel: copy.common.deleting,
 		onDelete
 	});

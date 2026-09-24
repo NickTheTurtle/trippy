@@ -1,6 +1,37 @@
 import { useState, type ReactNode } from 'react';
 import ConfirmDialog from './ConfirmDialog';
+import { TrashIcon } from './icons';
 import { copy } from '../../copy';
+
+/**
+ * The delete button a dialog footer pins to its left, in its `start` slot.
+ *
+ * It reads "Delete" at desk widths and turns into a square bin at phone widths
+ * (`.mdelete` in `index.css`), where the footer has one row and the primary
+ * action should have most of it. Both are drawn and the stylesheet picks one, so
+ * the button is the same element, with the same focus and the same handler, at
+ * every width.
+ *
+ * The accessible name carries the thing's name at every width, not only when
+ * the word is gone: a name that changed with the viewport would make the same
+ * button a different control to a screen reader on a phone. The visible word
+ * starts that name, so a voice command that says what it sees still lands.
+ */
+export function DeleteButton({ name, onClick }: { name: string; onClick: () => void }) {
+	const label = copy.common.deleteLabel(name);
+	return (
+		<button
+			type="button"
+			className="btn danger mdelete"
+			aria-label={label}
+			title={label}
+			onClick={onClick}
+		>
+			<TrashIcon />
+			<span>{copy.common.delete}</span>
+		</button>
+	);
+}
 
 /**
  * The delete that lives in an edit dialog's footer, plus the confirmation it
@@ -21,11 +52,14 @@ import { copy } from '../../copy';
  */
 export function useDeleteAction({
 	title,
+	name,
 	busyLabel,
 	onDelete
 }: {
 	/** Names the thing being deleted. The confirmation carries no body. */
 	title: string;
+	/** The thing's own name, for the button's accessible name ("Delete Tram 28"). */
+	name: string;
 	busyLabel?: string;
 	onDelete?: (() => void | Promise<void>) | null;
 }): { asking: boolean; button: ReactNode; confirm: ReactNode } {
@@ -41,9 +75,7 @@ export function useDeleteAction({
 			// for a place on the calendar. Whatever is particular about a delete
 			// belongs in the question the confirmation asks, not in the button that
 			// opens it, which is the same action every time.
-			<button type="button" className="btn danger" onClick={() => setAsking(true)}>
-				{copy.common.delete}
-			</button>
+			<DeleteButton name={name} onClick={() => setAsking(true)} />
 		),
 		confirm: (
 			<ConfirmDialog

@@ -190,6 +190,12 @@ export function ModalForm({
  *
  * The primary button submits the surrounding form. `onSubmit` is for the one
  * dialog whose body is not a <form>, and turns it into a plain button.
+ *
+ * At phone widths the Cancel (or Close) is not drawn: the header's X, Escape
+ * and the backdrop already cancel, and the one row is better spent on the
+ * primary action, which fills it. A delete in `start` shrinks to a square bin
+ * on the left (`DeleteButton`). The rule, and why a confirmation keeps both of
+ * its buttons, is at `.mfoot` in `index.css` and in docs/DESIGN.md.
  */
 export function ModalFooter({
 	error,
@@ -213,8 +219,9 @@ export function ModalFooter({
 	onClose: () => void;
 	/**
 	 * Omitted for a dialog with nothing to save, which is a dialog that only
-	 * shows a thing and offers to delete it. Cancel becomes the way out and the
-	 * primary button is not drawn, rather than being drawn inert.
+	 * shows a thing and offers to delete it. The button beside it says Close
+	 * rather than Cancel, and the primary button is not drawn, rather than being
+	 * drawn inert.
 	 */
 	submitLabel?: string;
 	/** What the primary button reads while the request is in flight. */
@@ -223,14 +230,18 @@ export function ModalFooter({
 	/** Refuses the submit for a reason of the form's own, beyond being busy. */
 	disabled?: boolean;
 	onSubmit?: () => void;
-	/** Anything pinned to the left of the row, such as a delete. */
+	/** Anything pinned to the left of the row, such as a `DeleteButton`. */
 	start?: ReactNode;
 }) {
+	// With nothing to save and nothing pinned, the Close is the whole footer,
+	// and on a phone the Close is not drawn, so the row goes rather than
+	// standing empty under the body.
+	const bare = !submitLabel && !start;
 	return (
-		<div className="mfoot">
+		<div className={bare ? 'mfoot bare' : 'mfoot'}>
 			{start && <div className="mr-auto">{start}</div>}
 			<DialogError message={error ?? ''} />
-			<button className="btn" type="button" onClick={onClose}>
+			<button className="btn mcancel" type="button" onClick={onClose}>
 				{submitLabel ? copy.common.cancel : copy.ui.modal.closeLabel}
 			</button>
 			{submitLabel && (
