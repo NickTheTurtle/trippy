@@ -9,6 +9,7 @@ import { TABS } from '../nav';
 import AddCityDialog from '../components/AddCityDialog';
 import TripFormDialog from '../components/TripFormDialog';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
+import { DeleteButton } from '../components/ui/useDeleteAction';
 import { CheckBox } from '../components/ui/CheckBox';
 import UiAvatar from '../components/ui/Avatar';
 import Loading from '../components/ui/Loading';
@@ -357,11 +358,7 @@ function EditTrip({
 			submitLabel={copy.common.save}
 			busyLabel={copy.common.saving}
 			fallback={c.editDialog.fallback}
-			footerStart={
-				<button type="button" className="btn danger" onClick={onDelete}>
-					{copy.common.delete}
-				</button>
-			}
+			footerStart={<DeleteButton name={trip.name} onClick={onDelete} />}
 			fields={
 				<label className="flex cursor-pointer items-center gap-2.5 select-none">
 					<CheckBox checked={locked} onChange={() => setLocked((on) => !on)} />

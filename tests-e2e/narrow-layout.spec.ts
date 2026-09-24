@@ -266,4 +266,118 @@ test.describe('narrow layouts', () => {
 			fixture.teardown();
 		}
 	});
+
+	test('a phone dialog footer is the primary action, with any delete as a bin beside it', async ({
+		page,
+		request
+	}) => {
+		const fixture = await createApiFixture(request);
+		try {
+			await addExpense(request, fixture, fixture.tripId, {
+				description: 'Tram 28',
+				amount: 3,
+				payerId: fixture.userId,
+				participantIds: [fixture.userId]
+			});
+			await signIn(page, fixture.sessionCookie);
+			await page.setViewportSize(PHONE);
+			await page.goto(`/trips/${fixture.tripId}/expenses`);
+
+			const dialog = page.getByRole('dialog');
+			const foot = dialog.locator('.mfoot');
+			const cancel = foot.getByRole('button', { name: copy.common.cancel, exact: true });
+			const del = foot.getByRole('button', {
+				name: copy.common.deleteLabel('Tram 28'),
+				exact: true
+			});
+			const save = foot.getByRole('button', { name: copy.common.save, exact: true });
+			const box = async (l: typeof foot) => (await l.boundingBox())!;
+
+			// Adding: nothing to delete, so the primary is the whole row. The X,
+			// Escape and the backdrop are the ways out; a Cancel would be a fourth.
+			await page.getByRole('button', { name: copy.expenses.addExpense, exact: true }).click();
+			const add = foot.getByRole('button', { name: copy.common.add, exact: true });
+			await expect(add).toBeVisible();
+			await expect(cancel).toBeHidden();
+			let [f, p] = [await box(foot), await box(add)];
+			expect(p.width).toBeGreaterThan(f.width - 2 * 24);
+			await page.keyboard.press('Escape');
+			await expect(dialog).toHaveCount(0);
+
+			// Editing: the delete is a square bin at the left, named for the thing,
+			// and Save takes the rest of the same line.
+			await page.getByRole('button', { name: copy.common.editLabel('Tram 28') }).click();
+			await expect(save).toBeVisible();
+			await expect(del).toBeVisible();
+			await expect(cancel).toBeHidden();
+			await expect(del.getByText(copy.common.delete, { exact: true })).toBeHidden();
+			const d = await box(del);
+			[f, p] = [await box(foot), await box(save)];
+			expect(Math.abs(d.width - 44)).toBeLessThan(2);
+			expect(Math.abs(d.height - 44)).toBeLessThan(2);
+			expect(d.x - f.x).toBeLessThan(24);
+			expect(Math.abs(d.y - p.y)).toBeLessThan(2);
+			expect(Math.abs(d.height - p.height)).toBeLessThan(2);
+			expect(p.x).toBeGreaterThan(d.x + d.width);
+			expect(f.x + f.width - (p.x + p.width)).toBeLessThan(24);
+
+			// The confirmation is the one footer that keeps its Cancel: there the
+			// choice between the two is the whole dialog, so each gets half.
+			await del.click();
+			const no = dialog.getByRole('button', { name: copy.common.cancel, exact: true });
+			const yes = dialog.getByRole('button', { name: copy.common.delete, exact: true });
+			await expect(dialog.getByText(copy.ui.confirmDialog.undone)).toBeVisible();
+			await expect(no).toBeVisible();
+			await expect(yes).toBeVisible();
+			const [n, y] = [await box(no), await box(yes)];
+			expect(Math.abs(n.y - y.y)).toBeLessThan(2);
+			expect(Math.abs(n.width - y.width)).toBeLessThan(2);
+			await no.click();
+
+			// A desktop keeps the three words, in their order, on one line.
+			await expect(save).toBeVisible();
+			await page.setViewportSize(DESKTOP);
+			await expect(cancel).toBeVisible();
+			await expect(del).toHaveText(copy.common.delete);
+			await expect(del.locator('svg')).toBeHidden();
+			const [a, b, c] = [await box(del), await box(cancel), await box(save)];
+			expect(a.x < b.x && b.x < c.x).toBe(true);
+			expect(Math.abs(a.y - c.y)).toBeLessThan(2);
+		} finally {
+			fixture.teardown();
+		}
+	});
+
+	test('a phone dialog whose only action is the delete keeps the word and gives it the row', async ({
+		page,
+		request
+	}) => {
+		const fixture = await createApiFixture(request);
+		// A joined account, so the organizer can remove them but not rename them.
+		const member = await registerUser(request, { name: 'Mallory' });
+		await invite(request, fixture, member.email);
+		try {
+			await signIn(page, fixture.sessionCookie);
+			await page.setViewportSize(PHONE);
+			await page.goto(`/trips/${fixture.tripId}/people`);
+			await page.getByRole('button', { name: copy.common.deleteLabel('Mallory') }).click();
+
+			const foot = page.getByRole('dialog').locator('.mfoot');
+			const del = foot.getByRole('button', {
+				name: copy.common.deleteLabel('Mallory'),
+				exact: true
+			});
+			await expect(del).toBeVisible();
+			await expect(del.getByText(copy.common.delete, { exact: true })).toBeVisible();
+			await expect(del.locator('svg')).toBeVisible();
+			await expect(
+				foot.getByRole('button', { name: copy.ui.modal.closeLabel, exact: true })
+			).toBeHidden();
+			const [f, d] = [(await foot.boundingBox())!, (await del.boundingBox())!];
+			expect(d.width).toBeGreaterThan(f.width - 2 * 24);
+		} finally {
+			fixture.teardown();
+			member.teardown();
+		}
+	});
 });

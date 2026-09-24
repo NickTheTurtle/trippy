@@ -342,6 +342,7 @@ export default function EventDialog({
 	   closing over the top of a delete that did not happen. */
 	const del = useDeleteAction({
 		title: `Delete ${event?.title ?? ''}?`,
+		name: event?.title ?? '',
 		busyLabel: copy.common.deleting,
 		onDelete: async () => {
 			await op({ op: 'delete' });

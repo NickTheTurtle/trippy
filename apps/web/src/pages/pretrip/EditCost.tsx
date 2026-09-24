@@ -56,6 +56,7 @@ export default function EditCost({
 
 	const del = useDeleteAction({
 		title: copy.common.deleteTitle(draft.label),
+		name: draft.label,
 		busyLabel: copy.common.deleting,
 		onDelete
 	});

@@ -46,7 +46,7 @@ test.describe('people', () => {
 			await page.getByRole('button', { name: copy.common.editLabel('Zoe') }).click();
 			await page
 				.getByRole('dialog')
-				.getByRole('button', { name: copy.common.delete, exact: true })
+				.getByRole('button', { name: copy.common.deleteLabel('Zoe'), exact: true })
 				.click();
 			const confirm = page.getByRole('dialog');
 			await expect(
@@ -188,7 +188,7 @@ test.describe('people', () => {
 			// The row states who they are; the removal lives in that dialog's footer.
 			await page
 				.getByRole('dialog')
-				.getByRole('button', { name: copy.common.delete, exact: true })
+				.getByRole('button', { name: copy.common.deleteLabel('Mallory'), exact: true })
 				.click();
 
 			// The confirmation says the house sentence and repeats the bare verb.

@@ -5303,6 +5303,8 @@ Layout contract for consumers:
 | `.mbody`      | The **only** scrolling region. Never nest another `overflow: auto` inside it |
 | `.mfoot`      | Pinned action row, primary button last                                       |
 | `.mfoot-note` | Left-aligned hint text in the footer                                         |
+| `.mcancel`    | The footer's Cancel or Close; hidden at phone widths                         |
+| `.mdelete`    | `DeleteButton`: the word at desk widths, a 44px bin at phone widths          |
 
 `.mform` is a **descendant-styling hook**, not a layout class; it wraps `.mbody`
 and `.mfoot`, so giving it `display: flex; gap` inserts a gap above the pinned
@@ -5319,7 +5321,42 @@ flight. They had already drifted, one omitting the message and one saying
 "Close" where the rest said "Cancel", which is the usual fate of a shape copied
 by hand. The primary button submits the surrounding form; `onSubmit` turns it
 into a plain button for `AddCityDialog`, whose body is not a `<form>`, and
-`start` takes the delete that the trip form pins to the left.
+`start` takes the delete every edit dialog pins to the left.
+
+**On a phone the footer is one row: an optional square delete, then the primary
+action, and no Cancel.** At 620px and under the footer used to give every button
+the same share of the row. With Delete, Cancel and Save that wrapped into Delete
+and Cancel on one line and Save alone on the next: lopsided, with the delete as
+prominent as Cancel and right beside it, where a thumb meant for one lands on the
+other. The owner chose this layout instead, for three reasons:
+
+- Cancel is the third way to do what the header's X, Escape and the backdrop
+  already do. On a desk there is room for the redundancy and it is where the eye
+  expects it; on a phone the row is worth more to the action the dialog was
+  opened for, so `ModalFooter` marks its Cancel (or Close) `.mcancel` and the
+  phone rule hides it. Desk widths keep it.
+- The delete stays in the footer, where every edit dialog keeps it, but shrinks
+  to a 44px square bin (`DeleteButton`, used by `useDeleteAction` and the trip
+  form). Square and red, with the gap beside it, it no longer reads as a sibling
+  of Save, and it is still a full tap target. Its accessible name is
+  `Delete <thing>` at every width, not only once the word is gone, because a
+  control whose name changed with the viewport would be a different control to a
+  screen reader on a phone. The confirmation behind it is unchanged. The bin is
+  for a delete that shares the row with a primary: where the delete is the
+  dialog's only action (a person you can remove but not edit), it keeps its word
+  beside the bin and fills the row, since there is no Save to make room for and
+  nothing beside it to hit by mistake.
+- The primary fills what is left, so Save or Add is the widest thing on the row
+  and never wraps onto a line of its own. Without a delete it is the whole row.
+
+A confirmation (`ConfirmDialog`) keeps both Cancel and Delete, half the row each.
+There the choice between the two is the whole of the dialog, so neither is
+redundant. It writes its own footer without `.mcancel`, which is how the rule
+leaves it alone. The locked event dialog follows the same logic: its footer is
+the Locked tag on the left and, on a phone, nothing else, because its Close is
+the X again. A footer with nothing but that Close (a person you cannot edit or
+remove) is dropped on a phone rather than left as an empty band. The native
+sheets follow the same rule (see "Native sheet footers use one phone rule").
 
 Add and Edit remain **one component per thing**, not one per verb: `TripFormDialog`,
 `EditTask` and `EditCost` each take a draft whose `id === null` means add. The

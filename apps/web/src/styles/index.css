@@ -584,41 +584,88 @@ select.input.compact {
 	background: var(--color-surface);
 	flex: 0 0 auto;
 }
+/* `DeleteButton` draws both its word and its bin; this is the desk half of the
+   choice, and the phone half is below. */
+.mdelete > svg {
+	display: none;
+}
 
 @media (max-width: 620px) {
 	.modal {
 		max-height: min(94vh, calc(100vh - 1rem));
 	}
 	/*
-	 * Every button in the footer takes the same share of the row.
+	 * One row: an optional square delete on the left, the primary action filling
+	 * the rest, and no Cancel.
 	 *
-	 * The delete sits in its own wrapper so that it can be pushed away from Save
-	 * at desk widths. On a phone that wrapper stayed sized to its text while
-	 * Cancel and Save stretched into what was left, so a three-button footer
-	 * read as one narrow button and two wide ones. Flexing the wrapper on the
-	 * same terms as the buttons beside it is what evens the row out; dropping
-	 * the push is what stops it opening a gap where a third button should be.
+	 * This used to give every button the same share of the row, which on a phone
+	 * wrapped Delete, Cancel and Save into Delete and Cancel on one line and Save
+	 * alone on the next: lopsided, with the delete exactly as loud as Cancel and
+	 * right beside it, where a thumb meaning one hits the other.
 	 *
-	 * The basis is a width, not zero, so a long label wraps the row instead of
-	 * squeezing every button into a third of a phone.
+	 * Cancel goes because it is the third way to do something the header's X,
+	 * Escape and the backdrop already do, and the row is worth more to the
+	 * action the dialog was opened for. The delete becomes a 44px bin (a tap
+	 * target, not a glyph), set apart by the gap and by being the only square
+	 * thing on the row; its name, "Delete Tram 28", is on the button. Without a
+	 * delete the primary is simply the whole row.
+	 *
+	 * A confirmation keeps both of its buttons, half each. There the choice
+	 * between them is the whole of the dialog, and it writes its own row
+	 * without `.mcancel`, so nothing below hides its Cancel.
+	 *
+	 * `--btn-h` is raised to the touch size here rather than left to
+	 * `pointer: coarse`, so the bin is square at 44px on any phone-width screen
+	 * and the primary beside it stands exactly as tall.
 	 */
 	.mfoot {
-		justify-content: stretch;
+		flex-wrap: nowrap;
+	}
+	.mfoot.bare,
+	.mfoot > .mcancel {
+		display: none;
 	}
 	.mfoot .btn {
+		--btn-h: 2.75rem;
 		justify-content: center;
 	}
-	.mfoot > .mr-auto {
-		margin-right: 0;
-		display: flex;
+	.mfoot > .btn {
+		flex: 1 1 0;
+		min-width: 0;
 	}
-	.mfoot > .mr-auto > .btn {
+	.mfoot > .mr-auto {
+		display: flex;
+		flex: 0 0 auto;
+	}
+	.mfoot .mdelete {
+		width: var(--btn-h);
+		padding-inline: 0;
+	}
+	.mfoot .mdelete > svg {
+		display: block;
+		width: 1.15rem;
+		height: 1.15rem;
+	}
+	.mfoot .mdelete > span {
+		display: none;
+	}
+	/*
+	 * A delete with no primary beside it (a person you can remove but not
+	 * edit) is the only thing the dialog offers, so the reasons for the bin do
+	 * not apply: there is no Save to give the row to and nothing to mis-tap.
+	 * It keeps its word, with the bin, and takes the row. Only the delete
+	 * grows; the Locked tag in the same slot keeps its own size.
+	 */
+	.mfoot.lone > .mr-auto {
 		flex: 1 1 auto;
 	}
-	.mfoot > .mr-auto,
-	.mfoot > .btn {
-		flex: 1 1 7rem;
-		min-width: 0;
+	.mfoot.lone .mdelete {
+		flex: 1 1 auto;
+		width: auto;
+		padding-inline: 1rem;
+	}
+	.mfoot.lone .mdelete > span {
+		display: inline;
 	}
 }
 

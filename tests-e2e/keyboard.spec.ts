@@ -223,7 +223,9 @@ test.describe('keyboard', () => {
 			// Neither ever leaves focus on the page behind it, and answering no
 			// puts it back in the form rather than on <body>.
 			await trigger.click();
-			await dialog.getByRole('button', { name: copy.common.delete, exact: true }).click();
+			await dialog
+				.getByRole('button', { name: copy.common.deleteLabel('Solo lunch'), exact: true })
+				.click();
 			await expect(dialog.getByText(copy.ui.confirmDialog.undone)).toBeVisible();
 			expect(await focusIsInTheOpenDialog(page)).toBe(true);
 

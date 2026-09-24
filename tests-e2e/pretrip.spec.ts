@@ -61,7 +61,9 @@ test.describe('preparation', () => {
 				.getByRole('button', { name: cp.taskList.editLabel('task', 'Book the museum') })
 				.click();
 			const form = page.getByRole('dialog');
-			await form.getByRole('button', { name: copy.common.delete, exact: true }).click();
+			await form
+				.getByRole('button', { name: copy.common.deleteLabel('Book the museum'), exact: true })
+				.click();
 			const confirm = page.getByRole('dialog');
 			await expect(confirm.getByText(copy.ui.confirmDialog.undone)).toBeVisible();
 			await confirm.getByRole('button', { name: copy.common.delete, exact: true }).click();
@@ -163,7 +165,7 @@ test.describe('preparation', () => {
 			await page.getByRole('button', { name: copy.common.editLabel('Rental van') }).click();
 			await page
 				.getByRole('dialog')
-				.getByRole('button', { name: copy.common.delete, exact: true })
+				.getByRole('button', { name: copy.common.deleteLabel('Rental van'), exact: true })
 				.click();
 			const confirm = page.getByRole('dialog');
 			await confirm.getByRole('button', { name: copy.common.delete, exact: true }).click();

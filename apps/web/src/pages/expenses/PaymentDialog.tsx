@@ -41,6 +41,7 @@ export default function PaymentDialog({
 	const [spentOn, setSpentOn] = useState(e.spent_on);
 	const del = useDeleteAction({
 		title: copy.common.deleteTitle(e.description),
+		name: e.description,
 		busyLabel: copy.common.deleting,
 		onDelete
 	});
