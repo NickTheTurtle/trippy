@@ -5,7 +5,7 @@ import { copy } from '../../copy';
  * What the Discover type dropdown offers.
  *
  * Attractions and Food & Drink are buckets of `pois.kind`; Stays reads
- * `lodging_options`, a different table with prices and a lock. That difference
+ * `lodging_options`, a different table with a nightly price. That difference
  * belongs to the server, not to the reader: someone comparing what a city has
  * to offer is looking at one pool, so **All** shows every kind in one grid and
  * the page no longer treats a stay as a separate mode with its own chrome.
