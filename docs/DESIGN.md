@@ -3797,6 +3797,22 @@ frames the web client receives. The stream pauses while the app is backgrounded 
 with a full refetch, because a mobile app cannot prove what happened while its JS runtime
 was suspended.
 
+**Native Schedule uses the agenda path first and keeps board state reusable.** The
+first native schedule pass is the phone agenda rather than the timeline board. It
+still loads the same `/schedule` payload and runs the same `planDay` preview as
+web while a sheet is open, so the next board PR can consume `useScheduleDay`
+rather than inventing a second data model. The hook owns day stepping, view-as
+filtering, opened-event lookup, draft insertion and leg replanning. The screen
+only chooses how to draw those rows.
+
+**Native event add and edit are one bottom sheet.** The mobile sheet mirrors the
+web `EventDialog` instead of splitting add and edit by verb: the type, date,
+place, participants, stay dates, notes and journey override rules are one form,
+with `event === null` as the add case. The sheet writes event, people and journey
+edits in that order and carries forward each returned event version, so the
+sheet's own sequential writes do not conflict while a stale write from another
+member still gets the server's 409.
+
 **Auth is the same session row presented two ways.** A browser gets an httpOnly
 cookie, which is the right answer there and the one thing script cannot read. A
 native app has no cookie jar worth relying on, so it gets a bearer token. The

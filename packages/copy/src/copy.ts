@@ -390,11 +390,19 @@ export const copy = {
 			end: 'End',
 			mode: 'Mode',
 			date: 'Date',
+			checkIn: 'Check in',
+			checkOut: 'Check out',
 			label: 'Label',
 			notes: 'Notes',
 			participants: 'Participants',
 			/** Shown when nobody is picked, which the board reads as everyone. */
 			nobody: 'Nobody'
+		},
+		mobile: {
+			stays: 'Stays',
+			firstDay: 'First day',
+			lastDay: 'Last day',
+			freeDay: 'This day is free.'
 		},
 		/** The event dialog's title: reading a frozen block, editing one, adding one. */
 		dialog: { view: 'Event', edit: 'Edit event', add: 'Add event' },
