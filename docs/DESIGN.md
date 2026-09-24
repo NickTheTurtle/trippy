@@ -5341,7 +5341,11 @@ other. The owner chose this layout instead, for three reasons:
   of Save, and it is still a full tap target. Its accessible name is
   `Delete <thing>` at every width, not only once the word is gone, because a
   control whose name changed with the viewport would be a different control to a
-  screen reader on a phone. The confirmation behind it is unchanged.
+  screen reader on a phone. The confirmation behind it is unchanged. The bin is
+  for a delete that shares the row with a primary: where the delete is the
+  dialog's only action (a person you can remove but not edit), it keeps its word
+  beside the bin and fills the row, since there is no Save to make room for and
+  nothing beside it to hit by mistake.
 - The primary fills what is left, so Save or Add is the widest thing on the row
   and never wraps onto a line of its own. Without a delete it is the whole row.
 

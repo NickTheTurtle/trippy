@@ -8,7 +8,9 @@ import { copy } from '../../copy';
  *
  * It reads "Delete" at desk widths and turns into a square bin at phone widths
  * (`.mdelete` in `index.css`), where the footer has one row and the primary
- * action should have most of it. Both are drawn and the stylesheet picks one, so
+ * action should have most of it. With no primary beside it the word stays, next
+ * to the bin, and the button takes the row. Both are drawn and the stylesheet
+ * picks, so
  * the button is the same element, with the same focus and the same handler, at
  * every width.
  *

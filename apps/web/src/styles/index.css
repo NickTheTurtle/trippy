@@ -649,6 +649,24 @@ select.input.compact {
 	.mfoot .mdelete > span {
 		display: none;
 	}
+	/*
+	 * A delete with no primary beside it (a person you can remove but not
+	 * edit) is the only thing the dialog offers, so the reasons for the bin do
+	 * not apply: there is no Save to give the row to and nothing to mis-tap.
+	 * It keeps its word, with the bin, and takes the row. Only the delete
+	 * grows; the Locked tag in the same slot keeps its own size.
+	 */
+	.mfoot.lone > .mr-auto {
+		flex: 1 1 auto;
+	}
+	.mfoot.lone .mdelete {
+		flex: 1 1 auto;
+		width: auto;
+		padding-inline: 1rem;
+	}
+	.mfoot.lone .mdelete > span {
+		display: inline;
+	}
 }
 
 /* --- Pills ---------------------------------------------------------------- */

@@ -168,6 +168,20 @@ test.describe('schedule lock', () => {
 			// And no horizontal overflow on the phone.
 			const wide = await body.evaluate((el) => el.scrollWidth > el.clientWidth + 1);
 			expect(wide).toBe(false);
+
+			// The footer is the Locked tag and nothing else: on a phone the Close
+			// would repeat the header's X, which is the way out.
+			const foot = frozen.locator('.mfoot');
+			await expect(foot.getByText(copy.schedule.lock.tag)).toBeVisible();
+			await expect(
+				foot.getByRole('button', { name: copy.ui.modal.closeLabel, exact: true })
+			).toBeHidden();
+			await expect(foot.getByRole('button')).toHaveCount(0);
+			await frozen
+				.locator('.mhead')
+				.getByRole('button', { name: copy.ui.modal.closeLabel, exact: true })
+				.click();
+			await expect(page.getByRole('dialog')).toHaveCount(0);
 		} finally {
 			fixture.teardown();
 		}

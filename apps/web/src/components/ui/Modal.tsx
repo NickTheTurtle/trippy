@@ -237,8 +237,12 @@ export function ModalFooter({
 	// and on a phone the Close is not drawn, so the row goes rather than
 	// standing empty under the body.
 	const bare = !submitLabel && !start;
+	// Something pinned but nothing to save: on a phone the pinned thing is then
+	// the whole row, so a delete keeps its word rather than shrinking to a bin
+	// beside nothing.
+	const lone = !submitLabel && !!start;
 	return (
-		<div className={bare ? 'mfoot bare' : 'mfoot'}>
+		<div className={bare ? 'mfoot bare' : lone ? 'mfoot lone' : 'mfoot'}>
 			{start && <div className="mr-auto">{start}</div>}
 			<DialogError message={error ?? ''} />
 			<button className="btn mcancel" type="button" onClick={onClose}>

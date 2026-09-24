@@ -347,4 +347,37 @@ test.describe('narrow layouts', () => {
 			fixture.teardown();
 		}
 	});
+
+	test('a phone dialog whose only action is the delete keeps the word and gives it the row', async ({
+		page,
+		request
+	}) => {
+		const fixture = await createApiFixture(request);
+		// A joined account, so the organizer can remove them but not rename them.
+		const member = await registerUser(request, { name: 'Mallory' });
+		await invite(request, fixture, member.email);
+		try {
+			await signIn(page, fixture.sessionCookie);
+			await page.setViewportSize(PHONE);
+			await page.goto(`/trips/${fixture.tripId}/people`);
+			await page.getByRole('button', { name: copy.common.deleteLabel('Mallory') }).click();
+
+			const foot = page.getByRole('dialog').locator('.mfoot');
+			const del = foot.getByRole('button', {
+				name: copy.common.deleteLabel('Mallory'),
+				exact: true
+			});
+			await expect(del).toBeVisible();
+			await expect(del.getByText(copy.common.delete, { exact: true })).toBeVisible();
+			await expect(del.locator('svg')).toBeVisible();
+			await expect(
+				foot.getByRole('button', { name: copy.ui.modal.closeLabel, exact: true })
+			).toBeHidden();
+			const [f, d] = [(await foot.boundingBox())!, (await del.boundingBox())!];
+			expect(d.width).toBeGreaterThan(f.width - 2 * 24);
+		} finally {
+			fixture.teardown();
+			member.teardown();
+		}
+	});
 });
