@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { copy } from '@trippy/copy';
 import { api } from '../lib/api';
 import { useMutation } from '../hooks/useMutation';
 import { useAuth } from '../auth';
 import { Button, Field, FormError } from '../ui';
-import { CheckBox } from '../ui/controls';
 import { Sheet } from '../ui/Sheet';
 import { SheetFooter } from '../ui/SheetFooter';
 import { ConfirmSheet } from '../ui/ConfirmSheet';
@@ -171,6 +170,7 @@ export function MemberSheet({
 					primaryLabel={editable ? copy.common.save : undefined}
 					primaryBusyLabel={copy.common.saving}
 					primaryBusy={save.busy}
+					primaryDisabled={editable && !name.trim()}
 					onPrimary={editable ? () => void save.run() : undefined}
 					destructiveLabel={canRemove ? copy.common.deleteLabel(person.name) : undefined}
 					onDestructive={canRemove ? () => setConfirmDelete(true) : undefined}
@@ -179,7 +179,6 @@ export function MemberSheet({
 			<ConfirmSheet
 				open={confirmDelete}
 				title={copy.common.deleteTitle(person.name)}
-				message={copy.mobilePeople.removeMemberMessage}
 				confirmLabel={copy.common.delete}
 				busyLabel={copy.common.deleting}
 				busy={remove.busy}
@@ -289,38 +288,35 @@ function MemberMultiSelect({
 	return (
 		<View style={{ gap: space.sm }}>
 			<Text style={fieldLabel}>{label}</Text>
-			<ScrollView
-				horizontal
-				showsHorizontalScrollIndicator={false}
-				keyboardShouldPersistTaps="handled"
-			>
-				<View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
-					{people.map((person) => {
-						const on = selectedSet.has(person.id);
-						return (
-							<Pressable
-								key={person.id}
-								onPress={() => toggle(person.id)}
-								style={({ pressed }) => ({
-									flexDirection: 'row',
-									alignItems: 'center',
-									gap: space.xs,
-									paddingHorizontal: space.sm,
-									paddingVertical: 6,
-									borderRadius: 999,
-									borderWidth: 1,
-									borderColor: on ? color.accent : color.line,
-									backgroundColor: on ? color.accentSoft : color.surface,
-									opacity: pressed ? 0.7 : 1
-								})}
-							>
-								<CheckBox checked={on} label={person.name} onPress={() => toggle(person.id)} />
-								<Text style={type.small}>{person.name}</Text>
-							</Pressable>
-						);
-					})}
-				</View>
-			</ScrollView>
+			<View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
+				{people.map((person) => {
+					const on = selectedSet.has(person.id);
+					return (
+						<Pressable
+							key={person.id}
+							accessibilityRole="checkbox"
+							accessibilityLabel={person.name}
+							accessibilityState={{ checked: on }}
+							onPress={() => toggle(person.id)}
+							style={({ pressed }) => ({
+								flexDirection: 'row',
+								alignItems: 'center',
+								gap: space.xs,
+								paddingHorizontal: space.sm,
+								paddingVertical: 6,
+								borderRadius: 999,
+								borderWidth: 1,
+								borderColor: on ? color.accent : color.line,
+								backgroundColor: on ? color.accentSoft : color.surface,
+								opacity: pressed ? 0.7 : 1
+							})}
+						>
+							<Text style={{ color: on ? color.accentInk : color.inkFaint }}>{on ? '✓' : '□'}</Text>
+							<Text style={type.small}>{person.name}</Text>
+						</Pressable>
+					);
+				})}
+			</View>
 		</View>
 	);
 }

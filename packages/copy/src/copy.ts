@@ -518,11 +518,6 @@ export const copy = {
 		}
 	},
 
-	// Native People helpers
-	mobilePeople: {
-		removeMemberMessage: 'This also keeps their past expenses and task history on the trip.'
-	},
-
 	// Account settings > profile and password
 	account: {
 		heading: 'Account settings',

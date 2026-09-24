@@ -148,7 +148,7 @@ export default function People() {
 					open
 					tripId={tripId}
 					crew={crewDraft}
-					people={data.people.filter((person) => !person.seeded || person.id)}
+					people={data.people}
 					onClose={() => setCrewDraft(false)}
 					onDone={() => {
 						setCrewDraft(false);
@@ -162,7 +162,7 @@ export default function People() {
 
 function AddRow({ onPress }: { onPress: () => void }) {
 	return (
-		<Pressable onPress={onPress} hitSlop={8}>
+		<Pressable accessibilityRole="button" onPress={onPress} hitSlop={8}>
 			<Text style={{ ...type.body, color: color.accent, fontWeight: '600' }}>
 				+ {copy.common.add}
 			</Text>
@@ -200,8 +200,15 @@ function MemberRow({
 		</View>
 	);
 	if (!canOpen) return body;
+	const editable = person.placeholder || person.seeded || person.id === me;
 	return (
-		<Pressable onPress={onOpen} accessibilityLabel={copy.common.editLabel(person.name)}>
+		<Pressable
+			accessibilityRole="button"
+			onPress={onOpen}
+			accessibilityLabel={
+				editable ? copy.common.editLabel(person.name) : copy.common.deleteLabel(person.name)
+			}
+		>
 			{body}
 		</Pressable>
 	);
