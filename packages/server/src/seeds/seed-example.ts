@@ -111,8 +111,8 @@ function seedExpenses(tripId: string, roster: string[]): void {
 function seedLodging(tripId: string, cityId: string, roster: string[]): void {
 	if (!cityId) return;
 	const insertOption = db.prepare(
-		`INSERT INTO lodging_options (id, trip_id, city_id, name, tag, price_cents, currency, url, locked, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`
+		`INSERT INTO lodging_options (id, trip_id, city_id, name, tag, price_cents, currency, url, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	);
 	const insertVote = db.prepare(
 		`INSERT INTO lodging_votes (city_id, user_id, option_id) VALUES (?, ?, ?)`

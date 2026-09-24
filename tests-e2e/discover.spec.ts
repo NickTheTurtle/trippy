@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
-import { createApiFixture, registerUser } from './fixtures/api';
-import { addCity, addPlace, addStay, invite } from './fixtures/seed';
+import { createApiFixture } from './fixtures/api';
+import { addCity, addPlace, addStay } from './fixtures/seed';
 import { copy } from './fixtures/copy';
-import { signIn, signedInContext } from './fixtures/session';
+import { signIn } from './fixtures/session';
 
 /**
  * Discover: cities, places and stays. Cities and places are seeded through the
@@ -143,54 +143,6 @@ test.describe('discover', () => {
 			expect(votes).toBe(1);
 		} finally {
 			fixture.teardown();
-		}
-	});
-
-	test('the organizer locks a stay from its card, and a member only sees the lock', async ({
-		page,
-		browser,
-		request
-	}) => {
-		const fixture = await createApiFixture(request);
-		const member = await registerUser(request, { name: 'Lodger' });
-		await invite(request, fixture, member.email);
-		const sc = copy.discover.stayCard;
-		try {
-			const cityId = await addCity(request, fixture, LISBON);
-			await addStay(request, fixture, { cityId, name: 'Casa Azul', priceCents: 9000 });
-			await addStay(request, fixture, { cityId, name: 'Hotel Rio', priceCents: 15000 });
-			await signIn(page, fixture.sessionCookie);
-			await page.goto(`/trips/${fixture.tripId}/discover`);
-
-			const casa = page.locator('article').filter({ hasText: 'Casa Azul' });
-			const rio = page.locator('article').filter({ hasText: 'Hotel Rio' });
-			await casa.getByRole('button', { name: sc.lockLabel(false, 'Casa Azul') }).click();
-			await expect(casa.getByText(sc.locked, { exact: true })).toBeVisible();
-
-			// One lock per city: locking the other moves it rather than adding one.
-			await rio.getByRole('button', { name: sc.lockLabel(false, 'Hotel Rio') }).click();
-			await expect(rio.getByText(sc.locked, { exact: true })).toBeVisible();
-			await expect(casa.getByText(sc.locked, { exact: true })).toHaveCount(0);
-
-			// And it is a toggle: pressing it again releases the lock.
-			await rio.getByRole('button', { name: sc.lockLabel(true, 'Hotel Rio') }).click();
-			await expect(rio.getByText(sc.locked, { exact: true })).toHaveCount(0);
-			await rio.getByRole('button', { name: sc.lockLabel(false, 'Hotel Rio') }).click();
-			await expect(rio.getByText(sc.locked, { exact: true })).toBeVisible();
-
-			// The member sees which stay is locked, and no control to change it.
-			const other = await signedInContext(browser, member.sessionCookie);
-			try {
-				await other.page.goto(`/trips/${fixture.tripId}/discover`);
-				const theirRio = other.page.locator('article').filter({ hasText: 'Hotel Rio' });
-				await expect(theirRio.getByText(sc.locked, { exact: true })).toBeVisible();
-				await expect(other.page.getByRole('button', { name: /^(Lock|Unlock) / })).toHaveCount(0);
-			} finally {
-				await other.context.close();
-			}
-		} finally {
-			fixture.teardown();
-			member.teardown();
 		}
 	});
 

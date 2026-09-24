@@ -1,10 +1,7 @@
 import Cover from '../../components/Cover';
 import type { Stay } from '../../lib/api-types';
 import { formatPerNight } from '../../lib/format';
-import { CARD, EditCardButton, LockButton, OpenLink, VotePill, VoteRule } from './card-controls';
-import { copy } from '../../copy';
-
-const c = copy.discover.stayCard;
+import { CARD, EditCardButton, OpenLink, VotePill, VoteRule } from './card-controls';
 
 /**
  * One proposed stay.
@@ -25,9 +22,7 @@ export default function StayCard({
 	pct,
 	voteBusy = false,
 	onEdit,
-	onVote,
-	onLock,
-	lockBusy = false
+	onVote
 }: {
 	stay: Stay;
 	/** Identity for the grid's reorder animation. See `useFlip`. */
@@ -38,15 +33,8 @@ export default function StayCard({
 	voteBusy?: boolean;
 	onEdit: () => void;
 	onVote: () => void;
-	/** Set for the organizer only: everybody else sees the lock, not the control. */
-	onLock?: () => void;
-	lockBusy?: boolean;
 }) {
-	const ring = o.locked
-		? 'border-accent shadow-[0_0_0_1px_var(--color-accent)]'
-		: o.you_voted
-			? 'border-accent-soft'
-			: '';
+	const ring = o.you_voted ? 'border-accent-soft' : '';
 
 	return (
 		<article data-flip={flipKey} className={`${CARD} ${ring}`}>
@@ -57,11 +45,8 @@ export default function StayCard({
 			>
 				<Cover photo={o.photo} seed={o.name} category="stay" />
 				<span className="flex min-w-0 flex-auto flex-col px-4 pt-3.5">
-					<span className="flex items-start justify-between gap-2">
-						<span className="line-clamp-2 min-w-0 text-lead font-semibold [overflow-wrap:anywhere] group-hover:underline">
-							{o.name}
-						</span>
-						{o.locked ? <span className="chip accent flex-none">{c.locked}</span> : null}
+					<span className="line-clamp-2 min-w-0 text-lead font-semibold [overflow-wrap:anywhere] group-hover:underline">
+						{o.name}
 					</span>
 					<span className="muted mt-1.5 mb-2.5 flex-auto text-meta">
 						{o.tag ? `${o.tag} · ` : ''}
@@ -79,7 +64,6 @@ export default function StayCard({
 					busy={voteBusy}
 				/>
 				{o.url && <OpenLink url={o.url} name={o.name} />}
-				{onLock && <LockButton locked={!!o.locked} name={o.name} onLock={onLock} busy={lockBusy} />}
 				<EditCardButton name={o.name} onEdit={onEdit} className="ml-auto" />
 			</div>
 

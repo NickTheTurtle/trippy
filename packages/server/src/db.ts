@@ -169,6 +169,9 @@ db.exec(`
 		price_cents INTEGER,
 		currency    TEXT NOT NULL,
 		url         TEXT,
+		-- Unread. Stays used to carry an organizer's lock on the city's pick;
+		-- which stay a night is spent in is now the schedule's answer. Kept
+		-- because migrations here are additive only.
 		locked      INTEGER NOT NULL DEFAULT 0,
 		created_at  INTEGER NOT NULL
 	);

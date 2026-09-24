@@ -150,7 +150,7 @@ counts as food because the bucket the UI shows is "Food & Drink".
 
 **Stays are not a kind.** The Discover dropdown offers Attractions / Food & Drink /
 Stays as three choices, but Stays is a view switch onto `lodging_options`, a
-different table with votes, a lock and a nightly price. `'stay'` is deliberately
+different table with votes and a nightly price. `'stay'` is deliberately
 not a legal value of this column, and the CHECK constraint rejects it.
 
 ---
@@ -1408,11 +1408,13 @@ the write bound would be the 400-day bug again with a friendlier number.
 - **Day-scoped options**: a city can have multiple lodging options for different nights
   (each option carries an optional check-in/check-out range); the calendar resolves the
   option in effect for each day.
-- **Approval or ranked** voting; live tally; organizer locks a winner.
+- **Approval or ranked** voting; live tally. There is no lock on a stay: the
+  vote says what the group wants, and the nights are booked by putting the stay
+  on the schedule, which is the one place that says where anyone sleeps.
 - **Surfaced inside Discover**, not as its own tab; the header type dropdown
   (Attractions / Food & Drink / Stays) switches the grid. The two share one card
   design (cover art, vote pill, open icon, remove, and the tally along the bottom
-  edge); stays additionally show price/night, "Edit dates" and "Lock as choice".
+  edge); stays additionally show price/night.
 - The **tables stay separate** even though the UI is merged. Place votes are multi-vote
   (`poi_votes` PK `(poi_id, user_id)`); stay votes are _exclusive per city_
   (`lodging_votes` PK `(city_id, user_id)`, so voting again replaces). Stays also carry
@@ -3144,8 +3146,7 @@ city. That made the ordering look arbitrary in the one view where it carries the
 most meaning: All is what you open to see what the group actually wants. Stays
 and places are now merged into a single list sorted by votes descending. The sort
 is **stable** and the pools are concatenated in server order, so ties keep the
-meaning they already had: a stay ahead of a place, and a locked stay ahead of the
-other stays.
+meaning they already had: a stay ahead of a place.
 
 **Voting reorders the grid, so the reorder is animated.** The list is ordered by
 the very thing the button changes, which means acting on a card reshuffles the
@@ -3294,7 +3295,7 @@ a caret plus the count, filled in accent when you have voted. "Open" became a
 compass icon keeping the same accessible name it had as text. The vote bar moved
 flush to the card's bottom edge, where it reads as an indicator on the card
 rather than a fourth thing competing in the row. Both card types share the
-treatment; a stay keeps its price, nights and the organizer's lock.
+treatment; a stay keeps its price.
 
 **The corner of the footer says whether the thing is on the calendar.** A place
 already knew how many scheduled events pointed at it, and said so in a line of
@@ -6958,11 +6959,13 @@ refuses a second press while its request is out (a ref, so two taps in one frame
 cannot both pass) using `aria-disabled` rather than `disabled`, because a
 disabled button drops keyboard focus to the page on every vote.
 
-**The stay lock is on the card, organizer only.** `POST /stays/:id/lock` is a
-toggle and moves the lock between a city's stays. It sits in the card footer, not
-the edit dialog, because it is a decision among stays like a vote, and the edit
-dialog is deliberately the proposer's own fields. It is worded ("Lock", "Unlock")
-because a padlock alone reads as the state, which the chip already shows.
+**Stays have no lock.** A stay card once carried an organizer's "Lock" on the
+city's pick, with a "Locked" chip and `POST /stays/:id/lock`. It was removed
+along with the route: a lock said "this is the one" in a second place from the
+schedule, which is where a stay is actually booked, and two answers to "where
+are we sleeping" can disagree. The vote is the group's opinion; the schedule is
+the decision. `lodging_options.locked` stays in the schema, unread, because
+migrations are additive only.
 
 **Deletes from an edit dialog throw.** The stay delete went through a mutation
 whose `run` never throws, so `ConfirmDialog` closed over a refusal. It now calls
@@ -7048,7 +7051,7 @@ Two seeded trips, chosen to exercise opposite ends of the layout engine:
   and the group repeatedly collapses back into one full-width block for meals. On day 2 the
   board goes 5 columns → 5 columns → 1 → 4 → 1 in a single day. Every one of the 46
   events carries an
-  explicit attendee list, and three of them are nights at the locked lodging, which is what
+  explicit attendee list, and three of them are nights at the booked lodging, which is what
   gives each morning's first journey somewhere to start from.
 
   `npx tsx scripts/seed-schedule.ts [tripId]` re-seeds just the schedule into a trip that
@@ -7072,9 +7075,8 @@ Two seeded trips, chosen to exercise opposite ends of the layout engine:
   Amounts are in the trip's home currency; cross-currency FX is future work.
 - Lodging voting is persisted: `lodging_options` and `lodging_votes` tables, organized
   per city. Members propose stays (name, tag, price, link) and cast a single vote per
-  city; re-voting moves the vote, and clicking the current pick clears it. The
-  organizer can lock a leading option as the choice. New China trips seed three
-  Beijing options with a leading pick.
+  city; re-voting moves the vote, and clicking the current pick clears it. New China
+  trips seed three Beijing options with a leading pick.
 - POI discovery is persisted (`pois`, `poi_votes`): per-city candidate pools with
   save, upvote, and remove. The city is chosen from a **dropdown**, not a row of pills:
   the pill row grew with the itinerary and wrapped to a second line on a five-city
@@ -7343,7 +7345,7 @@ pre-line` so typed breaks survive to the card, still clamped to two lines so car
   so schedule times are unambiguous. Offsets are DST-correct via `Intl`.
 - Real trip overview (`src/lib/server/stats.ts`): the dashboard tiles and the
   "Needs attention" list are computed from the database (saved places, scheduled
-  blocks, tight connections, lodging locked vs. pending, and the viewer's net balance)
+  blocks, tight connections, and the viewer's net balance)
   rather than placeholder numbers.
 - Multi-currency FX (`src/lib/server/fx.ts`): expenses can be logged in any of ~18
   currencies. Balances and settlement convert every expense to the trip's home
@@ -7490,7 +7492,7 @@ PATCH  /api/trips/:tripId/discover/pois/:poiId
 DELETE /api/trips/:tripId/discover/pois/:poiId
 POST   /api/trips/:tripId/discover/pois/:poiId/vote
 POST   /api/trips/:tripId/discover/stays
-POST   /api/trips/:tripId/discover/stays/:optionId/vote | /lock
+POST   /api/trips/:tripId/discover/stays/:optionId/vote
 PATCH  /api/trips/:tripId/discover/stays/:optionId/dates
 DELETE /api/trips/:tripId/discover/stays/:optionId
 

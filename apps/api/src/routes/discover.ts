@@ -15,7 +15,6 @@ import {
 import {
 	addOption,
 	cityLodging,
-	lockOption,
 	removeOption,
 	setDates,
 	updateOption,
@@ -509,17 +508,6 @@ discover.post('/stays/:optionId/vote', (c) =>
 		lodgingVote(c.get('trip').id, c.get('user').id, c.req.param('optionId')),
 		404,
 		goneMessage('stay')
-	)
-);
-
-// Organizer only, which `lockOption` enforces and reports as false. Returning
-// success regardless told a member their pick had been locked when it had not.
-discover.post('/stays/:optionId/lock', (c) =>
-	okOr(
-		c,
-		lockOption(c.get('trip').id, c.get('user').id, c.req.param('optionId')),
-		403,
-		'Only the organizer can lock a stay.'
 	)
 );
 

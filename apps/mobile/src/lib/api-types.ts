@@ -48,7 +48,6 @@ export type Stay = {
 	price_cents: number | null;
 	currency: string;
 	url: string | null;
-	locked: number;
 	check_in: string | null;
 	check_out: string | null;
 	photo: string | null;

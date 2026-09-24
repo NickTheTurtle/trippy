@@ -121,7 +121,7 @@ export const copy = {
 			},
 			{
 				title: 'Pick where to sleep',
-				body: 'Put the options up with a nightly price, let the group vote, then lock the pick.'
+				body: 'Put the options up with a nightly price, let the group vote, then book the nights on the schedule.'
 			},
 			{
 				title: 'Know what it costs',
@@ -236,8 +236,7 @@ export const copy = {
 		},
 		errors: {
 			votePlace: 'Could not vote on that location.',
-			voteStay: 'Could not vote on that stay.',
-			lockStay: 'Could not change the lock on that stay.'
+			voteStay: 'Could not vote on that stay.'
 		},
 		card: {
 			voteLabel: (youVoted: boolean, subject: string) =>
@@ -245,12 +244,7 @@ export const copy = {
 			openLabel: (name: string) => `Open ${name} (opens in a new tab)`
 		},
 		stayCard: {
-			locked: 'Locked',
-			priceTbd: 'Price TBD',
-			/** The organizer's control. One stay per city can hold the lock. */
-			lock: 'Lock',
-			unlock: 'Unlock',
-			lockLabel: (locked: boolean, stay: string) => `${locked ? 'Unlock' : 'Lock'} ${stay}`
+			priceTbd: 'Price TBD'
 		},
 		placeFields: {
 			typeLabel: 'Type',

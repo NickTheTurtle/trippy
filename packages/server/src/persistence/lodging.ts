@@ -12,7 +12,6 @@ export interface LodgingOption {
 	price_cents: number | null;
 	currency: string;
 	url: string | null;
-	locked: number;
 	check_in: string | null;
 	check_out: string | null;
 	photo: string | null;
@@ -46,12 +45,12 @@ export function cityLodging(tripId: string, userId: string): CityLodging[] {
 	return cities.map((c) => {
 		const options = db
 			.prepare(
-				`SELECT o.id, o.name, o.tag, o.price_cents, o.currency, o.url, o.locked, o.check_in, o.check_out, o.photo, o.lat, o.lng,
+				`SELECT o.id, o.name, o.tag, o.price_cents, o.currency, o.url, o.check_in, o.check_out, o.photo, o.lat, o.lng,
 				        (SELECT COUNT(*) FROM lodging_votes v WHERE v.option_id = o.id) AS votes,
 				        (SELECT COUNT(*) FROM lodging_votes v WHERE v.option_id = o.id AND v.user_id = ?) AS you_voted,
 				        (SELECT COUNT(*) FROM events s WHERE s.lodging_id = o.id) AS linked
 				 FROM lodging_options o WHERE o.city_id = ?
-				 ORDER BY o.locked DESC, votes DESC, o.created_at`
+				 ORDER BY votes DESC, o.created_at`
 			)
 			.all(userId, c.id) as unknown as LodgingOption[];
 		const voted =
@@ -110,8 +109,8 @@ export function addOption(
 	const price = priceCents == null || !Number.isFinite(priceCents) ? null : Math.round(priceCents);
 	const id = randomUUID();
 	db.prepare(
-		`INSERT INTO lodging_options (id, trip_id, city_id, name, tag, price_cents, currency, url, locked, check_in, check_out, photo, lat, lng, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)`
+		`INSERT INTO lodging_options (id, trip_id, city_id, name, tag, price_cents, currency, url, check_in, check_out, photo, lat, lng, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	).run(
 		id,
 		tripId,
@@ -281,15 +280,13 @@ export function lodgingNeedingPlace(tripId: string, limit = 24): LodgingNeedingP
 export interface DayLodging {
 	name: string;
 	tag: string;
-	locked: number;
 	url: string | null;
 }
 export function lodgingOptionById(tripId: string, optionId: string): DayLodging | null {
 	const row = db
-		.prepare(`SELECT name, tag, locked, url FROM lodging_options WHERE id = ? AND trip_id = ?`)
-		.get(optionId, tripId) as
-		{ name: string; tag: string; locked: number; url: string | null } | undefined;
-	return row ? { name: row.name, tag: row.tag, locked: row.locked, url: row.url } : null;
+		.prepare(`SELECT name, tag, url FROM lodging_options WHERE id = ? AND trip_id = ?`)
+		.get(optionId, tripId) as { name: string; tag: string; url: string | null } | undefined;
+	return row ? { name: row.name, tag: row.tag, url: row.url } : null;
 }
 
 /** Cast the viewer's single vote for a city. Clicking the current pick clears it. */
@@ -317,23 +314,6 @@ export function vote(tripId: string, actorId: string, optionId: string): boolean
 		 ON CONFLICT(city_id, user_id) DO UPDATE SET option_id = excluded.option_id`
 	).run(opt.city_id, actorId, optionId);
 	publish(tripId, 'lodging');
-	return true;
-}
-
-/** Organizer locks one option as the choice for its city (clears any other lock there). */
-export function lockOption(tripId: string, actorId: string, optionId: string): boolean {
-	if (!isOrganizer(tripId, actorId)) return false;
-	const opt = db
-		.prepare(`SELECT city_id, locked FROM lodging_options WHERE id = ? AND trip_id = ?`)
-		.get(optionId, tripId) as { city_id: string; locked: number } | undefined;
-	if (!opt) return false;
-
-	db.prepare(`UPDATE lodging_options SET locked = 0 WHERE city_id = ?`).run(opt.city_id);
-	if (!opt.locked) {
-		db.prepare(`UPDATE lodging_options SET locked = 1 WHERE id = ?`).run(optionId);
-	}
-	// The calendar renders the day's stay, so a lock changes that board too.
-	publishMany(tripId, ['lodging', 'schedule']);
 	return true;
 }
 
@@ -416,7 +396,7 @@ export interface OptionEdit {
  * and the alternative to fixing a wrong price is deleting the stay, which
  * throws away everyone's votes with it.
  *
- * Votes and the lock are deliberately untouched. A corrected price or a fixed
+ * Votes are deliberately untouched. A corrected price or a fixed
  * typo is the same stay, and re-opening the vote every time somebody tidies a
  * name would make the board unusable. The photo is untouched too: it is
  * provider-derived and refreshed from the provider, as on places.

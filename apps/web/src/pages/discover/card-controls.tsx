@@ -14,13 +14,7 @@
  * takes them from.
  */
 
-import {
-	CompassIcon,
-	LockIcon,
-	PencilIcon,
-	TrashIcon,
-	UpvoteIcon
-} from '../../components/ui/icons';
+import { CompassIcon, PencilIcon, TrashIcon, UpvoteIcon } from '../../components/ui/icons';
 import { copy } from '../../copy';
 import { safeExternalUrl } from '@trippy/core/validate';
 
@@ -70,48 +64,6 @@ export function VotePill({
 		>
 			<UpvoteIcon />
 			<span className="font-semibold tabular-nums">{votes}</span>
-		</button>
-	);
-}
-
-/**
- * The organizer's lock on a stay: this is the one the group is booking.
- *
- * On the card rather than in the edit dialog, because it is a decision about
- * the stay among the others, like a vote, not a correction to what somebody
- * typed; the edit dialog is deliberately the proposer's fields and nothing
- * else. Organizer only, as the server enforces, so it is not drawn for anyone
- * else rather than drawn and refused. One stay per city holds the lock and the
- * server moves it, so locking a second stay releases the first.
- *
- * Worded, not an icon alone: a padlock by itself reads as a state, and this
- * is the control that changes it. The chip in the title says the state.
- */
-export function LockButton({
-	locked,
-	name,
-	onLock,
-	busy = false
-}: {
-	locked: boolean;
-	name: string;
-	onLock: () => void;
-	busy?: boolean;
-}) {
-	return (
-		<button
-			type="button"
-			className="btn small"
-			// No `aria-pressed`: the label already flips between Lock and Unlock,
-			// and a pressed state on top of a label that changes says it twice.
-			aria-label={copy.discover.stayCard.lockLabel(locked, name)}
-			aria-disabled={busy || undefined}
-			onClick={() => {
-				if (!busy) onLock();
-			}}
-		>
-			<LockIcon />
-			{locked ? copy.discover.stayCard.unlock : copy.discover.stayCard.lock}
 		</button>
 	);
 }

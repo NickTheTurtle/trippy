@@ -718,7 +718,7 @@ export function seedAthensSchedule(
 
 	// A stay points at the option the group actually picked, so the lodging a
 	// night resolves to is the one fact rather than a title that agrees with it
-	// by coincidence. The leading vote stands in for a locked choice.
+	// by coincidence. The leading vote is the pick.
 	const stayOption =
 		(
 			db
@@ -726,7 +726,7 @@ export function seedAthensSchedule(
 					`SELECT o.id FROM lodging_options o
 					  LEFT JOIN lodging_votes v ON v.option_id = o.id
 					  WHERE o.trip_id = ?
-					  GROUP BY o.id ORDER BY o.locked DESC, count(v.user_id) DESC LIMIT 1`
+					  GROUP BY o.id ORDER BY count(v.user_id) DESC LIMIT 1`
 				)
 				.get(tripId) as { id: string } | undefined
 		)?.id ?? null;
@@ -792,8 +792,8 @@ function seedPois(db: DatabaseSync, tripId: string, cityId: string, roster: stri
 
 function seedLodging(db: DatabaseSync, tripId: string, cityId: string, roster: string[]): void {
 	const insertOption = db.prepare(
-		`INSERT INTO lodging_options (id, trip_id, city_id, name, tag, price_cents, currency, url, locked, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, 'EUR', NULL, 0, ?)`
+		`INSERT INTO lodging_options (id, trip_id, city_id, name, tag, price_cents, currency, url, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, 'EUR', NULL, ?)`
 	);
 	const insertVote = db.prepare(
 		`INSERT INTO lodging_votes (city_id, user_id, option_id) VALUES (?, ?, ?)`
