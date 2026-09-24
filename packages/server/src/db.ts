@@ -324,6 +324,28 @@ addColumn('lodging_options', 'lng', 'REAL');
 // rows start there because they genuinely never were.
 addColumn('lodging_options', 'place_checked', 'INTEGER NOT NULL DEFAULT 0');
 
+// A stay band takes its position from the stay it is booked into, when it has
+// none of its own. An event copies its place's coordinates when it is created,
+// and a stay typed by hand has none until the lookup above finds them. That
+// lookup used to fill in the stay and not the bands already booked into it, so
+// every such night kept a band with no position, and with no position there is
+// nothing for the next morning's first journey to leave from: the first event
+// of each day drew no travel at all. `fillLodgingPlace` now carries the answer
+// to the bands, but only for a stay found from here on; this repairs the ones
+// found before. Idempotent, and it only fills a hole: a band holding a position
+// keeps it, and clearing a band's place also clears its `lodging_id`, so a
+// band with a stay and no position was never positioned by anyone. The
+// journeys appear on the next read, which reconciles a day's legs.
+db.exec(`
+	UPDATE events
+	   SET lat = (SELECT o.lat FROM lodging_options o WHERE o.id = events.lodging_id),
+	       lng = (SELECT o.lng FROM lodging_options o WHERE o.id = events.lodging_id)
+	 WHERE type = 'stay' AND lodging_id IS NOT NULL AND lat IS NULL AND lng IS NULL
+	   AND EXISTS (
+	     SELECT 1 FROM lodging_options o
+	      WHERE o.id = events.lodging_id AND o.lat IS NOT NULL AND o.lng IS NOT NULL);
+`);
+
 // Marks an expense that records a transfer between two members rather than a
 // cost the group shared. It changes only how the row is labelled: a settlement
 // has to count towards balances like any other expense, which is the point.

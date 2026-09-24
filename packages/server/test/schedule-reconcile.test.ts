@@ -344,6 +344,46 @@ describe('a stay that learns where it is', () => {
 		lodging.fillLodgingPlace(tripId, option, HOTEL.lat, HOTEL.lng);
 		expect(db.prepare(`SELECT lat, lng FROM events WHERE id = ?`).get(band)).toMatchObject(PARK);
 	});
+
+	it('repairs, on the next boot, a band whose stay was found before the bands were filled', async () => {
+		// What production holds: the lookup ran under the old code, so the stay
+		// has coordinates and is marked checked, and its band still has none.
+		// `fillLodgingPlace` never fires again for it, so only the boot repair
+		// can reach it.
+		const option = lodging.addOption(tripId, alice, athens, 'ZZ Old Hotel')!;
+		const band = add({
+			type: 'stay',
+			day: DAY,
+			endDay: NEXT,
+			startMin: 1260,
+			endMin: 1440,
+			lodgingId: option
+		});
+		// Another night in the same stay that somebody placed by hand.
+		const placed = add({
+			type: 'stay',
+			day: NEXT,
+			endDay: '2026-10-03',
+			startMin: 1260,
+			endMin: 1440,
+			lodgingId: option,
+			...PARK
+		});
+		add({ day: NEXT, startMin: 600, endMin: 660, ...MUSEUM });
+		db.prepare(`UPDATE lodging_options SET lat = ?, lng = ?, place_checked = 1 WHERE id = ?`).run(
+			HOTEL.lat,
+			HOTEL.lng,
+			option
+		);
+
+		// A second import runs db.ts again against the same file, as a restart does.
+		(await import('../src/db.ts?reboot')).db.close();
+
+		expect(db.prepare(`SELECT lat, lng FROM events WHERE id = ?`).get(band)).toMatchObject(HOTEL);
+		// Only a hole is filled: the band somebody placed keeps its own position.
+		expect(db.prepare(`SELECT lat, lng FROM events WHERE id = ?`).get(placed)).toMatchObject(PARK);
+		expect(schedule.legsForDay(tripId, NEXT).map((l) => l.fromEventId)).toContain(band);
+	});
 });
 
 describe('leaving the trip and being removed from it do the same thing to the money', () => {
