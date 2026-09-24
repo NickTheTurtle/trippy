@@ -273,6 +273,219 @@ has no old position to travel from. Under `prefers-reduced-motion` all of it is
 removed: the board is read, not watched, and every block is already in the right
 place without the motion.
 
+### The day board is a strip, and a drag can cross dates
+
+The board drew one day and replaced it wholesale on every step, which made two
+things impossible: seeing that tomorrow exists, and moving a block onto it.
+Rescheduling across dates meant deleting a block and adding it again on the
+other day, losing everything typed into it.
+
+It is now a horizontally scroll-snapped strip of full-width day panels inside
+the same box that already scrolled vertically, plus a **Date** field in the
+event editor. Two ways to do the same move, because they answer different
+questions: the strip is for "not today, the next one", the field is for "the
+Thursday after next".
+
+**Still one day on screen.** The strip snaps `x mandatory` to whole panels. Half
+a day beside half another is not two days, it is one board with the hours
+written twice, because the hour gutter belongs to a panel. Snapping also makes
+"which day is the reader on" an answer rather than a measurement, and that
+answer is what becomes the url.
+
+**One scroll container, two axes.** `.boardscroll` gains `overflow-x`; the
+panels are not given a scroller of their own. A box with `overflow-x: auto`
+computes `overflow-y: visible` to `auto`, so a nested horizontal scroller would
+have silently taken over the vertical scroll that the day window and the drag
+code both measure off `scrollRef`. Sideways gets `overscroll-behavior-x:
+contain`, unlike the vertical axis which chains on purpose: on a trackpad the
+horizontal chain was a back navigation out of the trip.
+
+**Three panels, recycled, not a panel per day.** The payload serves
+`[prevDay, day, nextDay]`, so a 400 day trip costs the same as a 3 day one. When
+a scroll settles on the right-hand panel it becomes the middle of a fresh three,
+and a `useLayoutEffect` re-seats `scrollLeft` onto the url's day in the same
+frame the new panels paint. The day under the reader is identical before and
+after; only its index changed, so the re-index is invisible. A passive effect
+would paint the old offset first, which is a flash of the wrong day.
+
+The cost is real and bounded: `dayLegs` runs a routing pass per day served, so
+first load triples. It persists through `saveAutoLeg` and sits behind
+`routingGate`, and the agenda is deliberately still served one day, since a list
+has no neighbour to scroll to.
+
+**A settle writes the url with `replace`.** A flick across the trip is one
+continuous movement, not a series of visits, so it leaves one history entry
+rather than one per day passed. The arrows and the Date field still push,
+because those are decisions. The commit waits `SETTLE_MS` (140ms), long enough
+to sit out the tail of a decelerating flick and short enough that reaching for
+the map does not find the address bar behind.
+
+**The header reads the gesture, not the url.** The stepper and the lodging band
+stay outside the scroller, since they name the day and must not scroll away, but
+they read the day currently under the reader rather than `data.day`. A band
+still naming the day you have scrolled off is worse than no band.
+
+**The arrows stay links.** They now start the same horizontal travel a hand
+would, over the panels already painted, while the new payload loads: `useApi`
+keeps the previous data rather than blanking, which is exactly what makes that
+possible. They remain `<Link>`s so the board stays addressable and the back
+button still walks the days.
+
+**`useSlideIn` no longer fires on a day change.** It scripted a 64px slide of
+the whole card, standing in for a movement the board could not make. The board
+can make it now, and the script became a second motion disagreeing with the
+scroll about how far the board went. A view change still slides, because Day and
+Agenda really do replace what the card draws and there is no gesture between
+them to borrow.
+
+**Carrying a block across dates.** A block is drawn inside its own day's panel,
+so it would slide out from under a still hand as the strip travels. It is
+therefore offset by exactly what the strip has done (`Drag.dx`), which leaves it
+under the pointer while the days pass behind it. Holding it against the left or
+right edge runs the strip at `EDGE_DAY_RATE` panels a second, the sideways twin
+of the existing vertical edge scroll, and the drop sends the day that arrived
+under it along with the existing `move` op, which has always carried a target
+day. Snapping is switched off for the duration: mandatory snap fights every
+few-pixel step and throws the strip back, so the neighbour can be seen but never
+reached.
+
+The reach is deliberately the loaded window, one day either side. Travelling
+further would mean committing the url mid-drag, which refetches and takes the
+panel the block is drawn in out from under the hand holding it. A longer move is
+the Date field's job; leaning on the edge of a screen for a fortnight is nobody's
+shortcut.
+
+**`editEvent` had to be fixed to allow this.** A target `day` was honoured only
+when the block was a stay, so a date change on anything else was accepted and
+silently dropped. It now moves the block and marks both the day it left and the
+day it joined as touched, so each is replanned. It deliberately leaves
+`time_auto` alone: choosing a date is not choosing a time, so a block that was
+still following the day before it keeps following on its new one.
+
+**A free day draws hours, not the drawn bug.** Every other empty list in the app
+shows `EmptyState`, and the day board used to as well. It was the wrong answer
+twice over. A day with nothing on it is not an empty collection, it is a free
+day, and the hours are the reply to "when could this go": the grid is what you
+double-click to put something at four o'clock, and a drawing has nothing to aim
+at. Then the strip made it a geometry bug too. Panels sit side by side in a
+flex row, so a graphic a couple of hundred pixels tall beside a full day of
+hours made the board's height jump as it was scrolled, and a free day read as
+having been scrolled off the end of the trip rather than as a morning with
+nothing in it. The agenda keeps its graphic: a list of nothing really is
+nothing, and there are no hours there to offer instead.
+
+**The window is measured across every drawn day, not the anchor.** The panels
+share one grid origin, which is what makes their hour lines meet across a
+scroll, so the window has to fit the widest of them. Measured off the anchor
+alone, a neighbour's 04:00 block was drawn above the top of its own panel, where
+it is clipped and sitting at the wrong hour. The cost is that a neighbour's
+early start opens the day you are reading too, which is the right way round: an
+hour of empty grid is cheaper than a block in the wrong place.
+
+### A suggested time follows the day; a chosen one does not
+
+Adding a block used to put it at 09:00 whatever else the day held, and then
+leave it there forever. Both halves were wrong. Adding a third thing to an
+afternoon dropped it back into the morning underneath the first two, and a day
+built by accepting those times drifted out of order the moment anything before
+it changed: a museum stretched from 11:00 to 15:00 left lunch sitting at 12:00.
+
+The two halves need different answers, so they got two.
+
+**Where a new block opens.** `suggestStart` in `packages/core/src/plan.ts` is
+the end of the day so far, falling back to 09:00 only for a day with nothing on
+it. Travel is deliberately not added there: the dialog does not know what the
+journey costs until a place has been picked, so guessing a gap would only show a
+number about to be replaced by a real one.
+
+**Whether it keeps following.** This cannot be read off the stored minutes,
+because "the board put it at 11:10" and "somebody typed 11:10" look identical
+once written. So the intent is recorded rather than inferred:
+`events.time_auto`, set by an add that never pointed at a time, and cleared the
+first time somebody drags the block or types a different start.
+
+It defaults to 0, so every block that already exists keeps the time it has. An
+existing day was arranged by somebody, and reflowing it on the first write after
+this ships would move blocks nobody asked to move.
+
+Three details are worth the reasoning:
+
+- **A drag always pins; an edit only pins when the start actually moved.** The
+  edit dialog restates every field it shows, so a saved change of place sends
+  the time along with it. Treating a restated time as a choice would quietly pin
+  a block the reader never looked at, so `editEvent` compares against the stored
+  start instead of merely noticing the field was present. Resizing pins nothing
+  at all: that is a change of length, and a suggested start is still a
+  suggestion after it.
+- **The suggestion is the journey, not a fixed gap.** `reflowAutoTimes` starts a
+  block at the end of whatever comes before it plus the travel between them,
+  which is already planned and already carries a duration. Where several
+  journeys arrive, the group rejoining, the latest wins: the block cannot start
+  before everybody is there. A block with no incoming journey is left alone,
+  which is the first thing of the morning, whose origin is last night's stay and
+  which therefore has nothing to be after.
+- **Reflow runs between two plans, not inside one.** `touched` calls
+  `recomputeLegs`, then `reflowDay`, then `recomputeLegs` again if anything
+  moved. The first plan is what the suggestion is computed from; the second is
+  because moving a block changes the order the chain is walked in, which can
+  change which journeys exist at all. The reflow writes only `start_min` and
+  `end_min` and deliberately leaves `version` alone: it is not somebody editing
+  the block, and bumping the version would fail the next save an open dialog
+  attempts for a change the reader never made.
+
+Blocks are walked in clock order, so a run of suggested blocks cascades in one
+pass, each following the one this pass has just placed. Starts round **up** to
+the same five minutes a drag snaps to, because rounding down would suggest
+leaving before the journey finishes.
+
+### Stay search filters on primary types, not the umbrella type
+
+Stay search stopped returning anything in production while `/api/health` kept
+reporting Google as configured and undegraded, which is what made it hard to see.
+`suggestGoogle` passed `includedPrimaryTypes: ['lodging']` and `searchGoogle`
+passed `includedType: 'lodging'`. Both parameters match a place's **primary**
+type only, and Google assigns real hotels a specific primary type (`hotel`,
+`hostel`, `resort_hotel`), reserving the umbrella `lodging` for places it cannot
+classify. So the filter matched almost nothing, Google answered 200 with an empty
+list, the provider was recorded as healthy, and the board showed a search that
+simply found no hotels. Nothing on our side had to be deployed for it to start
+failing.
+
+The fix splits the two calls, because the two parameters are not equally capable:
+
+- **Autocomplete** takes up to five primary types, so it names the five that
+  cover almost every booking: `hotel`, `hostel`, `motel`, `resort_hotel`,
+  `guest_house`.
+- **Text search** takes a single `includedType`, which cannot express that list
+  at all, so it no longer filters server-side. It over-fetches 20 and filters the
+  answer itself against the full 17-entry `GOOGLE_LODGING` set before trimming to 8. `places.types` is already in `SEARCH_MASK`, so the filter costs nothing
+  extra. This mirrors what the Photon fallback has always done with OSM tags.
+
+`GOOGLE_LODGING` is now one list rather than two: `categoryOf` used to carry its
+own inline copy, so a type added for classification did not reach the search
+filter.
+
+**None of this is reachable from a test or from local dev.** The e2e config force
+sets `TRIPPY_OFFLINE_PROVIDERS=1`, so every harness run uses keyless Photon, which
+ignores Google's type parameters entirely. A Google-only bug is therefore
+invisible to the browser suites by construction, and the unit tests in
+`places.test.ts` now pin the request shape instead: that the autocomplete list
+contains `hotel`, excludes `lodging` and stays within five, and that the text
+search sends no `includedType` while dropping a restaurant and keeping an inn.
+
+**Existing stays repair themselves, and `place_checked` is why.** Every
+`lodging_options` row in the live database had null `lat`/`lng`, which is the
+other half of the report: the morning's first journey starts at the stay band, so
+a stay with no position gives the next event no travel time. `lookupPhoto` now
+returns `{ photo, lat, lng }` rather than a bare string; `places.location` joins
+a field mask that already requests `places.photos`, and Google prices a request
+at its highest tier, so the coordinates are free. The photo backlog alone could
+not carry the repair, because every affected stay already had a photo, and a bare
+`lat IS NULL` backlog would re-buy the same billed misses on every board load,
+because coordinates have no "asked and found nothing" sentinel the way `photo`
+has `NO_PHOTO`. `lodging_options.place_checked` is that sentinel, and
+`fillLodgingPlace` writes only where the coordinates are still null.
+
 ### M3.3: Reading the board and its map at a glance
 
 **The per-type palette is spread out on purpose.** The five event types are told
@@ -750,7 +963,7 @@ its commonest save to protect against a state nothing can store. Free time, not
 an empty participant list, remains how the schedule says somebody is not
 involved. This is settled; please do not relitigate it by adding a flag column.
 
-What *is* refused, at the API and on both write paths, is a list that **names
+What _is_ refused, at the API and on both write paths, is a list that **names
 people and names nobody this trip has**. That payload is a genuine mistake, and
 until now it was silently rewarded: `writePeople` filters to the roster before
 writing, so a body of ids from another trip, or of people who have since left,
@@ -1268,8 +1481,8 @@ long it takes.
 **There is exactly one estimator, and it answers both halves of the question.**
 `guessLeg` / `minsByMode` in `packages/core/src/travel.ts` decide the label and
 the minutes together. This is worth stating because it was not true and the
-failure was silent: `routing.ts` took its *minutes* from a second estimate in
-`geo.ts` (mode-blind above 8 km, 30 km/h, no flight tier) and its *label* from a
+failure was silent: `routing.ts` took its _minutes_ from a second estimate in
+`geo.ts` (mode-blind above 8 km, 30 km/h, no flight tier) and its _label_ from a
 third copy of the thresholds, so a 1000 km leg was labelled `flight` and given
 2605 minutes, roughly 43 hours of driving, and that number was persisted to
 `travel_legs.auto_mins`. A chosen mode had the same bug in a quieter form: a
@@ -1543,8 +1756,8 @@ lets the E2E suite and a fresh clone register accounts without an SES identity.
 
 Open sign-up means every registration mails an address a stranger typed, so
 typos and deliberate garbage are routine, and a real recipient can always press
-"this is spam". AWS watches the bounce and complaint rates of a *sending
-identity*, not of an app, at roughly 5% and 0.1%. The identity here is the
+"this is spam". AWS watches the bounce and complaint rates of a _sending
+identity_, not of an app, at roughly 5% and 0.1%. The identity here is the
 owner's whole `dxu.info` domain, so one badly behaved app suspends mail for
 everything on it. `mail_suppressions` is the record that stops a known-bad
 address being mailed twice, and `sendMail` consults it before it chooses a
@@ -1664,7 +1877,7 @@ Four gates, all failing closed, in this order:
 
 1. **Certificate URL allowlist.** HTTPS only, host matching
    `sns.<region>.amazonaws.com` (or the `.com.cn` China variant), and the path
-   pinned to `/SimpleNotificationService-<id>.pem`. Checked *before* anything is
+   pinned to `/SimpleNotificationService-<id>.pem`. Checked _before_ anything is
    fetched, so the endpoint can never be turned into a request against a server
    of the attacker's choosing. A valid signature proves nothing if the attacker
    also chose the key it is checked against, which is exactly what a permissive
@@ -1677,8 +1890,8 @@ Four gates, all failing closed, in this order:
    for the message's `Type`, in AWS's order, and verified with SHA1 or SHA256
    per `SignatureVersion`. An unknown `Type` has no defined signed string, so
    there is nothing to verify and the answer is no.
-4. **Freshness and replay.** A signature says *who* wrote a message, never
-   *when* or *how many times* it may be delivered. A genuine notification
+4. **Freshness and replay.** A signature says _who_ wrote a message, never
+   _when_ or _how many times_ it may be delivered. A genuine notification
    captured anywhere on its path would otherwise verify forever. Messages older
    than an hour (comfortably beyond SNS delivery and retry latency) are refused,
    as are messages dated more than a minute into the future, and a missing or
@@ -1847,7 +2060,7 @@ on a non-`ok` response. The route still drew, because OSRM answered, so a 403 on
 every single Google Routes call looked exactly like a quiet evening. Places already
 had a recorder for this; Routing now uses the same one rather than a second
 mechanism, because two health stories that disagree are worse than one that is
-sometimes coarse. Google non-`ok` and a missing duration now *throw* so that the
+sometimes coarse. Google non-`ok` and a missing duration now _throw_ so that the
 recorder sees them, and the fallback still runs, so reporting the failure costs us
 no functionality.
 
@@ -1864,15 +2077,15 @@ runs under `tsx watch`, so every file save wiped the memory and the endpoint wen
 green again without anything having been fixed. A monitor polling `/api/health`
 would have seen green all night. Three options were weighed:
 
-- *Probe on demand.* Honest, but it turns a health endpoint into a billing line:
+- _Probe on demand._ Honest, but it turns a health endpoint into a billing line:
   anything that polls it (a monitor, a load balancer, a curious tab left open)
   spends money on a timer. Rejected for the same reason a background poller was
   ruled out.
-- *Derive it from configuration.* Free, but it answers "is a key set?", not "does
+- _Derive it from configuration._ Free, but it answers "is a key set?", not "does
   the key work". Both Google keys in this environment are present and rejected,
   which is precisely the state this would call healthy. This is the false green we
   started with.
-- *Persist the last failure and the last success.* Chosen. It costs nothing, it
+- _Persist the last failure and the last success._ Chosen. It costs nothing, it
   survives a restart, and it reports the thing that actually happened. The new
   `provider_health` table holds one row per service and is written only on a state
   change or at most once a minute, so a hot failure loop does not become a write
@@ -1887,7 +2100,7 @@ sent no `lang`, so Photon replied in the local script and "Acropolis Museum" was
 stored as "Mouseio Akropolis" in a field the trip then displays and edits forever.
 Probing the live endpoint (an invalid value makes Photon list what it takes)
 showed `lang` accepts only `default`, `de`, `en`, `fr`; `en` is now pinned. Note
-what this does *not* fix: only `name`, `city` and `country` are localized, so
+what this does _not_ fix: only `name`, `city` and `country` are localized, so
 `street` stays in the local script. That is Photon's data, not our parameter.
 
 **Address search: what the provider can and cannot do.** Typing the Acropolis
@@ -1899,7 +2112,7 @@ nothing for this query, and (c) Greek addresses in OSM have no house-number node
 so no free provider can return that building by its address. Three of those
 identical rows were `highway:*` segments of the same street, which is why they
 looked the same and sat in different places. What we could fix, we did: the house
-number and postcode the response *does* carry are no longer discarded, rows are
+number and postcode the response _does_ carry are no longer discarded, rows are
 deduped on name plus address, and named buildings are ordered ahead of raw street
 segments, so the museum appears above the street it is on. Building-level address
 lookup remains a Google Places job, and will work when a working key exists. This
@@ -2044,9 +2257,9 @@ React scaffold listed nine sections and landed `/trips/:tripId` on the schedule.
 The app has **five** tabs, in the order discover, preparation, schedule,
 expenses, people, and the bare trip URL lands on **discover**. `settings` has no
 page at all: it is the organizer's edit dialog in the trip header. `nav.ts` is
-now the single source for all of this, and `App.tsx` generates both the tab
-routes and the redirects from it, so adding a section cannot leave the router
-and the tab bar disagreeing.
+now the single source for all of this, and `App.tsx` generates the tab routes
+from it, so adding a section cannot leave the router and the tab bar
+disagreeing.
 
 **Every slug is the label, lowercased.** Two were not: the tab reading
 "Schedule" lived at `/calendar` and the one reading "Preparation" lived at
@@ -2056,12 +2269,13 @@ thing to explain rather than a thing to read: it also meant nobody could guess a
 URL, and a reader of the code had to hold a translation table.
 
 The argument for keeping them was that a URL's whole job is to keep pointing at
-what it pointed at. `REDIRECTS` settles that, so the rename cost nothing. It
-holds four entries of two kinds, handled identically because a visitor cannot
-tell them apart: `costs` and `lodging` were **folded** into the tabs that
-absorbed them, and `calendar` and `pretrip` are the **old spellings** of tabs
-that were renamed. An e2e test walks all four, because the redirect is the
-load-bearing half of the rename.
+what it pointed at, and for a while a `REDIRECTS` table carried the four old
+paths (`costs` and `lodging`, folded into the tabs that absorbed them, plus
+`calendar` and `pretrip`, the old spellings). It has since been removed. The
+app is in beta and nobody has a saved link to honour, so the table was paying
+rent on a compatibility promise that was never made. An unknown section now
+falls through to the catch-all like any other bad address. If the app ever ships
+links people keep, a rename after that point needs the redirect again.
 
 These are the _page_ slugs. The API keeps `/trips/:id/pretrip`, which is a
 different namespace nobody reads off a screen, and the Expo client keeps its
@@ -3974,14 +4188,22 @@ lands on the minute it was released at.
 
 **The scrollbar is the page's, not the platform's.** Inside a card, the native
 bar arrived with stepper arrows and a white track hard against the card's edge. It
-is now a 6px pill inset in a 10px bar, `--color-ink-faint` at 55 percent and full
-strength under the pointer, on a transparent track. It does not fade, because in a
-card with no other edge to read it is the only thing that says the hours go on.
-The standard `scrollbar-width` and `scrollbar-color` are quarantined in an
-`@supports not selector(::-webkit-scrollbar)` block: a browser that has both
-prefers the standard pair and drops the `::-webkit-` rules, and Chromium's `thin`
-bar brings the arrows back. Firefox, which has no `::-webkit-` scrollbar, takes
-them instead. The root gutter decision is untouched.
+became a 6px pill inset in a 10px bar, `--color-ink-faint` at 55 percent and full
+strength under the pointer, on a transparent track, kept visible on the reasoning
+that in a card with no other edge to read it was the only thing saying the hours
+go on.
+
+**Superseded: the board has no scrollbars at all.** Once the board scrolled
+sideways as well, a styled bar meant two of them boxing in a card that is already
+a card, and the one thing they were there to say is now said by the board itself:
+the day snaps, the stepper names the day either side, and the panels move under
+the hand. `.boardscroll` takes `scrollbar-width: none` plus
+`::-webkit-scrollbar { display: none }`, the same pair `.tabs` already uses, where
+the fade is the affordance instead. Both spellings are needed and neither is
+redundant: Firefox reads the standard property, and Chromium and Safari obey only
+the pseudo-element for hiding. Nothing is disabled, only unpainted: wheel,
+trackpad, touch, keyboard and the code that drives the strip all still scroll.
+The root gutter decision is untouched.
 
 **The time was cut off at the top, and the gutter was innocent.** An hour is
 written across its own rule rather than under it, so `.hourline span` sits at
@@ -4397,8 +4619,22 @@ stays whole rather than being reassembled at the call site.
 Only authored prose moves. Icon glyphs, CSS classes, route and API paths, query
 keys, SSE event names, currency codes and IANA zone names stay put: they are
 identifiers that happen to be strings. Developer-only throws and `console`
-messages stay too, since no user reads them. `Calendar.tsx` is excluded while it
-is frozen; its strings fold in during its redesign.
+messages stay too, since no user reads them.
+
+**Repeated labels are shared, not restated.** `Edit ${name}`, `Delete ${name}`
+and `Delete ${name}?` had each been written out six to eight times, once per
+section, and had already drifted apart once. They now live as
+`common.editLabel`, `common.deleteLabel` and `common.deleteTitle`, and every
+row's pencil, bin and confirmation reads from them. A section keeps its own
+entry only when the sentence genuinely differs: the task list says
+`Edit ${kind}: ${label}` because its rows do not carry their own headings, and
+Discover's delete confirmation has a variant that counts the calendar events a
+place takes with it.
+
+**The schedule's strings now fold in too.** The section was excluded while the
+page was frozen; the freeze has lifted, so `copy.schedule` holds the day
+navigation, the block labels, the fields the two event dialogs share, and the
+four things the place search says instead of a list of results.
 
 **Helper text is the exception, not the default.** The app had drifted into
 explaining itself: a hint under a field repeating the field label, an empty
@@ -5850,6 +6086,7 @@ and in the same five columns beside the clock's seven, so the two dialogs read
 alike and the row is full rather than half empty. An unpicked mode is sent as
 absent, not as an empty string: absent means "let the router decide", which is
 the right default for a journey nobody has an opinion about.
+
 ## A card says what it can do
 
 **A Discover card carries a pencil.** Pressing the cover of a place or a stay
@@ -5939,6 +6176,186 @@ anybody signed in?" is a question with a legitimate negative answer; 401 is for
 a request that needed a session and did not have one. Working around it from the
 client (remembering "no session" in storage, or not asking) would trade a
 cosmetic line for a real bug, since a cookie can arrive from another tab.
+
+## What twelve simulated travellers found
+
+A twelve-person usability run drove one shared trip from account creation
+through planning, on a throwaway stack so the real database was never opened.
+Nine of the reports produced changes. Four are worth the rationale, and three
+are worth recording as **not** bugs, because each looked like one.
+
+**The day strip was reading three days to anyone who could not see it.** A
+tester reported that the 11th was showing the 10th's events. It was not: the
+strip keeps the day either side in the DOM so it has something to scroll to, and
+sighted readers see exactly one of them. The accessibility tree saw all three as
+one unbroken list, so yesterday's blocks were announced as today's. The panels
+that are not being read are now `inert`, which takes them out of that tree and
+out of the tab order together, where `aria-hidden` alone would have left
+focusable buttons inside a hidden subtree. It is lifted for the length of a
+drag: a block carried across dates travels with its own panel, and that panel
+stops being the one being read the moment the strip passes halfway, so made
+inert under the hand holding it the gesture would die mid-air.
+
+**A date input's `min` and `max` are not a limit.** They colour the picker and
+do nothing to a typed date. A typed 2027-05-16 on a trip ending on the 15th left
+the field reading one day while the board read another, with nothing to say
+which the save would use. The event editor now clamps in its `onChange` rather
+than trusting the attributes.
+
+**Nights were checked against each other but not against the trip.** May 8 to
+May 9 is a perfectly ordered one-night stay, and it was accepted onto a trip
+running May 10 to May 15, where it drew a band on days the board does not have.
+The night-order rule cannot see this; the trip's dates are known at the route,
+so the refusal lives there, on all three stay-writing paths. Check-out is
+bounded by the last day rather than the day after it, because the last night of
+a May 10 to May 15 trip is the 14th into the 15th.
+
+**A negative share is a typo, not a refund.** The split guard only asked that
+_something_ was positive, so `-1 / 2 / 7` passed it and then divided as though
+the first person had asked for nothing: somebody named in the split was silently
+dropped out of it, and the row went on to describe itself as "2 ways". The sign
+an expense can legitimately carry is on the **total**, which is what makes
+income income; the weights only say how it is shared out. Negative weights are
+now refused, which also retires a `Math.max(0, …)` in the exact-mode sum that
+had been hiding a negative part inside a valid total.
+
+Three findings were investigated and rejected:
+
+- **"Settling concurrently inverted the debt into billions."** It did not. A
+  second tester had just entered a ten-digit expense; 123456789000 cents over
+  twelve people is 10,288,065,750 each, and eleven of those is the 113,168,723,190
+  that was reported. The arithmetic was right and the balances still summed to
+  zero.
+- **"The schedule API accepts an event with no title."** By design. `derivedTitle`
+  falls back to the picked place, then the first line of the notes, then the
+  type's own label, so the event is named "Activity" rather than nothing. That
+  fallback is what makes the name genuinely optional on the wire.
+- **"Money parsing should be unified."** Places and stays take **cents**;
+  expenses take **major units** and read a negative as income. Two endpoints,
+  two contracts, on purpose. Unifying them on `parseMoneyToCents`, which rejects
+  anything negative, would delete the income path.
+
+One wording split was closed rather than left: the same rule was telling people
+`Check out after you check in.` from the schedule and `Check-out must be after
+check-in.` from the lodging form. The schedule now uses the lodging wording,
+which is the one `packages/copy` already holds.
+
+### Thumbs, and why the first tap-target count was wrong
+
+The same round reported around forty controls under the 44px a thumb needs. That
+number was measured in a headless browser with no touch, so every
+`@media (pointer: coarse)` rule the app already had was inactive during the
+measurement. The checkbox reported as "14x14" grows to about 40px on a real
+phone through `.cbox input { inset: -12px }`. Re-measured with touch emulation
+at 390px the list was much shorter, and shorter again once it was clear the
+audit trip had no content in it: an empty trip renders only page chrome, so the
+vote buttons, edit pencils and row controls had never been measured at all.
+Seeding the trip first found the rest.
+
+Two mechanisms fix what was left, and the split between them is the point:
+
+- **An invisible overlay** (`.tap`, and the component classes listed beside it)
+  for a control that sits on its own in the chrome. The drawing keeps its size
+  and a centred `max(100%, 44px)` box takes the tap. Raising the drawn size
+  instead would be a different app on a phone, with four controls to a row where
+  there used to be six.
+- **Real height** (`.tap-grow`) for a row in a list. An overlay on a 23px row
+  reaches into the rows above and below, and because the later row paints on top
+  it would quietly answer for taps meant for its neighbour. Rows grow instead,
+  which pushes the list apart rather than stacking it.
+
+`--control-h` also went from 42px to 44px on coarse pointers, which was two
+pixels rather than a design decision, and lifts `.btn`, `.input` and `.mtrigger`
+together. `.daypickfield` needed a real `min-height` because an `<input>` draws
+no pseudo-elements.
+
+Two things were deliberately left under 44px. Leaflet's **map pins** stay at
+34px: a pin is placed at a coordinate rather than laid out in a row, so padding
+it out would have neighbouring pins overlap and answer for each other, and
+tapping the wrong place is worse than reaching for the right one. The map zooms,
+which is the real way to separate two pins. Leaflet's **attribution credit** is
+a legal link, not a control.
+
+One more finding was rejected on measurement: **"nothing shows that the tab
+strip scrolls."** At 390px with touch the strip is 482px of content in 342px of
+room and `.tabswrap` carries `more-r`, so the fade affordance is present and
+active.
+
+### Locking the schedule
+
+A trip reaches a point where the plan is settled and the risk stops being "we
+have not decided" and becomes "somebody dragged a block on a phone in their
+pocket". **Lock schedule** is a switch in the Edit trip dialog that freezes the
+board.
+
+It is a property of the **trip**, not of the schedule. The decision it records
+is a decision about the trip, and the edit dialog is already the one
+organizer-only form on the page, so the switch needed no new surface and no new
+permission rule: `updateTrip` was already organizer-only.
+
+Enforcement is one `schedule.use('*')` guard that refuses every non-GET on the
+`/schedule` routes with 403, rather than a check per route. A route added later
+cannot silently forget it, and a board that was loaded before the lock went on
+still gets a real refusal rather than a save that appears to work.
+
+**Reads are never refused.** A locked trip is one everybody is meant to be
+reading; a lock that hid the plan would be the opposite of the point.
+
+**The lock holds against the organizer too**, and the hint under the switch says
+so. The accident it prevents is a drag by whoever is looking at the board, and
+that is as often the person who set the plan as anyone else. Unlocking is one
+switch away, so the cost of being stopped is small and the cost of not being
+stopped is a plan that quietly moved.
+
+In the client the lock removes affordances rather than disabling them: no Add,
+no `+ Add stay`, no pencils, no resize handles, no drag, no double-click to
+place, and `openBlock` / `openLeg` become no-ops so the edit dialog cannot be
+reached from the agenda rows or a journey leg. A disabled control that is still
+drawn invites a second try; an absent one does not. What stands in place of the
+Add button is a **Locked** tag, so the row keeps its shape and the absence reads
+as deliberate rather than as a control that failed to render. The switch itself
+carries no explanatory line: "Lock schedule" is what it does, and the tag on the
+board is where the consequence is legible.
+
+**A deliberate boundary:** the lock covers the `/schedule` routes only. Deleting
+a place in Discover still cascades to the events built on it, which is an
+indirect schedule change. That is left alone because the cascade is the whole
+contract of the Discover list, and a lock that made places undeletable would be
+a lock on a page that does not say it is locked.
+
+### The stand-in who turns out to have an account
+
+An organizer who types a registered person's address into a placeholder's email
+field is saying "this stand-in is that person". That used to be refused, on the
+reasoning that one person with two rows has no answer for who owes what in the
+ledger. The refusal was the worse end of that trade: it left a member on the
+roster that the organizer could not name correctly, and the only way out was to
+delete the stand-in and lose the expenses, votes and assignments it was already
+carrying.
+
+It is now the same handover a registration performs. `consumeInvites` has
+always moved a placeholder's rows onto the account that registers at its
+address and then deleted it, so the two paths share one `absorbPlaceholder`,
+and the merge rules (which row survives a collision, and why) are written down
+once instead of twice.
+
+The surviving membership row is the real account's, so merging into the
+organizer does not quietly demote them. No membership is inserted for the
+account either: the placeholder's own row moves across, which adds somebody new
+and leaves an existing member's role alone in one statement.
+
+### Two smaller ones
+
+**The map is a column, so it gets a column's height.** The day grid draws
+nineteen hours and always filled its 70vh box, so the map beside it came out
+full height. The agenda is as tall as the rows it has, and a light day
+collapsed the board and took the map down with it. Above 901px the board box
+now has a floor equal to its ceiling, so both views give the map the same
+height on every day of the trip.
+
+**The map's "nothing to show" caption is gone.** An empty map is already an
+empty map, and the line sat under a card that is mostly tiles, where it read as
+a caption for the map rather than as the reason it was blank.
 
 ## Implementation status
 
@@ -6529,17 +6946,17 @@ The op edit branch is a partial update, so "the body did not mention this" has
 to stay distinguishable from "the body asked for this to be cleared". What each
 optional field does, as built:
 
-| Field | Absent | Explicit `null` | Empty (`''` / `[]`) | Unreadable |
-|---|---|---|---|---|
-| `title` | unchanged | unchanged (null reads as silence, as it always has) | **derived again**, exactly as create derives | 400, over-length quotes the limit |
-| `type` | unchanged | 400 | 400 | 400 `Pick an event type.` |
-| `notes` | unchanged | cleared | cleared | n/a, any string is notes |
-| `travelMode` | unchanged | cleared, back to the router | cleared, back to the router | 400 `Pick a travel mode.` |
-| `poiId` | link unchanged | link and coordinates cleared | link and coordinates cleared | 400 for a non-string; an unknown id unlinks by design |
-| `startMin` / `endMin` | unchanged | **400** | n/a | 400 |
-| `day` / `endDay` | unchanged | 400 | 400 | 400; a checkout on or before the check-in is 400 |
-| `version` | unchecked write, as before | unchecked write | unchecked write | 400 `Reload the page and try again.` |
-| `people` | not read by this branch at all | not read | not read | not read |
+| Field                 | Absent                         | Explicit `null`                                     | Empty (`''` / `[]`)                          | Unreadable                                            |
+| --------------------- | ------------------------------ | --------------------------------------------------- | -------------------------------------------- | ----------------------------------------------------- |
+| `title`               | unchanged                      | unchanged (null reads as silence, as it always has) | **derived again**, exactly as create derives | 400, over-length quotes the limit                     |
+| `type`                | unchanged                      | 400                                                 | 400                                          | 400 `Pick an event type.`                             |
+| `notes`               | unchanged                      | cleared                                             | cleared                                      | n/a, any string is notes                              |
+| `travelMode`          | unchanged                      | cleared, back to the router                         | cleared, back to the router                  | 400 `Pick a travel mode.`                             |
+| `poiId`               | link unchanged                 | link and coordinates cleared                        | link and coordinates cleared                 | 400 for a non-string; an unknown id unlinks by design |
+| `startMin` / `endMin` | unchanged                      | **400**                                             | n/a                                          | 400                                                   |
+| `day` / `endDay`      | unchanged                      | 400                                                 | 400                                          | 400; a checkout on or before the check-in is 400      |
+| `version`             | unchecked write, as before     | unchecked write                                     | unchecked write                              | 400 `Reload the page and try again.`                  |
+| `people`              | not read by this branch at all | not read                                            | not read                                     | not read                                              |
 
 Two entries are worth the reasoning. `title` is the one field a member can clear
 without naming a replacement. It used to be dropped, and the old name reappeared

@@ -39,7 +39,7 @@ export default function CrewDialog({
 	const base = `/trips/${tripId}/people/crews`;
 
 	const del = useDeleteAction({
-		title: c.deleteTitle(crew?.name ?? ''),
+		title: copy.common.deleteTitle(crew?.name ?? ''),
 		busyLabel: copy.common.deleting,
 		onDelete:
 			crew &&

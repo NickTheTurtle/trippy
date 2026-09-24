@@ -61,7 +61,7 @@ export default function CrewList({
 								<button
 									type="button"
 									onClick={() => onEdit(crew)}
-									aria-label={c.editLabel(crew.name)}
+									aria-label={copy.common.editLabel(crew.name)}
 									className="flex w-full cursor-pointer items-start gap-3 rounded-sm border-0 bg-transparent p-2 text-left text-body hover:bg-surface-2"
 								>
 									{body}

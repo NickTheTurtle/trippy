@@ -353,8 +353,8 @@ test.describe('expenses', () => {
 				await pageB.goto(`/trips/${fixture.tripId}/expenses`);
 
 				// Both open the same expense at the version it currently has.
-				await pageA.getByRole('button', { name: ce.row.editLabel('Original') }).click();
-				await pageB.getByRole('button', { name: ce.row.editLabel('Original') }).click();
+				await pageA.getByRole('button', { name: copy.common.editLabel('Original') }).click();
+				await pageB.getByRole('button', { name: copy.common.editLabel('Original') }).click();
 				const dialogA = pageA.getByRole('dialog');
 				const dialogB = pageB.getByRole('dialog');
 				await expect(dialogA).toBeVisible();

@@ -111,6 +111,19 @@ async function payload(res: Response): Promise<DayPayload> {
 	return (await res.json()) as DayPayload;
 }
 
+/**
+ * The entry for the day the payload says it is drawing.
+ *
+ * The board carries a window of days now, so its first entry is the day before
+ * the one asked for on any day that has one. Everything here is about which day
+ * was served, so it looks the day up rather than trusting a position.
+ */
+function drawn(body: DayPayload) {
+	const entry = body.board.find((b) => b.day === body.day);
+	expect(entry, `board has no entry for ${body.day}`).toBeTruthy();
+	return entry!;
+}
+
 /** The Montreal trip's shape: two years and three days, well past the old cap. */
 const LONG = { start: '2024-09-09', end: '2026-09-12' };
 
@@ -119,7 +132,7 @@ describe('the days a long trip serves', () => {
 		const f = fixture(LONG.start, LONG.end);
 		const body = await payload(await get(f, '?day=2026-05-01'));
 		expect(body.day).toBe('2026-05-01');
-		expect(body.board[0].day).toBe('2026-05-01');
+		expect(drawn(body).day).toBe('2026-05-01');
 		expect(body.prevDay).toBe('2026-04-30');
 		expect(body.nextDay).toBe('2026-05-02');
 	});
@@ -198,7 +211,7 @@ describe('a trip past the day-list window', () => {
 		const f = fixture(WIDE.start, WIDE.end);
 		const body = await payload(await get(f, `?day=${WIDE.end}`));
 		expect(body.day).toBe(WIDE.end);
-		expect(body.board[0].day).toBe(WIDE.end);
+		expect(drawn(body).day).toBe(WIDE.end);
 		expect(body.firstDay).toBe(WIDE.start);
 		expect(body.lastDay).toBe(WIDE.end);
 		expect(body.dayCount).toBe(WIDE.days);
@@ -249,7 +262,7 @@ describe('a trip shortened under an event', () => {
 		expect(edge.nextDay).toBe('2026-03-05');
 		const body = await payload(await get(f, '?day=2026-03-05'));
 		expect(body.day).toBe('2026-03-05');
-		expect(body.board[0].events.length).toBe(1);
+		expect(drawn(body).events.length).toBe(1);
 		expect(body.prevDay).toBe('2026-03-02');
 	});
 

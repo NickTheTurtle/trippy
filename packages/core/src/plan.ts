@@ -242,6 +242,121 @@ export function planDay<E extends PlannableRow, S extends PlannableStay>(
 }
 
 /**
+ * The clock-time snap the board works in, shared with the server's `SNAP`.
+ *
+ * A suggested start that landed on 10:37 would be a time nobody chose and
+ * nobody can drag back to, so a reflowed block rounds up to the same five
+ * minutes a drag snaps to. Up rather than to-nearest, because rounding down
+ * would suggest leaving before the journey finishes.
+ */
+export const SUGGEST_SNAP = 5;
+
+/** A stored event plus whether its time is still the board's suggestion. */
+export interface AutoTimedRow extends PlannableRow {
+	/**
+	 * True while nobody has chosen this block's start.
+	 *
+	 * Set when a block is added without pointing at a time, and cleared the
+	 * first time somebody drags it or types a start. It is the difference
+	 * between "put this after whatever comes before it" and "this is at 14:00",
+	 * and only the first of those should move when the day changes around it.
+	 */
+	time_auto: boolean;
+}
+
+/** A block that the reflow moved, and where it moved it to. */
+export interface ReflowedTime {
+	id: string;
+	startMin: number;
+	endMin: number;
+}
+
+/**
+ * Re-place the blocks whose start is still a suggestion.
+ *
+ * Adding an event, or lengthening one, used to leave everything after it
+ * exactly where it was, so a day built by accepting the suggested times drifted
+ * out of order the moment anything before it changed: a museum added at 10:00
+ * left lunch at 12:00 even after the museum was stretched to 15:00.
+ *
+ * A block follows the journey that arrives at it, which is already planned and
+ * already carries a duration, so the suggestion is simply "leave when you get
+ * there": the end of whatever comes before, plus the travel between them. Where
+ * several journeys arrive (the group rejoining) the latest one wins, because
+ * the block cannot start before everybody is there.
+ *
+ * Only `time_auto` blocks move, and they keep their length: the reflow is about
+ * where a block sits, never how long it lasts. Blocks are walked in clock order
+ * so a run of suggested blocks cascades in one pass, each one following the
+ * block this pass has just placed.
+ *
+ * A block with no incoming journey is left alone. That is the first thing of
+ * the morning, whose origin is last night's stay and which therefore has
+ * nothing to be "after": it is where the day starts rather than where the day
+ * has got to.
+ *
+ * Pure, and returns only what changed, so the server can write the moves and
+ * the client can preview them without either owning the rule.
+ */
+export function reflowAutoTimes(
+	events: readonly AutoTimedRow[],
+	legs: readonly { toEventId: string; fromEventId: string; resolvedMins: number }[]
+): ReflowedTime[] {
+	const now = new Map(events.map((e) => [e.id, { start: e.start_min, end: e.end_min }]));
+	const arriving = new Map<string, typeof legs>();
+	for (const leg of legs) {
+		arriving.set(leg.toEventId, [...(arriving.get(leg.toEventId) ?? []), leg]);
+	}
+
+	const moved: ReflowedTime[] = [];
+	const order = [...events].sort((a, b) => a.start_min - b.start_min || (a.id < b.id ? -1 : 1));
+	for (const e of order) {
+		if (!e.time_auto) continue;
+		let earliest = -1;
+		for (const leg of arriving.get(e.id) ?? []) {
+			// An origin that is not on the day's clock is last night's stay, which
+			// has no end time to leave from.
+			const from = now.get(leg.fromEventId);
+			if (!from) continue;
+			earliest = Math.max(earliest, from.end + leg.resolvedMins);
+		}
+		if (earliest < 0) continue;
+
+		const at = now.get(e.id)!;
+		const length = at.end - at.start;
+		const start = Math.max(
+			0,
+			Math.min(Math.ceil(earliest / SUGGEST_SNAP) * SUGGEST_SNAP, MIDNIGHT_MIN - length)
+		);
+		if (start === at.start) continue;
+		at.start = start;
+		at.end = start + length;
+		moved.push({ id: e.id, startMin: at.start, endMin: at.end });
+	}
+	return moved;
+}
+
+/**
+ * What a block added without pointing at a time should start at.
+ *
+ * The old default was 09:00 whatever else the day held, so adding a third thing
+ * to an afternoon put it back in the morning underneath the first two. The
+ * honest suggestion is the end of the day so far, and 09:00 survives only as
+ * the answer for a day with nothing on it yet.
+ *
+ * Travel is deliberately not added here. The client does not know what the
+ * journey to a place costs until a place has been picked, and the server
+ * reflows the block the moment it is saved, so guessing a gap now would only
+ * show a number that is about to be replaced by a real one.
+ */
+export const DAY_START_MIN = 9 * 60;
+
+export function suggestStart(events: readonly PlannableRow[]): number {
+	const end = events.reduce((last, e) => Math.max(last, e.end_min), -1);
+	return end < 0 ? DAY_START_MIN : Math.min(end, MIDNIGHT_MIN - SUGGEST_SNAP);
+}
+
+/**
  * What a stored leg row contributes to a planned journey.
  *
  * Camel-cased, unlike the event rows above, because this is not a column list:

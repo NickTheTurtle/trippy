@@ -139,9 +139,14 @@ async function loaded(f: Fixture, eventId: string): Promise<{ people: string[] }
 	});
 	expect(res.status).toBe(200);
 	const payload = (await res.json()) as {
-		board: { events: { id: string; people: string[] }[] }[];
+		day: string;
+		board: { day: string; events: { id: string; people: string[] }[] }[];
 	};
-	const event = payload.board[0].events.find((e) => e.id === eventId);
+	// The board is a window of days, so the day asked for is found rather than
+	// assumed to be the first one in it.
+	const entry = payload.board.find((b) => b.day === payload.day);
+	expect(entry).toBeTruthy();
+	const event = entry!.events.find((e) => e.id === eventId);
 	expect(event).toBeTruthy();
 	return event!;
 }

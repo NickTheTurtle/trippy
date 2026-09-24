@@ -68,6 +68,24 @@ export const MAX_NAME_LENGTH = 200;
 /** How long a free-text note may be. Generous: notes are meant to be prose. */
 export const MAX_NOTES_LENGTH = 4000;
 
+/**
+ * Whether a note is short enough to store. Blank is not this check's business.
+ *
+ * Unlike a name, a note cannot wreck a layout: it is prose in a body area
+ * rather than a title drawn in a column-sized card, and the stylesheets already
+ * break anywhere. The limit is here because a row with no ceiling is still a
+ * row with no ceiling, and four thousand characters is past the point where
+ * anyone is writing a note rather than pasting something.
+ */
+export function isNotesLength(text: string): boolean {
+	return text.length <= MAX_NOTES_LENGTH;
+}
+
+/** What an over-long note is told, with the limit quoted. */
+export function notesTooLong(): string {
+	return `Keep notes under ${MAX_NOTES_LENGTH} characters.`;
+}
+
 /** Whether a name or title is short enough to store. Blank is not this check's business. */
 export function isNameLength(text: string): boolean {
 	return text.length <= MAX_NAME_LENGTH;

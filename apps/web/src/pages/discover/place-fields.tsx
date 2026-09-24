@@ -1,4 +1,5 @@
 import Select from '../../components/ui/Select';
+import { MAX_NOTES_LENGTH } from '@trippy/core/validate';
 import { Field, FieldShell, TextArea } from '../../components/ui/Field';
 import { copy } from '../../copy';
 
@@ -48,6 +49,7 @@ export function NotesField({
 		<TextArea
 			label={c.notesLabel}
 			optional
+			maxLength={MAX_NOTES_LENGTH}
 			value={value}
 			onChange={(e) => onChange(e.target.value)}
 		/>

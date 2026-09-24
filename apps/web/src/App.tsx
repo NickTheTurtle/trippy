@@ -1,5 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router';
-import { TABS, REDIRECTS } from './nav';
+import { TABS } from './nav';
 import Layout from './components/Layout';
 import RequireAuth from './components/RequireAuth';
 import NotFound from './pages/NotFound';
@@ -59,9 +59,6 @@ export default function App() {
 							const Page = SECTION_PAGES[t.slug];
 							return <Route key={t.slug} path={t.slug} element={<Page />} />;
 						})}
-						{REDIRECTS.map((r) => (
-							<Route key={r.from} path={r.from} element={<Navigate to={`../${r.to}`} replace />} />
-						))}
 					</Route>
 				</Route>
 

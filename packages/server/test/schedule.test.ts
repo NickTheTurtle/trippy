@@ -711,3 +711,190 @@ describe('deleting a stay that is booked on the calendar', () => {
 		expect(schedule.eventsForDay(tripId, DAY, alice).map((e) => e.id)).toEqual([other]);
 	});
 });
+
+describe('a suggested time follows the day', () => {
+	const times = (id: string) =>
+		db.prepare(`SELECT start_min, end_min FROM events WHERE id = ?`).get(id) as {
+			start_min: number;
+			end_min: number;
+		};
+
+	it('places a new block after the one before it, plus the journey between them', () => {
+		add({ startMin: 540, endMin: 600, people: [alice, bob], ...HOTEL });
+		const lunch = schedule.createEvent(tripId, alice, {
+			day: DAY,
+			title: 'Lunch',
+			type: 'food',
+			// What the dialog opens at when nobody pointed at a time: the end of
+			// the day so far, with the travel still to be added.
+			startMin: 600,
+			endMin: 660,
+			...MUSEUM,
+			people: [alice, bob],
+			timeAuto: true
+		})!;
+		const at = times(lunch);
+		expect(at.start_min).toBeGreaterThan(600);
+		expect(at.end_min - at.start_min).toBe(60);
+	});
+
+	it('moves a suggested block when the block before it is lengthened', () => {
+		const museum = add({ startMin: 540, endMin: 600, people: [alice, bob], ...HOTEL });
+		const lunch = schedule.createEvent(tripId, alice, {
+			day: DAY,
+			title: 'Lunch',
+			type: 'food',
+			startMin: 600,
+			endMin: 660,
+			...MUSEUM,
+			people: [alice, bob],
+			timeAuto: true
+		})!;
+		const was = times(lunch).start_min;
+
+		schedule.resizeEvent(museum, alice, 780, tripId);
+		const now = times(lunch).start_min;
+		expect(now).toBeGreaterThan(was);
+		expect(now).toBeGreaterThanOrEqual(780);
+		expect(times(lunch).end_min - now).toBe(60);
+	});
+
+	it('leaves a block somebody dragged where they dragged it', () => {
+		const museum = add({ startMin: 540, endMin: 600, people: [alice, bob], ...HOTEL });
+		const lunch = schedule.createEvent(tripId, alice, {
+			day: DAY,
+			title: 'Lunch',
+			type: 'food',
+			startMin: 600,
+			endMin: 660,
+			...MUSEUM,
+			people: [alice, bob],
+			timeAuto: true
+		})!;
+
+		// A drag is a choice, so the block stops following the day.
+		schedule.moveEvent(lunch, alice, 900, tripId);
+		schedule.resizeEvent(museum, alice, 780, tripId);
+		expect(times(lunch).start_min).toBe(900);
+	});
+
+	it('leaves a block nobody marked as suggested alone, which is every old block', () => {
+		const museum = add({ startMin: 540, endMin: 600, people: [alice, bob], ...HOTEL });
+		const lunch = add({ startMin: 660, endMin: 720, people: [alice, bob], ...MUSEUM });
+
+		schedule.resizeEvent(museum, alice, 780, tripId);
+		expect(times(lunch).start_min).toBe(660);
+	});
+
+	it('does not pin a suggested block when an edit restates the time it already had', () => {
+		const museum = add({ startMin: 540, endMin: 600, people: [alice, bob], ...HOTEL });
+		const lunch = schedule.createEvent(tripId, alice, {
+			day: DAY,
+			title: 'Lunch',
+			type: 'food',
+			startMin: 600,
+			endMin: 660,
+			...MUSEUM,
+			people: [alice, bob],
+			timeAuto: true
+		})!;
+		const settled = times(lunch);
+
+		// What the edit dialog sends when only the notes changed: every field it
+		// shows, the unchanged time among them.
+		schedule.editEvent(
+			lunch,
+			alice,
+			{ notes: 'Book a table', startMin: settled.start_min, endMin: settled.end_min },
+			tripId
+		);
+		schedule.resizeEvent(museum, alice, 780, tripId);
+		expect(times(lunch).start_min).toBeGreaterThanOrEqual(780);
+	});
+});
+
+describe('a date moves a block that is not a stay', () => {
+	const dayOf = (id: string) =>
+		db.prepare(`SELECT day, end_day FROM events WHERE id = ?`).get(id) as {
+			day: string;
+			end_day: string | null;
+		};
+
+	it('moves the block to the day it names, keeping its clock', () => {
+		const museum = add({ startMin: 600, endMin: 660, people: [alice], ...MUSEUM });
+		schedule.editEvent(museum, alice, { day: NEXT }, tripId);
+		const row = dayOf(museum);
+		expect(row.day).toBe(NEXT);
+		// The date is not the clock: moving a block to another day leaves the
+		// hour it happens at alone.
+		const at = db.prepare(`SELECT start_min, end_min FROM events WHERE id = ?`).get(museum) as {
+			start_min: number;
+			end_min: number;
+		};
+		expect(at).toEqual({ start_min: 600, end_min: 660 });
+	});
+
+	it('gives it no end day, so it never reads as a range', () => {
+		const museum = add({ startMin: 600, endMin: 660, people: [alice], ...MUSEUM });
+		schedule.editEvent(museum, alice, { day: NEXT }, tripId);
+		expect(dayOf(museum).end_day).toBeNull();
+	});
+
+	it('replans the day it left as well as the day it joined', () => {
+		// Two blocks a journey apart, so the day it leaves has a leg to lose.
+		add({ startMin: 540, endMin: 600, people: [alice], ...HOTEL });
+		const museum = add({ startMin: 660, endMin: 720, people: [alice], ...MUSEUM });
+		expect(schedule.legsForDay(tripId, DAY)).toHaveLength(1);
+
+		schedule.editEvent(museum, alice, { day: NEXT }, tripId);
+		// One block cannot be a journey, so the leg goes with it.
+		expect(schedule.legsForDay(tripId, DAY)).toHaveLength(0);
+		expect(dayOf(museum).day).toBe(NEXT);
+	});
+
+	it('leaves a block that names the day it is already on where it is', () => {
+		const museum = add({ startMin: 600, endMin: 660, people: [alice], ...MUSEUM });
+		const before = db.prepare(`SELECT version FROM events WHERE id = ?`).get(museum) as {
+			version: number;
+		};
+		schedule.editEvent(museum, alice, { day: DAY, title: 'Museum' }, tripId);
+		expect(dayOf(museum).day).toBe(DAY);
+		// The save still counts: the title went with it.
+		expect(
+			(db.prepare(`SELECT version FROM events WHERE id = ?`).get(museum) as { version: number })
+				.version
+		).toBe(before.version + 1);
+	});
+
+	it('still moves a stay by its dates, and will not let the range invert', () => {
+		const stay = add({
+			type: 'stay',
+			endDay: '2026-10-03',
+			startMin: 0,
+			endMin: 1440,
+			people: [alice]
+		});
+		schedule.editEvent(stay, alice, { day: NEXT }, tripId);
+		const row = dayOf(stay);
+		expect(row.day).toBe(NEXT);
+		// The checkout is left where it was, because it is still after the new
+		// arrival. Only a drag carries the nights along; the dialog sends both
+		// ends, so the one that stretches is the one the reader typed.
+		expect(row.end_day).toBe('2026-10-03');
+	});
+
+	it('pushes a stay checkout past an arrival that would overtake it', () => {
+		const stay = add({
+			type: 'stay',
+			endDay: NEXT,
+			startMin: 0,
+			endMin: 1440,
+			people: [alice]
+		});
+		// Checking in on the morning it was checked out of is not a stay.
+		schedule.editEvent(stay, alice, { day: '2026-10-03' }, tripId);
+		const row = dayOf(stay);
+		expect(row.day).toBe('2026-10-03');
+		expect(row.end_day).toBe('2026-10-04');
+	});
+});

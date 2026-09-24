@@ -140,8 +140,22 @@ async function parseExpense(
 			error: splitMode === 'exact' ? 'Enter at least one amount.' : 'Enter at least one share.'
 		};
 	}
+	// A negative share is not a refund, it is a typo. The check above only asks
+	// that *something* is positive, so `-1 / 2 / 7` passed it and then divided as
+	// though the first person had asked for nothing: they were dropped from a
+	// split they had been named in, and the row went on to describe itself as
+	// "2 ways". The sign an expense can legitimately carry is on the total, which
+	// is what makes income income; the weights only say how it is shared out.
+	if (splitMode !== 'even' && parts.some((p) => p.weight < 0)) {
+		return {
+			error:
+				splitMode === 'exact'
+					? 'Enter an amount of zero or more for everyone.'
+					: 'Enter a share of zero or more for everyone.'
+		};
+	}
 	if (splitMode === 'exact') {
-		const sum = parts.reduce((a, p) => a + Math.max(0, p.weight), 0);
+		const sum = parts.reduce((a, p) => a + p.weight, 0);
 		if (sum !== Math.abs(cents)) {
 			return {
 				error: `Amounts add up to ${(sum / 100).toFixed(2)}, but the total is ${Math.abs(

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { isLocatedType, STAY_CHECK_IN, type EventType } from '@trippy/core/types';
-import { MAX_NAME_LENGTH } from '@trippy/core/validate';
+import { STAY_CHECK_IN, type EventType } from '@trippy/core/types';
+import { MAX_NAME_LENGTH, MAX_NOTES_LENGTH } from '@trippy/core/validate';
 import { api } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
 import Modal, { ModalFooter, ModalForm } from '../../components/ui/Modal';
@@ -9,8 +9,7 @@ import TimeField from '../../components/ui/TimeField';
 import { FieldShell, Field, TextArea } from '../../components/ui/Field';
 import { copy } from '../../copy';
 import PeoplePicker from './PeoplePicker';
-import PlaceField from './PlaceField';
-import { usePlaceLookup } from './usePlaceSearch';
+import { usePlaceField } from './usePlaceField';
 import StayDates from './StayDates';
 import { useJourneys } from './Journeys';
 import {
@@ -21,14 +20,13 @@ import {
 	TYPE_OPTIONS,
 	dayLabel,
 	deriveTitle,
-	keepsPick,
 	NO_PEOPLE,
-	placeLabel,
-	placeOptions,
 	rangeLabel,
 	shiftDay
 } from './shared';
 import type { Cell, Crew, EventDraft, EventRow, LegRow, SavedPoi } from './types';
+
+const cf = copy.schedule.fields;
 
 /**
  * Adds one event to a day.
@@ -51,6 +49,7 @@ export default function AddEventDialog({
 	base,
 	day,
 	startMin,
+	suggestedStart,
 	initialType,
 	initialPoi,
 	legs,
@@ -73,6 +72,12 @@ export default function AddEventDialog({
 	day: string;
 	/** Where on the clock the dialog was opened, when it was opened by pointing at a time. */
 	startMin: number | null;
+	/**
+	 * Where a block goes when nobody pointed at a time: the end of the day so
+	 * far. Left untouched it is sent as a suggestion, so the block keeps
+	 * following whatever ends up in front of it.
+	 */
+	suggestedStart: number;
 	/** What the dialog opens as, when it was opened from something type-specific. */
 	initialType?: EventType;
 	/** A saved place the dialog opens with already picked, as the map's "+ Add" does. */
@@ -101,8 +106,14 @@ export default function AddEventDialog({
 	onDone: () => void;
 }) {
 	const [type, setType] = useState<EventType>(initialType ?? 'activity');
-	const [start, setStart] = useState(String(startMin ?? 9 * 60));
-	const [end, setEnd] = useState(String((startMin ?? 9 * 60) + 60));
+	const opensAt = startMin ?? suggestedStart;
+	const [start, setStart] = useState(String(opensAt));
+	const [end, setEnd] = useState(String(opensAt + 60));
+	/* Whether the start is still the one the board proposed. Pointing at a time
+	   to open the dialog is already a choice, so only an add that opened without
+	   one can stay a suggestion, and typing into the field ends it. The server
+	   then keeps a suggested block behind whatever ends up in front of it. */
+	const [timeChosen, setTimeChosen] = useState(startMin != null);
 	/* A stay is asked for by its dates instead of by a clock. Kept beside the
 	   times rather than instead of them, so switching type back and forth does
 	   not lose what was already typed. */
@@ -111,11 +122,6 @@ export default function AddEventDialog({
 	/* `null` once the organiser has emptied the field. Distinct from `[]`, which
 	   is how everyone is stored, and refused at the save rather than at the tick. */
 	const [people, setPeople] = useState<string[] | null>([]);
-	/* Where the block is, as the field holds it: an id when a saved place was
-	   picked, and the text either way. A typed name that matches nothing keeps
-	   the id empty, and that pair is what the save sends. */
-	const [poi, setPoi] = useState(initialPoi?.id ?? '');
-	const [place, setPlace] = useState(initialPoi?.name ?? '');
 	const [notes, setNotes] = useState('');
 	/* What to call the block, when the name it would be given is not the one the
 	   organiser wants. Blank is the normal case and means "name it yourself":
@@ -136,6 +142,7 @@ export default function AddEventDialog({
 
 	/** Moving the start carries the end with it: see `EventDialog`. */
 	const moveStart = (next: string) => {
+		setTimeChosen(true);
 		setStart(next);
 		setEnd(String(Math.min(DAY_END, Number(next) + (endAt - startAt))));
 	};
@@ -147,34 +154,24 @@ export default function AddEventDialog({
 
 	// Free time is deliberately nowhere, so it is the one type with no location.
 	// A journey's location is the far end of it: where it puts you.
-	const placeable = isLocatedType(type);
-	const placeFieldLabel = placeLabel(type);
-
-	/* The provider search is biased to a city, so a day without one searches
-	   nothing and the field is the saved list alone. */
-	const searchCity = cities.find((c): c is Cell => c?.id === cityId) ?? null;
-	const { found, onTyped, fieldProps } = usePlaceLookup({
+	const {
+		poi,
+		place,
+		spot,
+		placeable,
+		field: placeField,
+		retype
+	} = usePlaceField({
 		base,
-		city: searchCity,
 		type,
+		cities,
+		cityId,
+		saved,
+		stays,
 		provider,
-		onPicked: (made, stay) => {
-			setPlace(made.name);
-			// Linked only when the block can hold what was added: a hotel found
-			// from an activity is saved to the trip either way, but this block is
-			// not the thing that books it.
-			setPoi(stay === staying ? made.id : '');
-		}
+		initialPoi: initialPoi?.id ?? '',
+		initialPlace: initialPoi?.name ?? ''
 	});
-
-	/* A stay is booked into one of the stays the group is voting on; everything
-	   else happens at a saved place. One picker, two lists, because the field is
-	   asking the same question either way: which of the things we have already
-	   shortlisted is this? Anything the provider search added while this dialog
-	   has been open goes in front of both: the newest thing is the thing being
-	   looked for. */
-	const pickable = staying ? [...found.stays, ...stays] : [...found.places, ...saved];
-	const poiOptions = placeOptions(pickable, cities, cityId, type);
 
 	const journeys = useJourneys({ legs, eventOf, peopleLabel });
 
@@ -186,7 +183,6 @@ export default function AddEventDialog({
 	   reader watches the thing they are describing take its place. */
 	const preview = useRef(onPreview);
 	preview.current = onPreview;
-	const spot = placeable ? (pickable.find((p) => p.id === poi) ?? null) : null;
 	useEffect(() => {
 		preview.current?.({
 			id: DRAFT_ID,
@@ -252,7 +248,10 @@ export default function AddEventDialog({
 						travelMode: type === 'travel' && mode ? mode : undefined,
 						// Never null here: `submit` refuses an emptied field before it
 						// gets this far.
-						people: people ?? []
+						people: people ?? [],
+						// A start nobody chose is sent as one, so the board can keep
+						// the block behind whatever ends up in front of it.
+						timeAuto: !timeChosen && !staying
 					}
 				})
 			).id;
@@ -312,41 +311,20 @@ export default function AddEventDialog({
 					    saving the block and opening it again, and the row it would
 					    otherwise share was left half empty. */}
 					<div className="grid grid-cols-12 gap-x-2.5 gap-y-3.5">
-						{placeable && (
-							<PlaceField
-								label={placeFieldLabel}
-								className="col-span-8"
-								options={poiOptions}
-								value={place}
-								onChange={(text, id) => {
-									setPlace(text);
-									setPoi(id);
-									// Only a typed query searches. A pick puts a name in the
-									// box that nobody asked the provider for.
-									onTyped(id ? '' : text);
-								}}
-								{...fieldProps}
-							/>
-						)}
+						{placeField}
 						<FieldShell
-							label="Type"
+							label={cf.type}
 							className={placeable ? 'col-span-4' : 'col-span-12 sm:col-span-5'}
 						>
 							<Select
 								value={type}
 								onChange={(v) => {
 									const next = v as EventType;
-									// A pick the new type cannot hold goes, and the name it put
-									// in the box goes with it: leaving the text behind would
-									// silently turn a picked place into a typed one.
-									if (!keepsPick(type, next, spot)) {
-										setPoi('');
-										setPlace('');
-									}
+									retype(next);
 									setType(next);
 								}}
 								options={TYPE_OPTIONS}
-								ariaLabel="Type"
+								ariaLabel={cf.type}
 							/>
 						</FieldShell>
 
@@ -358,26 +336,31 @@ export default function AddEventDialog({
 								onCheckOut={setCheckOut}
 							/>
 						) : (
-							<FieldShell label="When" className="col-span-12 sm:col-span-7">
+							<FieldShell label={cf.when} className="col-span-12 sm:col-span-7">
 								<div className="tfpair">
 									<TimeField
 										value={startAt}
 										onChange={(v) => moveStart(String(v))}
-										ariaLabel="Start"
+										ariaLabel={cf.start}
 									/>
 									<span className="tfto">to</span>
 									<TimeField
 										value={endAt}
 										onChange={(v) => setEnd(String(v))}
 										onCommit={fixEnd}
-										ariaLabel="End"
+										ariaLabel={cf.end}
 									/>
 								</div>
 							</FieldShell>
 						)}
 						{type === 'travel' && (
-							<FieldShell label="Mode" optional className="col-span-12 sm:col-span-5">
-								<Select value={mode} onChange={setMode} options={MODE_OPTIONS} ariaLabel="Mode" />
+							<FieldShell label={cf.mode} optional className="col-span-12 sm:col-span-5">
+								<Select
+									value={mode}
+									onChange={setMode}
+									options={MODE_OPTIONS}
+									ariaLabel={cf.mode}
+								/>
 							</FieldShell>
 						)}
 						<PeoplePicker
@@ -398,7 +381,7 @@ export default function AddEventDialog({
 						    alone, so the field says what it overrides without a hint
 						    line repeating it. */}
 						<Field
-							label="Label"
+							label={cf.label}
 							optional
 							className="col-span-12"
 							value={label}
@@ -408,8 +391,9 @@ export default function AddEventDialog({
 						/>
 
 						<TextArea
-							label="Notes"
+							label={cf.notes}
 							optional
+							maxLength={MAX_NOTES_LENGTH}
 							className="col-span-12"
 							value={notes}
 							onChange={(e) => setNotes(e.target.value)}

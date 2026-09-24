@@ -112,7 +112,7 @@ export default function CityList({
 								// The region is set only when a same-named city is in the
 								// list, and the column is narrow enough to ellipsise it, so
 								// the full label is on the hover title as well.
-								title={c.region ? `${c.name}, ${c.region}` : undefined}
+								title={c.region ? cl.cityLabel(c.name, c.region) : undefined}
 								onClick={() => onChange(c.id)}
 							>
 								<span className="lbl">
@@ -126,7 +126,7 @@ export default function CityList({
 								// vanishes as you delete down to one reads as a bug, and the
 								// title says why it cannot be pressed.
 								<RemoveCardButton
-									label={cl.removeLabel(c.name)}
+									label={copy.common.deleteLabel(c.name)}
 									onClick={() => setPendingDelete(c)}
 									disabled={!canDelete}
 									title={canDelete ? undefined : cl.lastCityTitle}
@@ -160,7 +160,7 @@ export default function CityList({
 					<Select
 						options={cities.map((c) => ({
 							value: c.id,
-							label: c.region ? `${c.name}, ${c.region}` : c.name
+							label: cl.cityLabel(c.name, c.region)
 						}))}
 						value={value}
 						onChange={onChange}
@@ -176,7 +176,7 @@ export default function CityList({
 							    one, as in the column. */}
 							<IconButton
 								danger
-								label={cl.removeLabel(current?.name ?? '')}
+								label={copy.common.deleteLabel(current?.name ?? '')}
 								disabled={!canDelete}
 								onClick={() => current && setPendingDelete(current)}
 								{...(canDelete ? {} : { title: cl.lastCityTitle })}
@@ -193,7 +193,11 @@ export default function CityList({
 
 			<ConfirmDialog
 				open={!!pendingDelete}
-				title={pendingDelete ? cl.deleteTitle(pendingDelete.name, pendingDelete.region) : ''}
+				title={
+					pendingDelete
+						? copy.common.deleteTitle(cl.cityLabel(pendingDelete.name, pendingDelete.region))
+						: ''
+				}
 				busyLabel={copy.common.deleting}
 				onCancel={() => setPendingDelete(null)}
 				onConfirm={async () => {

@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type APIRequestContext } from '@playwright/test';
 import { createApiFixture } from './fixtures/api';
 import { addCity, addPlace, addStay, apiSend, seedMembers } from './fixtures/seed';
 import { copy } from './fixtures/copy';
@@ -959,9 +959,9 @@ test.describe('the place picker', () => {
 			const hit = page.getByRole('option', { name: /ZZ Cervejaria Ramiro/ });
 			await expect(hit).toBeVisible();
 			await expect(page.locator('dialog[open]')).toHaveCount(1);
-			await expect(page.locator('.sdrophead')).toHaveText(['Found']);
+			await expect(page.locator('.sdrophead')).toHaveText(['Results']);
 			// A heading is not something to pick.
-			await expect(page.getByRole('option', { name: /^Found$/ })).toHaveCount(0);
+			await expect(page.getByRole('option', { name: /^Results$/ })).toHaveCount(0);
 
 			await hit.click();
 
@@ -1240,6 +1240,390 @@ test.describe('schedule board colour and edit affordance', () => {
 				page.locator('.sched .block.activity:not(.leg)').filter({ hasText: 'Tram stop' })
 			).toHaveCount(1);
 			await expect.poll(() => pinColor('Tram stop')).toBe('#2f7a4f');
+		} finally {
+			fixture.teardown();
+		}
+	});
+});
+
+/**
+ * A block added without pointing at a time is a suggestion, not a decision.
+ *
+ * Two halves, and both matter: the dialog has to open at the end of the day so
+ * far rather than back at nine in the morning, and the block it adds has to
+ * keep following whatever ends up in front of it until somebody moves it
+ * themselves.
+ */
+test.describe('a suggested time', () => {
+	test('opens at the end of the day and then follows the block before it', async ({
+		page,
+		request
+	}) => {
+		const fixture = await createApiFixture(request);
+		const startDate = fixture.tripBody.startDate;
+		const cityId = await addCity(request, fixture, {
+			name: 'Athens',
+			country: 'Greece',
+			arrive: startDate,
+			depart: fixture.tripBody.endDate,
+			lat: 37.9838,
+			lng: 23.7275,
+			tz: 'Europe/Athens'
+		});
+		const museum = await addPlace(request, fixture, {
+			cityId,
+			name: 'Museum',
+			lat: 37.9689,
+			lng: 23.7286
+		});
+		await addPlace(request, fixture, { cityId, name: 'Taverna', lat: 37.9755, lng: 23.7348 });
+
+		const made = await apiSend(
+			request,
+			fixture,
+			'POST',
+			`/trips/${fixture.tripId}/schedule/events`,
+			{ day: startDate, cityId, type: 'activity', start: 600, duration: 60, poiId: museum }
+		);
+		expect(made.status(), await made.text()).toBe(201);
+		const museumEvent = (await made.json()).id as string;
+
+		await signIn(page, fixture.sessionCookie);
+		await page.goto(`/trips/${fixture.tripId}/schedule?day=${startDate}&view=day`);
+		await expect(page.getByRole('button', { name: /^Museum, / })).toBeVisible();
+
+		// The museum runs to 11:00, so that is where the next thing goes.
+		await page.getByRole('button', { name: '+ Add', exact: true }).click();
+		const dialog = page.getByRole('dialog').first();
+		await expect(dialog.getByLabel('Start').first()).toHaveText('11');
+
+		await dialog.getByRole('combobox', { name: 'Activity' }).fill('Taverna');
+		await page.getByRole('option', { name: /Taverna/ }).click();
+		await dialog.getByRole('button', { name: copy.common.add, exact: true }).click();
+
+		const lunch = page.getByRole('button', { name: /^Taverna, / });
+		await expect(lunch).toBeVisible();
+		// Not 11:00: the walk between the two is added to the end of the museum.
+		await expect(lunch).toHaveAttribute('aria-label', /11:10 AM/);
+
+		// Lengthening the museum carries the suggested block with it, walk and all.
+		const res = await apiSend(
+			request,
+			fixture,
+			'POST',
+			`/trips/${fixture.tripId}/schedule/events/${museumEvent}/op`,
+			{ op: 'resize', endMin: 900 }
+		);
+		expect(res.status(), await res.text()).toBeLessThan(300);
+		await page.reload();
+		await expect(page.getByRole('button', { name: /^Taverna, / })).toHaveAttribute(
+			'aria-label',
+			/3:10 PM/
+		);
+	});
+
+	test('leaves a block alone once somebody has dragged it', async ({ page, request }) => {
+		const fixture = await createApiFixture(request);
+		const startDate = fixture.tripBody.startDate;
+		const cityId = await addCity(request, fixture, {
+			name: 'Athens',
+			country: 'Greece',
+			arrive: startDate,
+			depart: fixture.tripBody.endDate,
+			lat: 37.9838,
+			lng: 23.7275,
+			tz: 'Europe/Athens'
+		});
+		const museum = await addPlace(request, fixture, {
+			cityId,
+			name: 'Museum',
+			lat: 37.9689,
+			lng: 23.7286
+		});
+		const taverna = await addPlace(request, fixture, {
+			cityId,
+			name: 'Taverna',
+			lat: 37.9755,
+			lng: 23.7348
+		});
+		const ev = async (data: Record<string, unknown>) => {
+			const res = await apiSend(
+				request,
+				fixture,
+				'POST',
+				`/trips/${fixture.tripId}/schedule/events`,
+				{ day: startDate, cityId, ...data }
+			);
+			expect(res.status(), await res.text()).toBe(201);
+			return (await res.json()).id as string;
+		};
+		const museumEvent = await ev({ type: 'activity', start: 600, duration: 60, poiId: museum });
+		const lunchEvent = await ev({
+			type: 'activity',
+			start: 660,
+			duration: 60,
+			poiId: taverna,
+			timeAuto: true
+		});
+
+		// A drag is somebody choosing a time, so the block stops following.
+		await apiSend(
+			request,
+			fixture,
+			'POST',
+			`/trips/${fixture.tripId}/schedule/events/${lunchEvent}/op`,
+			{ op: 'move', startMin: 1020 }
+		);
+		await apiSend(
+			request,
+			fixture,
+			'POST',
+			`/trips/${fixture.tripId}/schedule/events/${museumEvent}/op`,
+			{ op: 'resize', endMin: 900 }
+		);
+
+		await signIn(page, fixture.sessionCookie);
+		await page.goto(`/trips/${fixture.tripId}/schedule?day=${startDate}&view=day`);
+		await expect(page.getByRole('button', { name: /^Taverna, / })).toHaveAttribute(
+			'aria-label',
+			/5:00 PM/
+		);
+	});
+});
+
+/**
+ * The board is a strip of days that scrolls sideways.
+ *
+ * Which is three things at once and is tested as three: the day is still the
+ * url's, the strip can be travelled with a hand and the url follows where it
+ * comes to rest, and a block can be carried onto another date. The date field
+ * in the editor is the same move made by typing, so it sits here too.
+ */
+test.describe('the day strip', () => {
+	/** A trip with one placed block, and the ids needed to reach it again. */
+	async function seedDay(page: import('@playwright/test').Page, request: APIRequestContext) {
+		const fixture = await createApiFixture(request);
+		const { startDate, endDate } = fixture.tripBody;
+		const cityId = await addCity(request, fixture, {
+			name: 'Athens',
+			country: 'Greece',
+			arrive: startDate,
+			depart: endDate,
+			lat: 37.9838,
+			lng: 23.7275,
+			tz: 'Europe/Athens'
+		});
+		const poiId = await addPlace(request, fixture, {
+			cityId,
+			name: 'Museum',
+			lat: 37.9689,
+			lng: 23.7286
+		});
+		const made = await apiSend(
+			request,
+			fixture,
+			'POST',
+			`/trips/${fixture.tripId}/schedule/events`,
+			{ day: startDate, cityId, type: 'activity', start: 600, duration: 60, poiId }
+		);
+		expect(made.status(), await made.text()).toBe(201);
+		await signIn(page, fixture.sessionCookie);
+		return fixture;
+	}
+
+	/** The days the strip currently holds, in order. */
+	const panelDays = (page: import('@playwright/test').Page) =>
+		page
+			.locator('.sched .daypanel')
+			.evaluateAll((els) => els.map((el) => el.getAttribute('data-day')));
+
+	test('holds a day either side and opens on the one the url names', async ({ page, request }) => {
+		const fixture = await seedDay(page, request);
+		const { startDate, endDate } = fixture.tripBody;
+		try {
+			// A middle day has a neighbour both ways, so the strip is three panels
+			// and the url's day is the one in the middle of them.
+			const middle = '2027-02-11';
+			await page.goto(`/trips/${fixture.tripId}/schedule?day=${middle}&view=day`);
+			await expect(page.locator('.sched .daypanel')).toHaveCount(3);
+			expect(await panelDays(page)).toEqual([startDate, middle, endDate]);
+			await settled(page);
+			// Seated on the middle panel, not on the first one the strip drew.
+			const seat = await page
+				.locator('.sched .boardscroll')
+				.evaluate((el) => Math.round(el.scrollLeft / el.clientWidth));
+			expect(seat).toBe(1);
+
+			// The first day has nothing before it, so the strip is two panels and
+			// starts at the left. The board never shows half of two days.
+			await page.goto(`/trips/${fixture.tripId}/schedule?day=${startDate}&view=day`);
+			await expect(page.locator('.sched .daypanel')).toHaveCount(2);
+			expect(await panelDays(page)).toEqual([startDate, middle]);
+			await settled(page);
+			await expect(page.locator('.sched .boardscroll')).toHaveJSProperty('scrollLeft', 0);
+		} finally {
+			fixture.teardown();
+		}
+	});
+
+	test('scrolling it renames the day and settles into the url', async ({ page, request }) => {
+		const fixture = await seedDay(page, request);
+		const { startDate } = fixture.tripBody;
+		try {
+			await page.goto(`/trips/${fixture.tripId}/schedule?day=${startDate}&view=day`);
+			await settled(page);
+			await expect(page.getByRole('button', { name: /^Museum, / })).toBeVisible();
+
+			// A hand carrying the strip to tomorrow.
+			await page.locator('.sched .boardscroll').evaluate((el) => {
+				el.scrollLeft = el.clientWidth;
+				el.dispatchEvent(new Event('scroll'));
+			});
+
+			// The url follows, which is what makes the day shareable and the back
+			// button able to walk back out of the trip.
+			await expect(page).toHaveURL(/day=2027-02-11/, { timeout: 5000 });
+			// And the stepper names the day the reader is on, not the one they left.
+			await expect(page.locator('.sched .boardhead')).toContainText('11');
+		} finally {
+			fixture.teardown();
+		}
+	});
+
+	test('the editor moves a block to another date', async ({ page, request }) => {
+		const fixture = await seedDay(page, request);
+		const { startDate } = fixture.tripBody;
+		try {
+			await page.goto(`/trips/${fixture.tripId}/schedule?day=${startDate}&view=day`);
+			await page.getByRole('button', { name: 'Edit Museum' }).click();
+
+			const dialog = page.getByRole('dialog').first();
+			const date = dialog.getByLabel('Date');
+			await expect(date).toHaveValue(startDate);
+			// Bounded by the trip, the same way the day arrows are.
+			await expect(date).toHaveAttribute('min', startDate);
+			await expect(date).toHaveAttribute('max', fixture.tripBody.endDate);
+
+			await date.fill('2027-02-12');
+			await dialog.getByRole('button', { name: copy.common.save, exact: true }).click();
+			await expect(dialog).toBeHidden();
+
+			// Gone from the day it was on.
+			await expect(page.getByRole('button', { name: /^Museum, / })).toHaveCount(0);
+			// And on the day it was sent to.
+			await page.goto(`/trips/${fixture.tripId}/schedule?day=2027-02-12&view=day`);
+			await expect(page.getByRole('button', { name: /^Museum, / })).toBeVisible();
+			// The time it was given is the time it keeps: choosing a date is not
+			// choosing an hour, so the block lands where it stood.
+			await expect(page.getByRole('button', { name: /^Museum, / })).toHaveAttribute(
+				'aria-label',
+				/10:00 AM/
+			);
+		} finally {
+			fixture.teardown();
+		}
+	});
+
+	test('a block carried to the right edge lands on the next day', async ({ page, request }) => {
+		const fixture = await seedDay(page, request);
+		const { startDate } = fixture.tripBody;
+		const middle = '2027-02-11';
+		try {
+			await page.goto(`/trips/${fixture.tripId}/schedule?day=${startDate}&view=day`);
+			const block = page.getByRole('button', { name: /^Museum, / });
+			await expect(block).toBeVisible();
+			await block.scrollIntoViewIfNeeded();
+			await settled(page);
+
+			const from = (await block.boundingBox())!;
+			const box = (await page.locator('.sched .boardscroll').boundingBox())!;
+			await page.mouse.move(from.x + from.width / 2, from.y + 20);
+			await page.mouse.down();
+			// Held against the right edge, which runs the strip through the days
+			// while the block stays under the hand.
+			await page.mouse.move(box.x + box.width - 8, from.y + 20, { steps: 8 });
+			await expect(page.locator('.sched .boardhead')).toContainText('11', { timeout: 5000 });
+			await page.mouse.up();
+
+			// The drop sends the block to the day that arrived under it, and takes
+			// the reader with it: they are looking at the day they aimed for.
+			await expect(page).toHaveURL(new RegExp(`day=${middle}`), { timeout: 5000 });
+			await expect(page.getByRole('button', { name: /^Museum, / })).toBeVisible();
+
+			// And it really left the day it started on.
+			await page.goto(`/trips/${fixture.tripId}/schedule?day=${startDate}&view=day`);
+			await expect(page.getByRole('button', { name: /^Museum, / })).toHaveCount(0);
+		} finally {
+			fixture.teardown();
+		}
+	});
+
+	test('draws hours on a day with nothing on it, and panels of one height', async ({
+		page,
+		request
+	}) => {
+		const fixture = await seedDay(page, request);
+		const { startDate } = fixture.tripBody;
+		try {
+			// Only startDate was seeded, so the day after it is free.
+			const free = '2027-02-11';
+			await page.goto(`/trips/${fixture.tripId}/schedule?day=${free}&view=day`);
+			await settled(page);
+
+			// Hours, not a graphic: the grid is the thing you double-click to put
+			// something at four o'clock, and a drawing offers nothing to aim at.
+			const grid = page.locator(`.sched .daypanel[data-day="${free}"] .daygrid`);
+			await expect(grid).toBeVisible();
+			await expect(grid.locator('.block')).toHaveCount(0);
+			await expect(page.getByText(copy.common.nothingAdded, { exact: true })).toHaveCount(0);
+
+			// And it is the same height as the day beside it, so scrolling the strip
+			// does not make the page grow and shrink under the reader.
+			const heights = await page
+				.locator('.sched .daypanel')
+				.evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().height)));
+			expect(new Set(heights).size).toBe(1);
+		} finally {
+			fixture.teardown();
+		}
+	});
+
+	test('offers only the day being read to a screen reader', async ({ page, request }) => {
+		const fixture = await seedDay(page, request);
+		const { startDate, endDate } = fixture.tripBody;
+		try {
+			// A tester driving the app by the accessibility tree reported that the
+			// 11th was showing the 10th's events. It was not: all three panels are
+			// in the DOM at once so the strip can scroll, and yesterday's blocks
+			// were being announced with today's as one unbroken list. Sighted, you
+			// see one day. Unsighted, you were handed three.
+			const middle = '2027-02-11';
+			await page.goto(`/trips/${fixture.tripId}/schedule?day=${middle}&view=day`);
+			await expect(page.locator('.sched .daypanel')).toHaveCount(3);
+			await settled(page);
+
+			const inert = await page
+				.locator('.sched .daypanel')
+				.evaluateAll((els) =>
+					els.map((el) => [el.getAttribute('data-day'), (el as HTMLElement).inert])
+				);
+			expect(inert).toEqual([
+				[startDate, true],
+				[middle, false],
+				[endDate, true]
+			]);
+
+			// Which is the same thing as saying a block on a neighbouring day
+			// cannot take focus, so the keyboard does not walk off into yesterday.
+			const strayed = await page
+				.locator(`.sched .daypanel[data-day="${startDate}"] .block`)
+				.first()
+				.evaluate((el) => {
+					const target = el.querySelector('button') ?? (el as HTMLElement);
+					(target as HTMLElement).focus();
+					return el.contains(document.activeElement);
+				});
+			expect(strayed).toBe(false);
 		} finally {
 			fixture.teardown();
 		}

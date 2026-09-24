@@ -242,9 +242,6 @@ function PlaceRow({ poi, onVote }: { poi: Poi; onVote: () => void }) {
 			<View style={{ flex: 1, gap: 2 }}>
 				<Text style={type.body}>{poi.name}</Text>
 				{poi.category ? <Text style={type.faint}>{poi.category}</Text> : null}
-				{poi.linked > 0 ? (
-					<Text style={type.faint}>{copy.discover.card.onCalendar(poi.linked)}</Text>
-				) : null}
 			</View>
 			<VoteButton
 				count={poi.votes}

@@ -180,6 +180,59 @@ const DETAILS_MASK =
  * Returns null when nothing matched, so the caller can decide what an unknown
  * place is rather than being handed a guess.
  */
+/**
+ * Google types that mean "somewhere you can sleep".
+ *
+ * One set drives both jobs: deciding that a result belongs under Stays, and
+ * keeping a stay search to places you can actually book. They were separate
+ * before, and the search half was a single type (see `staySearchTypes`).
+ */
+const GOOGLE_LODGING = [
+	'hotel',
+	'lodging',
+	'resort_hotel',
+	'guest_house',
+	'motel',
+	'hostel',
+	'bed_and_breakfast',
+	'extended_stay_hotel',
+	'budget_japanese_inn',
+	'japanese_inn',
+	'inn',
+	'campground',
+	'camping_cabin',
+	'rv_park',
+	'cottage',
+	'farmstay',
+	'private_guest_room'
+] as const;
+
+const LODGING_SET: ReadonlySet<string> = new Set(GOOGLE_LODGING);
+
+/**
+ * The five lodging types a stay autocomplete filters on.
+ *
+ * Five is Google's hard cap on `includedPrimaryTypes`, so this cannot be the
+ * whole list and the choice matters. It used to be the single umbrella type
+ * `lodging`, which looked right and returned almost nothing: the parameter
+ * matches a place's *primary* type only, and Google gives a real hotel a
+ * specific primary type (`hotel`, `hostel`, `resort_hotel`), reserving bare
+ * `lodging` for the few places it cannot classify. The request stayed a 200
+ * with an empty list, so nothing logged a failure and the provider health
+ * endpoint went on reporting Google as healthy while every stay search came
+ * back blank.
+ *
+ * These are the five with the widest real coverage. Anything rarer is caught
+ * by the text search below, which filters on the full list instead.
+ */
+const LODGING_PRIMARY_TYPES = ['hotel', 'hostel', 'motel', 'resort_hotel', 'guest_house'];
+
+/** True when a result's types say it is somewhere you can sleep. */
+function isLodging(types: readonly string[], primaryType?: string): boolean {
+	if (primaryType && LODGING_SET.has(primaryType)) return true;
+	return types.some((t) => LODGING_SET.has(t));
+}
+
 function categoryOf(names: Set<string>): string | null {
 	const has = (...wanted: string[]) => wanted.some((n) => names.has(n));
 	// Google's finer-grained food types: `ramen_restaurant`, `sushi_restaurant`,
@@ -188,26 +241,7 @@ function categoryOf(names: Set<string>): string | null {
 	const suffixed = (suffix: string) => [...names].some((n) => n.endsWith(suffix));
 
 	if (has('amusement_center', 'amusement_park', 'video_arcade', 'bowling_alley')) return 'Activity';
-	if (
-		has(
-			'hotel',
-			'lodging',
-			'resort_hotel',
-			'guest_house',
-			'motel',
-			'hostel',
-			'bed_and_breakfast',
-			'extended_stay_hotel',
-			'budget_japanese_inn',
-			'inn',
-			'campground',
-			'rv_park',
-			'cottage',
-			'farmstay',
-			'private_guest_room'
-		)
-	)
-		return 'Stay';
+	if (has(...GOOGLE_LODGING)) return 'Stay';
 	if (
 		has('restaurant', 'cafe', 'coffee_shop', 'bakery', 'food', 'meal_takeaway', 'food_court') ||
 		suffixed('_restaurant') ||
@@ -337,12 +371,15 @@ async function searchGoogle(
 			// address for the next. Addresses are prefilled into user-editable notes,
 			// so they need to be consistent and readable to the person typing.
 			languageCode: 'en',
-			maxResultCount: 8,
-			...locationBias(near),
-			// `lodging` is the umbrella type: verified to cover hotels, hostels,
-			// resorts and the apartment listings people actually book, while
-			// returning nothing at all for a landmark query.
-			...(kind === 'stay' ? { includedType: 'lodging' } : {})
+			maxResultCount: kind === 'stay' ? 20 : 8,
+			...locationBias(near)
+			// No `includedType` for a stay. It restricts on the *primary* type and
+			// takes exactly one value, so the umbrella `lodging` that used to be
+			// passed here matched almost nothing: Google gives a real hotel the
+			// primary type `hotel`. The full type list is filtered below instead,
+			// which matches on every type a place carries rather than just its
+			// first, and costs no extra request because `places.types` is already
+			// in the field mask.
 		})
 	});
 	if (!res.ok) throw new Error(`google ${res.status}`);
@@ -356,22 +393,25 @@ async function searchGoogle(
 			primaryType?: string;
 		}[];
 	};
-	return (data.places ?? []).map((p) => ({
-		id: p.id ?? null,
-		name: p.displayName?.text ?? 'Unknown',
-		category: googleCategory(p.types ?? [], p.primaryType),
-		address: p.formattedAddress ?? null,
-		url: null,
-		lat: p.location?.latitude ?? null,
-		lng: p.location?.longitude ?? null,
-		// Filled in by placeDetails() when this result is clicked.
-		rating: null,
-		ratingCount: null,
-		priceLevel: null,
-		hours: null,
-		photo: null,
-		source: 'google' as const
-	}));
+	return (data.places ?? [])
+		.filter((p) => kind !== 'stay' || isLodging(p.types ?? [], p.primaryType))
+		.slice(0, 8)
+		.map((p) => ({
+			id: p.id ?? null,
+			name: p.displayName?.text ?? 'Unknown',
+			category: googleCategory(p.types ?? [], p.primaryType),
+			address: p.formattedAddress ?? null,
+			url: null,
+			lat: p.location?.latitude ?? null,
+			lng: p.location?.longitude ?? null,
+			// Filled in by placeDetails() when this result is clicked.
+			rating: null,
+			ratingCount: null,
+			priceLevel: null,
+			hours: null,
+			photo: null,
+			source: 'google' as const
+		}));
 }
 
 /**
@@ -419,9 +459,10 @@ async function suggestGoogle(
 				}
 			},
 			// Autocomplete spells this differently from a text search
-			// (`includedPrimaryTypes`, a list) but means the same thing, and was
-			// verified to hold: "acropolis" under it returns Acropolis *hotels*.
-			...(kind === 'stay' ? { includedPrimaryTypes: ['lodging'] } : {})
+			// (`includedPrimaryTypes`, a list) and, importantly, matches only the
+			// place's *primary* type. See `LODGING_PRIMARY_TYPES` for why the
+			// single umbrella `lodging` that used to be here matched nothing.
+			...(kind === 'stay' ? { includedPrimaryTypes: LODGING_PRIMARY_TYPES } : {})
 		})
 	});
 	if (!res.ok) throw new Error(`google ${res.status}`);
@@ -617,10 +658,7 @@ async function searchPhoton(
 		const pr = f.properties ?? {};
 		const name = photonLabel(pr);
 		if (!name) continue;
-		if (
-			kind === 'stay' &&
-			!(pr.osm_key === 'tourism' && OSM_LODGING.has(pr.osm_value ?? ''))
-		) {
+		if (kind === 'stay' && !(pr.osm_key === 'tourism' && OSM_LODGING.has(pr.osm_value ?? ''))) {
 			continue;
 		}
 		const address = photonAddress(pr);
@@ -667,13 +705,25 @@ async function searchPhoton(
  */
 export const NO_PHOTO = '-';
 
+/** What a photo lookup found: the picture, and where the result actually is. */
+export interface PhotoLookup {
+	photo: string;
+	lat: number | null;
+	lng: number | null;
+}
+
 /**
  * Finds a cover photo for a place we already know about (seeded data, or a place
  * added before photos were wired up). Biased to the place's own coordinates when
  * we have them, so "Great Escape" resolves to the one in Athens rather than a
  * same-named venue on another continent.
  *
- * Returns a photo resource name, or NO_PHOTO when Google has no picture for it.
+ * Returns the photo resource name (or NO_PHOTO when Google has no picture) and
+ * the coordinates the same result carried. The coordinates ride along free: a
+ * request is priced by the highest tier in its mask and `photos` is already
+ * Enterprise, so asking for `location` costs nothing and is what lets a stay
+ * typed by hand gain a position without a second billed lookup.
+ *
  * Throws only on transport failure, so callers can tell "no photo" (cache it)
  * from "lookup broke" (try again later).
  */
@@ -682,10 +732,10 @@ export async function lookupPhoto(
 	near: SearchNear,
 	lat?: number | null,
 	lng?: number | null
-): Promise<string> {
+): Promise<PhotoLookup> {
 	assertPaidProviderAllowed('google place photo lookup');
 	const key = env.GOOGLE_SERVER_KEY;
-	if (!key) return NO_PHOTO;
+	if (!key) return { photo: NO_PHOTO, lat: null, lng: null };
 
 	const body: Record<string, unknown> = {
 		textQuery: `${name} ${nearText(near)}`.trim(),
@@ -706,15 +756,23 @@ export async function lookupPhoto(
 		headers: {
 			'Content-Type': 'application/json',
 			'X-Goog-Api-Key': key,
-			'X-Goog-FieldMask': 'places.photos'
+			'X-Goog-FieldMask': 'places.photos,places.location'
 		},
 		body: JSON.stringify(body)
 	});
 	if (!res.ok) throw new Error(`google ${res.status}`);
 	const data = (await res.json()) as {
-		places?: { photos?: { name?: string }[] }[];
+		places?: {
+			photos?: { name?: string }[];
+			location?: { latitude?: number; longitude?: number };
+		}[];
 	};
-	return data.places?.[0]?.photos?.[0]?.name ?? NO_PHOTO;
+	const top = data.places?.[0];
+	return {
+		photo: top?.photos?.[0]?.name ?? NO_PHOTO,
+		lat: top?.location?.latitude ?? null,
+		lng: top?.location?.longitude ?? null
+	};
 }
 
 /** Which backend is configured, for the UI to label results. */

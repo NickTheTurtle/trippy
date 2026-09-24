@@ -69,7 +69,7 @@ test.describe('concurrency: same account in two places at once', () => {
 			await expect(b.page.getByRole('listitem').filter({ hasText: 'Brunch' })).toBeVisible();
 
 			// Rename it through the edit dialog in tab A, the way a real click does.
-			await a.page.getByRole('button', { name: ce.row.editLabel('Brunch') }).click();
+			await a.page.getByRole('button', { name: copy.common.editLabel('Brunch') }).click();
 			const dialog = a.page.getByRole('dialog');
 			await dialog.getByLabel(ce.addDialog.descriptionLabel).fill('Brunch renamed');
 			await dialog.getByRole('button', { name: copy.common.save, exact: true }).click();
@@ -535,7 +535,9 @@ test.describe('concurrency: two accounts on one trip', () => {
 			context = view.context;
 			await signIn(view.page, bob.sessionCookie);
 			await view.page.goto(`/trips/${fixture.tripId}/expenses`);
-			await view.page.getByRole('button', { name: ce.row.editLabel('Doomed expense') }).click();
+			await view.page
+				.getByRole('button', { name: copy.common.editLabel('Doomed expense') })
+				.click();
 			const dialog = view.page.getByRole('dialog');
 			await dialog.getByLabel(ce.addDialog.descriptionLabel).fill('Bob edit');
 

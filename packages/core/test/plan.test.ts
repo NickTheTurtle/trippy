@@ -6,10 +6,12 @@ import {
 	isNightOf,
 	MIDNIGHT_MIN,
 	planDay,
+	reflowAutoTimes,
 	resolveLeg,
 	shiftDay,
 	stayBand,
 	stayEndOf,
+	suggestStart,
 	toPlannerEvent,
 	type LegOverride,
 	type PlannableStay
@@ -832,5 +834,100 @@ describe('resolveLeg', () => {
 			endMin: 580,
 			tight: false
 		});
+	});
+});
+
+/* ---------------------------------------------- following a suggested time */
+
+describe('suggested times', () => {
+	/** The smallest row the reflow reads: an id, a span, and whether it is pinned. */
+	const block = (id: string, start: number, end: number, auto = true) => ({
+		id,
+		type: 'activity' as const,
+		start_min: start,
+		end_min: end,
+		lat: null,
+		lng: null,
+		people: [],
+		time_auto: auto
+	});
+	const leg = (from: string, to: string, mins: number) => ({
+		fromEventId: from,
+		toEventId: to,
+		resolvedMins: mins
+	});
+
+	it('starts a suggested block when the journey to it arrives, keeping its length', () => {
+		const moved = reflowAutoTimes(
+			[block('museum', 600, 720, false), block('lunch', 720, 780)],
+			[leg('museum', 'lunch', 20)]
+		);
+		expect(moved).toEqual([{ id: 'lunch', startMin: 740, endMin: 800 }]);
+	});
+
+	it('leaves a block somebody put somewhere exactly where they put it', () => {
+		expect(
+			reflowAutoTimes(
+				[block('museum', 600, 720, false), block('lunch', 720, 780, false)],
+				[leg('museum', 'lunch', 20)]
+			)
+		).toEqual([]);
+	});
+
+	it('pulls a suggested block earlier when the day in front of it shrinks', () => {
+		const moved = reflowAutoTimes(
+			[block('museum', 600, 660, false), block('lunch', 900, 960)],
+			[leg('museum', 'lunch', 15)]
+		);
+		expect(moved).toEqual([{ id: 'lunch', startMin: 675, endMin: 735 }]);
+	});
+
+	it('cascades in one pass, so a run of suggested blocks all follow', () => {
+		const moved = reflowAutoTimes(
+			[block('museum', 600, 720, false), block('lunch', 720, 780), block('park', 780, 840)],
+			[leg('museum', 'lunch', 20), leg('lunch', 'park', 10)]
+		);
+		expect(moved).toEqual([
+			{ id: 'lunch', startMin: 740, endMin: 800 },
+			{ id: 'park', startMin: 810, endMin: 870 }
+		]);
+	});
+
+	it('waits for the last arrival when the group rejoins', () => {
+		const moved = reflowAutoTimes(
+			[
+				block('museum', 600, 660, false),
+				block('beach', 600, 700, false),
+				block('dinner', 720, 780)
+			],
+			[leg('museum', 'dinner', 10), leg('beach', 'dinner', 45)]
+		);
+		expect(moved).toEqual([{ id: 'dinner', startMin: 745, endMin: 805 }]);
+	});
+
+	it('leaves the first thing of the morning alone, because it follows nothing', () => {
+		// The origin is last night's stay, which is not a block on this day.
+		expect(reflowAutoTimes([block('museum', 600, 720)], [leg('hotel', 'museum', 15)])).toEqual([]);
+	});
+
+	it('rounds up to the snap a drag uses, never down into the journey', () => {
+		const moved = reflowAutoTimes(
+			[block('museum', 600, 660, false), block('lunch', 700, 760)],
+			[leg('museum', 'lunch', 13)]
+		);
+		expect(moved[0].startMin).toBe(675);
+	});
+
+	it('keeps a block inside the day rather than past midnight', () => {
+		const moved = reflowAutoTimes(
+			[block('museum', 600, 1400, false), block('lunch', 700, 760)],
+			[leg('museum', 'lunch', 90)]
+		);
+		expect(moved).toEqual([{ id: 'lunch', startMin: 1380, endMin: 1440 }]);
+	});
+
+	it('suggests the end of the day so far, and nine in the morning for an empty one', () => {
+		expect(suggestStart([])).toBe(9 * 60);
+		expect(suggestStart([block('museum', 600, 720), block('lunch', 400, 500)])).toBe(720);
 	});
 });

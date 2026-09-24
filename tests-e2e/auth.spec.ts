@@ -96,9 +96,7 @@ test.describe('auth and session', () => {
 				if (r.method() === 'POST' && r.url().includes('/auth/login')) posted += 1;
 			});
 			await page.getByRole('button', { name: copy.auth.login.submitLabel }).click();
-			await expect(page.locator('.toast.bad').getByRole('alert')).toHaveText(
-				copy.ui.form.missing
-			);
+			await expect(page.locator('.toast.bad').getByRole('alert')).toHaveText(copy.ui.form.missing);
 			expect(posted).toBe(0);
 			await expect(page).toHaveURL(/\/login$/);
 
@@ -109,9 +107,7 @@ test.describe('auth and session', () => {
 			await page.getByLabel(copy.auth.login.passwordLabel).fill('not-the-password');
 			await page.getByRole('button', { name: copy.auth.login.submitLabel }).click();
 			await expect(page.locator('.toast.bad')).toHaveCount(1);
-			await expect(page.locator('.toast.bad').getByRole('alert')).toHaveText(
-				copy.ui.form.badEmail
-			);
+			await expect(page.locator('.toast.bad').getByRole('alert')).toHaveText(copy.ui.form.badEmail);
 			expect(posted).toBe(0);
 
 			// A real refusal does reach the corner.

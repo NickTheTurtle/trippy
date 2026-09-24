@@ -148,10 +148,50 @@ describe('as-you-type search', () => {
 		expect(box.low.latitude).toBeCloseTo(36.98, 2);
 	});
 
-	it('filters suggestions to lodging when the caller wants a stay', async () => {
+	it('filters suggestions to the lodging primary types Google actually assigns', async () => {
 		const calls = stubProvider({ autocomplete: ONE_SUGGESTION });
 		await places.searchPlaces('hilton at', ATHENS, 'stay', 'session-dddd');
-		expect(calls[0].body.includedPrimaryTypes).toEqual(['lodging']);
+
+		// Not the umbrella `lodging`. The parameter matches a place's primary
+		// type only, and Google gives a real hotel a specific one, so filtering on
+		// `lodging` returned an empty 200 and stay search quietly found nothing.
+		expect(calls[0].body.includedPrimaryTypes).toContain('hotel');
+		expect(calls[0].body.includedPrimaryTypes).not.toContain('lodging');
+		// Five is Google's cap; more than that is rejected outright.
+		expect(calls[0].body.includedPrimaryTypes.length).toBeLessThanOrEqual(5);
+	});
+
+	it('keeps a stay text search unrestricted and filters the answer itself', async () => {
+		const calls = stubProvider({
+			autocomplete: { suggestions: [] },
+			searchText: {
+				places: [
+					{
+						id: 'inn-1',
+						displayName: { text: 'Little Inn' },
+						formattedAddress: 'Plaka, Athens',
+						location: { latitude: 37.97, longitude: 23.72 },
+						// Primary type is not in the five, so only a full-list filter keeps it.
+						types: ['inn', 'point_of_interest'],
+						primaryType: 'inn'
+					},
+					{
+						id: 'rest-1',
+						displayName: { text: 'Taverna' },
+						formattedAddress: 'Plaka, Athens',
+						location: { latitude: 37.97, longitude: 23.72 },
+						types: ['restaurant'],
+						primaryType: 'restaurant'
+					}
+				]
+			}
+		});
+		const results = await places.searchPlaces('little', ATHENS, 'stay', 'session-hhhh');
+
+		// A one-value `includedType` could not express the whole list, so the
+		// request asks for everything and the restaurant is dropped here.
+		expect(calls[1].body.includedType).toBeUndefined();
+		expect(results.map((r) => r.name)).toEqual(['Little Inn']);
 	});
 
 	it('falls back to the text search when there is nothing to predict', async () => {

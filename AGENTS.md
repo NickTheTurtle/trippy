@@ -14,6 +14,7 @@ Read the relevant section before changing behavior.
 | `apps/api` | `@trippy/api` | Hono JSON API on :5175 (`tsx watch`) |
 | `packages/server` | `@trippy/server` | SQLite persistence + integrations; owns the schema and `data/app.db` |
 | `packages/core` | `@trippy/core` | Pure domain logic - no I/O, browser-safe |
+| `packages/copy` | `@trippy/copy` | Shared UI copy strings; `apps/web/src/copy.ts` re-exports them. Owner-edited |
 
 The SvelteKit -> React port is **complete** and the SvelteKit app has been deleted.
 `apps/web` is the only client.
@@ -99,5 +100,5 @@ npm run format:check   # prettier, apps/web sources
 ## Agents
 
 `.github/agents/` defines a delegation crew: **Trippy Lead** (coordinator) routes to
-**Trippy Domain**, **Trippy API**, **Trippy UI**, and **Trippy Verify**.
+**Trippy Domain**, **Trippy API**, **Trippy UI**, **Trippy Verify**, and **Trippy Review**.
 Start with `/agent Trippy Lead` for anything spanning more than one workspace.
