@@ -320,11 +320,15 @@ export function AddDiscoverSheet({
 	}
 
 	function changeType(next: string) {
-		clearTimeout(timer.current);
 		const value = next as AddType;
 		typeChosen.current = true;
+		// Only a switch between stays and places asks a different question, so
+		// only that one drops the pending search and whatever was picked. A
+		// switch within places keeps the search running, as on web.
 		if ((value === STAY_VIEW) !== stay) {
-			setHit(null);
+			clearTimeout(timer.current);
+			setSearching(false);
+			unpick();
 			setHits([]);
 			setSearchError('');
 			setSearched(false);
