@@ -292,6 +292,17 @@ export const copy = {
 		}
 	},
 
+	// Native Discover helpers
+	mobileDiscover: {
+		editCityTitle: 'Edit city',
+		editCityButton: 'Edit city',
+		deleteCityMessage: (count: number) =>
+			count > 0
+				? `This also deletes ${count} item${count === 1 ? '' : 's'} in that city.`
+				: 'Are you sure? This action cannot be undone.',
+		openLink: 'Open'
+	},
+
 	// Preparation > tasks, packing list, cost estimates
 	preparation: {
 		navAriaLabel: 'Preparation sections',

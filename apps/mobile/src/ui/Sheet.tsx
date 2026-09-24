@@ -48,7 +48,7 @@ export function Sheet({
 				behavior={Platform.OS === 'ios' ? 'padding' : undefined}
 			>
 				<Pressable style={s.backdrop} onPress={onClose} />
-				<View style={s.sheet}>
+				<View style={[s.sheet, { maxHeight: height * 0.92 }]}>
 					<View style={s.grabber} />
 					<View style={s.head}>
 						<View style={{ flex: 1 }}>
@@ -68,7 +68,7 @@ export function Sheet({
 					    roster. Capping the body and scrolling it keeps the save button
 					    reachable on a large trip rather than pushed off the screen. */}
 					<ScrollView
-						style={{ maxHeight: height * 0.62 }}
+						style={{ maxHeight: height * 0.68 }}
 						contentContainerStyle={{ gap: space.md }}
 						keyboardShouldPersistTaps="handled"
 					>
@@ -88,7 +88,7 @@ const s = StyleSheet.create({
 		borderTopRightRadius: radius.lg,
 		paddingHorizontal: space.lg,
 		paddingTop: space.sm,
-		paddingBottom: space.xxl + space.lg,
+		paddingBottom: space.lg,
 		gap: space.md
 	},
 	grabber: {
