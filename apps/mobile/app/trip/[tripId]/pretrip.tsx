@@ -180,14 +180,21 @@ function Tasks({
 	const toast = useToast();
 	const toggle = useMutation(
 		async (steps: { taskId: string; userId?: string; done: boolean }[]) => {
-			for (const step of steps) {
-				await api(`/trips/${tripId}/pretrip/tasks/${step.taskId}/toggle`, {
-					method: 'POST',
-					body: step.userId ? { userId: step.userId, done: step.done } : { done: step.done }
-				});
+			try {
+				for (const step of steps) {
+					await api(`/trips/${tripId}/pretrip/tasks/${step.taskId}/toggle`, {
+						method: 'POST',
+						body: step.userId ? { userId: step.userId, done: step.done } : { done: step.done }
+					});
+				}
+			} finally {
+				// A refusal part-way leaves the earlier ticks saved, so the row is
+				// reread either way. Live updates would repair it too, but not while
+				// they are off.
+				reload();
 			}
 		},
-		{ fallback: copy.preparation.saveFallback, onSuccess: reload }
+		{ fallback: copy.preparation.saveFallback }
 	);
 	useEffect(() => {
 		if (toggle.error) toast.error(toggle.error);
@@ -415,9 +422,7 @@ function Costs({
 							</View>
 						</>
 					) : (
-						<View style={{ flex: 1 }}>
-							<Text style={type.faint}>{copy.common.nothingAdded}</Text>
-						</View>
+						<View style={{ flex: 1 }} />
 					)}
 					<AddText onPress={onAdd} />
 				</View>
