@@ -11,6 +11,7 @@ import {
 	useWindowDimensions,
 	View
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { color, radius, space, type } from '../theme';
 import { setInteractionBusy } from './busy';
 
@@ -37,6 +38,7 @@ export function Sheet({
 	children: ReactNode;
 }) {
 	const { height } = useWindowDimensions();
+	const insets = useSafeAreaInsets();
 	useEffect(() => {
 		if (!open) return;
 		return setInteractionBusy(true);
@@ -44,11 +46,16 @@ export function Sheet({
 	return (
 		<Modal visible={open} transparent animationType="slide" onRequestClose={onClose}>
 			<KeyboardAvoidingView
-				style={{ flex: 1 }}
+				style={{ flex: 1, justifyContent: 'flex-end' }}
 				behavior={Platform.OS === 'ios' ? 'padding' : undefined}
 			>
 				<Pressable style={s.backdrop} onPress={onClose} />
-				<View style={s.sheet}>
+				<View
+					style={[
+						s.sheet,
+						{ maxHeight: height * 0.92, flexShrink: 1, paddingBottom: space.lg + insets.bottom }
+					]}
+				>
 					<View style={s.grabber} />
 					<View style={s.head}>
 						<View style={{ flex: 1 }}>
@@ -68,8 +75,8 @@ export function Sheet({
 					    roster. Capping the body and scrolling it keeps the save button
 					    reachable on a large trip rather than pushed off the screen. */}
 					<ScrollView
-						style={{ maxHeight: height * 0.62 }}
-						contentContainerStyle={{ gap: space.md }}
+						style={{ maxHeight: height * 0.68, flexShrink: 1 }}
+						contentContainerStyle={{ gap: space.md, paddingBottom: space.sm }}
 						keyboardShouldPersistTaps="handled"
 					>
 						{children}
@@ -81,14 +88,21 @@ export function Sheet({
 }
 
 const s = StyleSheet.create({
-	backdrop: { flex: 1, backgroundColor: 'rgba(28,35,33,0.28)' },
+	backdrop: {
+		position: 'absolute',
+		top: 0,
+		right: 0,
+		bottom: 0,
+		left: 0,
+		backgroundColor: 'rgba(28,35,33,0.28)'
+	},
 	sheet: {
 		backgroundColor: color.bg,
 		borderTopLeftRadius: radius.lg,
 		borderTopRightRadius: radius.lg,
 		paddingHorizontal: space.lg,
 		paddingTop: space.sm,
-		paddingBottom: space.xxl + space.lg,
+		paddingBottom: space.lg,
 		gap: space.md
 	},
 	grabber: {

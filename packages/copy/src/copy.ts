@@ -292,6 +292,17 @@ export const copy = {
 		}
 	},
 
+	// Native Discover helpers
+	mobileDiscover: {
+		editCityTitle: 'Edit city',
+		editCityButton: 'Edit city',
+		deleteCityMessage: (linked: number) =>
+			linked > 0
+				? `This also deletes the city's places and stays, plus ${linked} linked calendar item${linked === 1 ? '' : 's'}.`
+				: `This also deletes the city's places and stays.`,
+		openLink: 'Open'
+	},
+
 	// Preparation > tasks, packing list, cost estimates
 	preparation: {
 		navAriaLabel: 'Preparation sections',

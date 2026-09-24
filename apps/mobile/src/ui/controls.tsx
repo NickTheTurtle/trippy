@@ -244,45 +244,50 @@ export function ListPicker({
 
 /** Picking exactly one of a short list. */
 export function Picker({
+	label,
 	options,
 	value,
 	onPick
 }: {
+	label?: string;
 	options: { key: string; label: string }[];
 	value: string;
 	onPick: (key: string) => void;
 }) {
 	return (
-		<ScrollView
-			horizontal
-			showsHorizontalScrollIndicator={false}
-			keyboardShouldPersistTaps="handled"
-		>
-			<View style={{ flexDirection: 'row', gap: space.sm }}>
-				{options.map((o) => {
-					const on = o.key === value;
-					return (
-						<Pressable
-							key={o.key}
-							onPress={() => onPick(o.key)}
-							style={({ pressed }) => ({
-								paddingHorizontal: space.md,
-								paddingVertical: 6,
-								borderRadius: 999,
-								borderWidth: 1,
-								borderColor: on ? color.accent : color.line,
-								backgroundColor: on ? color.accentSoft : color.surface,
-								opacity: pressed ? 0.7 : 1
-							})}
-						>
-							<Text style={{ ...type.small, color: on ? color.accentInk : color.inkSoft }}>
-								{o.label}
-							</Text>
-						</Pressable>
-					);
-				})}
-			</View>
-		</ScrollView>
+		<View style={{ gap: space.xs }}>
+			{label ? <Text style={fieldLabel}>{label}</Text> : null}
+			<ScrollView
+				horizontal
+				showsHorizontalScrollIndicator={false}
+				keyboardShouldPersistTaps="handled"
+			>
+				<View style={{ flexDirection: 'row', gap: space.sm }}>
+					{options.map((o) => {
+						const on = o.key === value;
+						return (
+							<Pressable
+								key={o.key}
+								onPress={() => onPick(o.key)}
+								style={({ pressed }) => ({
+									paddingHorizontal: space.md,
+									paddingVertical: 6,
+									borderRadius: 999,
+									borderWidth: 1,
+									borderColor: on ? color.accent : color.line,
+									backgroundColor: on ? color.accentSoft : color.surface,
+									opacity: pressed ? 0.7 : 1
+								})}
+							>
+								<Text style={{ ...type.small, color: on ? color.accentInk : color.inkSoft }}>
+									{o.label}
+								</Text>
+							</Pressable>
+						);
+					})}
+				</View>
+			</ScrollView>
+		</View>
 	);
 }
 
