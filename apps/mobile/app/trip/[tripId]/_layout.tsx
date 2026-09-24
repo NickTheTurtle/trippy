@@ -15,7 +15,6 @@ import { useMutation } from '../../../src/hooks/useMutation';
 import { TripEventsProvider, useTripEvents } from '../../../src/hooks/useTripEvents';
 import { Button, Field, FormError, Loading, Screen } from '../../../src/ui';
 import { ConfirmSheet } from '../../../src/ui/ConfirmSheet';
-import { LiveOff } from '../../../src/ui/LiveOff';
 import { Sheet } from '../../../src/ui/Sheet';
 import { CheckBox, SearchablePicker } from '../../../src/ui/controls';
 import { useToast } from '../../../src/ui/Toast';
@@ -160,7 +159,6 @@ export default function TripTabs() {
 						/>
 						<Tabs.Screen name="index" options={{ href: null }} />
 					</Tabs>
-					<LiveOff />
 				</View>
 				<EditTripSheet
 					trip={trip}

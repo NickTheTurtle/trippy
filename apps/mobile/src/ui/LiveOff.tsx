@@ -3,17 +3,21 @@ import { copy } from '@trippy/copy';
 import { useLiveStatus } from '../hooks/useTripEvents';
 import { color, space, type } from '../theme';
 
+/**
+ * The line that says live updates have stopped, with the way to restart them.
+ *
+ * Drawn in the flow at the top of each trip screen (`Screen` renders it), not
+ * floated over the layout. Floated, it sat at the top of a wrapper that starts
+ * at the very top of the display, because the trip route hides the stack
+ * header, so on a notched or edge-to-edge phone it covered the status bar.
+ * Outside a trip there is no live stream and this renders nothing.
+ */
 export function LiveOff() {
 	const events = useLiveStatus();
 	if (!events || events.status !== 'off') return null;
 	return (
 		<View
 			style={{
-				position: 'absolute',
-				left: space.lg,
-				right: space.lg,
-				top: space.sm,
-				zIndex: 10,
 				flexDirection: 'row',
 				flexWrap: 'wrap',
 				gap: space.sm,
