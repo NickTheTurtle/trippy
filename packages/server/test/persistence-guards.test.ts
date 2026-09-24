@@ -26,18 +26,16 @@ let trips: typeof import('../src/persistence/trips.ts');
 let members: typeof import('../src/persistence/members.ts');
 let costs: typeof import('../src/persistence/costs.ts');
 let pois: typeof import('../src/persistence/pois.ts');
-let lodging: typeof import('../src/persistence/lodging.ts');
 let events: typeof import('../src/events.ts');
 
 beforeAll(async () => {
-	[{ db }, auth, trips, members, costs, pois, lodging, events] = await Promise.all([
+	[{ db }, auth, trips, members, costs, pois, events] = await Promise.all([
 		import('../src/db.ts'),
 		import('../src/infra/auth.ts'),
 		import('../src/persistence/trips.ts'),
 		import('../src/persistence/members.ts'),
 		import('../src/persistence/costs.ts'),
 		import('../src/persistence/pois.ts'),
-		import('../src/persistence/lodging.ts'),
 		import('../src/events.ts')
 	]);
 });
@@ -265,55 +263,5 @@ describe('places are member-only and scoped to a city on the trip', () => {
 			pois.updatePoi(other.tripId, other.organizer, poiId, { name: 'x', notes: null, url: null })
 		).toBe(false);
 		expect(pois.removePoi(other.tripId, other.organizer, poiId)).toBe(false);
-	});
-});
-
-describe('setDates requires a positive night count', () => {
-	/**
-	 * A stay covers at least one night. `setDates` now refuses a checkout on or
-	 * before the check-in day, matching the schedule stay path, so the same trip
-	 * cannot hold a zero-night or negative stay through one path that the other
-	 * would have rejected.
-	 */
-	it('refuses a checkout on the check-in day (zero nights)', () => {
-		const f = makeTrip('set-dates-zero');
-		const optionId = lodging.addOption(f.tripId, f.organizer, f.cityId, 'Ryokan')!;
-		expect(lodging.setDates(f.tripId, f.member, optionId, '2026-10-01', '2026-10-01')).toBe(false);
-		const row = db
-			.prepare(`SELECT check_in, check_out FROM lodging_options WHERE id = ?`)
-			.get(optionId) as { check_in: string | null; check_out: string | null };
-		// The refusal is total: nothing was written.
-		expect(row.check_in).toBeNull();
-		expect(row.check_out).toBeNull();
-	});
-
-	it('refuses a checkout before the check-in day (negative nights)', () => {
-		const f = makeTrip('set-dates-negative');
-		const optionId = lodging.addOption(f.tripId, f.organizer, f.cityId, 'Ryokan')!;
-		expect(lodging.setDates(f.tripId, f.member, optionId, '2026-10-02', '2026-10-01')).toBe(false);
-	});
-
-	it('accepts a valid range of one night or more', () => {
-		const f = makeTrip('set-dates-ok');
-		const optionId = lodging.addOption(f.tripId, f.organizer, f.cityId, 'Ryokan')!;
-		expect(lodging.setDates(f.tripId, f.member, optionId, '2026-10-01', '2026-10-02')).toBe(true);
-		const row = db
-			.prepare(`SELECT check_in, check_out FROM lodging_options WHERE id = ?`)
-			.get(optionId) as { check_in: string; check_out: string };
-		expect(row.check_in).toBe('2026-10-01');
-		expect(row.check_out).toBe('2026-10-02');
-	});
-
-	it('accepts a half-filled range, which is undated rather than invalid', () => {
-		const f = makeTrip('set-dates-partial');
-		const optionId = lodging.addOption(f.tripId, f.organizer, f.cityId, 'Ryokan')!;
-		expect(lodging.setDates(f.tripId, f.member, optionId, '2026-10-01', null)).toBe(true);
-		expect(lodging.setDates(f.tripId, f.member, optionId, null, null)).toBe(true);
-	});
-
-	it('refuses a non-member', () => {
-		const f = makeTrip('set-dates-outsider');
-		const optionId = lodging.addOption(f.tripId, f.organizer, f.cityId, 'Ryokan')!;
-		expect(lodging.setDates(f.tripId, f.outsider, optionId, '2026-10-01', '2026-10-02')).toBe(false);
 	});
 });

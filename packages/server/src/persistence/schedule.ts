@@ -153,9 +153,8 @@ export function eventsForDay(tripId: string, day: string): EventRow[] {
  *
  * Nights, not days: a stay covers `[day, end_day)`, checked into on its own day
  * and out of on `end_day`, so the last night it covers is the day before
- * checkout. That is the reading `lodging_options.check_in/check_out` has always
- * had, and it is the one the planner wants, because the night is what the next
- * morning's first journey leaves from.
+ * checkout. That is the reading the planner wants, because the night is what
+ * the next morning's first journey leaves from.
  *
  * `staysOnBoard` is the wider answer, for what the board draws.
  *

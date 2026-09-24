@@ -41,8 +41,13 @@ afterAll(() => {
 });
 
 let seq = 0;
-/** A trip with one member and one task, written with plain SQL so any boot can read it. */
-function seedTask(d: Db, name: string): { taskId: string; userId: string } {
+/**
+ * A trip with one member and one task, written with plain SQL so any boot can
+ * read it. `legacy` writes the task the way a database from before per-person
+ * tasks held it: its person named in the `assignee` display column, which the
+ * current schema drops once the backfill that reads it has run.
+ */
+function seedTask(d: Db, name: string, legacy = false): { taskId: string; userId: string } {
 	seq += 1;
 	const userId = `zz-user-${seq}`;
 	const tripId = `zz-trip-${seq}`;
@@ -58,10 +63,21 @@ function seedTask(d: Db, name: string): { taskId: string; userId: string } {
 		tripId,
 		userId
 	);
-	d.prepare(
-		`INSERT INTO trip_tasks (id, trip_id, kind, label, assignee, done, sort, created_at)
-		 VALUES (?, ?, 'task', 'ZZ Visa', ?, 1, 0, 0)`
-	).run(taskId, tripId, name);
+	if (legacy) {
+		const cols = d.prepare(`PRAGMA table_info(trip_tasks)`).all() as { name: string }[];
+		if (!cols.some((c) => c.name === 'assignee')) {
+			d.exec(`ALTER TABLE trip_tasks ADD COLUMN assignee TEXT NOT NULL DEFAULT ''`);
+		}
+		d.prepare(
+			`INSERT INTO trip_tasks (id, trip_id, kind, label, assignee, done, sort, created_at)
+			 VALUES (?, ?, 'task', 'ZZ Visa', ?, 1, 0, 0)`
+		).run(taskId, tripId, name);
+	} else {
+		d.prepare(
+			`INSERT INTO trip_tasks (id, trip_id, kind, label, done, sort, created_at)
+			 VALUES (?, ?, 'task', 'ZZ Visa', 1, 0, 0)`
+		).run(taskId, tripId);
+	}
 	return { taskId, userId };
 }
 
@@ -88,7 +104,7 @@ describe('the task roster backfill', () => {
 
 	it('does not re-match names onto a task whose roster was emptied', async () => {
 		let d = await boot();
-		const { taskId } = seedTask(d, 'ZZ Ben');
+		const { taskId } = seedTask(d, 'ZZ Ben', true);
 		// `assignee` still holds the name, the rows are gone: an emptied roster.
 		expect(
 			d.prepare(`SELECT COUNT(*) AS n FROM task_assignees WHERE task_id = ?`).get(taskId)
@@ -97,6 +113,9 @@ describe('the task roster backfill', () => {
 		expect(
 			d.prepare(`SELECT COUNT(*) AS n FROM task_assignees WHERE task_id = ?`).get(taskId)
 		).toMatchObject({ n: 0 });
+		// And the display column is gone once nothing is left to read it.
+		const cols = d.prepare(`PRAGMA table_info(trip_tasks)`).all() as { name: string }[];
+		expect(cols.map((c) => c.name)).not.toContain('assignee');
 	});
 
 	it('still carries a legacy database across once, and only once', async () => {
@@ -105,7 +124,7 @@ describe('the task roster backfill', () => {
 		// tables, no marker, and a ticked task naming its person in `assignee`.
 		d.exec(`DROP TABLE task_done; DROP TABLE task_assignees;`);
 		d.prepare(`DELETE FROM schema_backfills WHERE name = 'task-assignees-from-names'`).run();
-		const { taskId, userId } = seedTask(d, 'ZZ Cy');
+		const { taskId, userId } = seedTask(d, 'ZZ Cy', true);
 
 		d = await boot();
 		expect(d.prepare(`SELECT user_id FROM task_assignees WHERE task_id = ?`).all(taskId)).toEqual([

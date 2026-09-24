@@ -1251,8 +1251,9 @@ reads as a bug.
     `task_assignees` did not exist before that boot: a database that already had
     the tables has been through them many times, and running them once more
     under the new marker would only re-tick one last time.
-  - `trip_tasks.assignee` (a comma-joined name string) is now display-only legacy;
-    do not read it for logic.
+  - `trip_tasks.assignee` (a comma-joined name string) was the display copy
+    the backfill above matched names out of. Nothing else read it, so it is
+    dropped once that backfill has had its chance to run.
   - **Anyone may tick anyone's box**: `toggleTask` takes a `targetId` and accepts
     any assignee of the task, from any member of the trip. The row records who the
     task is _for_, not who pressed the button. It still refuses a non-member, and a
@@ -3243,8 +3244,10 @@ option edited here read one range while the board ran another, and because the
 patch was a full replace, editing a stay's name silently cleared the dates. The
 schedule is the one place a night range means anything, so that is where it is
 asked for now; the route no longer reads dates at all, and the card no longer
-prints a nights line it cannot keep true. `PATCH /stays/:id/dates` is untouched:
-it is how the calendar sets them. The affordance is the card itself rather than
+prints a nights line it cannot keep true. The option's own range
+(`lodging_options.check_in/check_out`, behind `PATCH /stays/:id/dates`) outlived
+this with no client calling it, and was later dropped outright; a stay's nights
+are `events.day/end_day` on the stay block. The affordance is the card itself rather than
 a pencil, matching the place card exactly: cover, title and meta are one button,
 and the vote, open and remove controls sit outside it so the card never nests
 one interactive element inside another.
@@ -5688,8 +5691,8 @@ before: the preview used to keep the saved location whatever the reader chose.
 event sitting from 21:00 to midnight on one day, which meant a three-night
 booking was three separate events to enter and three to correct. It now carries
 `end_day` on `events` and covers `[day, end_day)`: arrival inclusive, checkout
-morning exclusive as a _night_, the same reading
-`lodging_options.check_in/check_out` has always had. One object, one write.
+morning exclusive as a _night_, the same reading a stay option's own dates
+once had. One object, one write.
 `end_day` is on every event rather than on a
 stay table of its own, and NULL means "begins and ends on its own day", which is
 true of everything else.
@@ -5760,7 +5763,8 @@ a stay one path would have rejected. Both paths now enforce the same rule:
 three discover stay routes refuse it at the edge with the existing
 `Check-out must be after check-in.` ("after" is strict, so an equal pair is
 refused too). The guard bites only when both ends are set; a half-filled range
-is undated, not invalid.
+is undated, not invalid. (The lodging path is gone since: `setDates`, its route
+and the columns it wrote were dropped, and the schedule is the one writer.)
 
 **The schedule's header is two zones, not one.** It had grown into a single row
 carrying trip-level controls and the day stepper together, which meant the thing
@@ -6964,8 +6968,8 @@ city's pick, with a "Locked" chip and `POST /stays/:id/lock`. It was removed
 along with the route: a lock said "this is the one" in a second place from the
 schedule, which is where a stay is actually booked, and two answers to "where
 are we sleeping" can disagree. The vote is the group's opinion; the schedule is
-the decision. `lodging_options.locked` stays in the schema, unread, because
-migrations are additive only.
+the decision. The unread `lodging_options.locked` column went with it (see
+"Columns nothing reads are dropped").
 
 **Deletes from an edit dialog throw.** The stay delete went through a mutation
 whose `run` never throws, so `ConfirmDialog` closed over a refusal. It now calls
@@ -7392,8 +7396,8 @@ pre-line` so typed breaks survive to the card, still clamped to two lines so car
 - Itemized costs (`costs.ts` `cost_items`, costs page): the estimated-costs view is now a
   line-item table (item, category, city or general, amount) with add / inline-edit /
   remove, per-category subtotals, a grand total, and per-person share. New trips seed a
-  few itemized lines per city. The old per-city matrix (`cost_estimates`) is retained
-  underneath for compatibility.
+  few itemized lines per city. The old per-city matrix (`cost_estimates`) was kept
+  underneath for a while, read by nothing, and has since been dropped.
 - Finer drag snapping (`schedule.ts` `SNAP = 5`, calendar): dragging or resizing a block
   snaps to 5-minute steps, and the live time label snaps too, so times never show
   decimals. Minimum duration stays 15 minutes.
@@ -7493,7 +7497,6 @@ DELETE /api/trips/:tripId/discover/pois/:poiId
 POST   /api/trips/:tripId/discover/pois/:poiId/vote
 POST   /api/trips/:tripId/discover/stays
 POST   /api/trips/:tripId/discover/stays/:optionId/vote
-PATCH  /api/trips/:tripId/discover/stays/:optionId/dates
 DELETE /api/trips/:tripId/discover/stays/:optionId
 
 GET    /api/trips/:tripId/schedule?day=&view=          board for the visible days
@@ -7665,10 +7668,10 @@ because `apps/web` was being edited by other work at the time:
   and stored it for a `travel` block, so a mode can currently only be set by
   saving the journey and reopening it.
 
-**Known gaps, inherited rather than introduced.** `getBudget` / `setBudget`,
-`toggleSave` and `linkedItemCount` exist in `packages/server` but no UI ever
-called them. They are deliberately not exposed: the API mirrors the app that
-exists.
+**Known gaps, inherited rather than introduced.** `linkedItemCount` exists in
+`packages/server` but no UI ever called it. It is deliberately not exposed: the
+API mirrors the app that exists. (`getBudget` was in this list too, and went
+with the `cost_estimates` table it read.)
 
 ---
 
@@ -7712,9 +7715,32 @@ cycled by clicking the pill on a block. It was removed as an interaction nobody
 wanted: the pill was the only thing that ever wrote the column, so the status
 was a state you could set and then do nothing with. Nothing derived from it, no
 view filtered on it, and it competed with the clock for the one line of space a
-narrow block has. The `booking` column stays in `db.ts` unread, because
-migrations here are additive and dropping a column rewrites the table for
-nothing.
+narrow block has. The `booking` column was dropped with the other unread ones
+below.
+
+**Columns nothing reads are dropped.** The schema is additive by default,
+because `data/app.db` holds real trips and a migration that loses data cannot be
+taken back. A column nothing reads is the exception the owner asked for: it
+holds nothing anyone sees, and leaving it costs every reader of `db.ts` the work
+of learning it is dead. Each was checked unread across the server, the API and
+both clients before it went:
+
+- `events.booking`: the removed booking pill's state.
+- `lodging_options.locked`: the removed stay lock.
+- `lodging_options.check_in/check_out`: a stay option's own nights. The calendar
+  owns a stay's nights (`events.day/end_day`); the only writer left was
+  `PATCH /stays/:id/dates`, which no client called and which went too.
+- `trip_tasks.assignee`: the name string the per-person backfill matched from.
+  It is dropped right after that backfill, which now also checks the column
+  exists, so an old database still converts first.
+- `cost_estimates` (a whole table): the per-city budget grid `cost_items`
+  replaced. Its rows were never shown.
+
+Every drop is guarded by `columnExists` (or `IF EXISTS`), so a fresh database,
+which never creates them, and one that has already dropped them are both no-ops.
+`created_at` and `done_at` columns that are only written are kept on purpose:
+they are the record of when something happened, which is what you want in hand
+when reading real data after a bug.
 
 ---
 

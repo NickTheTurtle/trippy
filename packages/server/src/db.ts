@@ -92,11 +92,6 @@ db.exec(`
 		type       TEXT NOT NULL DEFAULT 'activity',
 		start_min  INTEGER NOT NULL,
 		end_min    INTEGER NOT NULL,
-		-- Retired. Nothing reads or writes it: the only way to set a booking state
-		-- was a click-to-cycle pill, which was removed as an interaction nobody
-		-- wanted. Kept because migrations here are additive, and dropping a column
-		-- rewrites the table for no gain.
-		booking    TEXT,
 		poi_id     TEXT REFERENCES pois(id) ON DELETE SET NULL,
 		lodging_id TEXT REFERENCES lodging_options(id) ON DELETE SET NULL,
 		city_id    TEXT REFERENCES cities(id) ON DELETE SET NULL,
@@ -169,10 +164,6 @@ db.exec(`
 		price_cents INTEGER,
 		currency    TEXT NOT NULL,
 		url         TEXT,
-		-- Unread. Stays used to carry an organizer's lock on the city's pick;
-		-- which stay a night is spent in is now the schedule's answer. Kept
-		-- because migrations here are additive only.
-		locked      INTEGER NOT NULL DEFAULT 0,
 		created_at  INTEGER NOT NULL
 	);
 
@@ -208,14 +199,6 @@ db.exec(`
 		PRIMARY KEY (poi_id, user_id)
 	);
 
-	CREATE TABLE IF NOT EXISTS cost_estimates (
-		trip_id     TEXT NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
-		city_id     TEXT NOT NULL REFERENCES cities(id) ON DELETE CASCADE,
-		category    TEXT NOT NULL,
-		amount_cents INTEGER NOT NULL DEFAULT 0,
-		PRIMARY KEY (trip_id, city_id, category)
-	);
-
 	CREATE TABLE IF NOT EXISTS cost_items (
 		id           TEXT PRIMARY KEY,
 		trip_id      TEXT NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
@@ -232,7 +215,6 @@ db.exec(`
 		trip_id    TEXT NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
 		kind       TEXT NOT NULL DEFAULT 'task',
 		label      TEXT NOT NULL,
-		assignee   TEXT NOT NULL DEFAULT '',
 		flag       TEXT,
 		done       INTEGER NOT NULL DEFAULT 0,
 		sort       INTEGER NOT NULL DEFAULT 0,
@@ -284,7 +266,6 @@ db.exec(`
 	CREATE INDEX IF NOT EXISTS idx_lvotes_option ON lodging_votes(option_id);
 	CREATE INDEX IF NOT EXISTS idx_pois_city ON pois(city_id);
 	CREATE INDEX IF NOT EXISTS idx_pvotes_poi ON poi_votes(poi_id);
-	CREATE INDEX IF NOT EXISTS idx_costs_trip ON cost_estimates(trip_id);
 	CREATE INDEX IF NOT EXISTS idx_costitems_trip ON cost_items(trip_id);
 	CREATE INDEX IF NOT EXISTS idx_tasks_trip ON trip_tasks(trip_id);
 `);
@@ -310,10 +291,6 @@ function dropColumn(table: string, column: string): void {
 		db.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
 	}
 }
-
-// Day-scoped lodging: an option can be pinned to a night range within its city.
-addColumn('lodging_options', 'check_in', 'TEXT');
-addColumn('lodging_options', 'check_out', 'TEXT');
 
 // The zone the registering browser reported, carried to the account the link
 // creates. Null for a pending row written before this, which starts on UTC.
@@ -410,6 +387,31 @@ addColumn('trips', 'end_date', 'TEXT');
 dropColumn('cities', 'arrive');
 dropColumn('cities', 'depart');
 
+/*
+ * Columns nothing reads, dropped at the owner's request rather than kept as
+ * dead weight in a schema that is otherwise additive. Each was verified unread
+ * across the server, the API and both clients before it went; `columnExists`
+ * guards every drop, so a fresh database (which never creates them) and one
+ * that has already dropped them are both no-ops.
+ *
+ * - `events.booking`: a booking state set only by a click-to-cycle pill that
+ *   was removed as an interaction nobody wanted.
+ * - `lodging_options.locked`: the organizer's lock on a city's stay. Which stay
+ *   a night is spent in is the schedule's answer, and the lock was removed.
+ * - `lodging_options.check_in/check_out`: a stay's nights as Discover once
+ *   edited them. The calendar owns a stay's nights (`events.day/end_day`), and
+ *   the only writer left was a route no client called.
+ * - `cost_estimates`: the per-city, per-category budget grid, replaced by
+ *   `cost_items`. Nothing had read it since; its rows were never shown.
+ *
+ * `trip_tasks.assignee` is dropped beside the task backfill that last read it.
+ */
+dropColumn('events', 'booking');
+dropColumn('lodging_options', 'locked');
+dropColumn('lodging_options', 'check_in');
+dropColumn('lodging_options', 'check_out');
+db.exec(`DROP TABLE IF EXISTS cost_estimates`);
+
 // Uneven expense splits: participants carry a weight (1 for an even split, a
 // share count, or a stated amount in cents), and the expense records which of
 // those the weight means so the form can round-trip.
@@ -427,8 +429,7 @@ addColumn('trips', 'schedule_locked', 'INTEGER NOT NULL DEFAULT 0');
  * visa" isn't done when one person does it; every assignee has to do their
  * own. So assignees are rows, and each assignee carries their own completion.
  *
- * `trip_tasks.assignee` (a comma-joined display string) stays as the fallback
- * for tasks nobody is assigned to, which keep the single shared `done` flag.
+ * A task nobody is assigned to keeps the single shared `done` flag.
  */
 // Read before the tables are created: the two backfills below are only for a
 // database that is gaining them on this boot. See `TASK_ROSTER_BACKFILL`.
@@ -480,10 +481,11 @@ db.exec(`
 `);
 const TASK_ROSTER_BACKFILL = 'task-assignees-from-names';
 if (!backfillDone(TASK_ROSTER_BACKFILL)) {
-	if (!perPersonTasksExisted) {
+	if (!perPersonTasksExisted && columnExists('trip_tasks', 'assignee')) {
 		// The old assignee column held member *names*, joined by ", ". Match them
 		// back to real users through the trip's membership so existing tasks keep
-		// their people.
+		// their people. Only a database from before per-person tasks still has
+		// the column this reads; it is dropped below once this has run.
 		db.exec(`
 			INSERT OR IGNORE INTO task_assignees (task_id, user_id)
 			SELECT t.id, u.id
@@ -510,12 +512,14 @@ if (!backfillDone(TASK_ROSTER_BACKFILL)) {
 	}
 	markBackfillDone(TASK_ROSTER_BACKFILL);
 }
+// The display string the backfill above read. Nothing else reads it: the
+// assignee rows are the roster, and the names are looked up from them.
+dropColumn('trip_tasks', 'assignee');
 
 // A packing item is one person's own bag, so it carries no roster: it is a
 // list you tick, not work to hand out. Rows an earlier version wrote (or the
 // backfill above matched out of the display column) collapse back into the
-// shared flag, and an item everyone had ticked stays ticked. Clearing
-// `assignee` is what stops the backfill from writing them again on next boot.
+// shared flag, and an item everyone had ticked stays ticked.
 db.exec(`
 	UPDATE trip_tasks SET done = 1
 	 WHERE kind = 'packing' AND done = 0
@@ -527,7 +531,6 @@ db.exec(`
 	          SELECT 1 FROM task_done d WHERE d.task_id = a.task_id AND d.user_id = a.user_id));
 	DELETE FROM task_done WHERE task_id IN (SELECT id FROM trip_tasks WHERE kind = 'packing');
 	DELETE FROM task_assignees WHERE task_id IN (SELECT id FROM trip_tasks WHERE kind = 'packing');
-	UPDATE trip_tasks SET assignee = '' WHERE kind = 'packing' AND assignee <> '';
 `);
 
 // A packing list is one person's own, not the group's: what you pack is nobody
@@ -560,8 +563,8 @@ db.exec(`CREATE INDEX IF NOT EXISTS idx_trip_tasks_owner ON trip_tasks(trip_id, 
 		const membersOf = db.prepare(`SELECT user_id FROM memberships WHERE trip_id = ?`);
 		const claim = db.prepare(`UPDATE trip_tasks SET owner_id = ? WHERE id = ?`);
 		const copy = db.prepare(
-			`INSERT INTO trip_tasks (id, trip_id, kind, label, assignee, flag, done, sort, created_at, owner_id)
-			 VALUES (?, ?, 'packing', ?, '', ?, ?, ?, ?, ?)`
+			`INSERT INTO trip_tasks (id, trip_id, kind, label, flag, done, sort, created_at, owner_id)
+			 VALUES (?, ?, 'packing', ?, ?, ?, ?, ?, ?)`
 		);
 		const drop = db.prepare(`DELETE FROM trip_tasks WHERE id = ?`);
 		db.exec('BEGIN');
@@ -618,8 +621,8 @@ db.exec(`
  * everything that was derived from lanes (travel, splits, rejoins) is derived
  * from the people on the events instead.
  *
- * This is the one destructive migration in the file. Everything else here is
- * additive because it has to be: the database holds real trips. Schedules were
+ * This drops whole tables of real trips, which nothing else in the file does:
+ * the other drops are of columns nothing reads. Schedules were
  * the exception the owner named explicitly, being both disposable and
  * unconvertible, since a lane carries no record of who was walking down it.
  * Crews survive in name only; the new `crews` table is a saved group of people
@@ -855,8 +858,7 @@ db.exec(`UPDATE events SET end_min = 1440 WHERE type = 'stay' AND end_min <= sta
  * five days running produced five blocks that had to be edited five times. A
  * stay now carries the day it is checked out of, so it is one thing the whole
  * time it is true: `day` is the arrival and `end_day` is the departure morning,
- * exclusive, which is the same reading `lodging_options.check_in/check_out`
- * already had.
+ * exclusive.
  *
  * The column is on `events` rather than only on stays because it costs nothing
  * there and NULL is a complete answer for everything else: an ordinary block
@@ -1003,8 +1005,8 @@ export function markBackfillDone(name: string): void {
  * say otherwise because there was nothing to say it with. `spent_on` is the
  * date a person picks, and it is what the ledger is ordered by.
  *
- * TEXT `YYYY-MM-DD`, matching `trips.start_date/end_date`, `events.day` and
- * `lodging_options.check_in/check_out`, rather than an epoch integer like
+ * TEXT `YYYY-MM-DD`, matching `trips.start_date/end_date` and `events.day`,
+ * rather than an epoch integer like
  * `created_at`. The two columns are answering different questions and deserve
  * different types. An instant is a point on the world's clock and only means
  * something with a zone attached; a calendar day is what a human picked off a

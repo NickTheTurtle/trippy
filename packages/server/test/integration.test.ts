@@ -1039,8 +1039,6 @@ describe('schema and migrations', () => {
 		dbAgain.close();
 
 		const expectedColumns = [
-			['lodging_options', 'check_in', 'TEXT'],
-			['lodging_options', 'check_out', 'TEXT'],
 			['lodging_options', 'photo', 'TEXT'],
 			['pois', 'photo', 'TEXT'],
 			['pois', 'kind', 'TEXT'],
@@ -1070,6 +1068,22 @@ describe('schema and migrations', () => {
 		}[];
 		expect(cityColumns.map((c) => c.name)).not.toContain('arrive');
 		expect(cityColumns.map((c) => c.name)).not.toContain('depart');
+
+		// Columns nothing read were dropped rather than carried as dead weight.
+		// Pinned so a stale reader, or a CREATE that still names one, fails here.
+		for (const [table, column] of [
+			['events', 'booking'],
+			['lodging_options', 'locked'],
+			['lodging_options', 'check_in'],
+			['lodging_options', 'check_out'],
+			['trip_tasks', 'assignee']
+		] as const) {
+			const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+			expect(cols.map((c) => c.name), `${table}.${column}`).not.toContain(column);
+		}
+		expect(
+			db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'cost_estimates'`).get()
+		).toBeUndefined();
 
 		// The tracks model is gone, and its tables go with it. This is the one
 		// destructive step in db.ts, so it is pinned here: a stale table left

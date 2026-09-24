@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { requireMember } from '../middleware';
 import { billingGate, photoGate, quota429, QuotaError } from '../provider-quota';
-import { body, int, isoDay, num, optStr, str } from '../parse';
+import { body, int, num, optStr, str } from '../parse';
 import { fail, goneMessage, okOr } from '../respond';
 import type { Env, Trip } from '../types';
 import {
@@ -16,7 +16,6 @@ import {
 	addOption,
 	cityLodging,
 	removeOption,
-	setDates,
 	updateOption,
 	vote as lodgingVote
 } from '@trippy/server/lodging';
@@ -37,8 +36,7 @@ import {
 	isNotesLength,
 	nameTooLong,
 	notesTooLong,
-	safeExternalUrl,
-	stayNightsProblem
+	safeExternalUrl
 } from '@trippy/core/validate';
 import { isCurrencyCode, unknownCurrency } from '@trippy/core/currency';
 import { haversineKm } from '@trippy/core/geo';
@@ -370,38 +368,6 @@ discover.post('/pois/:poiId/vote', (c) =>
 // --- Stays ------------------------------------------------------------------
 
 /**
- * An optional night-range date from a body field: null when blank (a stay with
- * no range applies to the whole city stay), `'bad'` when it is not a real day.
- * These end up in string comparisons against the board's days, so a value that
- * only looks like a date would silently never match.
- */
-function optDay(v: unknown): string | null | 'bad' {
-	if (optStr(v) === null) return null;
-	return isoDay(v) ?? 'bad';
-}
-
-/**
- * The night range a stay may carry, judged by the one rule in core
- * (`stayNightsProblem`), with the words each refusal has always used here.
- *
- * Two local copies used to live in this file: an order check, and a trip-range
- * check that capped checkout at the trip's last day. The board caps it at the
- * morning after the last day instead, so the same stay was accepted on the
- * calendar and refused on the Discover card, and a check-in on the last day
- * could never be given any checkout that passed here. Both paths now ask core.
- */
-function nightsProblem(trip: Trip, checkIn: string | null, checkOut: string | null): string | null {
-	switch (stayNightsProblem(checkIn, checkOut, trip.start_date, trip.end_date)) {
-		case 'order':
-			return 'Check-out must be after check-in.';
-		case 'outside':
-			return 'Those nights fall outside the trip.';
-		default:
-			return null;
-	}
-}
-
-/**
  * The currency a stay's price is in, or an error for one nothing can convert.
  * Blank is allowed and means the trip's home currency, as it always has.
  */
@@ -442,9 +408,9 @@ function stayPriceCents(b: Record<string, unknown>): number | null | 'bad' | 'bi
  * Propose a stay for a city.
  *
  * Only `cityId` and `name` are required. A stay is worth putting up for a vote
- * with nothing but a name and what it costs per night: the night range is set
- * later from the stay's own editor, so it is not asked for here. The currency
- * is asked for beside the price, and falls back to the trip's home currency.
+ * with nothing but a name and what it costs per night. Which nights are spent
+ * in it is the schedule's answer, so no range is taken here. The currency is
+ * asked for beside the price, and falls back to the trip's home currency.
  */
 discover.post('/stays', async (c) => {
 	const trip = c.get('trip');
@@ -465,11 +431,6 @@ discover.post('/stays', async (c) => {
 	const currency = stayCurrency(b.currency);
 	if ('error' in currency) return fail(c, 400, currency.error);
 
-	const checkIn = optDay(b.checkIn);
-	const checkOut = optDay(b.checkOut);
-	if (checkIn === 'bad' || checkOut === 'bad') return fail(c, 400, 'Pick valid dates.');
-	const strayNights = nightsProblem(trip, checkIn, checkOut);
-	if (strayNights) return fail(c, 400, strayNights);
 
 	const stayLink = readLink(b.url);
 	if ('error' in stayLink) return fail(c, 400, stayLink.error);
@@ -490,8 +451,6 @@ discover.post('/stays', async (c) => {
 		// Blank: the server falls back to the trip's home currency.
 		currency: currency.code,
 		url: stayLink.url,
-		checkIn,
-		checkOut,
 		photo: stayPhoto,
 		// Kept so the stay can be booked onto the calendar and the morning's first
 		// journey has somewhere to start from. Null for a stay typed by hand.
@@ -558,21 +517,6 @@ discover.patch('/stays/:optionId', async (c) => {
 			currency: editCurrency.code,
 			url: editLink.url
 		}),
-		404,
-		goneMessage('stay')
-	);
-});
-
-discover.patch('/stays/:optionId/dates', async (c) => {
-	const b = await body(c);
-	const checkIn = optDay(b.checkIn);
-	const checkOut = optDay(b.checkOut);
-	if (checkIn === 'bad' || checkOut === 'bad') return fail(c, 400, 'Pick valid dates.');
-	const dateStrays = nightsProblem(c.get('trip'), checkIn, checkOut);
-	if (dateStrays) return fail(c, 400, dateStrays);
-	return okOr(
-		c,
-		setDates(c.get('trip').id, c.get('user').id, c.req.param('optionId'), checkIn, checkOut),
 		404,
 		goneMessage('stay')
 	);

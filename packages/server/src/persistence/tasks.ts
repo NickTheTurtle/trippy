@@ -26,21 +26,6 @@ export interface TaskRow {
 	version: number;
 }
 
-/**
- * The names behind a set of ids, for the legacy `assignee` display column.
- * The assignee rows are the source of truth for who owes what; this column is
- * only still written so older readers of the table keep working.
- */
-function memberNames(userIds: string[]): string {
-	if (userIds.length === 0) return '';
-	const rows = db
-		.prepare(
-			`SELECT name FROM users WHERE id IN (${userIds.map(() => '?').join(',')}) ORDER BY name`
-		)
-		.all(...userIds) as unknown as { name: string }[];
-	return rows.map((r) => r.name).join(', ');
-}
-
 interface TaskBase {
 	id: string;
 	kind: string;
@@ -136,15 +121,14 @@ export function addTask(
 	// A packing item is one person's own bag: it takes no roster, and it belongs
 	// to whoever wrote it rather than to the trip.
 	const valid = (kind === 'packing' ? [] : assigneeIds).filter((uid) => isMember(tripId, uid));
-	const names = memberNames(valid);
 	const owner = kind === 'packing' ? actorId : null;
 
 	db.exec('BEGIN');
 	try {
 		db.prepare(
-			`INSERT INTO trip_tasks (id, trip_id, kind, label, assignee, flag, done, sort, created_at, owner_id)
-			 VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`
-		).run(id, tripId, kind, label, names, flag, sort, Date.now(), owner);
+			`INSERT INTO trip_tasks (id, trip_id, kind, label, flag, done, sort, created_at, owner_id)
+			 VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)`
+		).run(id, tripId, kind, label, flag, sort, Date.now(), owner);
 		const ins = db.prepare(`INSERT OR IGNORE INTO task_assignees (task_id, user_id) VALUES (?, ?)`);
 		for (const uid of valid) ins.run(id, uid);
 		db.exec('COMMIT');
@@ -193,7 +177,6 @@ export function updateTask(
 	if (isStale(expectedVersion, row.version)) return conflict;
 
 	const valid = (row.kind === 'packing' ? [] : assigneeIds).filter((uid) => isMember(tripId, uid));
-	const names = memberNames(valid);
 	const holes = valid.map(() => '?').join(',');
 	const next = row.version + 1;
 
@@ -204,9 +187,9 @@ export function updateTask(
 		// moment the roster was emptied again, and a boot-time backfill that read
 		// it re-ticked everyone who had unticked (see TASK_ROSTER_BACKFILL).
 		db.prepare(
-			`UPDATE trip_tasks SET label = ?, assignee = ?, version = ?${valid.length ? ', done = 0' : ''}
+			`UPDATE trip_tasks SET label = ?, version = ?${valid.length ? ', done = 0' : ''}
 			 WHERE id = ? AND trip_id = ?`
-		).run(label, names, next, taskId, tripId);
+		).run(label, next, taskId, tripId);
 		db.prepare(
 			`DELETE FROM task_assignees WHERE task_id = ?${valid.length ? ` AND user_id NOT IN (${holes})` : ''}`
 		).run(taskId, ...valid);

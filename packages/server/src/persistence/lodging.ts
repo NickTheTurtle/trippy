@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { stayNightsProblem } from '@trippy/core/validate';
 import { db } from '../db';
 import { publish, publishMany } from '../events';
 import { cityInTrip, homeCurrency, isMember, isOrganizer } from './membership';
@@ -12,8 +11,6 @@ export interface LodgingOption {
 	price_cents: number | null;
 	currency: string;
 	url: string | null;
-	check_in: string | null;
-	check_out: string | null;
 	photo: string | null;
 	votes: number;
 	you_voted: number; // 1 if the viewer picked this option
@@ -45,7 +42,7 @@ export function cityLodging(tripId: string, userId: string): CityLodging[] {
 	return cities.map((c) => {
 		const options = db
 			.prepare(
-				`SELECT o.id, o.name, o.tag, o.price_cents, o.currency, o.url, o.check_in, o.check_out, o.photo, o.lat, o.lng,
+				`SELECT o.id, o.name, o.tag, o.price_cents, o.currency, o.url, o.photo, o.lat, o.lng,
 				        (SELECT COUNT(*) FROM lodging_votes v WHERE v.option_id = o.id) AS votes,
 				        (SELECT COUNT(*) FROM lodging_votes v WHERE v.option_id = o.id AND v.user_id = ?) AS you_voted,
 				        (SELECT COUNT(*) FROM events s WHERE s.lodging_id = o.id) AS linked
@@ -68,15 +65,15 @@ export function cityLodging(tripId: string, userId: string): CityLodging[] {
  *
  * A stay is worth proposing with nothing but a name and what it costs per
  * night, so everything after the name is optional and arrives in one bag
- * rather than as nine positional arguments: `tag`, `url`, the night range, the
- * photo and the coordinates all default to empty, and an empty `currency` falls
+ * rather than as seven positional arguments: `tag`, `url`, the photo and the
+ * coordinates all default to empty, and an empty `currency` falls
  * back to the trip's home currency, which is what a price typed on the Discover
  * page is denominated in anyway. `priceCents` is the per-night price (the
  * `price_cents` column); it stays nullable because "we have not priced it yet"
  * is a real state.
  *
- * Check-in / check-out are set later from the stay's own editor (`setDates`);
- * a stay with no range applies to the whole city stay.
+ * Which nights are spent in it is the schedule's answer: a stay block on the
+ * calendar books it (`events.lodging_id`), so the option carries no range.
  *
  * The coordinates are the provider's, kept for the same reason a place keeps
  * them: a stay can be booked onto the calendar, and the day's first journey is
@@ -87,8 +84,6 @@ export interface NewOption {
 	priceCents?: number | null;
 	currency?: string;
 	url?: string | null;
-	checkIn?: string | null;
-	checkOut?: string | null;
 	photo?: string | null;
 	lat?: number | null;
 	lng?: number | null;
@@ -109,8 +104,8 @@ export function addOption(
 	const price = priceCents == null || !Number.isFinite(priceCents) ? null : Math.round(priceCents);
 	const id = randomUUID();
 	db.prepare(
-		`INSERT INTO lodging_options (id, trip_id, city_id, name, tag, price_cents, currency, url, check_in, check_out, photo, lat, lng, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		`INSERT INTO lodging_options (id, trip_id, city_id, name, tag, price_cents, currency, url, photo, lat, lng, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	).run(
 		id,
 		tripId,
@@ -120,8 +115,6 @@ export function addOption(
 		price,
 		(opt.currency ?? '').trim().toUpperCase() || homeCurrency(tripId),
 		opt.url ?? null,
-		opt.checkIn ?? null,
-		opt.checkOut ?? null,
 		opt.photo ?? null,
 		opt.lat ?? null,
 		opt.lng ?? null,
@@ -350,34 +343,6 @@ export function removeOption(tripId: string, actorId: string, optionId: string):
 	return true;
 }
 
-/**
- * Update the check-in / check-out range of an option. Any trip member may edit.
- *
- * A stay covers at least one night, so a checkout on or before the check-in day
- * is refused, the same rule the schedule stay path enforces (it will not check
- * out on or before the day it checks in). The guard only bites when both ends
- * are set: an option with one or both dates still blank is undated, not a
- * zero-night stay.
- */
-export function setDates(
-	tripId: string,
-	actorId: string,
-	optionId: string,
-	checkIn: string | null,
-	checkOut: string | null
-): boolean {
-	if (!isMember(tripId, actorId)) return false;
-	// The order half of the shared rule in `@trippy/core/validate`. The trip-range
-	// half needs the trip's dates and is asked by the route, which has them and
-	// has somewhere to put the reason.
-	if (stayNightsProblem(checkIn, checkOut) === 'order') return false;
-	const res = db
-		.prepare(`UPDATE lodging_options SET check_in = ?, check_out = ? WHERE id = ? AND trip_id = ?`)
-		.run(checkIn, checkOut, optionId, tripId);
-	if (res.changes > 0) publishMany(tripId, ['lodging', 'schedule']);
-	return res.changes > 0;
-}
-
 /** What a stay's editor may change. Everything a proposer typed, and nothing else. */
 export interface OptionEdit {
 	name: string;
@@ -391,8 +356,7 @@ export interface OptionEdit {
 /**
  * Edit a proposed stay.
  *
- * Any trip member may edit, on the same reasoning as `removeOption` and
- * `setDates`: a stay is a shared proposal rather than one person's property,
+ * Any trip member may edit, on the same reasoning as `removeOption`: a stay is a shared proposal rather than one person's property,
  * and the alternative to fixing a wrong price is deleting the stay, which
  * throws away everyone's votes with it.
  *
@@ -401,10 +365,8 @@ export interface OptionEdit {
  * name would make the board unusable. The photo is untouched too: it is
  * provider-derived and refreshed from the provider, as on places.
  *
- * The night range is untouched as well, and for a sharper reason: it is not
- * edited here at all. Which nights are spent in a room is the calendar's
- * answer, written through `setDates`, so an edit to a name or a price cannot
- * quietly move or clear it.
+ * There is no night range to touch: which nights are spent in a room is the
+ * calendar's answer, so an edit to a name or a price cannot move or clear it.
  *
  * `schedule` is published alongside `lodging` because the calendar renders the
  * day's stay by name.

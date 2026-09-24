@@ -17,7 +17,6 @@ let db: Awaited<typeof import('../src/db.ts')>['db'];
 let auth: typeof import('../src/infra/auth.ts');
 let trips: typeof import('../src/persistence/trips.ts');
 let costs: typeof import('../src/persistence/costs.ts');
-let lodging: typeof import('../src/persistence/lodging.ts');
 let fx: typeof import('../src/providers/fx.ts');
 let mail: typeof import('../src/providers/mail.ts');
 let CURRENCY_CODES: string[];
@@ -27,7 +26,6 @@ beforeAll(async () => {
 	auth = await import('../src/infra/auth.ts');
 	trips = await import('../src/persistence/trips.ts');
 	costs = await import('../src/persistence/costs.ts');
-	lodging = await import('../src/persistence/lodging.ts');
 	fx = await import('../src/providers/fx.ts');
 	mail = await import('../src/providers/mail.ts');
 	({ CURRENCY_CODES } = await import('@trippy/core/currency'));
@@ -124,15 +122,6 @@ describe('trip edits', () => {
 			ok: false,
 			reason: 'last'
 		});
-	});
-});
-
-describe('stay nights in the store', () => {
-	it('still refuses zero and negative nights through the shared rule', () => {
-		const f = trip();
-		const id = lodging.addOption(f.tripId, f.organizer, f.cityId, 'ZZ Inn', {})!;
-		expect(lodging.setDates(f.tripId, f.organizer, id, '2026-10-12', '2026-10-12')).toBe(false);
-		expect(lodging.setDates(f.tripId, f.organizer, id, '2026-10-12', '2026-10-13')).toBe(true);
 	});
 });
 
