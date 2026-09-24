@@ -7325,10 +7325,10 @@ pre-line` so typed breaks survive to the card, still clamped to two lines so car
   a field the user is expected to read and edit. Manual entry remains for venues not in
   the providers. New China trips seed several POIs per city, a few saved for scheduling.
 
-- Cost estimates are persisted (`cost_estimates`, keyed by trip/city/category over
-  lodging, activities, food, travel). They render as a section of the **Preparation**
-  tab: an editable per-city budget table with a per-person total; add and edit both go
-  through a modal. New China trips seed a starting budget per city.
+- Cost estimates were first a per-city budget grid (`cost_estimates`, keyed by
+  trip/city/category over lodging, activities, food, travel), shown as a section of the
+  **Preparation** tab. The itemized `cost_items` list below replaced it, and the table
+  has since been dropped.
 - Preparation checklist is persisted (`trip_tasks`, kind `task` or `packing`) with
   per-person completion in `task_assignees` / `task_done`. Members add, assign to any
   subset of the trip, edit the wording and the roster, tick **anyone's** box, and
