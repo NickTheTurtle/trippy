@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, RefreshControl, Text, View } from 'react-native';
 import { copy } from '@trippy/copy';
 import { formatDay, formatMoney } from '@trippy/copy/format';
@@ -9,7 +9,7 @@ import { useMutation } from '../../../src/hooks/useMutation';
 import { useLiveSection } from '../../../src/hooks/useTripEvents';
 import { useToast } from '../../../src/ui/Toast';
 import { Button, Card, EmptyState, FormError, Loading, Screen } from '../../../src/ui';
-import { SegmentedControl } from '../../../src/ui/controls';
+import { Picker, SegmentedControl } from '../../../src/ui/controls';
 import { ExpenseSheet, PaymentSheet } from '../../../src/screens/ExpenseSheet';
 import type { Expense, ExpensesData, Transfer } from '../../../src/screens/ExpenseSheet';
 import { color, space, type } from '../../../src/theme';
@@ -62,7 +62,23 @@ export default function Expenses() {
 		{ fallback: copy.expenses.settleRow.fallback, onSuccess: reload }
 	);
 
-	if (settle.error) toast.error(settle.error);
+	useEffect(() => {
+		if (settle.error) toast.error(settle.error);
+	}, [settle.error, toast]);
+
+	function refreshEditingAfterConflict() {
+		if (!editing) {
+			reload();
+			return;
+		}
+		void api<ExpensesData>(`/trips/${tripId}/expenses`)
+			.then((fresh) => {
+				const next = fresh.expenses.find((expense) => expense.id === editing.id);
+				if (next) setEditing(next);
+				reload();
+			})
+			.catch(() => reload());
+	}
 
 	if (loading && !data) return <Loading />;
 	if (!data) {
@@ -270,7 +286,7 @@ export default function Expenses() {
 						setEditing(null);
 						reload();
 					}}
-					onConflict={reload}
+					onConflict={refreshEditingAfterConflict}
 				/>
 			) : null}
 			{payment ? (
@@ -370,15 +386,15 @@ function ViewAs({
 	return (
 		<Card style={{ gap: space.sm }}>
 			<Text style={type.faint}>{copy.viewAs.label}</Text>
-			<SegmentedControl
-				items={[
+			<Picker
+				options={[
 					{ key: '', label: copy.viewAs.everyone },
 					...members.map((m) => ({
 						key: m.id,
 						label: m.name + (m.id === me ? copy.preparation.youSuffix : '')
 					}))
 				]}
-				active={value}
+				value={value}
 				onPick={onChange}
 			/>
 		</Card>

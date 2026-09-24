@@ -27,6 +27,12 @@ function currencyOptions(currencies: readonly string[]) {
 	return currencies.map((code) => ({ key: code, label: code, detail: currencyName(code) }));
 }
 
+function parseAmount(value: string): number {
+	const trimmed = value.trim();
+	const normalized = trimmed.includes('.') ? trimmed : trimmed.replace(',', '.');
+	return Number(normalized);
+}
+
 export function CostSheet({
 	open,
 	tripId,
@@ -71,8 +77,8 @@ export function CostSheet({
 
 	const save = useMutation(
 		async () => {
-			const value = Number(amount.trim());
-			if (!Number.isFinite(value)) throw new ApiError(400, copy.preparation.costDialog.fallback);
+			const value = parseAmount(amount);
+			if (!Number.isFinite(value)) throw new ApiError(400, copy.common.amountMissing);
 			const body = { label, category, amount: value, currency: cur, assignees };
 			if (item) await api(`/trips/${tripId}/pretrip/costs/${item.id}`, { method: 'PUT', body });
 			else await api(`/trips/${tripId}/pretrip/costs`, { method: 'POST', body });

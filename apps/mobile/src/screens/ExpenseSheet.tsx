@@ -67,6 +67,12 @@ function currencyOptions(currencies: readonly string[]) {
 	return currencies.map((code) => ({ key: code, label: code, detail: currencyName(code) }));
 }
 
+function parseAmount(value: string): number {
+	const trimmed = value.trim();
+	const normalized = trimmed.includes('.') ? trimmed : trimmed.replace(',', '.');
+	return Number(normalized);
+}
+
 export function ExpenseSheet({
 	open,
 	tripId,
@@ -103,10 +109,12 @@ export function ExpenseSheet({
 			setCurrency(expense.currency);
 			setPayerId(expense.payer_id);
 			setMode(expense.split_mode);
-			setChosen(expense.parts.map((p) => p.userId));
+			const currentMemberIds = new Set(data.members.map((m) => m.id));
+			const currentParts = expense.parts.filter((p) => currentMemberIds.has(p.userId));
+			setChosen(currentParts.map((p) => p.userId));
 			setWeights(
 				Object.fromEntries(
-					expense.parts.map((p) => [
+					currentParts.map((p) => [
 						p.userId,
 						expense.split_mode === 'exact' ? (p.weight / 100).toFixed(2) : String(p.weight)
 					])
@@ -128,13 +136,13 @@ export function ExpenseSheet({
 		remove.reset();
 	}, [open, expense?.id]);
 
-	const totalCents = Math.round((Number(amount) || 0) * 100);
+	const totalCents = Math.round((parseAmount(amount) || 0) * 100);
 	const absCents = Math.abs(totalCents);
 	const income = totalCents < 0;
 	const chosenMembers = data.members.filter((m) => chosen.includes(m.id));
 
 	function weightOf(id: string): number {
-		const raw = Number(weights[id]);
+		const raw = mode === 'exact' ? parseAmount(weights[id] ?? '') : Number(weights[id]);
 		if (!Number.isFinite(raw) || raw <= 0) return 0;
 		return mode === 'exact' ? Math.round(raw * 100) : raw;
 	}
@@ -155,9 +163,12 @@ export function ExpenseSheet({
 		if (next === mode) return;
 		setMode(next);
 		if (next === 'even') return setWeights({});
-		if (next === 'shares') return setWeights(Object.fromEntries(chosen.map((id) => [id, '1'])));
-		const shares = splitByWeight(absCents, new Array(chosen.length).fill(1));
-		setWeights(Object.fromEntries(chosen.map((id, i) => [id, (shares[i] / 100).toFixed(2)])));
+		if (next === 'shares')
+			return setWeights(Object.fromEntries(chosenMembers.map((m) => [m.id, '1'])));
+		const shares = splitByWeight(absCents, new Array(chosenMembers.length).fill(1));
+		setWeights(
+			Object.fromEntries(chosenMembers.map((m, i) => [m.id, (shares[i] / 100).toFixed(2)]))
+		);
 	}
 
 	function toggle(id: string) {
@@ -190,10 +201,11 @@ export function ExpenseSheet({
 
 	const save = useMutation(
 		async () => {
-			const value = Number(amount.trim());
+			const value = parseAmount(amount);
 			if (!Number.isFinite(value) || Math.round(value * 100) === 0) {
-				throw new ApiError(400, 'Enter an amount.');
+				throw new ApiError(400, copy.common.amountMissing);
 			}
+			const currentChosen = data.members.filter((m) => chosen.includes(m.id)).map((m) => m.id);
 			try {
 				await api(`/trips/${tripId}/expenses${expense ? `/${expense.id}` : ''}`, {
 					method: expense ? 'PUT' : 'POST',
@@ -204,8 +216,10 @@ export function ExpenseSheet({
 						currency,
 						payerId,
 						splitMode: mode,
-						participantIds: chosen,
-						weights: Object.fromEntries(chosen.map((id) => [id, Number(weights[id]) || 0])),
+						participantIds: currentChosen,
+						weights: Object.fromEntries(
+							currentChosen.map((id) => [id, parseAmount(weights[id] ?? '') || 0])
+						),
 						version: expense?.version
 					}
 				});
@@ -300,7 +314,16 @@ export function ExpenseSheet({
 					) : null}
 					<SmallAction
 						label={copy.expenses.addDialog.all}
-						onPress={() => setChosen(data.members.map((m) => m.id))}
+						onPress={() => {
+							const ids = data.members.map((m) => m.id);
+							setChosen(ids);
+							if (mode === 'shares') {
+								setWeights((current) => ({
+									...Object.fromEntries(ids.map((id) => [id, current[id] ?? '1'])),
+									...current
+								}));
+							}
+						}}
 					/>
 					<SmallAction label={copy.expenses.addDialog.none} onPress={() => setChosen([])} />
 				</View>
@@ -321,7 +344,8 @@ export function ExpenseSheet({
 								{money && mode === 'shares' ? <Text style={type.faint}>{money}</Text> : null}
 								{on && mode === 'shares' ? (
 									<Stepper
-										value={weights[m.id] ?? '1'}
+										value={weights[m.id] ?? ''}
+										name={m.name}
 										onMinus={() => bumpShares(m.id, -1)}
 										onPlus={() => bumpShares(m.id, 1)}
 										onChange={(v) => setWeights((w) => ({ ...w, [m.id]: v }))}
@@ -456,35 +480,56 @@ function SmallAction({ label, onPress }: { label: string; onPress: () => void })
 
 function Stepper({
 	value,
+	name,
 	onMinus,
 	onPlus,
 	onChange
 }: {
 	value: string;
+	name: string;
 	onMinus: () => void;
 	onPlus: () => void;
 	onChange: (value: string) => void;
 }) {
 	return (
 		<View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
-			<Round label="−" onPress={onMinus} />
+			<Round
+				label="−"
+				accessibilityLabel={copy.expenses.addDialog.fewerShares(name)}
+				onPress={onMinus}
+			/>
 			<View style={{ width: 48 }}>
 				<Field
 					label=""
 					value={value}
 					onChangeText={onChange}
 					keyboardType="decimal-pad"
+					accessibilityLabel={copy.expenses.addDialog.weightLabel(false, name)}
 					style={{ height: 34, textAlign: 'center' }}
 				/>
 			</View>
-			<Round label="+" onPress={onPlus} />
+			<Round
+				label="+"
+				accessibilityLabel={copy.expenses.addDialog.moreShares(name)}
+				onPress={onPlus}
+			/>
 		</View>
 	);
 }
 
-function Round({ label, onPress }: { label: string; onPress: () => void }) {
+function Round({
+	label,
+	accessibilityLabel,
+	onPress
+}: {
+	label: string;
+	accessibilityLabel: string;
+	onPress: () => void;
+}) {
 	return (
 		<Pressable
+			accessibilityRole="button"
+			accessibilityLabel={accessibilityLabel}
 			onPress={onPress}
 			style={{
 				width: 30,
