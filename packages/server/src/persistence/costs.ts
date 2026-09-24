@@ -24,53 +24,6 @@ function cleanCurrency(currency: string | undefined): string | null {
 export const COST_CATEGORIES = ['lodging', 'activities', 'food', 'travel'] as const;
 export type CostCategory = (typeof COST_CATEGORIES)[number];
 
-export interface BudgetCity {
-	id: string;
-	name: string;
-	amounts: Record<string, number>; // category -> cents
-	total: number; // cents
-}
-
-export interface Budget {
-	cities: BudgetCity[];
-	categoryTotals: Record<string, number>;
-	grandTotal: number;
-}
-
-export function getBudget(tripId: string): Budget {
-	const cities = db
-		.prepare(`SELECT id, name FROM cities WHERE trip_id = ? ORDER BY sort`)
-		.all(tripId) as unknown as { id: string; name: string }[];
-	const rows = db
-		.prepare(`SELECT city_id, category, amount_cents FROM cost_estimates WHERE trip_id = ?`)
-		.all(tripId) as unknown as { city_id: string; category: string; amount_cents: number }[];
-
-	const byCity = new Map<string, Record<string, number>>();
-	for (const r of rows) {
-		if (!byCity.has(r.city_id)) byCity.set(r.city_id, {});
-		byCity.get(r.city_id)![r.category] = r.amount_cents;
-	}
-
-	const categoryTotals: Record<string, number> = {};
-	for (const c of COST_CATEGORIES) categoryTotals[c] = 0;
-	let grandTotal = 0;
-
-	const budgetCities: BudgetCity[] = cities.map((c) => {
-		const amounts: Record<string, number> = {};
-		let total = 0;
-		for (const cat of COST_CATEGORIES) {
-			const cents = byCity.get(c.id)?.[cat] ?? 0;
-			amounts[cat] = cents;
-			total += cents;
-			categoryTotals[cat] += cents;
-		}
-		grandTotal += total;
-		return { id: c.id, name: c.name, amounts, total };
-	});
-
-	return { cities: budgetCities, categoryTotals, grandTotal };
-}
-
 // ---- Itemized cost breakdown -------------------------------------------------
 
 export interface CostPerson {

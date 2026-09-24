@@ -10,7 +10,7 @@ import type { PoiKind } from '@trippy/core/types';
  *
  * The convention the API actually follows, and the one recorded here: rows read
  * out of SQLite keep their **snake_case** column names on the way through
- * (`price_cents`, `you_voted`, `check_in`), while fields the API composes for a
+ * (`price_cents`, `you_voted`, `rating_count`), while fields the API composes for a
  * request body or a computed response are **camelCase** (`priceCents`,
  * `ratingCount`, `memberCount`). So a GET returns snake and a POST takes camel;
  * that is deliberate and is what these types say.
@@ -62,9 +62,6 @@ export type Stay = {
 	price_cents: number | null;
 	currency: string;
 	url: string | null;
-	locked: number;
-	check_in: string | null;
-	check_out: string | null;
 	photo: string | null;
 	votes: number;
 	/** 1 when the viewer's single per-city vote is on this stay. */

@@ -150,7 +150,7 @@ counts as food because the bucket the UI shows is "Food & Drink".
 
 **Stays are not a kind.** The Discover dropdown offers Attractions / Food & Drink /
 Stays as three choices, but Stays is a view switch onto `lodging_options`, a
-different table with votes, a lock and a nightly price. `'stay'` is deliberately
+different table with votes and a nightly price. `'stay'` is deliberately
 not a legal value of this column, and the CHECK constraint rejects it.
 
 ---
@@ -1251,8 +1251,9 @@ reads as a bug.
     `task_assignees` did not exist before that boot: a database that already had
     the tables has been through them many times, and running them once more
     under the new marker would only re-tick one last time.
-  - `trip_tasks.assignee` (a comma-joined name string) is now display-only legacy;
-    do not read it for logic.
+  - `trip_tasks.assignee` (a comma-joined name string) was the display copy
+    the backfill above matched names out of. Nothing else read it, so it is
+    dropped once that backfill has had its chance to run.
   - **Anyone may tick anyone's box**: `toggleTask` takes a `targetId` and accepts
     any assignee of the task, from any member of the trip. The row records who the
     task is _for_, not who pressed the button. It still refuses a non-member, and a
@@ -1408,11 +1409,13 @@ the write bound would be the 400-day bug again with a friendlier number.
 - **Day-scoped options**: a city can have multiple lodging options for different nights
   (each option carries an optional check-in/check-out range); the calendar resolves the
   option in effect for each day.
-- **Approval or ranked** voting; live tally; organizer locks a winner.
+- **Approval or ranked** voting; live tally. There is no lock on a stay: the
+  vote says what the group wants, and the nights are booked by putting the stay
+  on the schedule, which is the one place that says where anyone sleeps.
 - **Surfaced inside Discover**, not as its own tab; the header type dropdown
   (Attractions / Food & Drink / Stays) switches the grid. The two share one card
   design (cover art, vote pill, open icon, remove, and the tally along the bottom
-  edge); stays additionally show price/night, "Edit dates" and "Lock as choice".
+  edge); stays additionally show price/night.
 - The **tables stay separate** even though the UI is merged. Place votes are multi-vote
   (`poi_votes` PK `(poi_id, user_id)`); stay votes are _exclusive per city_
   (`lodging_votes` PK `(city_id, user_id)`, so voting again replaces). Stays also carry
@@ -3144,8 +3147,7 @@ city. That made the ordering look arbitrary in the one view where it carries the
 most meaning: All is what you open to see what the group actually wants. Stays
 and places are now merged into a single list sorted by votes descending. The sort
 is **stable** and the pools are concatenated in server order, so ties keep the
-meaning they already had: a stay ahead of a place, and a locked stay ahead of the
-other stays.
+meaning they already had: a stay ahead of a place.
 
 **Voting reorders the grid, so the reorder is animated.** The list is ordered by
 the very thing the button changes, which means acting on a card reshuffles the
@@ -3242,8 +3244,10 @@ option edited here read one range while the board ran another, and because the
 patch was a full replace, editing a stay's name silently cleared the dates. The
 schedule is the one place a night range means anything, so that is where it is
 asked for now; the route no longer reads dates at all, and the card no longer
-prints a nights line it cannot keep true. `PATCH /stays/:id/dates` is untouched:
-it is how the calendar sets them. The affordance is the card itself rather than
+prints a nights line it cannot keep true. The option's own range
+(`lodging_options.check_in/check_out`, behind `PATCH /stays/:id/dates`) outlived
+this with no client calling it, and was later dropped outright; a stay's nights
+are `events.day/end_day` on the stay block. The affordance is the card itself rather than
 a pencil, matching the place card exactly: cover, title and meta are one button,
 and the vote, open and remove controls sit outside it so the card never nests
 one interactive element inside another.
@@ -3294,7 +3298,7 @@ a caret plus the count, filled in accent when you have voted. "Open" became a
 compass icon keeping the same accessible name it had as text. The vote bar moved
 flush to the card's bottom edge, where it reads as an indicator on the card
 rather than a fourth thing competing in the row. Both card types share the
-treatment; a stay keeps its price, nights and the organizer's lock.
+treatment; a stay keeps its price.
 
 **The corner of the footer says whether the thing is on the calendar.** A place
 already knew how many scheduled events pointed at it, and said so in a line of
@@ -5687,8 +5691,8 @@ before: the preview used to keep the saved location whatever the reader chose.
 event sitting from 21:00 to midnight on one day, which meant a three-night
 booking was three separate events to enter and three to correct. It now carries
 `end_day` on `events` and covers `[day, end_day)`: arrival inclusive, checkout
-morning exclusive as a _night_, the same reading
-`lodging_options.check_in/check_out` has always had. One object, one write.
+morning exclusive as a _night_, the same reading a stay option's own dates
+once had. One object, one write.
 `end_day` is on every event rather than on a
 stay table of its own, and NULL means "begins and ends on its own day", which is
 true of everything else.
@@ -5759,7 +5763,8 @@ a stay one path would have rejected. Both paths now enforce the same rule:
 three discover stay routes refuse it at the edge with the existing
 `Check-out must be after check-in.` ("after" is strict, so an equal pair is
 refused too). The guard bites only when both ends are set; a half-filled range
-is undated, not invalid.
+is undated, not invalid. (The lodging path is gone since: `setDates`, its route
+and the columns it wrote were dropped, and the schedule is the one writer.)
 
 **The schedule's header is two zones, not one.** It had grown into a single row
 carrying trip-level controls and the day stepper together, which meant the thing
@@ -6958,11 +6963,13 @@ refuses a second press while its request is out (a ref, so two taps in one frame
 cannot both pass) using `aria-disabled` rather than `disabled`, because a
 disabled button drops keyboard focus to the page on every vote.
 
-**The stay lock is on the card, organizer only.** `POST /stays/:id/lock` is a
-toggle and moves the lock between a city's stays. It sits in the card footer, not
-the edit dialog, because it is a decision among stays like a vote, and the edit
-dialog is deliberately the proposer's own fields. It is worded ("Lock", "Unlock")
-because a padlock alone reads as the state, which the chip already shows.
+**Stays have no lock.** A stay card once carried an organizer's "Lock" on the
+city's pick, with a "Locked" chip and `POST /stays/:id/lock`. It was removed
+along with the route: a lock said "this is the one" in a second place from the
+schedule, which is where a stay is actually booked, and two answers to "where
+are we sleeping" can disagree. The vote is the group's opinion; the schedule is
+the decision. The unread `lodging_options.locked` column went with it (see
+"Columns nothing reads are dropped").
 
 **Deletes from an edit dialog throw.** The stay delete went through a mutation
 whose `run` never throws, so `ConfirmDialog` closed over a refusal. It now calls
@@ -7048,7 +7055,7 @@ Two seeded trips, chosen to exercise opposite ends of the layout engine:
   and the group repeatedly collapses back into one full-width block for meals. On day 2 the
   board goes 5 columns → 5 columns → 1 → 4 → 1 in a single day. Every one of the 46
   events carries an
-  explicit attendee list, and three of them are nights at the locked lodging, which is what
+  explicit attendee list, and three of them are nights at the booked lodging, which is what
   gives each morning's first journey somewhere to start from.
 
   `npx tsx scripts/seed-schedule.ts [tripId]` re-seeds just the schedule into a trip that
@@ -7072,9 +7079,8 @@ Two seeded trips, chosen to exercise opposite ends of the layout engine:
   Amounts are in the trip's home currency; cross-currency FX is future work.
 - Lodging voting is persisted: `lodging_options` and `lodging_votes` tables, organized
   per city. Members propose stays (name, tag, price, link) and cast a single vote per
-  city; re-voting moves the vote, and clicking the current pick clears it. The
-  organizer can lock a leading option as the choice. New China trips seed three
-  Beijing options with a leading pick.
+  city; re-voting moves the vote, and clicking the current pick clears it. New China
+  trips seed three Beijing options with a leading pick.
 - POI discovery is persisted (`pois`, `poi_votes`): per-city candidate pools with
   save, upvote, and remove. The city is chosen from a **dropdown**, not a row of pills:
   the pill row grew with the itinerary and wrapped to a second line on a five-city
@@ -7343,7 +7349,7 @@ pre-line` so typed breaks survive to the card, still clamped to two lines so car
   so schedule times are unambiguous. Offsets are DST-correct via `Intl`.
 - Real trip overview (`src/lib/server/stats.ts`): the dashboard tiles and the
   "Needs attention" list are computed from the database (saved places, scheduled
-  blocks, tight connections, lodging locked vs. pending, and the viewer's net balance)
+  blocks, tight connections, and the viewer's net balance)
   rather than placeholder numbers.
 - Multi-currency FX (`src/lib/server/fx.ts`): expenses can be logged in any of ~18
   currencies. Balances and settlement convert every expense to the trip's home
@@ -7390,8 +7396,8 @@ pre-line` so typed breaks survive to the card, still clamped to two lines so car
 - Itemized costs (`costs.ts` `cost_items`, costs page): the estimated-costs view is now a
   line-item table (item, category, city or general, amount) with add / inline-edit /
   remove, per-category subtotals, a grand total, and per-person share. New trips seed a
-  few itemized lines per city. The old per-city matrix (`cost_estimates`) is retained
-  underneath for compatibility.
+  few itemized lines per city. The old per-city matrix (`cost_estimates`) was kept
+  underneath for a while, read by nothing, and has since been dropped.
 - Finer drag snapping (`schedule.ts` `SNAP = 5`, calendar): dragging or resizing a block
   snaps to 5-minute steps, and the live time label snaps too, so times never show
   decimals. Minimum duration stays 15 minutes.
@@ -7490,8 +7496,7 @@ PATCH  /api/trips/:tripId/discover/pois/:poiId
 DELETE /api/trips/:tripId/discover/pois/:poiId
 POST   /api/trips/:tripId/discover/pois/:poiId/vote
 POST   /api/trips/:tripId/discover/stays
-POST   /api/trips/:tripId/discover/stays/:optionId/vote | /lock
-PATCH  /api/trips/:tripId/discover/stays/:optionId/dates
+POST   /api/trips/:tripId/discover/stays/:optionId/vote
 DELETE /api/trips/:tripId/discover/stays/:optionId
 
 GET    /api/trips/:tripId/schedule?day=&view=          board for the visible days
@@ -7663,10 +7668,10 @@ because `apps/web` was being edited by other work at the time:
   and stored it for a `travel` block, so a mode can currently only be set by
   saving the journey and reopening it.
 
-**Known gaps, inherited rather than introduced.** `getBudget` / `setBudget`,
-`toggleSave` and `linkedItemCount` exist in `packages/server` but no UI ever
-called them. They are deliberately not exposed: the API mirrors the app that
-exists.
+**Known gaps, inherited rather than introduced.** `linkedItemCount` exists in
+`packages/server` but no UI ever called it. It is deliberately not exposed: the
+API mirrors the app that exists. (`getBudget` was in this list too, and went
+with the `cost_estimates` table it read.)
 
 ---
 
@@ -7710,9 +7715,32 @@ cycled by clicking the pill on a block. It was removed as an interaction nobody
 wanted: the pill was the only thing that ever wrote the column, so the status
 was a state you could set and then do nothing with. Nothing derived from it, no
 view filtered on it, and it competed with the clock for the one line of space a
-narrow block has. The `booking` column stays in `db.ts` unread, because
-migrations here are additive and dropping a column rewrites the table for
-nothing.
+narrow block has. The `booking` column was dropped with the other unread ones
+below.
+
+**Columns nothing reads are dropped.** The schema is additive by default,
+because `data/app.db` holds real trips and a migration that loses data cannot be
+taken back. A column nothing reads is the exception the owner asked for: it
+holds nothing anyone sees, and leaving it costs every reader of `db.ts` the work
+of learning it is dead. Each was checked unread across the server, the API and
+both clients before it went:
+
+- `events.booking`: the removed booking pill's state.
+- `lodging_options.locked`: the removed stay lock.
+- `lodging_options.check_in/check_out`: a stay option's own nights. The calendar
+  owns a stay's nights (`events.day/end_day`); the only writer left was
+  `PATCH /stays/:id/dates`, which no client called and which went too.
+- `trip_tasks.assignee`: the name string the per-person backfill matched from.
+  It is dropped right after that backfill, which now also checks the column
+  exists, so an old database still converts first.
+- `cost_estimates` (a whole table): the per-city budget grid `cost_items`
+  replaced. Its rows were never shown.
+
+Every drop is guarded by `columnExists` (or `IF EXISTS`), so a fresh database,
+which never creates them, and one that has already dropped them are both no-ops.
+`created_at` and `done_at` columns that are only written are kept on purpose:
+they are the record of when something happened, which is what you want in hand
+when reading real data after a bug.
 
 ---
 

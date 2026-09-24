@@ -718,7 +718,7 @@ export function seedAthensSchedule(
 
 	// A stay points at the option the group actually picked, so the lodging a
 	// night resolves to is the one fact rather than a title that agrees with it
-	// by coincidence. The leading vote stands in for a locked choice.
+	// by coincidence. The leading vote is the pick.
 	const stayOption =
 		(
 			db
@@ -726,7 +726,7 @@ export function seedAthensSchedule(
 					`SELECT o.id FROM lodging_options o
 					  LEFT JOIN lodging_votes v ON v.option_id = o.id
 					  WHERE o.trip_id = ?
-					  GROUP BY o.id ORDER BY o.locked DESC, count(v.user_id) DESC LIMIT 1`
+					  GROUP BY o.id ORDER BY count(v.user_id) DESC LIMIT 1`
 				)
 				.get(tripId) as { id: string } | undefined
 		)?.id ?? null;
@@ -792,8 +792,8 @@ function seedPois(db: DatabaseSync, tripId: string, cityId: string, roster: stri
 
 function seedLodging(db: DatabaseSync, tripId: string, cityId: string, roster: string[]): void {
 	const insertOption = db.prepare(
-		`INSERT INTO lodging_options (id, trip_id, city_id, name, tag, price_cents, currency, url, locked, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, 'EUR', NULL, 0, ?)`
+		`INSERT INTO lodging_options (id, trip_id, city_id, name, tag, price_cents, currency, url, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, 'EUR', NULL, ?)`
 	);
 	const insertVote = db.prepare(
 		`INSERT INTO lodging_votes (city_id, user_id, option_id) VALUES (?, ?, ?)`
@@ -867,9 +867,6 @@ function seedExpenses(db: DatabaseSync, tripId: string, roster: string[]): void 
 }
 
 function seedBudget(db: DatabaseSync, tripId: string, cityId: string): void {
-	const insert = db.prepare(
-		`INSERT INTO cost_estimates (trip_id, city_id, category, amount_cents) VALUES (?, ?, ?, ?)`
-	);
 	const insertItem = db.prepare(
 		`INSERT INTO cost_items (id, trip_id, city_id, category, label, amount_cents, sort, created_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
@@ -882,19 +879,16 @@ function seedBudget(db: DatabaseSync, tripId: string, cityId: string): void {
 		['food', 'Group meals', 214000],
 		['travel', 'Transfers & coaches', 78000]
 	];
-	const totals: Record<string, number> = {};
 	let sort = 0;
 	for (const [cat, label, cents] of rows) {
-		totals[cat] = (totals[cat] ?? 0) + cents;
 		insertItem.run(randomUUID(), tripId, cityId, cat, label, cents, sort++, Date.now());
 	}
-	for (const [cat, cents] of Object.entries(totals)) insert.run(tripId, cityId, cat, cents);
 }
 
 function seedTasks(db: DatabaseSync, tripId: string, roster: string[]): void {
 	const insert = db.prepare(
-		`INSERT INTO trip_tasks (id, trip_id, kind, label, assignee, done, sort, created_at, owner_id)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		`INSERT INTO trip_tasks (id, trip_id, kind, label, done, sort, created_at, owner_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
 	);
 	const insertAssignee = db.prepare(
 		`INSERT OR IGNORE INTO task_assignees (task_id, user_id) VALUES (?, ?)`
@@ -961,13 +955,8 @@ function seedTasks(db: DatabaseSync, tripId: string, roster: string[]): void {
 		{ kind: 'packing', label: 'Team t-shirts', who: [], shared: 0 }
 	];
 
-	const names = [null, ...COMPANIONS];
 	tasks.forEach((t, i) => {
 		const id = randomUUID();
-		const label = t.who
-			.map((w) => names[w])
-			.filter(Boolean)
-			.join(', ');
 		// A packing list is private, so the seeded one belongs to the account
 		// looking at the trip. The companions pack their own bags off-screen.
 		insert.run(
@@ -975,7 +964,6 @@ function seedTasks(db: DatabaseSync, tripId: string, roster: string[]): void {
 			tripId,
 			t.kind,
 			t.label,
-			label,
 			t.shared ?? 0,
 			i,
 			base - i * 100,

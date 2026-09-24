@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { api, ApiError } from '../lib/api';
 import { useApi } from '../hooks/useApi';
 import { useLiveSection } from '../hooks/useTripEvents';
-import { useMutation } from '../hooks/useMutation';
 import FlipGrid from '../components/ui/FlipGrid';
 import { useTrip } from './TripShell';
 import Select from '../components/ui/Select';
@@ -76,12 +75,6 @@ export default function Discover() {
 		}
 		reload();
 	};
-	// The organizer's pick for a city. A toggle on the server, and one stay per
-	// city holds it, so locking one releases whichever held it before.
-	const lockStay = useMutation<[string]>(
-		(id) => api(`${base}/stays/${id}/lock`, { method: 'POST' }),
-		{ fallback: cd.errors.lockStay, onSuccess: reload, onError: toast.error }
-	);
 
 	/* Three states before there is a page: still loading, failed, or here. The
 	   reason for a failure goes to the corner and the page keeps a line saying
@@ -118,8 +111,7 @@ export default function Discover() {
 	 * what the group actually wants.
 	 *
 	 * The sort is stable and the pools go in server order, so ties keep the
-	 * meaning they already had: stays ahead of places, and a locked stay ahead
-	 * of the rest of the stays. */
+	 * meaning they already had: stays ahead of places. */
 	const items: (
 		| { key: string; votes: number; stay: (typeof stays)[number] }
 		| { key: string; votes: number; poi: (typeof places)[number] }
@@ -234,8 +226,6 @@ export default function Discover() {
 									voteBusy={it.stay.voteBusy}
 									onEdit={() => setEditStay(it.stay)}
 									onVote={() => votes.toggleStay(current.id, it.stay)}
-									onLock={data.isOrganizer ? () => void lockStay.run(it.stay.id) : undefined}
-									lockBusy={lockStay.busy}
 								/>
 							) : (
 								<PlaceCard

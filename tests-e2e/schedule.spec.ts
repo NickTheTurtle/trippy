@@ -479,7 +479,17 @@ test.describe('the day window', () => {
 
 			await page.getByRole('button', { name: '+ Add', exact: true }).click();
 			await page.getByLabel('Notes').fill('Long lunch');
+			// Wait for the day that comes back after the save, not just the block:
+			// the block is drawn at once from the draft, and a flick that lands on
+			// the draft is racing the saved copy that replaces it.
+			let posted = false;
+			const saved = page.waitForResponse((r) => {
+				const path = new URL(r.url()).pathname;
+				if (r.request().method() === 'POST' && path.endsWith('/schedule/events')) posted = true;
+				return posted && r.request().method() === 'GET' && path.endsWith('/schedule');
+			});
 			await page.getByRole('button', { name: copy.common.add, exact: true }).click();
+			await saved;
 
 			const block = page.locator('.block', { hasText: 'Long lunch' }).first();
 			await expect(block).toHaveCSS('top', '180px');

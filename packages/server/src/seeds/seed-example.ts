@@ -111,8 +111,8 @@ function seedExpenses(tripId: string, roster: string[]): void {
 function seedLodging(tripId: string, cityId: string, roster: string[]): void {
 	if (!cityId) return;
 	const insertOption = db.prepare(
-		`INSERT INTO lodging_options (id, trip_id, city_id, name, tag, price_cents, currency, url, locked, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`
+		`INSERT INTO lodging_options (id, trip_id, city_id, name, tag, price_cents, currency, url, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	);
 	const insertVote = db.prepare(
 		`INSERT INTO lodging_votes (city_id, user_id, option_id) VALUES (?, ?, ?)`
@@ -328,9 +328,6 @@ function seedPois(tripId: string, cityIds: string[], roster: string[]): void {
 
 /** Seed a per-city budget so the costs view opens with real numbers. */
 function seedBudget(tripId: string, cityIds: string[]): void {
-	const insert = db.prepare(
-		`INSERT INTO cost_estimates (trip_id, city_id, category, amount_cents) VALUES (?, ?, ?, ?)`
-	);
 	const insertItem = db.prepare(
 		`INSERT INTO cost_items (id, trip_id, city_id, category, label, amount_cents, sort, created_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
@@ -352,10 +349,6 @@ function seedBudget(tripId: string, cityIds: string[]): void {
 	let sort = 0;
 	cityIds.forEach((cityId, i) => {
 		const row = perCity[i] ?? [30000, 15000, 12000, 12000];
-		insert.run(tripId, cityId, 'lodging', row[0]);
-		insert.run(tripId, cityId, 'activities', row[1]);
-		insert.run(tripId, cityId, 'food', row[2]);
-		insert.run(tripId, cityId, 'travel', row[3]);
 		const cats: [string, number][] = [
 			['lodging', row[0]],
 			['activities', row[1]],
@@ -371,8 +364,8 @@ function seedBudget(tripId: string, cityIds: string[]): void {
 /** Seed a starter checklist so the pre-trip view is not empty. */
 function seedTasks(tripId: string, roster: string[]): void {
 	const insert = db.prepare(
-		`INSERT INTO trip_tasks (id, trip_id, kind, label, assignee, done, sort, created_at, owner_id)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		`INSERT INTO trip_tasks (id, trip_id, kind, label, done, sort, created_at, owner_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
 	);
 	const insertAssignee = db.prepare(
 		`INSERT OR IGNORE INTO task_assignees (task_id, user_id) VALUES (?, ?)`
@@ -399,7 +392,6 @@ function seedTasks(tripId: string, roster: string[]): void {
 		{ kind: 'packing', label: 'Comfortable walking shoes', who: [] },
 		{ kind: 'packing', label: 'Rain jacket', who: [] }
 	];
-	const names = ['You', 'May', 'Jordan', 'Priya'];
 	tasks.forEach((t, i) => {
 		const id = randomUUID();
 		insert.run(
@@ -407,7 +399,6 @@ function seedTasks(tripId: string, roster: string[]): void {
 			tripId,
 			t.kind,
 			t.label,
-			t.who.map((w) => names[w]).join(', '),
 			t.shared ?? 0,
 			i,
 			base - i * 100,
