@@ -11,6 +11,7 @@ import { SheetFooter } from '../ui/SheetFooter';
 import { ConfirmSheet } from '../ui/ConfirmSheet';
 import { color, fieldLabel, radius, space, type } from '../theme';
 import { currencyName } from '@trippy/core/currency-names';
+import { parseAmount } from '../lib/amount';
 
 type Member = { id: string; name: string };
 type Crew = { id: string; name: string; members: string[]; locked?: boolean };
@@ -71,8 +72,8 @@ export function CostSheet({
 
 	const save = useMutation(
 		async () => {
-			const value = Number(amount.trim());
-			if (!Number.isFinite(value)) throw new ApiError(400, copy.preparation.costDialog.fallback);
+			const value = parseAmount(amount);
+			if (!Number.isFinite(value)) throw new ApiError(400, copy.common.amountMissing);
 			const body = { label, category, amount: value, currency: cur, assignees };
 			if (item) await api(`/trips/${tripId}/pretrip/costs/${item.id}`, { method: 'PUT', body });
 			else await api(`/trips/${tripId}/pretrip/costs`, { method: 'POST', body });

@@ -624,6 +624,7 @@ export const copy = {
 		nothingAdded: 'Nothing added yet',
 		/** What a page says while its first load is in flight. */
 		loading: 'Loading...',
+		amountMissing: 'Enter an amount.',
 		/** The way back to the trip list, wherever it is offered. */
 		allTrips: 'All trips',
 		everyone: EVERYONE

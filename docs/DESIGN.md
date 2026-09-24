@@ -3757,6 +3757,12 @@ accessible label naming the thing, and let the primary action fill the rest of t
 Two-button confirmation sheets are the exception because they are the destructive decision
 itself: Cancel and Delete both stay visible there.
 
+**Native Expenses keeps the web ledger model, not a simplified phone ledger.** The phone
+screen still separates Expenses, Balances and Settle up, groups the ledger by the stored
+`spent_on` day, and opens settlement rows in a payment sheet where only the date is editable.
+Suggested transfers carry the same settlement token the web sends, so a double tap or two
+people pressing the same row records one payment rather than two.
+
 **Pretrip share math moved to core before the native port reused it.** Estimated costs
 answer two different questions, the group's total and one member's share, and both clients
 must split assigned and unassigned rows the same way. The pure `totalFor` / `amountFor`
