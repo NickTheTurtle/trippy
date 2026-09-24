@@ -163,13 +163,8 @@ export const copy = {
 		editDialog: {
 			title: 'Edit trip',
 			fallback: 'Could not save that trip.',
-			/**
-			 * The schedule lock. The label says what the switch does; the line under
-			 * it states the consequence, which is the part nobody can see from the
-			 * switch: it stops everybody, including the organizer who set it.
-			 */
-			lockLabel: 'Lock schedule',
-			lockHint: 'Nobody can change the schedule, including you, until you unlock it'
+			/** The schedule lock. The switch says what it does; nothing else needs to. */
+			lockLabel: 'Lock schedule'
 		},
 		deleteDialog: {
 			fallback: 'Could not delete this trip.'
@@ -551,7 +546,6 @@ export const copy = {
 		sectionNav: { ariaLabel: 'Sections' },
 		field: { optionalSuffix: ' (optional)' },
 		tripMap: {
-			noPoints: 'Schedule something with a location to see it on the map.',
 			failed: 'Could not draw the map.'
 		},
 		mapCard: {

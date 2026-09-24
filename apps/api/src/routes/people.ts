@@ -121,6 +121,11 @@ people.patch('/:userId/email', async (c) => {
 			return c.json({ message: 'Email removed.' });
 		case 'ok':
 			return c.json({ message: "Saved. They'll join when they register." });
+		case 'merged':
+			// They already had an account, so nothing is waiting on a registration:
+			// the placeholder's expenses, votes and assignments moved to them and
+			// the roster now shows their own name.
+			return c.json({ message: `${email} is on the trip.` });
 		case 'taken':
 			return fail(c, 409, 'That person is already a member or invited.');
 		case 'invalid':

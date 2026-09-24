@@ -1597,10 +1597,6 @@ html[data-page-nav='back']::view-transition-new(trippage) {
 	   the page header when it scrolls under it. */
 	z-index: 0;
 }
-.nogeo {
-	font-size: var(--text-meta);
-	margin: 0.6rem 0 0;
-}
 .wp-pin .wp-pin-body {
 	display: grid;
 	place-items: center;

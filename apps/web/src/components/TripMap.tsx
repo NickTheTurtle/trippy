@@ -5,7 +5,6 @@ import type { MapCenter, MapTrack } from './GoogleMap';
 import { mapCard, cardAnchor, createCardLayer } from './map-card';
 import { groupColocated } from './map-groups';
 import MapBoundary from './MapBoundary';
-import { copy } from '../copy';
 
 /**
  * The keyless fallback map, on OpenStreetMap tiles.
@@ -264,14 +263,7 @@ function TripMapInner({
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [focusKey]);
 
-	const hasPoints = tracks.some((t) => t.items.some((i) => i.lat != null && i.lng != null));
-
-	return (
-		<>
-			<div ref={elRef} className="mapbox" />
-			{!hasPoints && <p className="nogeo muted">{copy.ui.tripMap.noPoints}</p>}
-		</>
-	);
+	return <div ref={elRef} className="mapbox" />;
 }
 
 /** Fenced for the same reason the Google one is: see `MapBoundary`. */

@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { existsSync, mkdirSync, rmSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -153,10 +154,9 @@ describe('editing an invited address', () => {
 		expect(db.prepare(`SELECT COUNT(*) AS n FROM trip_invites`).get()).toEqual({ n: 1 });
 	});
 
-	it('refuses an address that already has an account, or another invite here', () => {
+	it('refuses another invite on this trip', () => {
 		const id = invited();
 		invited('Kim', 'kim@example.test');
-		expect(members.setMemberEmail(tripId, organizer, id, 'other@example.test')).toBe('taken');
 		expect(members.setMemberEmail(tripId, organizer, id, 'kim@example.test')).toBe('taken');
 		expect(find('Jay').invitedEmail).toBe('jay@example.test');
 	});
@@ -191,7 +191,80 @@ describe('editing an invited address', () => {
 		}).id!;
 		members.addPerson(otherTrip, organizer, 'Jay', 'jay@example.test');
 		const elsewhere = members.listPeople(otherTrip).find((p) => p.name === 'Jay')!.id;
-		expect(members.setMemberEmail(tripId, organizer, elsewhere, 'new@example.test')).toBe('missing');
+		expect(members.setMemberEmail(tripId, organizer, elsewhere, 'new@example.test')).toBe(
+			'missing'
+		);
+	});
+});
+
+/**
+ * Pointing a stand-in at somebody who is already using the app.
+ *
+ * This used to be refused, which left the organizer holding a member they could
+ * not name correctly: the address belonged to an account, so it could not be
+ * saved, and the only way out was to delete the stand-in and lose what it was
+ * carrying. It is now the same handover a registration performs, run at once.
+ */
+describe('absorbing a placeholder into a registered account', () => {
+	function invited(name = 'Jay', email = 'jay@example.test') {
+		members.addPerson(tripId, organizer, name, email);
+		return find(name).id;
+	}
+
+	it('puts the real person on the trip and takes the stand-in off it', () => {
+		const id = invited();
+		expect(members.setMemberEmail(tripId, organizer, id, 'Other@Example.test')).toBe('merged');
+		const people = members.listPeople(tripId);
+		expect(people).toHaveLength(2);
+		expect(people.find((p) => p.id === id)).toBeUndefined();
+		// Their own account's name, not the one the organizer typed for the
+		// stand-in: a name shared across trips is not this trip's to set.
+		expect(find('Other').id).toBe(other);
+		// The invite went with the placeholder. Nobody is waiting to register.
+		expect(db.prepare(`SELECT COUNT(*) AS n FROM trip_invites`).get()).toEqual({ n: 0 });
+		expect(db.prepare(`SELECT COUNT(*) AS n FROM users WHERE id = ?`).get(id)).toEqual({ n: 0 });
+	});
+
+	it('carries what the stand-in was holding across', () => {
+		const id = invited();
+		const expenseId = randomUUID();
+		db.prepare(
+			`INSERT INTO expenses (id, trip_id, payer_id, description, amount_cents, currency, created_at)
+			 VALUES (?, ?, ?, 'Taxi', 1000, 'USD', ?)`
+		).run(expenseId, tripId, id, Date.now());
+		db.prepare(`INSERT INTO expense_participants (expense_id, user_id) VALUES (?, ?)`).run(
+			expenseId,
+			id
+		);
+
+		expect(members.setMemberEmail(tripId, organizer, id, 'other@example.test')).toBe('merged');
+		expect(db.prepare(`SELECT payer_id AS p FROM expenses WHERE id = ?`).get(expenseId)).toEqual({
+			p: other
+		});
+		expect(
+			db
+				.prepare(`SELECT user_id AS u FROM expense_participants WHERE expense_id = ?`)
+				.get(expenseId)
+		).toEqual({ u: other });
+	});
+
+	it('merges into an account that is already on the trip without doubling it', () => {
+		const id = invited();
+		members.addPerson(tripId, organizer, 'Other', 'other@example.test');
+		expect(members.listPeople(tripId)).toHaveLength(3);
+		expect(members.setMemberEmail(tripId, organizer, id, 'other@example.test')).toBe('merged');
+		expect(members.listPeople(tripId)).toHaveLength(2);
+	});
+
+	// The organizer's own role outranks the stand-in's, and a merge is not a
+	// demotion: the membership row that survives has to be theirs.
+	it('leaves the surviving membership role alone', () => {
+		const id = invited();
+		expect(members.setMemberEmail(tripId, organizer, id, 'org@example.test')).toBe('merged');
+		const role = db
+			.prepare(`SELECT role AS r FROM memberships WHERE trip_id = ? AND user_id = ?`)
+			.get(tripId, organizer);
+		expect(role).toEqual({ r: 'organizer' });
 	});
 });
 

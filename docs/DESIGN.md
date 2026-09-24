@@ -6313,13 +6313,49 @@ place, and `openBlock` / `openLeg` become no-ops so the edit dialog cannot be
 reached from the agenda rows or a journey leg. A disabled control that is still
 drawn invites a second try; an absent one does not. What stands in place of the
 Add button is a **Locked** tag, so the row keeps its shape and the absence reads
-as deliberate rather than as a control that failed to render.
+as deliberate rather than as a control that failed to render. The switch itself
+carries no explanatory line: "Lock schedule" is what it does, and the tag on the
+board is where the consequence is legible.
 
 **A deliberate boundary:** the lock covers the `/schedule` routes only. Deleting
 a place in Discover still cascades to the events built on it, which is an
 indirect schedule change. That is left alone because the cascade is the whole
 contract of the Discover list, and a lock that made places undeletable would be
 a lock on a page that does not say it is locked.
+
+### The stand-in who turns out to have an account
+
+An organizer who types a registered person's address into a placeholder's email
+field is saying "this stand-in is that person". That used to be refused, on the
+reasoning that one person with two rows has no answer for who owes what in the
+ledger. The refusal was the worse end of that trade: it left a member on the
+roster that the organizer could not name correctly, and the only way out was to
+delete the stand-in and lose the expenses, votes and assignments it was already
+carrying.
+
+It is now the same handover a registration performs. `consumeInvites` has
+always moved a placeholder's rows onto the account that registers at its
+address and then deleted it, so the two paths share one `absorbPlaceholder`,
+and the merge rules (which row survives a collision, and why) are written down
+once instead of twice.
+
+The surviving membership row is the real account's, so merging into the
+organizer does not quietly demote them. No membership is inserted for the
+account either: the placeholder's own row moves across, which adds somebody new
+and leaves an existing member's role alone in one statement.
+
+### Two smaller ones
+
+**The map is a column, so it gets a column's height.** The day grid draws
+nineteen hours and always filled its 70vh box, so the map beside it came out
+full height. The agenda is as tall as the rows it has, and a light day
+collapsed the board and took the map down with it. Above 901px the board box
+now has a floor equal to its ceiling, so both views give the map the same
+height on every day of the trip.
+
+**The map's "nothing to show" caption is gone.** An empty map is already an
+empty map, and the line sat under a card that is mostly tiles, where it read as
+a caption for the map rather than as the reason it was blank.
 
 ## Implementation status
 

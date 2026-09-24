@@ -114,6 +114,40 @@ test.describe('people', () => {
 		}
 	});
 
+	// The stand-in turned out to be somebody already using the app. Typing their
+	// address into the placeholder used to be refused, which left the organizer
+	// with a member they could not point at the right person.
+	test('an organizer points a stand-in at an address that already has an account', async ({
+		page,
+		request
+	}) => {
+		const fixture = await createApiFixture(request);
+		const friend = await registerUser(request, { name: 'Robin' });
+		try {
+			await signIn(page, fixture.sessionCookie);
+			await page.goto(`/trips/${fixture.tripId}/people`);
+
+			await page.getByRole('button', { name: copy.common.add, exact: true }).click();
+			const dialog = page.getByRole('dialog');
+			await dialog.getByLabel(cpl.add.nameLabel).fill('Stand In');
+			await dialog.getByRole('button', { name: copy.common.add, exact: true }).click();
+
+			await page.getByRole('button', { name: copy.common.editLabel('Stand In') }).click();
+			await page.getByRole('dialog').getByLabel(cpl.edit.emailLabel).fill(friend.email);
+			await page
+				.getByRole('dialog')
+				.getByRole('button', { name: copy.common.save, exact: true })
+				.click();
+
+			// One row, under their own account's name, not two.
+			await expect(page.getByRole('listitem').filter({ hasText: 'Robin' })).toBeVisible();
+			await expect(page.getByRole('listitem').filter({ hasText: 'Stand In' })).toHaveCount(0);
+		} finally {
+			fixture.teardown();
+			friend.teardown();
+		}
+	});
+
 	test('registering with an invited address joins the trip automatically', async ({
 		page,
 		request

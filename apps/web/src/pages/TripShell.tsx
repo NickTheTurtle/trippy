@@ -311,12 +311,9 @@ function EditTrip({
 				</button>
 			}
 			fields={
-				<label className="flex cursor-pointer items-start gap-2.5 select-none">
+				<label className="flex cursor-pointer items-center gap-2.5 select-none">
 					<CheckBox checked={locked} onChange={() => setLocked((on) => !on)} />
-					<span className="min-w-0">
-						<span className="block">{c.editDialog.lockLabel}</span>
-						<span className="block text-micro text-ink-faint">{c.editDialog.lockHint}</span>
-					</span>
+					<span className="min-w-0">{c.editDialog.lockLabel}</span>
 				</label>
 			}
 			initial={{

@@ -778,6 +778,17 @@
 	.sched .split {
 		align-items: stretch;
 	}
+	/* The box is one height whichever view is in it.
+	 *
+	 * The day grid draws nineteen hours, so it always filled the 70vh box and
+	 * the map beside it came out full height. The agenda is as tall as the rows
+	 * it has, so a light day collapsed the column and took the map down with it:
+	 * a map three rows tall, which is the one thing on this page that wants
+	 * room. A floor equal to the ceiling gives both views the same board and the
+	 * map the same height on every day of the trip. */
+	.sched .boardscroll {
+		min-height: 70vh;
+	}
 	.sched .mapwrap {
 		display: flex;
 		flex-direction: column;
