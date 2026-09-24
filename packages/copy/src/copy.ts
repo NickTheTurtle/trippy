@@ -296,10 +296,10 @@ export const copy = {
 	mobileDiscover: {
 		editCityTitle: 'Edit city',
 		editCityButton: 'Edit city',
-		deleteCityMessage: (count: number) =>
-			count > 0
-				? `This also deletes ${count} item${count === 1 ? '' : 's'} in that city.`
-				: 'Are you sure? This action cannot be undone.',
+		deleteCityMessage: (linked: number) =>
+			linked > 0
+				? `This also deletes the city's places and stays, plus ${linked} linked calendar item${linked === 1 ? '' : 's'}.`
+				: `This also deletes the city's places and stays.`,
 		openLink: 'Open'
 	},
 

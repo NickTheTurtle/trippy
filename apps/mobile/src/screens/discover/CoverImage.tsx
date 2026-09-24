@@ -21,16 +21,19 @@ export function CoverImage({
 	height?: number;
 }) {
 	const art = coverArt(seed, category);
-	const src = photoSrc(photo, 320);
+	const src = photoSrc(photo);
+	const proxied = !!src?.startsWith('/api/');
 	const [failed, setFailed] = useState(false);
-	const [token, setToken] = useState<string | null>(null);
+	const [token, setToken] = useState<string | null | undefined>(undefined);
 
 	useEffect(() => {
 		setFailed(false);
+		setToken(undefined);
 		void getToken().then(setToken);
 	}, [src]);
 
-	const uri = src?.startsWith('/api/') ? `${API_BASE}${src}` : src;
+	const uri = proxied ? `${API_BASE}${src}` : src;
+	const canLoad = uri && !failed && (!proxied || token !== undefined);
 	return (
 		<View
 			style={{
@@ -42,13 +45,14 @@ export function CoverImage({
 				justifyContent: 'center'
 			}}
 		>
-			{uri && !failed ? (
+			{canLoad ? (
 				<Image
 					source={{
 						uri,
-						headers: token
-							? { authorization: `Bearer ${token}`, 'x-trippy-client': 'native' }
-							: undefined
+						headers:
+							proxied && token
+								? { authorization: `Bearer ${token}`, 'x-trippy-client': 'native' }
+								: undefined
 					}}
 					onError={() => setFailed(true)}
 					style={{ width: '100%', height: '100%' }}

@@ -16,6 +16,7 @@ import { TripEventsProvider, useTripEvents } from '../../../src/hooks/useTripEve
 import { Button, Field, FormError, Loading, Screen } from '../../../src/ui';
 import { ConfirmSheet } from '../../../src/ui/ConfirmSheet';
 import { Sheet } from '../../../src/ui/Sheet';
+import { SheetFooter } from '../../../src/ui/SheetFooter';
 import { CheckBox, SearchablePicker } from '../../../src/ui/controls';
 import { useToast } from '../../../src/ui/Toast';
 import { color, font, space, type } from '../../../src/theme';
@@ -298,18 +299,14 @@ function EditTripSheet({
 				<Text style={type.body}>{copy.tripShell.editDialog.lockLabel}</Text>
 			</Pressable>
 			<FormError message={save.error} />
-			<View style={{ flexDirection: 'row', gap: space.md }}>
-				<View style={{ flex: 1 }}>
-					<Button label={copy.common.delete} tone="danger" onPress={onDelete} />
-				</View>
-				<View style={{ flex: 1 }}>
-					<Button
-						label={save.busy ? copy.common.saving : copy.common.save}
-						onPress={() => void save.run()}
-						busy={save.busy}
-					/>
-				</View>
-			</View>
+			<SheetFooter
+				primaryLabel={copy.common.save}
+				primaryBusyLabel={copy.common.saving}
+				primaryBusy={save.busy}
+				onPrimary={() => void save.run()}
+				destructiveLabel={copy.common.deleteLabel(trip.name)}
+				onDestructive={onDelete}
+			/>
 		</Sheet>
 	);
 }

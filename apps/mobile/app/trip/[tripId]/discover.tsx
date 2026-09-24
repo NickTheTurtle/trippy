@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Linking, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { copy } from '@trippy/copy';
 import { formatPerNight } from '@trippy/copy/format';
@@ -129,6 +129,10 @@ export default function Discover() {
 		}
 	);
 
+	useEffect(() => {
+		if (deleteCity) deleteCityMutation.reset();
+	}, [deleteCity]);
+
 	if (loading && !data) return <Loading />;
 
 	if (data && data.cities.length === 0) {
@@ -146,9 +150,9 @@ export default function Discover() {
 						)}
 					</Card>
 				</Screen>
-				{trip ? (
+				{trip && citySheet === 'add' ? (
 					<CitySheet
-						open={citySheet === 'add'}
+						open
 						tripId={tripId}
 						tripName={trip.name}
 						cities={trip.cities}
@@ -215,6 +219,7 @@ export default function Discover() {
 				/>
 
 				<Picker
+					label={copy.discover.header.typeAriaLabel}
 					options={FILTERS.map((f) => ({ key: f.key, label: f.label }))}
 					value={filter}
 					onPick={(key) => setFilter(key as Filter)}
@@ -265,13 +270,13 @@ export default function Discover() {
 				</Card>
 			</Screen>
 
-			{trip ? (
+			{trip && citySheet !== null ? (
 				<CitySheet
-					open={citySheet !== null}
+					open
 					tripId={tripId}
 					tripName={trip.name}
 					cities={trip.cities}
-					city={citySheet && citySheet !== 'add' ? citySheet : null}
+					city={citySheet !== 'add' ? citySheet : null}
 					onClose={() => setCitySheet(null)}
 					onSaved={() => {
 						setCitySheet(null);
@@ -280,64 +285,67 @@ export default function Discover() {
 					}}
 				/>
 			) : null}
-			<DeleteCitySheet
-				city={deleteCity}
-				count={
-					deleteCity
-						? (data.cities.find((city) => city.id === deleteCity.id)?.pois.length ?? 0) +
-							(data.stays[deleteCity.id]?.length ?? 0)
-						: 0
-				}
-				busy={deleteCityMutation.busy}
-				error={deleteCityMutation.error}
-				onCancel={() => setDeleteCity(null)}
-				onConfirm={() => void deleteCityMutation.run()}
-			/>
-			<AddDiscoverSheet
-				open={adding}
-				base={base}
-				city={{ id: current.id, name: current.name }}
-				provider={data.provider}
-				initialType={filter === STAY ? STAY : filter === 'food' ? 'food' : 'attraction'}
-				currency={data.currency}
-				currencies={data.currencies}
-				onClose={() => setAdding(false)}
-				onAdded={(type) => {
-					setAdding(false);
-					setFilter(type);
-					reload();
-				}}
-			/>
-			<EditPlaceSheet
-				open={!!editPoi}
-				base={base}
-				poi={editPoi}
-				onClose={() => setEditPoi(null)}
-				onSaved={() => {
-					setEditPoi(null);
-					reload();
-				}}
-				onDeleted={() => {
-					setEditPoi(null);
-					reload();
-				}}
-			/>
-			<EditStaySheet
-				open={!!editStay}
-				base={base}
-				stay={editStay}
-				currency={data.currency}
-				currencies={data.currencies}
-				onClose={() => setEditStay(null)}
-				onSaved={() => {
-					setEditStay(null);
-					reload();
-				}}
-				onDeleted={() => {
-					setEditStay(null);
-					reload();
-				}}
-			/>
+			{deleteCity ? (
+				<DeleteCitySheet
+					city={deleteCity}
+					count={linkedForCity(data, deleteCity.id)}
+					busy={deleteCityMutation.busy}
+					error={deleteCityMutation.error}
+					onCancel={() => setDeleteCity(null)}
+					onConfirm={() => void deleteCityMutation.run()}
+				/>
+			) : null}
+			{adding ? (
+				<AddDiscoverSheet
+					open
+					base={base}
+					city={{ id: current.id, name: current.name }}
+					provider={data.provider}
+					initialType={filter === STAY ? STAY : filter === 'food' ? 'food' : 'attraction'}
+					currency={data.currency}
+					currencies={data.currencies}
+					onClose={() => setAdding(false)}
+					onAdded={(type) => {
+						setAdding(false);
+						setFilter((currentFilter) => (currentFilter === ALL ? currentFilter : type));
+						reload();
+					}}
+				/>
+			) : null}
+			{editPoi ? (
+				<EditPlaceSheet
+					open
+					base={base}
+					poi={editPoi}
+					onClose={() => setEditPoi(null)}
+					onSaved={() => {
+						setEditPoi(null);
+						reload();
+					}}
+					onDeleted={() => {
+						setEditPoi(null);
+						reload();
+					}}
+				/>
+			) : null}
+			{editStay ? (
+				<EditStaySheet
+					open
+					base={base}
+					stay={editStay}
+					currency={data.currency}
+					currencies={data.currencies}
+					onClose={() => setEditStay(null)}
+					onSaved={() => {
+						setEditStay(null);
+						reload();
+					}}
+					onDeleted={() => {
+						setEditStay(null);
+						reload();
+					}}
+				/>
+			) : null}
 		</>
 	);
 }
@@ -470,7 +478,12 @@ function PlaceCard({
 						</Text>
 					</Pressable>
 				) : null}
-				<Pressable onPress={onEdit} style={{ marginLeft: 'auto' }}>
+				<Pressable
+					accessibilityRole="button"
+					accessibilityLabel={copy.common.editLabel(poi.name)}
+					onPress={onEdit}
+					style={{ marginLeft: 'auto', flexShrink: 1 }}
+				>
 					<Text style={{ ...type.small, color: color.accent }}>
 						{copy.common.editLabel(poi.name)}
 					</Text>
@@ -526,7 +539,12 @@ function StayCard({
 						</Text>
 					</Pressable>
 				) : null}
-				<Pressable onPress={onEdit} style={{ marginLeft: 'auto' }}>
+				<Pressable
+					accessibilityRole="button"
+					accessibilityLabel={copy.common.editLabel(stay.name)}
+					onPress={onEdit}
+					style={{ marginLeft: 'auto', flexShrink: 1 }}
+				>
 					<Text style={{ ...type.small, color: color.accent }}>
 						{copy.common.editLabel(stay.name)}
 					</Text>
@@ -586,6 +604,15 @@ function VoteRule({ pct }: { pct: number }) {
 			}}
 		/>
 	);
+}
+
+function linkedForCity(data: DiscoverData, cityId: string): number {
+	const placeLinked =
+		data.cities
+			.find((city) => city.id === cityId)
+			?.pois.reduce((sum, poi) => sum + poi.linked, 0) ?? 0;
+	const stayLinked = (data.stays[cityId] ?? []).reduce((sum, stay) => sum + stay.linked, 0);
+	return placeLinked + stayLinked;
 }
 
 function pct(votes: number, total: number): number {

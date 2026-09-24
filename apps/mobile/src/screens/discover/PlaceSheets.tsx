@@ -9,8 +9,9 @@ import { MAX_NOTES_LENGTH } from '@trippy/core/validate';
 import type { PlaceHit, PlaceHitDetails, Poi, Stay } from '../../lib/api-types';
 import { api, ApiError, isAbort } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
-import { Button, Field, FormError } from '../../ui';
+import { Field, FormError } from '../../ui';
 import { Sheet } from '../../ui/Sheet';
+import { SheetFooter } from '../../ui/SheetFooter';
 import { ConfirmSheet } from '../../ui/ConfirmSheet';
 import { Picker, SearchablePicker } from '../../ui/controls';
 import { CoverImage } from './CoverImage';
@@ -57,7 +58,8 @@ function withDetails(h: PlaceHit, d: PlaceHitDetails): PlaceHit {
 	};
 }
 
-function inferType(category: string | null | undefined): AddType {
+function inferType(category: string | null | undefined): AddType | null {
+	if (!category?.trim()) return null;
 	if (isStayCategory(category)) return STAY_VIEW;
 	return poiKindFromCategory(category);
 }
@@ -80,6 +82,7 @@ function TextArea({
 		<View style={{ gap: space.xs }}>
 			<Text style={fieldLabel}>{label}</Text>
 			<TextInput
+				accessibilityLabel={label}
 				value={value}
 				onChangeText={onChangeText}
 				multiline
@@ -102,7 +105,7 @@ function TextArea({
 function LinkField({ value, onChangeText }: { value: string; onChangeText: (v: string) => void }) {
 	return (
 		<Field
-			label={copy.discover.placeFields.linkLabel}
+			label={`${copy.discover.placeFields.linkLabel}${copy.ui.field.optionalSuffix}`}
 			value={value}
 			onChangeText={onChangeText}
 			placeholder={copy.discover.placeFields.linkPlaceholder}
@@ -181,13 +184,31 @@ export function AddDiscoverSheet({
 	const typeChosen = useRef(false);
 
 	const stay = view === STAY_VIEW;
+
+	function abortDetails() {
+		detailToken.current += 1;
+		detailCtl.current?.abort();
+		detailCtl.current = undefined;
+		setDetailLoading(false);
+	}
+
+	function unpick() {
+		abortDetails();
+		setHit(null);
+	}
 	const providerLabel =
 		provider === 'google'
 			? copy.discover.addDialog.providerGoogle
 			: copy.discover.addDialog.providerOsm;
 
 	useEffect(() => {
-		if (!open) return;
+		if (!open) {
+			clearTimeout(timer.current);
+			searchCtl.current?.abort();
+			abortDetails();
+			session.current = undefined;
+			return;
+		}
 		setView(initialType);
 		setName('');
 		setActivity('');
@@ -199,6 +220,7 @@ export function AddDiscoverSheet({
 		setHits([]);
 		setSearchError('');
 		setSearched(false);
+		add.reset();
 		typeChosen.current = false;
 	}, [open, initialType, currency]);
 
@@ -264,11 +286,13 @@ export function AddDiscoverSheet({
 		clearTimeout(timer.current);
 		searchCtl.current?.abort();
 		setSearching(false);
+		setHits([]);
 		setHit(picked);
 		setName(picked.name);
 		setUrl(picked.url ?? '');
 		setNotes((v) => v || (stay ? '' : (picked.address ?? '')));
-		if (!typeChosen.current) setView(inferType(picked.category));
+		const pickedType = inferType(picked.category);
+		if (!typeChosen.current && pickedType) setView(pickedType);
 		const sessionId = session.current;
 		session.current = undefined;
 		if (!picked.id || (picked.rating !== null && picked.photo)) return;
@@ -286,7 +310,8 @@ export function AddDiscoverSheet({
 				setHit(merged);
 				setUrl((v) => v || (merged.url ?? ''));
 				setNotes((v) => v || (stay ? '' : (merged.address ?? '')));
-				if (!typeChosen.current) setView(inferType(merged.category));
+				const mergedType = inferType(merged.category);
+				if (!typeChosen.current && mergedType) setView(mergedType);
 			})
 			.catch(() => {})
 			.finally(() => {
@@ -295,6 +320,7 @@ export function AddDiscoverSheet({
 	}
 
 	function changeType(next: string) {
+		clearTimeout(timer.current);
 		const value = next as AddType;
 		typeChosen.current = true;
 		if ((value === STAY_VIEW) !== stay) {
@@ -392,18 +418,23 @@ export function AddDiscoverSheet({
 						<Text style={type.body}>{hit.name}</Text>
 						{hit.address ? <Text style={type.faint}>{hit.address}</Text> : null}
 					</View>
-					<Pressable onPress={() => setHit(null)} hitSlop={8}>
+					<Pressable onPress={unpick} hitSlop={8}>
 						<Text style={{ ...type.small, color: color.accent }}>
 							{copy.discover.addDialog.notThisOne}
 						</Text>
 					</Pressable>
 				</View>
 			) : null}
-			<Picker options={TYPE_OPTIONS} value={view} onPick={changeType} />
+			<Picker
+				label={copy.discover.placeFields.typeLabel}
+				options={TYPE_OPTIONS}
+				value={view}
+				onPick={changeType}
+			/>
 			{stay ? (
 				<View style={{ gap: space.md }}>
 					<Field
-						label={copy.discover.addDialog.priceLabel}
+						label={`${copy.discover.addDialog.priceLabel}${copy.ui.field.optionalSuffix}`}
 						value={price}
 						onChangeText={setPrice}
 						keyboardType="decimal-pad"
@@ -418,23 +449,24 @@ export function AddDiscoverSheet({
 				</View>
 			) : (
 				<Field
-					label={copy.discover.addDialog.activityLabel}
+					label={`${copy.discover.addDialog.activityLabel}${copy.ui.field.optionalSuffix}`}
 					value={activity}
 					onChangeText={setActivity}
 				/>
 			)}
 			<LinkField value={url} onChangeText={setUrl} />
 			<TextArea
-				label={copy.discover.placeFields.notesLabel}
+				label={`${copy.discover.placeFields.notesLabel}${copy.ui.field.optionalSuffix}`}
 				value={notes}
 				onChangeText={setNotes}
 			/>
 			<FormError message={add.error} />
-			<Button
-				label={add.busy ? copy.common.adding : copy.common.add}
-				onPress={submit}
-				busy={add.busy}
-				disabled={detailLoading}
+			<SheetFooter
+				primaryLabel={copy.common.add}
+				primaryBusyLabel={copy.common.adding}
+				primaryBusy={add.busy}
+				primaryDisabled={detailLoading}
+				onPrimary={submit}
 			/>
 		</Sheet>
 	);
@@ -480,17 +512,25 @@ export function EditPlaceSheet({
 	);
 	const remove = useMutation(() => api(`${base}/pois/${poi?.id}`, { method: 'DELETE' }), {
 		fallback: copy.ui.confirmDialog.fallback,
-		onSuccess: onDeleted
+		onSuccess: () => {
+			setConfirm(false);
+			onDeleted();
+		}
 	});
 
 	return (
 		<>
 			<Sheet open={open && !confirm} title={copy.discover.editPlace.title} onClose={onClose}>
 				<Field label={copy.discover.editPlace.nameLabel} value={name} onChangeText={setName} />
-				<Picker options={POI_TYPE_OPTIONS} value={kind} onPick={(v) => setKind(v as PoiKind)} />
+				<Picker
+					label={copy.discover.placeFields.typeLabel}
+					options={POI_TYPE_OPTIONS}
+					value={kind}
+					onPick={(v) => setKind(v as PoiKind)}
+				/>
 				<LinkField value={url} onChangeText={setUrl} />
 				<TextArea
-					label={copy.discover.placeFields.notesLabel}
+					label={`${copy.discover.placeFields.notesLabel}${copy.ui.field.optionalSuffix}`}
 					value={notes}
 					onChangeText={setNotes}
 				/>
@@ -501,18 +541,14 @@ export function EditPlaceSheet({
 					</Text>
 				) : null}
 				<FormError message={save.error} />
-				<View style={{ flexDirection: 'row', gap: space.md }}>
-					<View style={{ flex: 1 }}>
-						<Button label={copy.common.delete} tone="danger" onPress={() => setConfirm(true)} />
-					</View>
-					<View style={{ flex: 1 }}>
-						<Button
-							label={save.busy ? copy.common.saving : copy.common.save}
-							onPress={() => void save.run()}
-							busy={save.busy}
-						/>
-					</View>
-				</View>
+				<SheetFooter
+					primaryLabel={copy.common.save}
+					primaryBusyLabel={copy.common.saving}
+					primaryBusy={save.busy}
+					onPrimary={() => void save.run()}
+					destructiveLabel={poi ? copy.common.deleteLabel(poi.name) : copy.common.delete}
+					onDestructive={() => setConfirm(true)}
+				/>
 			</Sheet>
 			<ConfirmSheet
 				open={!!poi && confirm}
@@ -586,7 +622,10 @@ export function EditStaySheet({
 	);
 	const remove = useMutation(() => api(`${base}/stays/${stay?.id}`, { method: 'DELETE' }), {
 		fallback: copy.ui.confirmDialog.fallback,
-		onSuccess: onDeleted
+		onSuccess: () => {
+			setConfirm(false);
+			onDeleted();
+		}
 	});
 
 	function submit() {
@@ -600,7 +639,7 @@ export function EditStaySheet({
 			<Sheet open={open && !confirm} title={copy.discover.editStay.title} onClose={onClose}>
 				<Field label={copy.discover.editStay.nameLabel} value={name} onChangeText={setName} />
 				<Field
-					label={copy.discover.editStay.priceLabel}
+					label={`${copy.discover.editStay.priceLabel}${copy.ui.field.optionalSuffix}`}
 					value={price}
 					onChangeText={setPrice}
 					keyboardType="decimal-pad"
@@ -614,23 +653,19 @@ export function EditStaySheet({
 				/>
 				<LinkField value={url} onChangeText={setUrl} />
 				<TextArea
-					label={copy.discover.placeFields.notesLabel}
+					label={`${copy.discover.placeFields.notesLabel}${copy.ui.field.optionalSuffix}`}
 					value={notes}
 					onChangeText={setNotes}
 				/>
 				<FormError message={save.error} />
-				<View style={{ flexDirection: 'row', gap: space.md }}>
-					<View style={{ flex: 1 }}>
-						<Button label={copy.common.delete} tone="danger" onPress={() => setConfirm(true)} />
-					</View>
-					<View style={{ flex: 1 }}>
-						<Button
-							label={save.busy ? copy.common.saving : copy.common.save}
-							onPress={submit}
-							busy={save.busy}
-						/>
-					</View>
-				</View>
+				<SheetFooter
+					primaryLabel={copy.common.save}
+					primaryBusyLabel={copy.common.saving}
+					primaryBusy={save.busy}
+					onPrimary={submit}
+					destructiveLabel={stay ? copy.common.deleteLabel(stay.name) : copy.common.delete}
+					onDestructive={() => setConfirm(true)}
+				/>
 			</Sheet>
 			<ConfirmSheet
 				open={!!stay && confirm}

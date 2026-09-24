@@ -3749,6 +3749,14 @@ beside them in `@trippy/core/currency-names`. They are still just data, not pres
 logic, and sharing them prevents mobile from accepting the same code list while searching
 with different names.
 
+**Native sheet footers use one phone rule.** A sheet is already cancelled by the X and by
+tapping the dimmed backdrop, so adding a second Cancel button in the footer wastes the
+scarce row where the saving action belongs. Mobile sheet footers therefore put a square
+destructive icon button on the left when the sheet has a destructive action, with the full
+accessible label naming the thing, and let the primary action fill the rest of the row.
+Two-button confirmation sheets are the exception because they are the destructive decision
+itself: Cancel and Delete both stay visible there.
+
 **Native Discover keeps the web's list model and leaves maps for the map PR.** Cities stay
 the standing axis, filters stay All / Attractions / Food & Drinks / Stays, and one
 vote-sorted list mixes stays and places with stays first on ties just like web. The native

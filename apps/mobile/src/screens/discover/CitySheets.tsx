@@ -3,10 +3,11 @@ import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { copy } from '@trippy/copy';
 import { api, ApiError, isAbort } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
-import { Button, FormError } from '../../ui';
+import { FormError } from '../../ui';
 import { Sheet } from '../../ui/Sheet';
+import { SheetFooter } from '../../ui/SheetFooter';
 import { ConfirmSheet } from '../../ui/ConfirmSheet';
-import { color, radius, space, type } from '../../theme';
+import { color, fieldLabel, radius, space, type } from '../../theme';
 
 const MIN_QUERY = 2;
 
@@ -106,8 +107,9 @@ function CitySearch({
 
 	return (
 		<View style={{ gap: space.sm }}>
-			<Text style={type.small}>{copy.addCity.searchLabel}</Text>
+			<Text style={fieldLabel}>{copy.addCity.searchLabel}</Text>
 			<TextInput
+				accessibilityLabel={copy.addCity.searchLabel}
 				value={query}
 				onChangeText={onChange}
 				placeholder={copy.addCity.searchPlaceholder}
@@ -199,7 +201,10 @@ export function CitySheet({
 	);
 
 	useEffect(() => {
-		if (open) setPicked(null);
+		if (open) {
+			setPicked(null);
+			save.reset();
+		}
 	}, [open]);
 
 	const save = useMutation(
@@ -222,11 +227,12 @@ export function CitySheet({
 		>
 			<CitySearch picked={picked} onPick={setPicked} onTrip={onTrip} />
 			<FormError message={save.error} />
-			<Button
-				label={save.busy ? copy.common.saving : copy.common.save}
-				onPress={() => void save.run()}
-				busy={save.busy}
-				disabled={!picked}
+			<SheetFooter
+				primaryLabel={copy.common.save}
+				primaryBusyLabel={copy.common.saving}
+				primaryBusy={save.busy}
+				primaryDisabled={!picked}
+				onPrimary={() => void save.run()}
 			/>
 		</Sheet>
 	);
