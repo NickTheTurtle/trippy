@@ -9,12 +9,9 @@ import {
 	TextInput,
 	View
 } from 'react-native';
-import type {
-	RefreshControlProps,
-	TextInputProps,
-	ViewStyle
-} from 'react-native';
-import { card, color, controlHeight, radius, space, type } from '../theme';
+import type { RefreshControlProps, TextInputProps, ViewStyle } from 'react-native';
+import { card, color, controlHeight, fieldLabel, radius, space, type } from '../theme';
+import { LiveOff } from './LiveOff';
 
 /**
  * The handful of primitives every screen is built from.
@@ -139,7 +136,13 @@ export function Screen({
 	scroll?: boolean;
 	refreshControl?: React.ReactElement<RefreshControlProps>;
 }) {
-	if (!scroll) return <View style={s.screen}>{children}</View>;
+	if (!scroll)
+		return (
+			<View style={s.screen}>
+				<LiveOff />
+				{children}
+			</View>
+		);
 	return (
 		<ScrollView
 			style={{ backgroundColor: color.bg }}
@@ -147,6 +150,7 @@ export function Screen({
 			keyboardShouldPersistTaps="handled"
 			refreshControl={refreshControl}
 		>
+			<LiveOff />
 			{children}
 		</ScrollView>
 	);
@@ -212,7 +216,7 @@ const s = StyleSheet.create({
 		borderWidth: 1
 	},
 	buttonLabel: { fontWeight: '600' },
-	label: { ...type.small, color: color.inkSoft, fontWeight: '600' },
+	label: fieldLabel,
 	input: {
 		height: controlHeight,
 		borderWidth: 1,

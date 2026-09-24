@@ -81,6 +81,11 @@ export const copy = {
 		}
 	},
 
+	// Native auth link notice
+	mobileAuth: {
+		openWebLink: 'Open the email link in the web app, then log in here.'
+	},
+
 	// App shell > sticky top bar and its account menu
 	shell: {
 		brand: 'Trippy',
@@ -538,6 +543,7 @@ export const copy = {
 			fallback: 'Could not complete that.'
 		},
 		searchDropdown: { busyLabel: 'Searching...' },
+		searchPlaceholder: 'Search',
 		currencyPicker: { noMatches: 'No currencies matched that.' },
 		select: { placeholder: 'Select...', ariaLabel: 'Select' },
 		form: {

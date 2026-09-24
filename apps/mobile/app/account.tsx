@@ -7,59 +7,84 @@ import { useApi } from '../src/hooks/useApi';
 import { useMutation } from '../src/hooks/useMutation';
 import { useAuth } from '../src/auth';
 import { Button, Card, Field, FormError, Head, Loading, Screen } from '../src/ui';
-import { ListPicker } from '../src/ui/controls';
-import { color, space, type } from '../src/theme';
+import { SearchablePicker } from '../src/ui/controls';
+import { useToast } from '../src/ui/Toast';
+import { space, type } from '../src/theme';
 
 type AccountData = {
-	profile: { name: string; email: string; homeTz: string };
+	profile: { name: string; email: string; homeTz: string; pendingEmail?: string | null };
 	timeZones: string[];
 };
 
 export default function Account() {
 	const { data, loading, reload } = useApi<AccountData>('/account');
 	const { refresh } = useAuth();
+	const toast = useToast();
 
 	const [name, setName] = useState('');
 	const [email, setEmail] = useState('');
 	const [homeTz, setHomeTz] = useState('UTC');
-	const [savedProfile, setSavedProfile] = useState(false);
+	const [currentPassword, setCurrentPassword] = useState('');
 
 	const [current, setCurrent] = useState('');
 	const [next, setNext] = useState('');
 	const [confirm, setConfirm] = useState('');
-	const [savedPassword, setSavedPassword] = useState(false);
 
 	useEffect(() => {
 		if (!data) return;
 		setName(data.profile.name);
 		setEmail(data.profile.email);
 		setHomeTz(data.profile.homeTz);
+		setCurrentPassword('');
 	}, [data]);
+
+	const changingEmail = data
+		? email.trim().toLowerCase() !== data.profile.email.toLowerCase()
+		: false;
 
 	const saveProfile = useMutation(
 		async () => {
-			await api('/account/profile', { method: 'PATCH', body: { name, email, homeTz } });
-			setSavedProfile(true);
-			// The header avatar and the greeting read from the session user, so the
-			// name has to be re-read there too or the change only shows on this page.
-			await refresh();
-			reload();
+			const body = changingEmail ? { name, email, homeTz, currentPassword } : { name, homeTz };
+			const res = await api<{ pendingEmail?: string | null }>('/account/profile', {
+				method: 'PATCH',
+				body
+			});
+			if (res.pendingEmail && data) {
+				setEmail(data.profile.email);
+				setCurrentPassword('');
+			}
+			return res;
 		},
-		{ fallback: copy.account.profile.fallback }
+		{
+			fallback: copy.account.profile.fallback,
+			onSuccess: async (res) => {
+				if (res.pendingEmail) toast.success(copy.account.profile.emailPending(res.pendingEmail));
+				else toast.success(copy.account.profile.saved);
+				await refresh();
+				reload();
+			}
+		}
 	);
 
 	const savePassword = useMutation(
 		async () => {
 			await api('/account/password', { method: 'POST', body: { current, next, confirm } });
-			setSavedPassword(true);
-			setCurrent('');
-			setNext('');
-			setConfirm('');
 		},
-		{ fallback: copy.account.password.fallback }
+		{
+			fallback: copy.account.password.fallback,
+			onSuccess: () => {
+				toast.success(copy.account.password.updated);
+				setCurrent('');
+				setNext('');
+				setConfirm('');
+			}
+		}
 	);
 
 	if (loading && !data) return <Loading />;
+
+	const zoneOptions = (data?.timeZones ?? [homeTz]).map((zone) => ({ key: zone, label: zone }));
+	const pending = data?.profile.pendingEmail ?? null;
 
 	return (
 		<>
@@ -75,24 +100,29 @@ export default function Account() {
 						autoCapitalize="none"
 						keyboardType="email-address"
 					/>
-					<ListPicker
+					{pending ? (
+						<Text style={type.small}>{copy.account.profile.emailPending(pending)}</Text>
+					) : null}
+					{changingEmail ? (
+						<Field
+							label={copy.account.profile.currentPasswordLabel}
+							value={currentPassword}
+							onChangeText={setCurrentPassword}
+							secureTextEntry
+							autoComplete="current-password"
+						/>
+					) : null}
+					<SearchablePicker
 						label={copy.account.profile.timeZoneLabel}
 						value={homeTz}
-						options={data?.timeZones ?? [homeTz]}
+						options={zoneOptions}
 						onPick={setHomeTz}
+						noMatches={copy.account.profile.timeZoneNoMatches}
 					/>
 					<FormError message={saveProfile.error} />
-					{savedProfile && !saveProfile.error ? (
-						<Text style={{ ...type.small, color: color.accentInk }}>
-							{copy.account.profile.saved}
-						</Text>
-					) : null}
 					<Button
-						label={copy.common.save}
-						onPress={() => {
-							setSavedProfile(false);
-							void saveProfile.run();
-						}}
+						label={saveProfile.busy ? copy.common.saving : copy.common.save}
+						onPress={() => void saveProfile.run()}
 						busy={saveProfile.busy}
 					/>
 				</Card>
@@ -104,12 +134,14 @@ export default function Account() {
 						value={current}
 						onChangeText={setCurrent}
 						secureTextEntry
+						autoComplete="current-password"
 					/>
 					<Field
 						label={copy.account.password.newLabel}
 						value={next}
 						onChangeText={setNext}
 						secureTextEntry
+						autoComplete="new-password"
 					/>
 					<Text style={type.faint}>{copy.account.password.newHint}</Text>
 					<Field
@@ -117,19 +149,12 @@ export default function Account() {
 						value={confirm}
 						onChangeText={setConfirm}
 						secureTextEntry
+						autoComplete="new-password"
 					/>
 					<FormError message={savePassword.error} />
-					{savedPassword && !savePassword.error ? (
-						<Text style={{ ...type.small, color: color.accentInk }}>
-							{copy.account.password.updated}
-						</Text>
-					) : null}
 					<Button
-						label={copy.common.save}
-						onPress={() => {
-							setSavedPassword(false);
-							void savePassword.run();
-						}}
+						label={savePassword.busy ? copy.common.saving : copy.common.save}
+						onPress={() => void savePassword.run()}
 						busy={savePassword.busy}
 						disabled={!current || !next}
 					/>

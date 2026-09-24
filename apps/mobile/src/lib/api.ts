@@ -43,6 +43,12 @@ export const API_BASE = inferBaseUrl();
 
 type Options = { method?: string; body?: unknown; signal?: AbortSignal };
 
+let unauthorized: (() => void) | null = null;
+
+export function onUnauthorized(listener: (() => void) | null): void {
+	unauthorized = listener;
+}
+
 export async function api<T>(path: string, options: Options = {}): Promise<T> {
 	const { method = 'GET', body, signal } = options;
 	const token = await getToken();
@@ -73,6 +79,7 @@ export async function api<T>(path: string, options: Options = {}): Promise<T> {
 			typeof (payload as { error?: unknown }).error === 'string'
 				? (payload as { error: string }).error
 				: copy.api.requestFailed;
+		if (res.status === 401 && !path.startsWith('/auth/')) unauthorized?.();
 		throw new ApiError(res.status, message);
 	}
 

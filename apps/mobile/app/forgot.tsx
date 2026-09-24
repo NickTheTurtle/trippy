@@ -3,33 +3,28 @@ import { KeyboardAvoidingView, Platform, Pressable, Text, View } from 'react-nat
 import { Redirect, router } from 'expo-router';
 import { copy } from '@trippy/copy';
 import { useAuth } from '../src/auth';
+import { api } from '../src/lib/api';
 import { useMutation } from '../src/hooks/useMutation';
 import { Button, Field, FormError, Loading, Screen } from '../src/ui';
 import { color, space, type } from '../src/theme';
 
-export default function Register() {
-	const { user, loading, register } = useAuth();
-	const [name, setName] = useState('');
+export default function Forgot() {
+	const { user, loading } = useAuth();
 	const [email, setEmail] = useState('');
-	const [password, setPassword] = useState('');
-	const [pending, setPending] = useState(false);
-
-	const submit = useMutation(() => register(name, email, password), {
-		fallback: copy.auth.register.fallback,
-		onSuccess: (result) => {
-			if (result === 'pending') setPending(true);
-			else router.replace('/trips');
-		}
+	const [sent, setSent] = useState(false);
+	const submit = useMutation(() => api('/auth/forgot', { method: 'POST', body: { email } }), {
+		fallback: copy.auth.forgot.fallback,
+		onSuccess: () => setSent(true)
 	});
 
 	if (loading) return <Loading />;
 	if (user) return <Redirect href="/trips" />;
-	if (pending) {
+	if (sent) {
 		return (
 			<Screen>
-				<Text style={type.title}>{copy.auth.register.sentTitle}</Text>
-				<Text style={type.small}>{copy.auth.register.sentBlurb}</Text>
-				<Button label={copy.auth.login.submitLabel} onPress={() => router.replace('/login')} />
+				<Text style={type.title}>{copy.auth.forgot.sentTitle}</Text>
+				<Text style={type.small}>{copy.auth.forgot.sentBlurb}</Text>
+				<Button label={copy.auth.forgot.footerLink} onPress={() => router.replace('/login')} />
 			</Screen>
 		);
 	}
@@ -41,20 +36,12 @@ export default function Register() {
 		>
 			<Screen>
 				<View style={{ gap: space.xs }}>
-					<Text style={type.title}>{copy.auth.register.title}</Text>
-					<Text style={type.small}>{copy.auth.register.blurb}</Text>
+					<Text style={type.title}>{copy.auth.forgot.title}</Text>
+					<Text style={type.small}>{copy.auth.forgot.blurb}</Text>
 				</View>
-
 				<View style={{ gap: space.md }}>
 					<Field
-						label={copy.auth.register.nameLabel}
-						value={name}
-						onChangeText={setName}
-						autoComplete="name"
-						textContentType="name"
-					/>
-					<Field
-						label={copy.auth.register.emailLabel}
+						label={copy.auth.forgot.emailLabel}
 						value={email}
 						onChangeText={setEmail}
 						autoCapitalize="none"
@@ -62,28 +49,18 @@ export default function Register() {
 						keyboardType="email-address"
 						textContentType="emailAddress"
 					/>
-					<Field
-						label={copy.auth.register.passwordLabel}
-						value={password}
-						onChangeText={setPassword}
-						secureTextEntry
-						autoComplete="new-password"
-						textContentType="newPassword"
-						placeholder={copy.auth.register.passwordHint}
-					/>
 					<FormError message={submit.error} />
 					<Button
-						label={copy.auth.register.submitLabel}
+						label={copy.auth.forgot.submitLabel}
 						onPress={() => void submit.run()}
 						busy={submit.busy}
 					/>
 				</View>
-
 				<View style={{ flexDirection: 'row', gap: space.xs, justifyContent: 'center' }}>
-					<Text style={type.small}>{copy.auth.register.footerPrompt}</Text>
+					<Text style={type.small}>{copy.auth.forgot.footerPrompt}</Text>
 					<Pressable onPress={() => router.replace('/login')}>
 						<Text style={{ ...type.small, color: color.accent, fontWeight: '600' }}>
-							{copy.auth.register.footerLink}
+							{copy.auth.forgot.footerLink}
 						</Text>
 					</Pressable>
 				</View>

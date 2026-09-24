@@ -5,6 +5,7 @@ import { api } from '../../../src/lib/api';
 import { useTripId } from '../../../src/trip-id';
 import { useApi } from '../../../src/hooks/useApi';
 import { useMutation } from '../../../src/hooks/useMutation';
+import { useLiveSection } from '../../../src/hooks/useTripEvents';
 import { Button, Card, EmptyState, Field, FormError, Head, Loading, Screen } from '../../../src/ui';
 import { color, radius, space, type } from '../../../src/theme';
 
@@ -23,6 +24,7 @@ type Data = { me: string; organizer: boolean; people: Person[] };
 export default function People() {
 	const tripId = useTripId();
 	const { data, error, loading, reload } = useApi<Data>(`/trips/${tripId}/people`);
+	useLiveSection(['members'], reload);
 	const [name, setName] = useState('');
 	const [email, setEmail] = useState('');
 	const [notice, setNotice] = useState('');

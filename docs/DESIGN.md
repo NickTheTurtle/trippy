@@ -3736,6 +3736,27 @@ resolution problem. Link it before checking, with
 `New-Item -ItemType Junction -Path node_modules\@trippy\copy -Target (Resolve-Path packages\copy)`
 from the worktree root.
 
+**API response types live in core.** The web and native clients both read the same
+JSON and had copied `api-types.ts` by hand, which already let stale stay fields survive in
+one client after the API stopped returning them. The shared home is `@trippy/core` because
+these are pure wire contracts with no UI copy, no network access and no platform APIs. Web
+keeps a re-export shim so its imports do not change, while native imports the same types
+and cannot drift silently.
+
+**Currency search labels are shared with the domain package.** The supported codes already
+come from `@trippy/core/currency`; the English names used to search those codes now travel
+beside them in `@trippy/core/currency-names`. They are still just data, not presentation
+logic, and sharing them prevents mobile from accepting the same code list while searching
+with different names.
+
+**Native live updates use a fetch stream, not EventSource.** React Native's EventSource
+cannot attach the bearer token, and this app deliberately authenticates native requests
+with `Authorization`. Expo SDK 57 includes `expo/fetch`, whose response body can be read as
+a stream in Expo Go and in the Expo web preview, so the native client parses the same SSE
+frames the web client receives. The stream pauses while the app is backgrounded and resumes
+with a full refetch, because a mobile app cannot prove what happened while its JS runtime
+was suspended.
+
 **Auth is the same session row presented two ways.** A browser gets an httpOnly
 cookie, which is the right answer there and the one thing script cannot read. A
 native app has no cookie jar worth relying on, so it gets a bearer token. The

@@ -14,9 +14,9 @@ repo.
 
 ## Scope
 
-| Client | Path | Status |
-|---|---|---|
-| `@trippy/web` | `apps/web/src` | **React + Vite on :5174 - the only client.** `pages/*`, `components/*`, `components/ui/*`, `hooks/*`, `lib/*`, `styles/*`, `auth.tsx`, `nav.ts` |
+| Client        | Path           | Status                                                                                                                        |
+| ------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `@trippy/web` | `apps/web/src` | **React + Vite on :5174.** `pages/*`, `components/*`, `components/ui/*`, `hooks/*`, `lib/*`, `styles/*`, `auth.tsx`, `nav.ts` |
 
 Sources are grouped by role: `hooks/` (`useApi`, `useMutation`, `useTripEvents`), `lib/`
 (`api`, `api-types`, `format`, `currencies`, `anchor`, `scroll-lock`), `styles/`
@@ -52,7 +52,7 @@ changes there are expected. Re-read the file immediately before editing it; it m
    destination-timezone "now" line, and the "View as <user>" filter. These break silently.
 5. **Mobile web is in scope.** `apps/web` must work down to **390px**. Check a narrow
    viewport for overflow, horizontal scroll, and unreachable controls before reporting. The
-   native client (`apps/mobile`, Expo / React Native) is not in scope: never edit it.
+   native client (`apps/mobile`, Expo / React Native) is owned by Trippy Mobile, not Trippy UI.
 6. **UI copy is owner-edited.** Strings live in `@trippy/copy` (`packages/copy`) and reach
    the client through `apps/web/src/copy.ts`, which only re-exports them. Add or adjust a
    key surgically when a feature needs it; never regenerate or reformat the file wholesale,
@@ -63,7 +63,7 @@ changes there are expected. Re-read the file immediately before editing it; it m
 8. **Verify before reporting:**
    - `npm run check -w @trippy/web`
    - formatting: `npm run format:check`
-   Paste the real output.
+     Paste the real output.
 9. **A green type-check is not verification.** Smoke-check the change in a real browser
    against the already-running dev server rather than starting your own, and report what you
    actually observed on screen.

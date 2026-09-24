@@ -51,6 +51,12 @@ export const type = {
 	faint: { fontSize: 13, lineHeight: 18, color: color.inkFaint }
 } as const;
 
+export const fieldLabel = {
+	...type.small,
+	color: color.inkSoft,
+	fontWeight: '600' as const
+} as const;
+
 export const card = {
 	backgroundColor: color.surface,
 	borderRadius: radius.lg,

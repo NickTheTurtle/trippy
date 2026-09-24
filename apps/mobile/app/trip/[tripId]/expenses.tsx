@@ -6,6 +6,7 @@ import { api } from '../../../src/lib/api';
 import { useTripId } from '../../../src/trip-id';
 import { useApi } from '../../../src/hooks/useApi';
 import { useMutation } from '../../../src/hooks/useMutation';
+import { useLiveSection } from '../../../src/hooks/useTripEvents';
 import { Card, EmptyState, FormError, Loading, Screen } from '../../../src/ui';
 import { SegmentedControl } from '../../../src/ui/controls';
 import { ExpenseSheet } from '../../../src/screens/ExpenseSheet';
@@ -23,6 +24,7 @@ type Section = (typeof SECTIONS)[number];
 export default function Expenses() {
 	const tripId = useTripId();
 	const { data, error, loading, reload } = useApi<ExpensesData>(`/trips/${tripId}/expenses`);
+	useLiveSection(['expenses', 'members', 'trip'], reload);
 	const [section, setSection] = useState<Section>('expenses');
 	const [editing, setEditing] = useState<Expense | null>(null);
 	const [adding, setAdding] = useState(false);

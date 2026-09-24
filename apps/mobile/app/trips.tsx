@@ -29,7 +29,7 @@ export default function Trips() {
 	const [creating, setCreating] = useState(false);
 
 	if (authLoading) return <Loading />;
-	if (!user) return <Redirect href="/login" />;
+	if (!user) return <Redirect href={{ pathname: '/login', params: { next: '/trips' } }} />;
 
 	const trips = data?.trips ?? [];
 

@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import type { ReactNode } from 'react';
 import {
 	KeyboardAvoidingView,
@@ -11,6 +12,7 @@ import {
 	View
 } from 'react-native';
 import { color, radius, space, type } from '../theme';
+import { setInteractionBusy } from './busy';
 
 /**
  * The native answer to the web app's Modal.
@@ -35,6 +37,10 @@ export function Sheet({
 	children: ReactNode;
 }) {
 	const { height } = useWindowDimensions();
+	useEffect(() => {
+		if (!open) return;
+		return setInteractionBusy(true);
+	}, [open]);
 	return (
 		<Modal visible={open} transparent animationType="slide" onRequestClose={onClose}>
 			<KeyboardAvoidingView
