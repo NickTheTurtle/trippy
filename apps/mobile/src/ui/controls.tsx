@@ -10,16 +10,19 @@ import { color, fieldLabel, radius, space, type } from '../theme';
 export function CheckBox({
 	checked,
 	label,
-	onPress
+	onPress,
+	state
 }: {
 	checked: boolean;
 	label: string;
 	onPress: () => void;
+	state?: 'checked' | 'mixed' | 'unchecked';
 }) {
+	const visual = state ?? (checked ? 'checked' : 'unchecked');
 	return (
 		<Pressable
 			accessibilityRole="checkbox"
-			accessibilityState={{ checked }}
+			accessibilityState={{ checked: visual === 'mixed' ? 'mixed' : visual === 'checked' }}
 			accessibilityLabel={label}
 			onPress={onPress}
 			hitSlop={8}
@@ -28,8 +31,13 @@ export function CheckBox({
 				height: 22,
 				borderRadius: radius.sm,
 				borderWidth: 1.5,
-				borderColor: checked ? color.accent : color.line,
-				backgroundColor: checked ? color.accent : color.surface,
+				borderColor: visual !== 'unchecked' ? color.accent : color.line,
+				backgroundColor:
+					visual === 'checked'
+						? color.accent
+						: visual === 'mixed'
+							? color.accentSoft
+							: color.surface,
 				alignItems: 'center',
 				justifyContent: 'center',
 				opacity: pressed ? 0.7 : 1

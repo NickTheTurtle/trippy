@@ -222,7 +222,7 @@ export function AddDiscoverSheet({
 		setSearched(false);
 		add.reset();
 		typeChosen.current = false;
-	}, [open, initialType, currency]);
+	}, [open]);
 
 	useEffect(
 		() => () => {
@@ -504,7 +504,7 @@ export function EditPlaceSheet({
 		setUrl(poi.url ?? '');
 		setNotes(poi.notes ?? '');
 		setConfirm(false);
-	}, [open, poi]);
+	}, [open, poi?.id]);
 
 	const save = useMutation(
 		() =>
@@ -608,7 +608,7 @@ export function EditStaySheet({
 		setUrl(stay.url ?? '');
 		setNotes(stay.tag);
 		setConfirm(false);
-	}, [open, stay, currency]);
+	}, [open, stay?.id]);
 
 	const save = useMutation<[number | null]>(
 		(cents) =>
