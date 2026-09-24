@@ -46,6 +46,33 @@ test.describe('auth and session', () => {
 		}
 	});
 
+	test('the return key logs in from either field, with no reach for the button', async ({
+		page,
+		request
+	}) => {
+		const user = await registerUser(request);
+		try {
+			await page.goto('/login');
+			await page.getByLabel(copy.auth.login.emailLabel).fill(user.email);
+			await page.getByLabel(copy.auth.login.passwordLabel).fill(user.password);
+			// The password field is where a typist ends up, so that is the press
+			// that matters most.
+			await page.getByLabel(copy.auth.login.passwordLabel).press('Enter');
+			await expect(page.getByRole('heading', { level: 1, name: copy.trips.heading })).toBeVisible();
+
+			await logOut(page);
+			await page.goto('/login');
+			await page.getByLabel(copy.auth.login.emailLabel).fill(user.email);
+			await page.getByLabel(copy.auth.login.passwordLabel).fill(user.password);
+			// And from the address, because a browser that filled the password in
+			// leaves the caret up there.
+			await page.getByLabel(copy.auth.login.emailLabel).press('Enter');
+			await expect(page.getByRole('heading', { level: 1, name: copy.trips.heading })).toBeVisible();
+		} finally {
+			user.teardown();
+		}
+	});
+
 	test('a signed-in session survives a full page reload', async ({ page, request }) => {
 		const fixture = await createApiFixture(request);
 		try {
