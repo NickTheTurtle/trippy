@@ -168,13 +168,15 @@ export default function EventDialog({
 
 	/* Which link the block already has depends on what it is: a stay is booked
 	   into a proposed stay, everything else is scheduled at a saved place. */
-	const savedPick = (event ? (event.type === 'stay' ? event.lodging_id : event.poi_id) : null) ?? '';
+	const savedPick =
+		(event ? (event.type === 'stay' ? event.lodging_id : event.poi_id) : null) ?? '';
 	/* The name the box opens on: the linked place's, or the one typed by hand
 	   when there is no link. Both are the same field to the reader, so both have
 	   to come back when the dialog is reopened. */
 	const openedOn = event
 		? ((event.type === 'stay' ? stays : saved).find((p) => p.id === savedPick)?.name ??
-				(savedPick ? '' : event.place_text)) || ''
+				(savedPick ? '' : event.place_text)) ||
+			''
 		: (initialPoi?.name ?? '');
 
 	const {
