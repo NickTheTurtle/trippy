@@ -280,10 +280,7 @@ export const copy = {
 			nameLabel: 'Name',
 			priceLabel: 'Price / night',
 			currencyLabel: 'Currency',
-			checkInLabel: 'Check-in',
-			checkOutLabel: 'Check-out',
 			badPrice: 'Enter a valid price, or leave it blank.',
-			badDates: 'Check-out must be after check-in.',
 			fallback: 'Could not save that stay.'
 		}
 	},
@@ -351,7 +348,10 @@ export const copy = {
 		},
 		block: {
 			/** The grip on a block's bottom edge, which is a drag and not a button. */
-			resizeLabel: 'Drag to change the end time'
+			resizeLabel: 'Drag to change the end time',
+			/** What pressing a block does, which depends on whether it can be moved. */
+			moveLabel: 'Show on the map, or drag to reschedule.',
+			openLabel: 'Show the details.'
 		},
 		addStay: '+ Add stay',
 		add: '+ Add',

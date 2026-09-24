@@ -20,7 +20,6 @@ import { layoutBoard, legLaneId } from '@trippy/core/travel';
 import { suggestStart } from '@trippy/core/plan';
 import type { EventType } from '@trippy/core/types';
 import { copy } from '../copy';
-import AddEventDialog from './schedule/AddEventDialog';
 import EventDialog from './schedule/EventDialog';
 import { applyDraft, replanLegs } from './schedule/replan';
 import {
@@ -96,6 +95,16 @@ const legKey = legLaneId;
  * is drawn as a single rule, because two lines in less than this clip.
  */
 const TWO_LINE_H = 44;
+
+/**
+ * The shortest a journey is ever drawn, in pixels.
+ *
+ * A hop of a few minutes is thinner than a pointer can hit, so its box is
+ * floored to this and the floor grows upwards, into the waiting time before it.
+ * Where there is no waiting time, because the two events are exactly adjacent,
+ * the block it left gives up these pixels instead: see `dayBoard`.
+ */
+const MIN_LEG_H = 15;
 
 /**
  * The width below which a bar has to give up its padding to keep its duration.
@@ -266,6 +275,9 @@ type BlockProps = {
 	/** A journey arrives on top of this block, so its top-left corner squares off
 	    to let the two left borders run as one line. */
 	hasLegAbove: boolean;
+	/** Pixels of drawn height this block gives up at the bottom so a floored
+	    journey leaving it stays visible. See `dayBoard`. */
+	trim: number;
 	/** A frozen board draws no grip and no pencil: nothing here can be changed. */
 	locked: boolean;
 };
@@ -295,9 +307,10 @@ const Block = memo(function Block({
 	onGripMove,
 	onGripUp,
 	hasLegAbove,
+	trim,
 	locked
 }: BlockProps) {
-	const bud = whoBudget(width, to - from, ev.title, lanePx);
+	const bud = whoBudget(width, to - from - trim / PX_PER_MIN, ev.title, lanePx);
 	const cls = [
 		'block',
 		ev.type,
@@ -315,12 +328,14 @@ const Block = memo(function Block({
 			className={cls}
 			role="button"
 			tabIndex={0}
-			aria-label={`${ev.title}, ${clock(ev.start_min)} to ${clock(ev.end_min)}. Show on the map, or drag to reschedule.`}
+			aria-label={`${ev.title}, ${clock(ev.start_min)} to ${clock(ev.end_min)}. ${
+				locked ? cs.block.openLabel : cs.block.moveLabel
+			}`}
 			style={{
 				left: `${left * 100}%`,
 				width: `calc(${width * 100}% - 6px)`,
 				top: `${topPx(from, boardStart)}px`,
-				height: `${heightPx(from, to, boardStart)}px`,
+				height: `${Math.max(heightPx(from, to, boardStart) - trim, MIN_LEG_H)}px`,
 				...(dx ? { transform: `translateX(${dx}px)` } : null),
 				['--trows' as string]: bud.trows,
 				['--wrows' as string]: bud.wrows
@@ -332,7 +347,10 @@ const Block = memo(function Block({
 				if ((e.target as HTMLElement).closest('.bresize')) return;
 				if ((e.target as HTMLElement).closest('.bedit')) return;
 				if (didDrag.current) return;
-				onFocus(ev.id);
+				// Frozen, the block is the only way into its own details: there is no
+				// pencil to reach them through and nothing on the block to drag.
+				if (locked) onOpen(ev.id);
+				else onFocus(ev.id);
 			}}
 			onKeyDown={(e) => {
 				// The pencil is a button of its own; let it keep its own keys rather
@@ -340,7 +358,8 @@ const Block = memo(function Block({
 				if ((e.target as HTMLElement).closest('.bedit')) return;
 				if (e.key === 'Enter' || e.key === ' ') {
 					e.preventDefault();
-					onFocus(ev.id);
+					if (locked) onOpen(ev.id);
+					else onFocus(ev.id);
 				}
 			}}
 		>
@@ -454,7 +473,7 @@ const Leg = memo(function Leg({
 	// can hit. The floor grows upwards, into the waiting time before the
 	// journey, because downwards is the block it arrives at.
 	const trueH = heightPx(leg.startMin, leg.endMin, boardStart);
-	const h = Math.max(trueH, 15);
+	const h = Math.max(trueH, MIN_LEG_H);
 	const thin = trueH < TWO_LINE_H;
 	const bud = whoBudget(width, mins, name, lanePx);
 	const cls = [
@@ -1416,10 +1435,21 @@ export default function Schedule() {
 		[board]
 	);
 
-	/** Every event on the board, for looking one up by id from a dialog. */
+	/**
+	 * Every event on the board, for looking one up by id from a dialog.
+	 *
+	 * Stays are in it too, the previous night's included. A day's first journey
+	 * leaves the room it was slept in, and that stay is not a block of this day,
+	 * so a map built from the day's blocks alone cannot name where the morning
+	 * starts and the journey reads as a bare mode word.
+	 */
 	const eventById = useMemo(() => {
 		const out = new Map<string, EventRow>();
-		for (const entry of board) for (const e of entry.events) out.set(e.id, e);
+		for (const entry of board) {
+			for (const e of entry.events) out.set(e.id, e);
+			for (const s of entry.stays) out.set(s.id, s);
+			for (const s of entry.incoming) out.set(s.id, s);
+		}
 		return out;
 	}, [board]);
 
@@ -1438,29 +1468,21 @@ export default function Schedule() {
 
 	/* Opening an event: the pencil on a block, or a stay band, asks for the
 	   editor. Pointing at a block no longer opens it; a click focuses the map
-	   instead, so `openBlock` is reached through the pencil alone. */
-	const openBlock = useCallback(
-		(id: string) => {
-			// The dialog is an edit form, so a frozen board has nothing to open. The
-			// rows it is reached from already read what it would say.
-			if (locked) return;
-			setOpenLegId('');
-			setOpenEventId(id);
-		},
-		[locked]
-	);
+	   instead, so `openBlock` is reached through the pencil alone. A frozen
+	   board has no pencil, so there the block itself opens it: the lock takes
+	   away the writing, not the reading. */
+	const openBlock = useCallback((id: string) => {
+		setOpenLegId('');
+		setOpenEventId(id);
+	}, []);
 	/* Opening a journey's arrival, keeping the leg's id so the dialog opens on
 	   the journey that was meant. Reached from the agenda list, whose rows open
 	   the way they always have: the click-focuses-the-map change is the day
 	   board's, and the agenda has no pencil to move editing onto. */
-	const openLeg = useCallback(
-		(leg: LegRow) => {
-			if (locked) return;
-			setOpenLegId(leg.id);
-			setOpenEventId(leg.toEventId);
-		},
-		[locked]
-	);
+	const openLeg = useCallback((leg: LegRow) => {
+		setOpenLegId(leg.id);
+		setOpenEventId(leg.toEventId);
+	}, []);
 	/** Add something to the day being read, with no time chosen yet.
 	 *
 	 * The day under the reader rather than the day in the url, because while the
@@ -2066,8 +2088,8 @@ export default function Schedule() {
 						<button
 							type="button"
 							className="stayface"
-							aria-label={`${s.title}. Show on the map.`}
-							onClick={() => focusOnMap(s.id)}
+							aria-label={`${s.title}. ${locked ? cs.block.openLabel : 'Show on the map.'}`}
+							onClick={() => (locked ? openBlock(s.id) : focusOnMap(s.id))}
 						>
 							<span className="stayname">{s.title}</span>
 							<span className="staywho">{peopleLabel(s.people)}</span>
@@ -2102,7 +2124,8 @@ export default function Schedule() {
 		day: string,
 		lanePx: number,
 		place: Layout,
-		legTargets: Set<string>
+		legTargets: Set<string>,
+		trims: Map<string, number>
 	) {
 		const p = place.placed.get(ev.id);
 		if (!p) return null;
@@ -2134,6 +2157,7 @@ export default function Schedule() {
 				onGripMove={onResizeMove}
 				onGripUp={onResizeUp}
 				hasLegAbove={legTargets.has(ev.id)}
+				trim={trims.get(ev.id) ?? 0}
 				locked={locked}
 			/>
 		);
@@ -2262,6 +2286,37 @@ export default function Schedule() {
 		   which is exactly the set of legs the board is about to paint. */
 		const legTargets = new Set(bars.map((b) => b.leg.toEventId));
 
+		/* What each block gives up at the bottom so a journey leaving it stays
+		   visible.
+		 *
+		 * Two events booked back to back leave no gap, so the journey between
+		 * them has nowhere to be drawn: its floored box reaches back over the
+		 * block it left, which paints on top of it, and the journey disappears
+		 * entirely. A day that says two places are adjacent in space because
+		 * they are adjacent on the clock is the one reading the board must not
+		 * come away with, and it is exactly the day where the travel matters.
+		 *
+		 * So the block yields the pixels instead of the journey losing them. It
+		 * is only ever the few the floor needs, the block keeps its real times in
+		 * its label, and nothing moves on a day whose events have room between
+		 * them. Measured against the drawn boxes rather than the clock, because
+		 * the floor is a pixel rule, and only where the two overlap sideways: a
+		 * journey in another column is not in front of this block at all. */
+		const trims = new Map<string, number>();
+		for (const bar of bars) {
+			const bottom = topPx(bar.leg.endMin, boardStart);
+			const top =
+				bottom - Math.max(heightPx(bar.leg.startMin, bar.leg.endMin, boardStart), MIN_LEG_H);
+			for (const ev of entry.events) {
+				const p = place.placed.get(ev.id);
+				if (!p || p.left >= bar.left + bar.width || bar.left >= p.left + p.width) continue;
+				const over =
+					Math.min(topPx(endFor(ev), boardStart), bottom) -
+					Math.max(topPx(startFor(ev), boardStart), top);
+				if (over > 0) trims.set(ev.id, Math.max(trims.get(ev.id) ?? 0, over));
+			}
+		}
+
 		return (
 			<div
 				className={`daygrid${drag ? ' still' : ''}${drag && openedBy > 0 ? ' opening' : ''}`}
@@ -2288,7 +2343,7 @@ export default function Schedule() {
 				>
 					{items.map((it) =>
 						it.kind === 'event'
-							? blockNode(it.ev, entry.day, opts.lanePx, place, legTargets)
+							? blockNode(it.ev, entry.day, opts.lanePx, place, legTargets, trims)
 							: legNode(it.leg, opts.lanePx, { left: it.left, width: it.width })
 					)}
 				</div>
@@ -2461,8 +2516,9 @@ export default function Schedule() {
 			</div>
 
 			{adding && (
-				<AddEventDialog
+				<EventDialog
 					base={base}
+					event={null}
 					day={adding.day}
 					startMin={adding.start}
 					suggestedStart={suggestedStart}
@@ -2477,6 +2533,8 @@ export default function Schedule() {
 					stays={data.stays}
 					cities={data.cities}
 					cityId={cityOfDay(adding.day)}
+					firstDay={data.firstDay}
+					lastDay={data.lastDay}
 					provider={data.provider}
 					dock={dockSide}
 					peek={roomToDock}
@@ -2494,6 +2552,7 @@ export default function Schedule() {
 					key={openEvent.id}
 					base={base}
 					event={openEvent}
+					day={openEvent.day}
 					legs={openLegs}
 					focusLegId={openLegId}
 					eventOf={(id) => eventById.get(id) ?? null}
@@ -2507,6 +2566,7 @@ export default function Schedule() {
 					firstDay={data.firstDay}
 					lastDay={data.lastDay}
 					provider={data.provider}
+					locked={locked}
 					dock={dockSide}
 					peek={roomToDock}
 					onPreview={setPreview}

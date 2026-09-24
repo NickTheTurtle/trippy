@@ -626,6 +626,33 @@ test.describe('add event', () => {
 			fixture.teardown();
 		}
 	});
+
+	test('puts the block on the day its date field names', async ({ page, request }) => {
+		const fixture = await createApiFixture(request);
+		const { startDate } = fixture.tripBody;
+		const next = new Date(`${startDate}T00:00:00Z`);
+		next.setUTCDate(next.getUTCDate() + 1);
+		const tomorrow = next.toISOString().slice(0, 10);
+		try {
+			await signIn(page, fixture.sessionCookie);
+			await page.goto(`/trips/${fixture.tripId}/schedule?day=${startDate}&view=day`);
+
+			// Adding and editing are one dialog, so adding can say which day the
+			// block is for. While they were two, the add form had no date at all and
+			// a block could only reach another day by being dragged there.
+			await page.getByRole('button', { name: '+ Add', exact: true }).click();
+			const dialog = page.getByRole('dialog');
+			await dialog.getByLabel(copy.schedule.fields.date).fill(tomorrow);
+			await page.getByRole('button', { name: copy.common.add, exact: true }).click();
+			await expect(dialog).toHaveCount(0);
+
+			await expect(page.locator(`.daypanel[data-day="${startDate}"] .block`)).toHaveCount(0);
+			await page.goto(`/trips/${fixture.tripId}/schedule?day=${tomorrow}&view=day`);
+			await expect(page.getByRole('button', { name: /^Activity, / })).toBeVisible();
+		} finally {
+			fixture.teardown();
+		}
+	});
 });
 
 /**

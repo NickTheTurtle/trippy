@@ -141,12 +141,10 @@ function stayKey(row: StayIdentity): string {
 }
 
 /**
- * The minute a stay enters the plan at, as a destination.
+ * The end of a day, in minutes from its own midnight.
  *
- * Midnight rather than a check-in hour: a stay is not on the clock, and nobody
- * can be late to their own bed, so the honest statement is that the journey
- * home leaves when the day finishes. It is the mirror of the morning, where
- * last night's stay is an origin at midnight for the same reason.
+ * The board's last minute, and the ceiling a reflowed block is held under so a
+ * suggestion cannot be pushed off the end of the day it is on.
  */
 export const MIDNIGHT_MIN = 24 * 60;
 
@@ -202,12 +200,6 @@ export interface DayRows<E extends PlannableRow, S extends PlannableStay> {
 	day: string;
 	/** The day's timed blocks. Stays are not among them. */
 	events: readonly E[];
-	/**
-	 * Every stay touching the day, the morning of checkout included. Only the
-	 * ones that are a night of the day become destinations, so a caller may pass
-	 * the band it draws without filtering it first.
-	 */
-	stays: readonly S[];
 	/** Last night's stays: where each group that slept somewhere starts. */
 	incoming: readonly S[];
 }
@@ -215,28 +207,27 @@ export interface DayRows<E extends PlannableRow, S extends PlannableStay> {
 /**
  * The journeys a day implies.
  *
- * Tonight's lodging is the last thing reached and last night's is the morning's
- * origin, one per group that slept somewhere of its own. A stay being checked
- * out of this morning is drawn on the day but is not a night of it, so it is an
- * origin only: nobody travels back to a room they have left.
+ * Last night's lodging is the morning's origin, one per group that slept
+ * somewhere of its own, so the first thing of the day carries the walk out of
+ * the room it was slept in.
  *
- * The roster is applied to the day's blocks, tonight's stays and last night's
- * origins alike. An incoming stay carries people too, and a stay left on
- * "Everyone" is where the whole group wakes up.
+ * Nothing is planned *to* a stay. A night is not an appointment: there is no
+ * time to be late for, the group goes back when it goes back, and a board that
+ * drew the way home put a journey on the day that nobody had to make. It also
+ * read as the stay itself having a travel time, which is not a thing a stay
+ * has. So a stay is an origin only, at both ends of the night: it starts the
+ * morning and it ends nothing.
+ *
+ * The roster is applied to the day's blocks and to last night's origins alike.
+ * An incoming stay carries people too, and a stay left on "Everyone" is where
+ * the whole group wakes up.
  */
 export function planDay<E extends PlannableRow, S extends PlannableStay>(
 	rows: DayRows<E, S>,
 	roster: readonly string[]
 ): PlannedLeg[] {
-	const tonight = rows.stays
-		.filter((s) => isNightOf(s, rows.day))
-		.map((s) => ({
-			...toPlannerEvent(s, roster),
-			startMin: MIDNIGHT_MIN,
-			endMin: MIDNIGHT_MIN
-		}));
 	return planLegs(
-		[...rows.events.map((e) => toPlannerEvent(e, roster)), ...tonight],
+		rows.events.map((e) => toPlannerEvent(e, roster)),
 		rows.incoming.map((s) => toPlannerEvent(s, roster))
 	);
 }

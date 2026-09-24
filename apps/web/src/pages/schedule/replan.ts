@@ -18,44 +18,11 @@
  * without it the first journey of the morning has no origin and the client
  * would plan a day the server does not.
  */
-import { guessLeg, placeLeg, planLegs, type PlannerEvent } from '@trippy/core/travel';
-import { isLocatedType } from '@trippy/core/types';
+import { guessLeg, placeLeg } from '@trippy/core/travel';
+import { planDay, stayBand, stayEndOf, isNightOf } from '@trippy/core/plan';
 import type { BoardDay, EventDraft, EventRow, LegRow } from './types';
-import { shiftDay } from './shared';
 
-/**
- * Free time is deliberately nowhere, so a block switched to it loses its
- * location for planning without losing the place it was at: switch it back and
- * the place is still there. This mirrors `toPlanner` on the server.
- *
- * "Everyone" is put back here too, against the same roster the payload already
- * carries. The wire writes the whole group as an empty `people` list, because
- * that is the only form that survives somebody joining, while `planLegs` reads
- * a list as exactly the travellers and an empty one as nobody. Passing the
- * stored form straight through would put every Everyone event on nobody's
- * chain, so the preview would show a day with no journeys on it while the board
- * behind the dialog, planned by the server, shows them.
- *
- * A named list is filtered to the roster for the same reason the server filters
- * it: somebody who has left the trip can still be named on an old event, and
- * planning them a journey would put a stranger in a leg key. A list naming only
- * people who have left therefore empties to nobody rather than to everybody,
- * because somebody chose those names and the choice was not "the whole group".
- * An empty roster expands to nobody as well, so a trip with no members plans
- * nothing rather than throwing.
- */
-function plannerEvent(e: EventRow, roster: readonly string[]): PlannerEvent {
-	const members = new Set(roster);
-	return {
-		id: e.id,
-		type: e.type,
-		startMin: e.start_min,
-		endMin: e.end_min,
-		lat: isLocatedType(e.type) ? e.lat : null,
-		lng: isLocatedType(e.type) ? e.lng : null,
-		people: e.people.length ? e.people.filter((id) => members.has(id)) : [...roster]
-	};
-}
+export { stayEndOf, isNightOf };
 
 /**
  * The day's events and lodgings with the draft applied.
@@ -104,32 +71,13 @@ export function applyDraft(
 	return { events: sorted([...events, row]), stays };
 }
 
-function sorted(rows: EventRow[]): EventRow[] {
+function sorted(rows: readonly EventRow[]): EventRow[] {
 	return [...rows].sort((a, b) => a.start_min - b.start_min || (a.id < b.id ? -1 : 1));
 }
 
-/** The day a stay is checked out of, which is one day past its last night. */
-export function stayEndOf(row: { day: string; end_day: string | null }): string {
-	return row.end_day ?? shiftDay(row.day, 1);
-}
-
-/** Whether a stay is slept in on the night of `day`, as opposed to left that morning. */
-export function isNightOf(row: { day: string; end_day: string | null }, day: string): boolean {
-	return row.day <= day && day < stayEndOf(row);
-}
-
-/**
- * The bands a day draws, mirroring `staysOnBoard` on the server.
- *
- * A checkout and a check-in can land on the same day. That reads as a change of
- * hotel, so it is kept when the room really changes and dropped when it does
- * not: two identical chips naming the same room twice say nothing twice.
- */
+/** The bands a day draws, sorted the way the board reads them. */
 function boardStays(rows: EventRow[], day: string): EventRow[] {
-	const key = (r: EventRow) =>
-		`${r.lodging_id ?? r.poi_id ?? `${r.title}|${r.lat}|${r.lng}`}\u0000${[...r.people].sort().join(',')}`;
-	const tonight = new Set(rows.filter((r) => isNightOf(r, day)).map(key));
-	return sorted(rows.filter((r) => isNightOf(r, day) || !tonight.has(key(r))));
+	return sorted(stayBand(rows, day));
 }
 
 /**
@@ -139,35 +87,23 @@ function boardStays(rows: EventRow[], day: string): EventRow[] {
  * which is what a pin survives on; anything else is planned fresh at its
  * straight-line estimate, the same one the server falls back to.
  *
- * Tonight's lodgings enter the plan as the end of the day, and last night's are
- * the morning's origins, one per group that slept somewhere of its own. A stay
- * being checked out of this morning is drawn on the day but is not a night of
- * it, so it is an origin only: nobody travels back to a room they have left.
- * This mirrors `planFor` on the server exactly; if it did not, the preview
- * would disagree with the board that arrives a moment later.
+ * `planDay` in core is what actually plans it, which is the same call the
+ * server makes: last night's lodgings are the morning's origins, one per group
+ * that slept somewhere of its own, and nothing is planned to a stay. This used
+ * to be a second copy of those rules, and the copy is exactly what drifts: a
+ * preview that disagrees with the board arriving a moment later reads as the
+ * board being wrong.
  *
  * `roster` is the trip's member ids, which is what "Everyone" means at this
- * moment. It is applied to the day's blocks, tonight's stays and last night's
- * origins alike, exactly as `planFor` applies it: an incoming stay carries
- * people too, and a stay left on the whole group is where everybody wakes up.
+ * moment.
  */
 export function replanLegs(
 	entry: BoardDay,
 	draft: EventDraft | null,
 	roster: readonly string[]
 ): LegRow[] {
-	const { events, stays } = applyDraft(entry, draft);
-	const tonight = stays
-		.filter((s) => isNightOf(s, entry.day))
-		.map((s) => ({
-			...plannerEvent(s, roster),
-			startMin: 24 * 60,
-			endMin: 24 * 60
-		}));
-	const planned = planLegs(
-		[...events.map((e) => plannerEvent(e, roster)), ...tonight],
-		entry.incoming.map((s) => plannerEvent(s, roster))
-	);
+	const { events } = applyDraft(entry, draft);
+	const planned = planDay({ day: entry.day, events, incoming: entry.incoming }, roster);
 
 	const stored = new Map(entry.legs.map((l) => [l.key, l]));
 	return planned.map((leg) => {

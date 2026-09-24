@@ -862,10 +862,12 @@ around `resolveLeg`; `staysOnBoard` is its query plus `stayBand`. `apps/web`
 adopting the same three calls is a follow-up, held back only because two other
 sessions hold that directory.
 
-**`planDay` filters its own stays to the nights of the day**, which is a no-op
-for the server (its query already does) and load-bearing for the client (which
-passes the band it draws, checkout mornings included). One entry point that
-accepts either shape beats two entry points that agree today.
+**`planDay` takes last night's stays, not the day's band.** It used to filter its
+own stay band to the nights of the day so the server and the client could pass
+either shape. Now that a stay is never a destination, the band has no part in
+planning a day: the only stays a journey needs are the ones the morning leaves
+from, which arrive as `incoming`. One argument for the one thing that is read
+beats a collection that is filtered down to it.
 
 **`stayBand` does not sort.** The two callers order their bands differently on
 purpose, the server by the stay's own start day and the client by the minute it
@@ -2879,12 +2881,18 @@ the same reasoning as deleting
 and as setting the nights: a stay is a shared proposal, not one person's
 property.
 
-The night range is on this form even though the calendar can also set it
-(`PATCH /stays/:id/dates`, which predates this and stays), because the nights
-are what a nightly price multiplies out against. The affordance is the card
-itself rather than a pencil, matching the place card exactly: cover, title and
-meta are one button, and the vote, open and remove controls sit outside it so
-the card never nests one interactive element inside another.
+The night range is **not** on this form, even though it once was. Two places
+could set the nights and only one of them was the truth: booking a stay onto the
+calendar writes its nights onto the event, never back onto the option, so an
+option edited here read one range while the board ran another, and because the
+patch was a full replace, editing a stay's name silently cleared the dates. The
+schedule is the one place a night range means anything, so that is where it is
+asked for now; the route no longer reads dates at all, and the card no longer
+prints a nights line it cannot keep true. `PATCH /stays/:id/dates` is untouched:
+it is how the calendar sets them. The affordance is the card itself rather than
+a pencil, matching the place card exactly: cover, title and meta are one button,
+and the vote, open and remove controls sit outside it so the card never nests
+one interactive element inside another.
 
 **Stays get cover photos from the same pipeline as places.** Every option in the
 lodging vote rendered as the same grey bed icon, which is nothing to vote on when
@@ -3172,8 +3180,8 @@ the placeholder string outright.
 `formatDayRange`: `packages/core/src/tz.ts` renders "Apr 16 – 20, 2026", always
 with the year and collapsing a same-day range to the one date, and it is what
 the server writes into `trips.dates`; `packages/copy/src/format.ts` renders
-"Apr 16 – 20", never with a year, and it is what the mobile trip card and
-`formatNights` use. Different modules, so nothing ever complained, and an import
+"Apr 16 – 20", never with a year, and it is what the mobile trip card uses.
+Different modules, so nothing ever complained, and an import
 from the wrong one produced a plausible label with a silently different shape,
 on a field that is a fact about somebody's trip.
 
@@ -3578,6 +3586,24 @@ board payload. `planLegs` now normalises that origin to midnight, because a stay
 no longer records a checkout and inventing one would be a guess with a number on
 it.
 
+**Nothing is ever planned to a stay, and every morning leaves from one.** The
+board used to plan a journey to the room at the end of the day, anchored at
+midnight. Two things were wrong with it. A stay is a date rather than an hour,
+so the arrival it was anchored to was invented, and the journey it drew put a
+travel time on the stay itself, which is not a thing a stay has: the reader saw
+"20m" hanging off the hotel and reasonably read it as the hotel's own. And the
+going-home leg is the one journey nobody plans: the day ends where it ends, and
+you get back when you get back. So `planDay` now treats a stay purely as an
+**origin**: it is where the first journey of the next morning starts from, and
+never a destination. What used to draw as "leave for the hotel at 22:00" is now
+"Walk from Grande Bretagne" on the following morning, which is the same fact put
+where a reader can use it.
+
+That rule lives in core and both ends call it. The client used to keep its own
+copy for the preview under an open dialog, so the board drew one set of journeys
+while the server stored another, and the two only agreed until somebody changed
+one of them. `replanLegs` is now a thin wrapper over `planDay`.
+
 **Journeys share the event columns.** Travel used to live in a fixed lane down
 the right-hand side, on the reasoning that it is a consequence of the day rather
 than part of it. In use that reads as the opposite of the truth: an hour on a
@@ -3695,6 +3721,30 @@ while one is being nudged. And a change of type or of people drops the affected
 journeys rather than shifting them: those decide whether a journey exists at all,
 which is the server's answer to give, not a guess the board can draw.
 
+**A journey's pin belongs to the pair of places, not to the day.** `travel_legs`
+used to be per-day scratch: every write re-planned the day and deleted the rows
+the plan no longer asked for. Drag the pair to Wednesday and the reader's "ferry,
+40m" was deleted on Tuesday and re-inserted as a straight-line guess. The row is
+now the **override store** for a journey, keyed by `leg_key` (the two events and
+who is going) and carrying `day` as a fact that can be updated. A day that stops
+planning a journey no longer deletes it; the next day to plan it claims it,
+`day` and all, and until one does the row sits unread, because `legsForDay` only
+returns rows the plan asked for. The row dies with either of its two events,
+which is the only moment the journey it describes can no longer happen, and the
+foreign keys already say so. Routed answers ride along with the pin, so a route
+is paid for once per pair of places rather than once per day they land on.
+
+**A block gives up pixels so the journey leaving it stays visible.** Two events
+with no gap between them leave their journey nowhere to be drawn: it is floored
+to a minimum height, every block and leg shares one `z-index`, and legs are
+painted first, so the bar was drawn behind the block in front of it and simply
+disappeared. Shortening the leg further would have been drawing a duration
+nobody said. Instead `dayBoard` measures the overlap and passes each block a
+`trim`: the block draws that many pixels shorter, and its label budget shrinks
+with it, while its times stay exactly what they were. The block is the thing
+with slack, because its height is a span the reader can see either end of; the
+leg is a bar whose whole content is its own existence.
+
 **An event can be linked to a saved place after the fact.** Adding one offered a
 Discover place from the start; editing one did not, so a block typed by hand
 could never be given coordinates and stayed off the map and out of the travel
@@ -3777,6 +3827,15 @@ new id is kept, and pressing Add again finishes the save rather than adding the
 block a second time. The add dialog reads its draft journeys before "view as" is
 applied, unlike the board behind it, because a dialog about who is coming has to
 list everyone who is.
+
+**Adding and editing are one component.** They were two files asking the same
+question about the same board, and they drifted: the add form had no date field,
+so a block could only reach another day by being dragged there; its type field
+measured differently; and every fix to one had to be remembered for the other.
+`EventDialog` now takes `event: EventRow | null`, and null is the whole of the
+difference. Null previews under a draft id and posts; a row previews over itself
+and patches. The two footers differ by their labels and by the delete, which is
+the only thing a block that does not exist yet cannot be offered.
 
 **Changing the mode rewrites the minutes.** The number beside the mode is an
 answer to a question the mode asks, so leaving the old one in place when the
@@ -5294,18 +5353,18 @@ event; it now takes a list and each person leaves from whichever origin they are
 on. That is what lets two halves of a group wake up in different buildings and
 get two different journeys to the same breakfast.
 
-**A stay is a destination with no hour, so the walk home is anchored to its
-departure.** Every other journey is anchored to its arrival, because the fixed
-point is the thing you are trying not to be late for. Tonight's lodging has no
-such point: it is a date, and nobody can be late to their own bed. It first
-entered the plan re-anchored to `STAY_CHECK_IN`, which put the walk home at
-20:47 on a day that finished at 18:05, as though the group stood outside waiting
-for the hotel to open. The stay now enters at midnight, mirroring the morning
-where last night's stay is an origin at midnight for the same reason, and
-`PlannedLeg.openEnded` carries the fact through to `placeLeg`: you leave when
-the day finishes, you arrive when you arrive, and the leg is never tight because
-there is no gap to overrun. Both ends anchor it identically, since `planFor` and
-`replanLegs` pass the same minutes into the same core function.
+**The walk home is not planned at all.** Every journey is anchored to its
+arrival, because the fixed point is the thing you are trying not to be late for.
+Tonight's lodging has no such point: it is a date, and nobody can be late to
+their own bed. Two anchors were tried before the rule landed. Re-anchoring to
+`STAY_CHECK_IN` put the walk home at 20:47 on a day that finished at 18:05, as
+though the group stood outside waiting for the hotel to open; anchoring it to
+midnight and marking it `openEnded` fixed the clock but left a journey drawn on
+a day nobody had to make it, reading as though the stay itself carried a travel
+time. The rule now is simply that a stay is never a destination. It is an origin
+at both ends of the night: it starts the next morning, and it ends nothing.
+`PlannedLeg.openEnded` and `MIDNIGHT_MIN` survive for the morning's origin,
+which enters at midnight for the same reason the evening once did.
 
 **A write touches a span, not a day.** `touched` now takes any number of days
 and recomputes every day from the earliest to one past the latest. A ranged stay
@@ -5319,9 +5378,9 @@ still in the room on the morning you leave, and that morning is where the day's
 first journey starts. Ending the band the evening before left the departure day
 looking like nobody had anywhere to sleep, on one of the days most likely to be
 read. `staysCovering` therefore answers for the nights, which is what the
-planner books journeys against, and `staysOnBoard` answers for the days, which
-is what is drawn. Keeping them apart is what stops a journey being planned back
-to a room that has already been vacated.
+planner reads to find the morning's origin, and `staysOnBoard` answers for the
+days, which is what is drawn. Keeping them apart is what stops a morning being
+given an origin the group had already checked out of.
 
 **A checkout and a check-in on the same morning are one chip when the room does
 not change.** Once the band runs to checkout, a stay booked night by night draws
@@ -6308,14 +6367,25 @@ switch away, so the cost of being stopped is small and the cost of not being
 stopped is a plan that quietly moved.
 
 In the client the lock removes affordances rather than disabling them: no Add,
-no `+ Add stay`, no pencils, no resize handles, no drag, no double-click to
-place, and `openBlock` / `openLeg` become no-ops so the edit dialog cannot be
-reached from the agenda rows or a journey leg. A disabled control that is still
-drawn invites a second try; an absent one does not. What stands in place of the
-Add button is a **Locked** tag, so the row keeps its shape and the absence reads
-as deliberate rather than as a control that failed to render. The switch itself
-carries no explanatory line: "Lock schedule" is what it does, and the tag on the
-board is where the consequence is legible.
+no `+ Add stay`, no pencils, no resize handles, no drag, and no double-click to
+place. A disabled control that is still drawn invites a second try; an absent
+one does not. What stands in place of the Add button is a **Locked** tag, so the
+row keeps its shape and the absence reads as deliberate rather than as a control
+that failed to render. The switch itself carries no explanatory line: "Lock
+schedule" is what it does, and the tag on the board is where the consequence is
+legible.
+
+**Opening a block is reading, not writing.** The dialog used to be refused
+outright on a frozen board, which took away the only place that says who is
+going, what the notes are, and how the journeys were planned. With the pencil
+gone there was then no way into any of it, and a block that still looked like a
+control and did nothing read as broken. So a locked board still opens its
+events: the block itself is the way in, since it no longer has a pencil to be
+reached through, and what opens is the same dialog with its body `inert`, a
+**Locked** mark where the delete would be, and Close as the only button. `inert`
+rather than a field-by-field disable, because the clock and the pickers are
+spans and buttons of the app's own with no one attribute they all honour, and
+because a reader tabbing through should not land inside a form they cannot use.
 
 **A deliberate boundary:** the lock covers the `/schedule` routes only. Deleting
 a place in Discover still cascades to the events built on it, which is an

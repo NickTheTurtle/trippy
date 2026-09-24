@@ -1,6 +1,6 @@
 import Cover from '../../components/Cover';
 import type { Stay } from '../../lib/api-types';
-import { formatNights, formatPerNight } from '../../lib/format';
+import { formatPerNight } from '../../lib/format';
 import { CARD, EditCardButton, OpenLink, VotePill, VoteRule } from './card-controls';
 import { copy } from '../../copy';
 
@@ -14,8 +14,9 @@ const c = copy.discover.stayCard;
  * it, and the footer repeats that as a labelled pencil so the card has a
  * control that looks like one. Deleting is a button inside the edit dialog. The
  * footer controls stay outside the body button so the card never nests one
- * interactive element inside another. A stay carries two things a place does
- * not: what it costs per night and the nights it covers.
+ * interactive element inside another. A stay carries one thing a place does
+ * not: what it costs per night. Which nights are spent in it is the calendar's
+ * answer, so the card does not give one of its own.
  */
 export default function StayCard({
 	stay: o,
@@ -33,8 +34,6 @@ export default function StayCard({
 	onEdit: () => void;
 	onVote: () => void;
 }) {
-	const nights = formatNights(o.check_in, o.check_out);
-
 	const ring = o.locked
 		? 'border-accent shadow-[0_0_0_1px_var(--color-accent)]'
 		: o.you_voted
@@ -60,7 +59,6 @@ export default function StayCard({
 						{o.tag ? `${o.tag} · ` : ''}
 						{formatPerNight(o.price_cents, o.currency || currency)}
 					</span>
-					{nights && <span className="mb-2.5 text-meta text-accent-ink">🛏 {nights}</span>}
 				</span>
 			</button>
 

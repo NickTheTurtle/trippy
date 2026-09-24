@@ -481,9 +481,11 @@ discover.delete('/stays/:optionId', (c) =>
  * Edit a proposed stay: everything a proposer typed, in one write.
  *
  * A full replace rather than a patch of named fields, so the dialog's state is
- * what ends up stored and clearing a price or a link is expressible. The
- * narrower `/dates` route below predates this one and stays: the calendar
- * moves a stay's nights without opening the editor.
+ * what ends up stored and clearing a price or a link is expressible.
+ *
+ * The night range is not part of it. Which nights are spent in a room is
+ * settled on the calendar, where the band is drawn, so it has its own route
+ * below and this one leaves the stored range exactly as it found it.
  */
 discover.patch('/stays/:optionId', async (c) => {
 	const b = await body(c);
@@ -498,15 +500,6 @@ discover.patch('/stays/:optionId', async (c) => {
 	const price = stayPriceCents(b);
 	if (price === 'bad') return fail(c, 400, 'Enter a valid price, or leave it blank.');
 
-	const checkIn = optDay(b.checkIn);
-	const checkOut = optDay(b.checkOut);
-	if (checkIn === 'bad' || checkOut === 'bad') return fail(c, 400, 'Pick valid dates.');
-	if (checkoutNotAfterCheckIn(checkIn, checkOut)) {
-		return fail(c, 400, 'Check-out must be after check-in.');
-	}
-	const editStrays = outsideTrip(c.get('trip'), checkIn, checkOut);
-	if (editStrays) return fail(c, 400, editStrays);
-
 	const editLink = readLink(b.url);
 	if ('error' in editLink) return fail(c, 400, editLink.error);
 
@@ -517,9 +510,7 @@ discover.patch('/stays/:optionId', async (c) => {
 			tag: str(b.tag) || str(b.notes),
 			priceCents: price,
 			currency: str(b.currency),
-			url: editLink.url,
-			checkIn,
-			checkOut
+			url: editLink.url
 		}),
 		404,
 		goneMessage('stay')

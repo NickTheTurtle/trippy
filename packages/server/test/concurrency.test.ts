@@ -872,9 +872,7 @@ describe('rows with no conflict detection yet', () => {
 			name: 'Sea View Rooms',
 			priceCents: null,
 			currency: 'EUR',
-			url: null,
-			checkIn: null,
-			checkOut: null
+			url: null
 		};
 
 		lodging.updateOption(p.tripId, p.alice, optionId, { ...base, tag: 'quiet' });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { planLegs, type PlannedLeg, type PlannerEvent } from '@trippy/core/travel';
+import { type PlannedLeg, type PlannerEvent } from '@trippy/core/travel';
 import { isLocatedType } from '@trippy/core/types';
 import {
 	isDayOf,
@@ -125,33 +125,6 @@ function oldWebBand(rows: Row[], day: string): Row[] {
 		`${r.lodging_id ?? r.poi_id ?? `${r.title}|${r.lat}|${r.lng}`}\u0000${[...r.people].sort().join(',')}`;
 	const tonight = new Set(rows.filter((r) => oldIsNightOf(r, day)).map(key));
 	return rows.filter((r) => oldIsNightOf(r, day) || !tonight.has(key(r)));
-}
-
-/** The old `planFor` in `packages/server`: stays arrive already filtered to nights. */
-function oldServerPlan(d: Day, roster: readonly string[]): PlannedLeg[] {
-	const covering = d.stays.filter((s) => oldIsNightOf(s, d.day));
-	const events = d.events.map((e) => oldProjection(e, roster));
-	const tonight = covering.map((s) => ({
-		...oldProjection(s, roster),
-		startMin: 24 * 60,
-		endMin: 24 * 60
-	}));
-	return planLegs(
-		[...events, ...tonight],
-		d.incoming.map((s) => oldProjection(s, roster))
-	);
-}
-
-/** The old `replanLegs` in `apps/web`: stays arrive as the drawn band. */
-function oldWebPlan(d: Day, roster: readonly string[]): PlannedLeg[] {
-	const band = oldWebBand(d.stays, d.day);
-	const tonight = band
-		.filter((s) => oldIsNightOf(s, d.day))
-		.map((s) => ({ ...oldProjection(s, roster), startMin: 24 * 60, endMin: 24 * 60 }));
-	return planLegs(
-		[...d.events.map((e) => oldProjection(e, roster)), ...tonight],
-		d.incoming.map((s) => oldProjection(s, roster))
-	);
 }
 
 /* ------------------------------------------------------ the days under test */
@@ -413,19 +386,7 @@ const DAYS: Day[] = [
 
 /* ------------------------------------------------------------------- tests */
 
-describe('planDay preserves what both old paths did', () => {
-	it.each(DAYS.map((d) => [d.name, d] as const))(
-		'agrees with the old server planFor and the old web replanLegs: %s',
-		(_name, d) => {
-			const fresh = planDay(
-				{ day: d.day, events: d.events, stays: d.stays, incoming: d.incoming },
-				d.roster
-			);
-			expect(fresh).toEqual(oldServerPlan(d, d.roster));
-			expect(fresh).toEqual(oldWebPlan(d, d.roster));
-		}
-	);
-
+describe('the band and the projection still answer what both old paths did', () => {
 	it.each(DAYS.map((d) => [d.name, d] as const))(
 		'draws the band the old server and the old client both drew: %s',
 		(_name, d) => {
@@ -447,35 +408,49 @@ describe('planDay preserves what both old paths did', () => {
 
 describe('the table is not vacuous', () => {
 	/**
-	 * The count each day plans, spelled out. Without this the equivalence tests
-	 * above would still pass over a table of days that all plan nothing, which
-	 * would prove only that two functions agree about the empty answer.
+	 * Every journey each day plans, spelled out as the pair of ends it joins.
+	 *
+	 * Counts alone would pass over a table of days that all plan nothing, and
+	 * the pairs are the part that changed when stays stopped being destinations:
+	 * a day whose only place to go was the hotel now plans nothing at all, and
+	 * the morning out of last night's room is what is left.
+	 *
+	 * Sorted before comparing, because the order legs come back in is the order
+	 * the chains were walked and is not a promise this table is making.
 	 */
-	const EXPECTED: Record<string, number> = {
-		'empty day': 0,
-		'ordinary day: hotel, sight, hotel': 2,
-		'everyone: an empty people list is the whole roster': 1,
-		'a named list that has only left the trip empties to nobody': 0,
-		'a location-less block breaks the chain': 0,
-		'free time breaks the chain even though it has coordinates stored': 0,
-		'the group splits: two people to the museum, one to the port': 2,
-		'a day that crosses a zone change: Athens morning, Istanbul night': 2,
-		'changing hotels: a checkout and a check-in on the same day': 1,
-		'the same room re-booked: the checkout chip is noise and is dropped': 0,
-		'half the group sleeps elsewhere': 2,
-		'a trip with no members plans nothing rather than throwing': 0
+	const EXPECTED: Record<string, [string, string][]> = {
+		'empty day': [],
+		'ordinary day: hotel, sight, hotel': [['ath-stay', 'acro']],
+		'everyone: an empty people list is the whole roster': [['acro', 'port']],
+		'a named list that has only left the trip empties to nobody': [],
+		'a location-less block breaks the chain': [],
+		'free time breaks the chain even though it has coordinates stored': [],
+		'the group splits: two people to the museum, one to the port': [
+			['acro', 'mosque'],
+			['acro', 'port']
+		],
+		'a day that crosses a zone change: Athens morning, Istanbul night': [['ath-stay', 'acro']],
+		'changing hotels: a checkout and a check-in on the same day': [],
+		'the same room re-booked: the checkout chip is noise and is dropped': [],
+		'half the group sleeps elsewhere': [],
+		'a trip with no members plans nothing rather than throwing': []
 	};
 
 	it('plans exactly the legs the table says, and no day is there by accident', () => {
-		const counts = Object.fromEntries(
+		const sorted = (pairs: [string, string][]) =>
+			[...pairs].sort((a, b) => a[0].localeCompare(b[0]) || a[1].localeCompare(b[1]));
+		const planned = Object.fromEntries(
 			DAYS.map((d) => [
 				d.name,
-				planDay({ day: d.day, events: d.events, stays: d.stays, incoming: d.incoming }, d.roster)
-					.length
+				sorted(
+					planDay({ day: d.day, events: d.events, incoming: d.incoming }, d.roster).map(
+						(l) => [l.fromEventId, l.toEventId] as [string, string]
+					)
+				)
 			])
 		);
-		expect(counts).toEqual(EXPECTED);
-		expect(Object.values(counts).filter((n) => n > 0)).toHaveLength(6);
+		expect(planned).toEqual(Object.fromEntries(DAYS.map((d) => [d.name, sorted(EXPECTED[d.name])])));
+		expect(Object.values(planned).filter((legs) => legs.length > 0)).toHaveLength(4);
 	});
 });
 
@@ -612,14 +587,6 @@ describe('toPlannerEvent', () => {
 describe('planDay', () => {
 	const acro = at(PLACE.acropolis, { id: 'acro', start_min: 540, end_min: 660 });
 	const port = at(PLACE.athensPort, { id: 'port', start_min: 780, end_min: 840 });
-	const tonight = stay({
-		id: 'ath',
-		day: '2026-04-16',
-		end_day: '2026-04-19',
-		lodging_id: 'l-ath',
-		lat: PLACE.athensHotel[0],
-		lng: PLACE.athensHotel[1]
-	});
 	const lastNight = stay({
 		id: 'prev',
 		day: '2026-04-15',
@@ -629,36 +596,18 @@ describe('planDay', () => {
 		lng: PLACE.athensHotel[1]
 	});
 
-	it('anchors tonight at midnight, so the journey home is open ended', () => {
-		const legs = planDay(
-			{ day: '2026-04-16', events: [acro], stays: [tonight], incoming: [] },
-			ROSTER
-		);
-		const home = legs.find((l) => l.toEventId === 'ath');
-		expect(home?.beforeMin).toBe(MIDNIGHT_MIN);
-		expect(home?.openEnded).toBe(true);
-	});
-
-	it('takes only the nights of the day as destinations, not the checkout morning', () => {
-		const leaving = stay({
-			id: 'leaving',
-			day: '2026-04-13',
-			end_day: '2026-04-16',
-			lodging_id: 'l-leaving',
-			lat: PLACE.chaniaHotel[0],
-			lng: PLACE.chaniaHotel[1]
-		});
-		const legs = planDay(
-			{ day: '2026-04-16', events: [acro], stays: [leaving, tonight], incoming: [] },
-			ROSTER
-		);
-		expect(legs.map((l) => l.toEventId)).not.toContain('leaving');
-		expect(legs.map((l) => l.toEventId)).toContain('ath');
+	it('plans no journey to a stay: a room is where a day starts, not somewhere to be', () => {
+		const legs = planDay({ day: '2026-04-16', events: [acro, port], incoming: [lastNight] }, ROSTER);
+		expect(legs.map((l) => [l.fromEventId, l.toEventId])).toEqual([
+			['prev', 'acro'],
+			['acro', 'port']
+		]);
+		expect(legs.map((l) => l.toEventId)).not.toContain('prev');
 	});
 
 	it('starts the morning at last night, as an origin with no time to be late for', () => {
 		const legs = planDay(
-			{ day: '2026-04-16', events: [acro], stays: [], incoming: [lastNight] },
+			{ day: '2026-04-16', events: [acro], incoming: [lastNight] },
 			ROSTER
 		);
 		expect(legs).toHaveLength(1);
@@ -687,7 +636,7 @@ describe('planDay', () => {
 			people: [BEN]
 		});
 		const legs = planDay(
-			{ day: '2026-04-16', events: [acro], stays: [], incoming: [a, b] },
+			{ day: '2026-04-16', events: [acro], incoming: [a, b] },
 			[ANA, BEN]
 		);
 		expect(legs.map((l) => l.fromEventId).sort()).toEqual(['a', 'b']);
@@ -697,7 +646,7 @@ describe('planDay', () => {
 	it('breaks the chain across a block with no location', () => {
 		const blank = row({ id: 'blank', start_min: 700, end_min: 740 });
 		const legs = planDay(
-			{ day: '2026-04-16', events: [acro, blank, port], stays: [], incoming: [] },
+			{ day: '2026-04-16', events: [acro, blank, port], incoming: [] },
 			ROSTER
 		);
 		expect(legs).toHaveLength(0);
@@ -711,7 +660,7 @@ describe('planDay', () => {
 			end_min: 740
 		});
 		const legs = planDay(
-			{ day: '2026-04-16', events: [acro, idle, port], stays: [], incoming: [] },
+			{ day: '2026-04-16', events: [acro, idle, port], incoming: [] },
 			ROSTER
 		);
 		expect(legs).toHaveLength(0);
@@ -721,17 +670,17 @@ describe('planDay', () => {
 		const blank = row({ id: 'blank', start_min: 700, end_min: 740 });
 		const later = at(PLACE.istanbulMosque, { id: 'later', start_min: 900, end_min: 960 });
 		const legs = planDay(
-			{ day: '2026-04-16', events: [acro, blank, port, later], stays: [], incoming: [] },
+			{ day: '2026-04-16', events: [acro, blank, port, later], incoming: [] },
 			ROSTER
 		);
 		expect(legs.map((l) => [l.fromEventId, l.toEventId])).toEqual([['port', 'later']]);
 	});
 
 	it('plans a day that crosses a zone change from local minutes alone', () => {
-		// Athens in the morning, an Istanbul stay at night, and a hand-entered
-		// flight that lands in Istanbul. The minutes are each city's own local
-		// clock; nothing here consults a zone, and nothing needs to, because a
-		// journey is planned between two stops on one board.
+		// Athens in the morning, a hand-entered flight that lands in Istanbul, and
+		// dinner there. The minutes are each city's own local clock; nothing here
+		// consults a zone, and nothing needs to, because a journey is planned
+		// between two stops on one board.
 		const flight = at(PLACE.athensPort, {
 			id: 'flight',
 			type: 'travel',
@@ -740,26 +689,19 @@ describe('planDay', () => {
 			lat: PLACE.istanbulMosque[0],
 			lng: PLACE.istanbulMosque[1]
 		});
-		const ist = stay({
-			id: 'ist',
-			day: '2026-04-16',
-			end_day: '2026-04-19',
-			lodging_id: 'l-ist',
-			lat: PLACE.istanbulHotel[0],
-			lng: PLACE.istanbulHotel[1]
-		});
+		const dinner = at(PLACE.istanbulHotel, { id: 'dinner', start_min: 1080, end_min: 1140 });
 		const legs = planDay(
-			{ day: '2026-04-16', events: [acro, flight], stays: [ist], incoming: [lastNight] },
+			{ day: '2026-04-16', events: [acro, flight, dinner], incoming: [lastNight] },
 			ROSTER
 		);
 		// Nothing is ever planned *to* a hand-entered journey, but where it lands
-		// starts the next leg: hotel -> Acropolis, then Istanbul -> the Istanbul
-		// hotel once the flight is over.
+		// starts the next leg: hotel -> Acropolis, then Istanbul -> dinner once the
+		// flight is over.
 		expect(legs.map((l) => [l.fromEventId, l.toEventId])).toEqual([
 			['prev', 'acro'],
-			['flight', 'ist']
+			['flight', 'dinner']
 		]);
-		expect(legs[1].beforeMin).toBe(MIDNIGHT_MIN);
+		expect(legs[1].beforeMin).toBe(1080);
 		expect(legs[1].afterMin).toBe(900);
 	});
 });
