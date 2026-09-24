@@ -10,7 +10,7 @@ import FormError from '../components/ui/FormError';
 import EmptyState from '../components/ui/EmptyState';
 import Select from '../components/ui/Select';
 import WarnMark from '../components/ui/WarnMark';
-import { PencilIcon } from '../components/ui/icons';
+import { LockIcon, PencilIcon } from '../components/ui/icons';
 import { useToast } from '../components/ui/Toast';
 import GoogleMap, { type MapTrack, type MapCenter } from '../components/GoogleMap';
 import TripMap from '../components/TripMap';
@@ -51,9 +51,11 @@ import type {
 } from './schedule/types';
 import '../styles/schedule.css';
 
+const cs = copy.schedule;
+
 const VIEW_OPTIONS: { v: ViewMode; label: string }[] = [
-	{ v: 'day', label: 'Day' },
-	{ v: 'agenda', label: 'Agenda' }
+	{ v: 'day', label: cs.views.day },
+	{ v: 'agenda', label: cs.views.agenda }
 ];
 
 /**
@@ -264,9 +266,9 @@ type BlockProps = {
 	/** A journey arrives on top of this block, so its top-left corner squares off
 	    to let the two left borders run as one line. */
 	hasLegAbove: boolean;
+	/** A frozen board draws no grip and no pencil: nothing here can be changed. */
+	locked: boolean;
 };
-
-const EDIT_ACTION = 'Edit';
 
 const Block = memo(function Block({
 	ev,
@@ -292,7 +294,8 @@ const Block = memo(function Block({
 	onGripDown,
 	onGripMove,
 	onGripUp,
-	hasLegAbove
+	hasLegAbove,
+	locked
 }: BlockProps) {
 	const bud = whoBudget(width, to - from, ev.title, lanePx);
 	const cls = [
@@ -347,7 +350,7 @@ const Block = memo(function Block({
 			</div>
 			<div className="bwho">
 				{ev.people.length === 0 || ev.people.length === memberCount ? (
-					<span className="who all">Everyone</span>
+					<span className="who all">{copy.common.everyone}</span>
 				) : ev.people.length <= bud.fit ? (
 					ev.people.map((id) => (
 						<span key={id} className="who">
@@ -367,29 +370,33 @@ const Block = memo(function Block({
 					</>
 				) : null}
 			</div>
-			<div
-				className="bresize"
-				role="separator"
-				aria-label="Drag to change the end time"
-				onPointerDown={(e) => onGripDown(e, ev)}
-				onPointerMove={onGripMove}
-				onPointerUp={onGripUp}
-			/>
-			<button
-				type="button"
-				className="bedit"
-				aria-label={`${EDIT_ACTION} ${ev.title}`}
-				// Swallow the pointer so pressing the pencil opens the editor rather
-				// than beginning a drag on the block behind it, and stop the click
-				// from reaching the block, whose own click only focuses the map.
-				onPointerDown={(e) => e.stopPropagation()}
-				onClick={(e) => {
-					e.stopPropagation();
-					onOpen(ev.id);
-				}}
-			>
-				<PencilIcon />
-			</button>
+			{!locked && (
+				<>
+					<div
+						className="bresize"
+						role="separator"
+						aria-label={cs.block.resizeLabel}
+						onPointerDown={(e) => onGripDown(e, ev)}
+						onPointerMove={onGripMove}
+						onPointerUp={onGripUp}
+					/>
+					<button
+						type="button"
+						className="bedit"
+						aria-label={copy.common.editLabel(ev.title)}
+						// Swallow the pointer so pressing the pencil opens the editor rather
+						// than beginning a drag on the block behind it, and stop the click
+						// from reaching the block, whose own click only focuses the map.
+						onPointerDown={(e) => e.stopPropagation()}
+						onClick={(e) => {
+							e.stopPropagation();
+							onOpen(ev.id);
+						}}
+					>
+						<PencilIcon />
+					</button>
+				</>
+			)}
 		</div>
 	);
 });
@@ -563,6 +570,7 @@ type ToolbarProps = {
 	viewAsOptions: { value: string; label: string; warn?: string }[];
 	onViewAs: (id: string) => void;
 	onAdd: () => void;
+	locked: boolean;
 };
 
 const Toolbar = memo(function Toolbar({
@@ -572,11 +580,12 @@ const Toolbar = memo(function Toolbar({
 	readAs,
 	viewAsOptions,
 	onViewAs,
-	onAdd
+	onAdd,
+	locked
 }: ToolbarProps) {
 	return (
 		<div className="toolbar">
-			<div className="pills" role="group" aria-label="Schedule view">
+			<div className="pills" role="group" aria-label={cs.viewAriaLabel}>
 				{VIEW_OPTIONS.map((o) => (
 					<Link
 						key={o.v}
@@ -603,9 +612,16 @@ const Toolbar = memo(function Toolbar({
 						/>
 					</div>
 				)}
-				<button className="btn primary" type="button" onClick={onAdd}>
-					+ Add
-				</button>
+				{locked ? (
+					<span className="lockmark" title={cs.lock.hint}>
+						<LockIcon />
+						{cs.lock.tag}
+					</span>
+				) : (
+					<button className="btn primary" type="button" onClick={onAdd}>
+						{cs.add}
+					</button>
+				)}
 			</div>
 		</div>
 	);
@@ -709,13 +725,13 @@ const BoardHead = memo(function BoardHead({
 				<Link
 					className="navbtn"
 					to={navUrl(prev, view)}
-					aria-label="Previous day"
+					aria-label={cs.nav.previousDay}
 					onClick={() => onStep?.(prev)}
 				>
 					‹
 				</Link>
 			) : (
-				<button className="navbtn" type="button" disabled aria-label="Previous day">
+				<button className="navbtn" type="button" disabled aria-label={cs.nav.previousDay}>
 					‹
 				</button>
 			)}
@@ -726,7 +742,7 @@ const BoardHead = memo(function BoardHead({
 							type="button"
 							className="daypick"
 							onClick={openPicker}
-							aria-label="Jump to a date"
+							aria-label={cs.nav.jumpToDate}
 						>
 							{label}
 						</button>
@@ -756,13 +772,13 @@ const BoardHead = memo(function BoardHead({
 				<Link
 					className="navbtn"
 					to={navUrl(next, view)}
-					aria-label="Next day"
+					aria-label={cs.nav.nextDay}
 					onClick={() => onStep?.(next)}
 				>
 					›
 				</Link>
 			) : (
-				<button className="navbtn" type="button" disabled aria-label="Next day">
+				<button className="navbtn" type="button" disabled aria-label={cs.nav.nextDay}>
 					›
 				</button>
 			)}
@@ -773,6 +789,12 @@ const BoardHead = memo(function BoardHead({
 export default function Schedule() {
 	const { trip } = useTrip();
 	const base = `/trips/${trip.id}/schedule`;
+	/**
+	 * The board is frozen. Checked in front of every write the page starts, and
+	 * again by the API, which is the boundary that matters: hiding a button is
+	 * how a locked board reads, not how it holds.
+	 */
+	const locked = trip.schedule_locked === 1;
 
 	// Read-only: every day and view change is a <Link>, so the board stays
 	// addressable and the back button walks back through the days.
@@ -1417,18 +1439,28 @@ export default function Schedule() {
 	/* Opening an event: the pencil on a block, or a stay band, asks for the
 	   editor. Pointing at a block no longer opens it; a click focuses the map
 	   instead, so `openBlock` is reached through the pencil alone. */
-	const openBlock = useCallback((id: string) => {
-		setOpenLegId('');
-		setOpenEventId(id);
-	}, []);
+	const openBlock = useCallback(
+		(id: string) => {
+			// The dialog is an edit form, so a frozen board has nothing to open. The
+			// rows it is reached from already read what it would say.
+			if (locked) return;
+			setOpenLegId('');
+			setOpenEventId(id);
+		},
+		[locked]
+	);
 	/* Opening a journey's arrival, keeping the leg's id so the dialog opens on
 	   the journey that was meant. Reached from the agenda list, whose rows open
 	   the way they always have: the click-focuses-the-map change is the day
 	   board's, and the agenda has no pencil to move editing onto. */
-	const openLeg = useCallback((leg: LegRow) => {
-		setOpenLegId(leg.id);
-		setOpenEventId(leg.toEventId);
-	}, []);
+	const openLeg = useCallback(
+		(leg: LegRow) => {
+			if (locked) return;
+			setOpenLegId(leg.id);
+			setOpenEventId(leg.toEventId);
+		},
+		[locked]
+	);
 	/** Add something to the day being read, with no time chosen yet.
 	 *
 	 * The day under the reader rather than the day in the url, because while the
@@ -1436,8 +1468,8 @@ export default function Schedule() {
 	 * screen. */
 	const addDay = reading?.day ?? data?.day;
 	const addHere = useCallback(() => {
-		if (addDay) setAdding({ day: addDay, start: null });
-	}, [addDay]);
+		if (addDay && !locked) setAdding({ day: addDay, start: null });
+	}, [addDay, locked]);
 	const closeEvent = () => {
 		setOpenEventId('');
 		setOpenLegId('');
@@ -1512,7 +1544,7 @@ export default function Schedule() {
 		(ids: string[]) => {
 			// Naming nobody and naming everybody are the same fact, and the stored
 			// form is the empty list: see `PeoplePicker`.
-			if (ids.length === 0 || ids.length === members.length) return 'Everyone';
+			if (ids.length === 0 || ids.length === members.length) return copy.common.everyone;
 			return ids.map((id) => shortName(id)).join(', ');
 		},
 		[members.length, shortName]
@@ -1705,7 +1737,7 @@ export default function Schedule() {
 	const addFromMap = useCallback(
 		(poiId: string) => {
 			const p = savedById.get(poiId);
-			if (!p || !shownDay) return;
+			if (!p || !shownDay || locked) return;
 			setAdding({
 				day: shownDay,
 				start: null,
@@ -1713,7 +1745,7 @@ export default function Schedule() {
 				poi: { id: p.id, name: p.name }
 			});
 		},
-		[savedById, shownDay]
+		[savedById, shownDay, locked]
 	);
 	/* The camera returns to the whole day when the selection is dropped: on a day
 	   change, because the focused block is not on the new day, and on Escape while
@@ -1780,6 +1812,7 @@ export default function Schedule() {
 
 	const onPointerDown = useCallback(
 		(e: React.PointerEvent, ev: EventRow, day: string) => {
+			if (locked) return;
 			// Let the resize grip through.
 			if ((e.target as HTMLElement).closest('.bresize')) return;
 			(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
@@ -1798,7 +1831,7 @@ export default function Schedule() {
 				dx: 0
 			});
 		},
-		[putDrag]
+		[putDrag, locked]
 	);
 
 	const onPointerMove = useCallback(
@@ -1922,6 +1955,7 @@ export default function Schedule() {
 
 	const onResizeDown = useCallback(
 		(e: React.PointerEvent, ev: EventRow) => {
+			if (locked) return;
 			e.stopPropagation();
 			(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
 			didDrag.current = false;
@@ -1933,7 +1967,7 @@ export default function Schedule() {
 				liveEnd: ev.end_min
 			});
 		},
-		[putResize]
+		[putResize, locked]
 	);
 
 	const onResizeMove = useCallback(
@@ -2038,23 +2072,27 @@ export default function Schedule() {
 							<span className="stayname">{s.title}</span>
 							<span className="staywho">{peopleLabel(s.people)}</span>
 						</button>
-						<button
-							type="button"
-							className="stayedit"
-							aria-label={`${EDIT_ACTION} ${s.title}`}
-							onClick={() => openBlock(s.id)}
-						>
-							<PencilIcon />
-						</button>
+						{!locked && (
+							<button
+								type="button"
+								className="stayedit"
+								aria-label={copy.common.editLabel(s.title)}
+								onClick={() => openBlock(s.id)}
+							>
+								<PencilIcon />
+							</button>
+						)}
 					</div>
 				))}
-				<button
-					type="button"
-					className="stayadd"
-					onClick={() => setAdding({ day: entry.day, start: null, type: 'stay' })}
-				>
-					+ Add stay
-				</button>
+				{!locked && (
+					<button
+						type="button"
+						className="stayadd"
+						onClick={() => setAdding({ day: entry.day, start: null, type: 'stay' })}
+					>
+						{cs.addStay}
+					</button>
+				)}
 			</div>
 		);
 	}
@@ -2096,6 +2134,7 @@ export default function Schedule() {
 				onGripMove={onResizeMove}
 				onGripUp={onResizeUp}
 				hasLegAbove={legTargets.has(ev.id)}
+				locked={locked}
 			/>
 		);
 	}
@@ -2237,7 +2276,7 @@ export default function Schedule() {
 						// A double click on empty track is "put something here". On a
 						// block it is not: blocks have their own dialogs, and opening a
 						// second one over the top would be a trap.
-						if ((e.target as HTMLElement).closest('.block')) return;
+						if (locked || (e.target as HTMLElement).closest('.block')) return;
 						const rect = e.currentTarget.getBoundingClientRect();
 						const mins = boardStart + (e.clientY - rect.top) / PX_PER_MIN;
 						const snapped = Math.round(mins / 15) * 15;
@@ -2327,7 +2366,7 @@ export default function Schedule() {
 	}
 
 	return (
-		<div className="sched" ref={rootRef}>
+		<div className={locked ? 'sched locked' : 'sched'} ref={rootRef}>
 			<Toolbar
 				view={view}
 				day={data.day}
@@ -2336,6 +2375,7 @@ export default function Schedule() {
 				viewAsOptions={viewAsOptions}
 				onViewAs={setViewAs}
 				onAdd={addHere}
+				locked={locked}
 			/>
 
 			<div className="split">

@@ -48,7 +48,7 @@ export default function ExpenseRow({
 			<button
 				type="button"
 				onClick={onOpen}
-				aria-label={settled ? c.openLabel(e.description) : c.editLabel(e.description)}
+				aria-label={settled ? c.openLabel(e.description) : copy.common.editLabel(e.description)}
 				className="tap-grow flex w-full cursor-pointer flex-wrap items-center gap-x-3 gap-y-1 border-0 bg-transparent p-0 text-left"
 			>
 				<Avatar name={e.payer_name} tone={credit ? 'muted' : 'accent'} />

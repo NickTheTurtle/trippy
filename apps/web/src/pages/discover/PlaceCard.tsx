@@ -1,13 +1,6 @@
 import Cover from '../../components/Cover';
 import type { Poi } from '../../lib/api-types';
-import {
-	CARD,
-	EditCardButton,
-	OnCalendarMark,
-	OpenLink,
-	VotePill,
-	VoteRule
-} from './card-controls';
+import { CARD, EditCardButton, OpenLink, VotePill, VoteRule } from './card-controls';
 import { MetaBits, parseHours, todayHours } from './place-meta';
 
 /**
@@ -75,7 +68,6 @@ export default function PlaceCard({
 				<div className="flex flex-wrap items-center gap-1.5">
 					<VotePill votes={p.votes} youVoted={!!p.you_voted} subject={p.name} onVote={onVote} />
 					{p.url && <OpenLink url={p.url} name={p.name} />}
-					{p.linked > 0 && <OnCalendarMark linked={p.linked} />}
 					<EditCardButton name={p.name} onEdit={onEdit} className="ml-auto" />
 				</div>
 			</div>

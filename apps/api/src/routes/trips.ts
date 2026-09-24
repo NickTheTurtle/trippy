@@ -69,7 +69,8 @@ trips.patch('/:tripId', requireMember, async (c) => {
 		name: str(b.name),
 		startDate: str(b.startDate),
 		endDate: str(b.endDate),
-		currency: str(b.currency)
+		currency: str(b.currency),
+		scheduleLocked: b.scheduleLocked === true
 	});
 	if (problem) return fail(c, 400, problem);
 	return c.json({ trip: getTripForUser(c.get('trip').id, c.get('user').id) });

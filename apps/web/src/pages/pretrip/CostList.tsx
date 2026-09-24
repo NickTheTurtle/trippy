@@ -116,7 +116,7 @@ export default function CostList({
 											<button
 												type="button"
 												onClick={() => onEdit(it)}
-												aria-label={c.editLabel(it.label)}
+												aria-label={copy.common.editLabel(it.label)}
 												className="flex w-full cursor-pointer items-center gap-3 border-0 bg-transparent p-0 text-left"
 											>
 												<span className="flex min-w-0 flex-col">

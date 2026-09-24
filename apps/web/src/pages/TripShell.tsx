@@ -8,6 +8,7 @@ import { TABS } from '../nav';
 import AddCityDialog from '../components/AddCityDialog';
 import TripFormDialog from '../components/TripFormDialog';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
+import { CheckBox } from '../components/ui/CheckBox';
 import UiAvatar from '../components/ui/Avatar';
 import LiveOff from '../components/LiveOff';
 import TabStrip from '../components/ui/TabStrip';
@@ -39,6 +40,8 @@ export type Trip = {
 	start_date: string | null;
 	end_date: string | null;
 	role: string;
+	/** 1 while the organizer has the schedule frozen. SQLite has no boolean. */
+	schedule_locked: number;
 	cities: TripCity[];
 	members: string[];
 };
@@ -204,7 +207,9 @@ export default function TripShell() {
 			<ConfirmDialog
 				open={confirming !== null}
 				title={
-					confirming === 'leave' ? c.leaveDialog.title(trip.name) : c.deleteDialog.title(trip.name)
+					confirming === 'leave'
+						? c.leaveDialog.title(trip.name)
+						: copy.common.deleteTitle(trip.name)
 				}
 				confirmLabel={confirming === 'leave' ? copy.common.leave : copy.common.delete}
 				busyLabel={confirming === 'leave' ? copy.common.working : copy.common.deleting}
@@ -293,6 +298,7 @@ function EditTrip({
 	onSaved: () => void;
 	onDelete: () => void;
 }) {
+	const [locked, setLocked] = useState(trip.schedule_locked === 1);
 	return (
 		<TripFormDialog
 			title={c.editDialog.title}
@@ -304,6 +310,15 @@ function EditTrip({
 					{copy.common.delete}
 				</button>
 			}
+			fields={
+				<label className="flex cursor-pointer items-start gap-2.5 select-none">
+					<CheckBox checked={locked} onChange={() => setLocked((on) => !on)} />
+					<span className="min-w-0">
+						<span className="block">{c.editDialog.lockLabel}</span>
+						<span className="block text-micro text-ink-faint">{c.editDialog.lockHint}</span>
+					</span>
+				</label>
+			}
 			initial={{
 				name: trip.name,
 				startDate: trip.start_date ?? '',
@@ -314,7 +329,13 @@ function EditTrip({
 			onSubmit={async (v) => {
 				await api(`/trips/${trip.id}`, {
 					method: 'PATCH',
-					body: { name: v.name, startDate: v.startDate, endDate: v.endDate, currency: v.currency }
+					body: {
+						name: v.name,
+						startDate: v.startDate,
+						endDate: v.endDate,
+						currency: v.currency,
+						scheduleLocked: locked
+					}
 				});
 				onSaved();
 				onClose();

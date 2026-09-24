@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { STAY_CHECK_IN, type EventType } from '@trippy/core/types';
-import { MAX_NAME_LENGTH } from '@trippy/core/validate';
+import { MAX_NAME_LENGTH, MAX_NOTES_LENGTH } from '@trippy/core/validate';
 import { api } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
 import Modal, { ModalFooter, ModalForm } from '../../components/ui/Modal';
@@ -25,6 +25,8 @@ import {
 	shiftDay
 } from './shared';
 import type { Cell, Crew, EventDraft, EventRow, LegRow, SavedPoi } from './types';
+
+const cf = copy.schedule.fields;
 
 /**
  * Adds one event to a day.
@@ -311,7 +313,7 @@ export default function AddEventDialog({
 					<div className="grid grid-cols-12 gap-x-2.5 gap-y-3.5">
 						{placeField}
 						<FieldShell
-							label="Type"
+							label={cf.type}
 							className={placeable ? 'col-span-4' : 'col-span-12 sm:col-span-5'}
 						>
 							<Select
@@ -322,7 +324,7 @@ export default function AddEventDialog({
 									setType(next);
 								}}
 								options={TYPE_OPTIONS}
-								ariaLabel="Type"
+								ariaLabel={cf.type}
 							/>
 						</FieldShell>
 
@@ -334,26 +336,31 @@ export default function AddEventDialog({
 								onCheckOut={setCheckOut}
 							/>
 						) : (
-							<FieldShell label="When" className="col-span-12 sm:col-span-7">
+							<FieldShell label={cf.when} className="col-span-12 sm:col-span-7">
 								<div className="tfpair">
 									<TimeField
 										value={startAt}
 										onChange={(v) => moveStart(String(v))}
-										ariaLabel="Start"
+										ariaLabel={cf.start}
 									/>
 									<span className="tfto">to</span>
 									<TimeField
 										value={endAt}
 										onChange={(v) => setEnd(String(v))}
 										onCommit={fixEnd}
-										ariaLabel="End"
+										ariaLabel={cf.end}
 									/>
 								</div>
 							</FieldShell>
 						)}
 						{type === 'travel' && (
-							<FieldShell label="Mode" optional className="col-span-12 sm:col-span-5">
-								<Select value={mode} onChange={setMode} options={MODE_OPTIONS} ariaLabel="Mode" />
+							<FieldShell label={cf.mode} optional className="col-span-12 sm:col-span-5">
+								<Select
+									value={mode}
+									onChange={setMode}
+									options={MODE_OPTIONS}
+									ariaLabel={cf.mode}
+								/>
 							</FieldShell>
 						)}
 						<PeoplePicker
@@ -374,7 +381,7 @@ export default function AddEventDialog({
 						    alone, so the field says what it overrides without a hint
 						    line repeating it. */}
 						<Field
-							label="Label"
+							label={cf.label}
 							optional
 							className="col-span-12"
 							value={label}
@@ -384,8 +391,9 @@ export default function AddEventDialog({
 						/>
 
 						<TextArea
-							label="Notes"
+							label={cf.notes}
 							optional
+							maxLength={MAX_NOTES_LENGTH}
 							className="col-span-12"
 							value={notes}
 							onChange={(e) => setNotes(e.target.value)}

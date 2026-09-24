@@ -14,13 +14,7 @@
  * takes them from.
  */
 
-import {
-	CalendarIcon,
-	CompassIcon,
-	PencilIcon,
-	TrashIcon,
-	UpvoteIcon
-} from '../../components/ui/icons';
+import { CompassIcon, PencilIcon, TrashIcon, UpvoteIcon } from '../../components/ui/icons';
 import { copy } from '../../copy';
 import { safeExternalUrl } from '@trippy/core/validate';
 
@@ -110,7 +104,7 @@ export function EditCardButton({
 	onEdit: () => void;
 	className?: string;
 }) {
-	const label = copy.discover.placeCard.editLabel(name);
+	const label = copy.common.editLabel(name);
 	return (
 		<button
 			type="button"
@@ -121,22 +115,6 @@ export function EditCardButton({
 			<PencilIcon />
 			<span className="sr-only">{label}</span>
 		</button>
-	);
-}
-
-/**
- * The mark in a card's bottom right corner saying this place or stay already
- * has a place on the calendar. Drawn rather than written, because a card is a
- * grid of small tiles and a sentence there competed with the name; the count it
- * used to spell out lives in its accessible name instead.
- */
-export function OnCalendarMark({ linked }: { linked: number }) {
-	const label = copy.discover.card.onCalendar(linked);
-	return (
-		<span className="ml-auto flex-none text-accent-ink" title={label}>
-			<CalendarIcon />
-			<span className="sr-only">{label}</span>
-		</span>
 	);
 }
 

@@ -3,6 +3,9 @@ import { FieldShell } from '../../components/ui/Field';
 import { crewGroups } from '../../lib/people';
 import type { Option } from '../../components/ui/Select';
 import type { Crew } from './types';
+import { copy } from '../../copy';
+
+const cf = copy.schedule.fields;
 
 /**
  * Who is on an event, with the crews offered above the people.
@@ -67,7 +70,7 @@ export default function PeoplePicker({
 	// means the same thing.
 	const everyone = people !== null && (named.length === 0 || named.length === ids.length);
 	return (
-		<FieldShell label="Participants" className={className}>
+		<FieldShell label={cf.participants} className={className}>
 			<MultiSelect
 				selected={everyone ? ids : named}
 				onChange={(next) => {
@@ -79,9 +82,9 @@ export default function PeoplePicker({
 				}}
 				options={memberOptions}
 				groups={crewGroups(crews)}
-				summary={everyone ? 'Everyone' : undefined}
-				placeholder="Nobody"
-				ariaLabel="Participants"
+				summary={everyone ? copy.common.everyone : undefined}
+				placeholder={cf.nobody}
+				ariaLabel={cf.participants}
 			/>
 		</FieldShell>
 	);

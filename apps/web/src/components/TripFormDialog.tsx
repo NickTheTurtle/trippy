@@ -64,6 +64,7 @@ export default function TripFormDialog({
 	initial,
 	fallback,
 	footerStart,
+	fields,
 	onSubmit,
 	onClose
 }: {
@@ -81,6 +82,13 @@ export default function TripFormDialog({
 	 * is where you go to delete it, and creating one has nothing to put here.
 	 */
 	footerStart?: ReactNode;
+	/**
+	 * Rendered under the fields, for anything that belongs to the thing being
+	 * edited rather than to the form: the schedule lock is a property of a trip
+	 * that already exists, and a trip being created has no schedule to lock.
+	 * The caller holds its state, as it already holds the write.
+	 */
+	fields?: ReactNode;
 	onSubmit: (values: TripFormValues) => Promise<void>;
 	onClose: () => void;
 }) {
@@ -150,6 +158,7 @@ export default function TripFormDialog({
 							onChange={setCurrency}
 						/>
 					</div>
+					{fields}
 				</div>
 				<ModalFooter
 					start={footerStart}

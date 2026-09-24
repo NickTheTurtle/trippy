@@ -405,6 +405,12 @@ dropColumn('cities', 'depart');
 addColumn('expenses', 'split_mode', "TEXT NOT NULL DEFAULT 'even'");
 addColumn('expense_participants', 'weight', 'REAL NOT NULL DEFAULT 1');
 
+// A schedule the organizer has frozen. Once the plan is agreed, the board is
+// the one page where an accidental drag silently rewrites something the group
+// has already booked around, and the drag leaves no trace of what it moved.
+// Defaults to 0, so every trip that already exists stays editable.
+addColumn('trips', 'schedule_locked', 'INTEGER NOT NULL DEFAULT 0');
+
 /**
  * Pre-trip tasks are per-person, not per-trip. Something like "apply for a
  * visa" isn't done when one person does it; every assignee has to do their

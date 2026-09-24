@@ -458,8 +458,7 @@ The fix splits the two calls, because the two parameters are not equally capable
   `guest_house`.
 - **Text search** takes a single `includedType`, which cannot express that list
   at all, so it no longer filters server-side. It over-fetches 20 and filters the
-  answer itself against the full 17-entry `GOOGLE_LODGING` set before trimming to
-  8. `places.types` is already in `SEARCH_MASK`, so the filter costs nothing
+  answer itself against the full 17-entry `GOOGLE_LODGING` set before trimming to 8. `places.types` is already in `SEARCH_MASK`, so the filter costs nothing
   extra. This mirrors what the Photon fallback has always done with OSM tags.
 
 `GOOGLE_LODGING` is now one list rather than two: `categoryOf` used to carry its
@@ -964,7 +963,7 @@ its commonest save to protect against a state nothing can store. Free time, not
 an empty participant list, remains how the schedule says somebody is not
 involved. This is settled; please do not relitigate it by adding a flag column.
 
-What *is* refused, at the API and on both write paths, is a list that **names
+What _is_ refused, at the API and on both write paths, is a list that **names
 people and names nobody this trip has**. That payload is a genuine mistake, and
 until now it was silently rewarded: `writePeople` filters to the roster before
 writing, so a body of ids from another trip, or of people who have since left,
@@ -1482,8 +1481,8 @@ long it takes.
 **There is exactly one estimator, and it answers both halves of the question.**
 `guessLeg` / `minsByMode` in `packages/core/src/travel.ts` decide the label and
 the minutes together. This is worth stating because it was not true and the
-failure was silent: `routing.ts` took its *minutes* from a second estimate in
-`geo.ts` (mode-blind above 8 km, 30 km/h, no flight tier) and its *label* from a
+failure was silent: `routing.ts` took its _minutes_ from a second estimate in
+`geo.ts` (mode-blind above 8 km, 30 km/h, no flight tier) and its _label_ from a
 third copy of the thresholds, so a 1000 km leg was labelled `flight` and given
 2605 minutes, roughly 43 hours of driving, and that number was persisted to
 `travel_legs.auto_mins`. A chosen mode had the same bug in a quieter form: a
@@ -1757,8 +1756,8 @@ lets the E2E suite and a fresh clone register accounts without an SES identity.
 
 Open sign-up means every registration mails an address a stranger typed, so
 typos and deliberate garbage are routine, and a real recipient can always press
-"this is spam". AWS watches the bounce and complaint rates of a *sending
-identity*, not of an app, at roughly 5% and 0.1%. The identity here is the
+"this is spam". AWS watches the bounce and complaint rates of a _sending
+identity_, not of an app, at roughly 5% and 0.1%. The identity here is the
 owner's whole `dxu.info` domain, so one badly behaved app suspends mail for
 everything on it. `mail_suppressions` is the record that stops a known-bad
 address being mailed twice, and `sendMail` consults it before it chooses a
@@ -1878,7 +1877,7 @@ Four gates, all failing closed, in this order:
 
 1. **Certificate URL allowlist.** HTTPS only, host matching
    `sns.<region>.amazonaws.com` (or the `.com.cn` China variant), and the path
-   pinned to `/SimpleNotificationService-<id>.pem`. Checked *before* anything is
+   pinned to `/SimpleNotificationService-<id>.pem`. Checked _before_ anything is
    fetched, so the endpoint can never be turned into a request against a server
    of the attacker's choosing. A valid signature proves nothing if the attacker
    also chose the key it is checked against, which is exactly what a permissive
@@ -1891,8 +1890,8 @@ Four gates, all failing closed, in this order:
    for the message's `Type`, in AWS's order, and verified with SHA1 or SHA256
    per `SignatureVersion`. An unknown `Type` has no defined signed string, so
    there is nothing to verify and the answer is no.
-4. **Freshness and replay.** A signature says *who* wrote a message, never
-   *when* or *how many times* it may be delivered. A genuine notification
+4. **Freshness and replay.** A signature says _who_ wrote a message, never
+   _when_ or _how many times_ it may be delivered. A genuine notification
    captured anywhere on its path would otherwise verify forever. Messages older
    than an hour (comfortably beyond SNS delivery and retry latency) are refused,
    as are messages dated more than a minute into the future, and a missing or
@@ -2061,7 +2060,7 @@ on a non-`ok` response. The route still drew, because OSRM answered, so a 403 on
 every single Google Routes call looked exactly like a quiet evening. Places already
 had a recorder for this; Routing now uses the same one rather than a second
 mechanism, because two health stories that disagree are worse than one that is
-sometimes coarse. Google non-`ok` and a missing duration now *throw* so that the
+sometimes coarse. Google non-`ok` and a missing duration now _throw_ so that the
 recorder sees them, and the fallback still runs, so reporting the failure costs us
 no functionality.
 
@@ -2078,15 +2077,15 @@ runs under `tsx watch`, so every file save wiped the memory and the endpoint wen
 green again without anything having been fixed. A monitor polling `/api/health`
 would have seen green all night. Three options were weighed:
 
-- *Probe on demand.* Honest, but it turns a health endpoint into a billing line:
+- _Probe on demand._ Honest, but it turns a health endpoint into a billing line:
   anything that polls it (a monitor, a load balancer, a curious tab left open)
   spends money on a timer. Rejected for the same reason a background poller was
   ruled out.
-- *Derive it from configuration.* Free, but it answers "is a key set?", not "does
+- _Derive it from configuration._ Free, but it answers "is a key set?", not "does
   the key work". Both Google keys in this environment are present and rejected,
   which is precisely the state this would call healthy. This is the false green we
   started with.
-- *Persist the last failure and the last success.* Chosen. It costs nothing, it
+- _Persist the last failure and the last success._ Chosen. It costs nothing, it
   survives a restart, and it reports the thing that actually happened. The new
   `provider_health` table holds one row per service and is written only on a state
   change or at most once a minute, so a hot failure loop does not become a write
@@ -2101,7 +2100,7 @@ sent no `lang`, so Photon replied in the local script and "Acropolis Museum" was
 stored as "Mouseio Akropolis" in a field the trip then displays and edits forever.
 Probing the live endpoint (an invalid value makes Photon list what it takes)
 showed `lang` accepts only `default`, `de`, `en`, `fr`; `en` is now pinned. Note
-what this does *not* fix: only `name`, `city` and `country` are localized, so
+what this does _not_ fix: only `name`, `city` and `country` are localized, so
 `street` stays in the local script. That is Photon's data, not our parameter.
 
 **Address search: what the provider can and cannot do.** Typing the Acropolis
@@ -2113,7 +2112,7 @@ nothing for this query, and (c) Greek addresses in OSM have no house-number node
 so no free provider can return that building by its address. Three of those
 identical rows were `highway:*` segments of the same street, which is why they
 looked the same and sat in different places. What we could fix, we did: the house
-number and postcode the response *does* carry are no longer discarded, rows are
+number and postcode the response _does_ carry are no longer discarded, rows are
 deduped on name plus address, and named buildings are ordered ahead of raw street
 segments, so the museum appears above the street it is on. Building-level address
 lookup remains a Google Places job, and will work when a working key exists. This
@@ -2258,9 +2257,9 @@ React scaffold listed nine sections and landed `/trips/:tripId` on the schedule.
 The app has **five** tabs, in the order discover, preparation, schedule,
 expenses, people, and the bare trip URL lands on **discover**. `settings` has no
 page at all: it is the organizer's edit dialog in the trip header. `nav.ts` is
-now the single source for all of this, and `App.tsx` generates both the tab
-routes and the redirects from it, so adding a section cannot leave the router
-and the tab bar disagreeing.
+now the single source for all of this, and `App.tsx` generates the tab routes
+from it, so adding a section cannot leave the router and the tab bar
+disagreeing.
 
 **Every slug is the label, lowercased.** Two were not: the tab reading
 "Schedule" lived at `/calendar` and the one reading "Preparation" lived at
@@ -2270,12 +2269,13 @@ thing to explain rather than a thing to read: it also meant nobody could guess a
 URL, and a reader of the code had to hold a translation table.
 
 The argument for keeping them was that a URL's whole job is to keep pointing at
-what it pointed at. `REDIRECTS` settles that, so the rename cost nothing. It
-holds four entries of two kinds, handled identically because a visitor cannot
-tell them apart: `costs` and `lodging` were **folded** into the tabs that
-absorbed them, and `calendar` and `pretrip` are the **old spellings** of tabs
-that were renamed. An e2e test walks all four, because the redirect is the
-load-bearing half of the rename.
+what it pointed at, and for a while a `REDIRECTS` table carried the four old
+paths (`costs` and `lodging`, folded into the tabs that absorbed them, plus
+`calendar` and `pretrip`, the old spellings). It has since been removed. The
+app is in beta and nobody has a saved link to honour, so the table was paying
+rent on a compatibility promise that was never made. An unknown section now
+falls through to the catch-all like any other bad address. If the app ever ships
+links people keep, a rename after that point needs the redirect again.
 
 These are the _page_ slugs. The API keeps `/trips/:id/pretrip`, which is a
 different namespace nobody reads off a screen, and the Expo client keeps its
@@ -4619,8 +4619,22 @@ stays whole rather than being reassembled at the call site.
 Only authored prose moves. Icon glyphs, CSS classes, route and API paths, query
 keys, SSE event names, currency codes and IANA zone names stay put: they are
 identifiers that happen to be strings. Developer-only throws and `console`
-messages stay too, since no user reads them. `Calendar.tsx` is excluded while it
-is frozen; its strings fold in during its redesign.
+messages stay too, since no user reads them.
+
+**Repeated labels are shared, not restated.** `Edit ${name}`, `Delete ${name}`
+and `Delete ${name}?` had each been written out six to eight times, once per
+section, and had already drifted apart once. They now live as
+`common.editLabel`, `common.deleteLabel` and `common.deleteTitle`, and every
+row's pencil, bin and confirmation reads from them. A section keeps its own
+entry only when the sentence genuinely differs: the task list says
+`Edit ${kind}: ${label}` because its rows do not carry their own headings, and
+Discover's delete confirmation has a variant that counts the calendar events a
+place takes with it.
+
+**The schedule's strings now fold in too.** The section was excluded while the
+page was frozen; the freeze has lifted, so `copy.schedule` holds the day
+navigation, the block labels, the fields the two event dialogs share, and the
+four things the place search says instead of a list of results.
 
 **Helper text is the exception, not the default.** The app had drifted into
 explaining itself: a hint under a field repeating the field label, an empty
@@ -6072,6 +6086,7 @@ and in the same five columns beside the clock's seven, so the two dialogs read
 alike and the row is full rather than half empty. An unpicked mode is sent as
 absent, not as an empty string: absent means "let the router decide", which is
 the right default for a journey nobody has an opinion about.
+
 ## A card says what it can do
 
 **A Discover card carries a pencil.** Pressing the cover of a place or a stay
@@ -6196,7 +6211,7 @@ bounded by the last day rather than the day after it, because the last night of
 a May 10 to May 15 trip is the 14th into the 15th.
 
 **A negative share is a typo, not a refund.** The split guard only asked that
-*something* was positive, so `-1 / 2 / 7` passed it and then divided as though
+_something_ was positive, so `-1 / 2 / 7` passed it and then divided as though
 the first person had asked for nothing: somebody named in the split was silently
 dropped out of it, and the row went on to describe itself as "2 ways". The sign
 an expense can legitimately carry is on the **total**, which is what makes
@@ -6265,6 +6280,46 @@ One more finding was rejected on measurement: **"nothing shows that the tab
 strip scrolls."** At 390px with touch the strip is 482px of content in 342px of
 room and `.tabswrap` carries `more-r`, so the fade affordance is present and
 active.
+
+### Locking the schedule
+
+A trip reaches a point where the plan is settled and the risk stops being "we
+have not decided" and becomes "somebody dragged a block on a phone in their
+pocket". **Lock schedule** is a switch in the Edit trip dialog that freezes the
+board.
+
+It is a property of the **trip**, not of the schedule. The decision it records
+is a decision about the trip, and the edit dialog is already the one
+organizer-only form on the page, so the switch needed no new surface and no new
+permission rule: `updateTrip` was already organizer-only.
+
+Enforcement is one `schedule.use('*')` guard that refuses every non-GET on the
+`/schedule` routes with 403, rather than a check per route. A route added later
+cannot silently forget it, and a board that was loaded before the lock went on
+still gets a real refusal rather than a save that appears to work.
+
+**Reads are never refused.** A locked trip is one everybody is meant to be
+reading; a lock that hid the plan would be the opposite of the point.
+
+**The lock holds against the organizer too**, and the hint under the switch says
+so. The accident it prevents is a drag by whoever is looking at the board, and
+that is as often the person who set the plan as anyone else. Unlocking is one
+switch away, so the cost of being stopped is small and the cost of not being
+stopped is a plan that quietly moved.
+
+In the client the lock removes affordances rather than disabling them: no Add,
+no `+ Add stay`, no pencils, no resize handles, no drag, no double-click to
+place, and `openBlock` / `openLeg` become no-ops so the edit dialog cannot be
+reached from the agenda rows or a journey leg. A disabled control that is still
+drawn invites a second try; an absent one does not. What stands in place of the
+Add button is a **Locked** tag, so the row keeps its shape and the absence reads
+as deliberate rather than as a control that failed to render.
+
+**A deliberate boundary:** the lock covers the `/schedule` routes only. Deleting
+a place in Discover still cascades to the events built on it, which is an
+indirect schedule change. That is left alone because the cascade is the whole
+contract of the Discover list, and a lock that made places undeletable would be
+a lock on a page that does not say it is locked.
 
 ## Implementation status
 
@@ -6855,17 +6910,17 @@ The op edit branch is a partial update, so "the body did not mention this" has
 to stay distinguishable from "the body asked for this to be cleared". What each
 optional field does, as built:
 
-| Field | Absent | Explicit `null` | Empty (`''` / `[]`) | Unreadable |
-|---|---|---|---|---|
-| `title` | unchanged | unchanged (null reads as silence, as it always has) | **derived again**, exactly as create derives | 400, over-length quotes the limit |
-| `type` | unchanged | 400 | 400 | 400 `Pick an event type.` |
-| `notes` | unchanged | cleared | cleared | n/a, any string is notes |
-| `travelMode` | unchanged | cleared, back to the router | cleared, back to the router | 400 `Pick a travel mode.` |
-| `poiId` | link unchanged | link and coordinates cleared | link and coordinates cleared | 400 for a non-string; an unknown id unlinks by design |
-| `startMin` / `endMin` | unchanged | **400** | n/a | 400 |
-| `day` / `endDay` | unchanged | 400 | 400 | 400; a checkout on or before the check-in is 400 |
-| `version` | unchecked write, as before | unchecked write | unchecked write | 400 `Reload the page and try again.` |
-| `people` | not read by this branch at all | not read | not read | not read |
+| Field                 | Absent                         | Explicit `null`                                     | Empty (`''` / `[]`)                          | Unreadable                                            |
+| --------------------- | ------------------------------ | --------------------------------------------------- | -------------------------------------------- | ----------------------------------------------------- |
+| `title`               | unchanged                      | unchanged (null reads as silence, as it always has) | **derived again**, exactly as create derives | 400, over-length quotes the limit                     |
+| `type`                | unchanged                      | 400                                                 | 400                                          | 400 `Pick an event type.`                             |
+| `notes`               | unchanged                      | cleared                                             | cleared                                      | n/a, any string is notes                              |
+| `travelMode`          | unchanged                      | cleared, back to the router                         | cleared, back to the router                  | 400 `Pick a travel mode.`                             |
+| `poiId`               | link unchanged                 | link and coordinates cleared                        | link and coordinates cleared                 | 400 for a non-string; an unknown id unlinks by design |
+| `startMin` / `endMin` | unchanged                      | **400**                                             | n/a                                          | 400                                                   |
+| `day` / `endDay`      | unchanged                      | 400                                                 | 400                                          | 400; a checkout on or before the check-in is 400      |
+| `version`             | unchecked write, as before     | unchecked write                                     | unchecked write                              | 400 `Reload the page and try again.`                  |
+| `people`              | not read by this branch at all | not read                                            | not read                                     | not read                                              |
 
 Two entries are worth the reasoning. `title` is the one field a member can clear
 without naming a replacement. It used to be dropped, and the old name reappeared

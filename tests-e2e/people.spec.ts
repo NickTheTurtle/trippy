@@ -43,13 +43,15 @@ test.describe('people', () => {
 
 			// Revoking is removing that row, from inside its own dialog and behind
 			// the house confirmation.
-			await page.getByRole('button', { name: cpl.row.editLabel('Zoe') }).click();
+			await page.getByRole('button', { name: copy.common.editLabel('Zoe') }).click();
 			await page
 				.getByRole('dialog')
 				.getByRole('button', { name: copy.common.delete, exact: true })
 				.click();
 			const confirm = page.getByRole('dialog');
-			await expect(confirm.getByRole('heading', { name: cpl.deleteTitle('Zoe') })).toBeVisible();
+			await expect(
+				confirm.getByRole('heading', { name: copy.common.deleteTitle('Zoe') })
+			).toBeVisible();
 			await confirm.getByRole('button', { name: copy.common.delete, exact: true }).click();
 			await expect(roster.getByRole('listitem').filter({ hasText: 'Zoe' })).toHaveCount(0);
 		} finally {
@@ -99,7 +101,7 @@ test.describe('people', () => {
 			await dialog.getByLabel(cpl.add.emailLabel).fill('typo@example.test');
 			await dialog.getByRole('button', { name: copy.common.add, exact: true }).click();
 
-			await page.getByRole('button', { name: cpl.row.editLabel('Kim') }).click();
+			await page.getByRole('button', { name: copy.common.editLabel('Kim') }).click();
 			dialog = page.getByRole('dialog');
 			await dialog.getByLabel(cpl.edit.emailLabel).fill('kim@example.test');
 			await dialog.getByRole('button', { name: copy.common.save, exact: true }).click();
@@ -148,7 +150,7 @@ test.describe('people', () => {
 
 			const row = page.getByRole('listitem').filter({ hasText: 'Mallory' });
 			await expect(row).toBeVisible();
-			await page.getByRole('button', { name: cpl.row.removeLabel('Mallory') }).click();
+			await page.getByRole('button', { name: copy.common.deleteLabel('Mallory') }).click();
 			// The row states who they are; the removal lives in that dialog's footer.
 			await page
 				.getByRole('dialog')
@@ -159,7 +161,7 @@ test.describe('people', () => {
 			const confirm = page.getByRole('dialog');
 			await expect(confirm.getByText(copy.ui.confirmDialog.undone)).toBeVisible();
 			await expect(
-				confirm.getByRole('heading', { name: cpl.deleteTitle('Mallory') })
+				confirm.getByRole('heading', { name: copy.common.deleteTitle('Mallory') })
 			).toBeVisible();
 			await confirm.getByRole('button', { name: copy.common.delete, exact: true }).click();
 

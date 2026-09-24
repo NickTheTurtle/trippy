@@ -57,7 +57,7 @@ export default function EditStayDialog({
 		title:
 			s.linked > 0
 				? copy.discover.deleteStay.linkedTitle(s.name, s.linked)
-				: copy.discover.deleteStay.title(s.name),
+				: copy.common.deleteTitle(s.name),
 		busyLabel: copy.common.deleting,
 		onDelete
 	});

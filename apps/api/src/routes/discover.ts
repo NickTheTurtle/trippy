@@ -31,7 +31,13 @@ import {
 	MIN_QUERY,
 	type SearchKind
 } from '@trippy/server/places';
-import { isNameLength, nameTooLong, safeExternalUrl } from '@trippy/core/validate';
+import {
+	isNameLength,
+	isNotesLength,
+	nameTooLong,
+	notesTooLong,
+	safeExternalUrl
+} from '@trippy/core/validate';
 import { haversineKm } from '@trippy/core/geo';
 
 export const discover = new Hono<Env>();
@@ -216,6 +222,9 @@ discover.post('/pois', async (c) => {
 	if (!isNameLength(name)) return fail(c, 400, nameTooLong());
 	let notes = optStr(b.notes);
 	if (activity && placeName) notes = notes ? `${placeName} · ${notes}` : placeName;
+	// Checked after the join, not before: the place name is prepended here, so
+	// the value the limit has to hold is the one that ends up in the column.
+	if (notes && !isNotesLength(notes)) return fail(c, 400, notesTooLong());
 
 	if (poiTitleExists(trip.id, cityId, name)) {
 		return fail(
@@ -270,6 +279,9 @@ discover.patch('/pois/:poiId', async (c) => {
 	if (!name) return fail(c, 400, 'Enter a name.');
 	if (!isNameLength(name)) return fail(c, 400, nameTooLong());
 
+	const notes = optStr(b.notes);
+	if (notes && !isNotesLength(notes)) return fail(c, 400, notesTooLong());
+
 	const link = readLink(b.url);
 	if ('error' in link) return fail(c, 400, link.error);
 
@@ -277,7 +289,7 @@ discover.patch('/pois/:poiId', async (c) => {
 		c,
 		updatePoi(c.get('trip').id, c.get('user').id, c.req.param('poiId'), {
 			name,
-			notes: optStr(b.notes),
+			notes,
 			url: link.url,
 			// Patch semantics: only forwarded when the client actually sent it.
 			// Defaulting it here would reclassify a food location as an attraction
@@ -393,6 +405,11 @@ discover.post('/stays', async (c) => {
 	if (!name) return fail(c, 400, 'Enter a name.');
 	if (!isNameLength(name)) return fail(c, 400, nameTooLong());
 
+	// A stay's `tag` is its one free-text line, and the add popup calls that
+	// field notes, so it answers to the same limit.
+	const stayTag = str(b.tag) || str(b.notes);
+	if (stayTag && !isNotesLength(stayTag)) return fail(c, 400, notesTooLong());
+
 	const price = stayPriceCents(b);
 	if (price === 'bad') return fail(c, 400, 'Enter a valid price, or leave it blank.');
 
@@ -414,9 +431,7 @@ discover.post('/stays', async (c) => {
 	if (elsewhere) return fail(c, 400, elsewhere);
 
 	const id = addOption(trip.id, c.get('user').id, str(b.cityId), name, {
-		// `notes` is the field name the add popup uses for the one free-text line
-		// a stay carries; the column has always been called `tag`.
-		tag: str(b.tag) || str(b.notes),
+		tag: stayTag,
 		priceCents: price,
 		// Blank: the server falls back to the trip's home currency.
 		currency: str(b.currency),
@@ -476,6 +491,9 @@ discover.patch('/stays/:optionId', async (c) => {
 	const name = str(b.name);
 	if (!name) return fail(c, 400, 'Enter a name.');
 	if (!isNameLength(name)) return fail(c, 400, nameTooLong());
+
+	const editTag = str(b.tag) || str(b.notes);
+	if (editTag && !isNotesLength(editTag)) return fail(c, 400, notesTooLong());
 
 	const price = stayPriceCents(b);
 	if (price === 'bad') return fail(c, 400, 'Enter a valid price, or leave it blank.');

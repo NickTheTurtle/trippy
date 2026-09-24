@@ -589,12 +589,36 @@ select.input.compact {
 	.modal {
 		max-height: min(94vh, calc(100vh - 1rem));
 	}
+	/*
+	 * Every button in the footer takes the same share of the row.
+	 *
+	 * The delete sits in its own wrapper so that it can be pushed away from Save
+	 * at desk widths. On a phone that wrapper stayed sized to its text while
+	 * Cancel and Save stretched into what was left, so a three-button footer
+	 * read as one narrow button and two wide ones. Flexing the wrapper on the
+	 * same terms as the buttons beside it is what evens the row out; dropping
+	 * the push is what stops it opening a gap where a third button should be.
+	 *
+	 * The basis is a width, not zero, so a long label wraps the row instead of
+	 * squeezing every button into a third of a phone.
+	 */
 	.mfoot {
 		justify-content: stretch;
 	}
 	.mfoot .btn {
-		flex: 1 1 auto;
 		justify-content: center;
+	}
+	.mfoot > .mr-auto {
+		margin-right: 0;
+		display: flex;
+	}
+	.mfoot > .mr-auto > .btn {
+		flex: 1 1 auto;
+	}
+	.mfoot > .mr-auto,
+	.mfoot > .btn {
+		flex: 1 1 7rem;
+		min-width: 0;
 	}
 }
 

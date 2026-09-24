@@ -121,6 +121,32 @@
 	gap: 0.4rem;
 	font-size: var(--text-meta);
 }
+/*
+ * The frozen board.
+ *
+ * The tag stands where the Add button stood, so the row keeps its shape and the
+ * absence is legible rather than looking like a control that failed to render.
+ * Everything else the lock does is the removal of an affordance, so the rules
+ * below only stop the rows that survive from claiming to be pressable.
+ */
+.sched .lockmark {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.35rem;
+	padding: 0.4rem 0.6rem;
+	border: 1px solid var(--color-line);
+	border-radius: var(--radius-md);
+	color: var(--color-ink-faint);
+	font-size: var(--text-meta);
+}
+.sched.locked .agendarow,
+.sched.locked .block,
+.sched.locked .stayface {
+	cursor: default;
+}
+.sched.locked .agendarow:hover {
+	background: none;
+}
 /* `.sel`'s default width is a percentage against a shrink-to-fit parent, which
    cannot be resolved while measuring it, so the box came out narrower than its
    own trigger. A flat width here has no such cycle. */
@@ -1069,6 +1095,11 @@
 	}
 	.sched .toolbar .btn.primary {
 		flex: 0 0 auto;
+	}
+	/* The lock tag stands where the button it replaced stood, so a locked board
+	   and an unlocked one are the same row with one control swapped out. */
+	.sched .toolbar .lockmark {
+		margin-left: auto;
 	}
 	/* Line two: the view switch, at the width it wants. */
 	.sched .toolbar .pills {

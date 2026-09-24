@@ -190,3 +190,27 @@ export function CalendarIcon() {
 		</svg>
 	);
 }
+/** A closed padlock: the schedule is frozen against changes. */
+export function LockIcon() {
+	return (
+		<svg viewBox="0 0 16 16" aria-hidden="true" className="size-3.5">
+			<rect
+				x="3"
+				y="7"
+				width="10"
+				height="7"
+				rx="1.4"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="1.4"
+			/>
+			<path
+				d="M5.5 7V5a2.5 2.5 0 015 0v2"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="1.4"
+				strokeLinecap="round"
+			/>
+		</svg>
+	);
+}

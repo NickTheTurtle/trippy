@@ -16,7 +16,13 @@ import {
 	type EventType
 } from '@trippy/core/types';
 import { formatDayRange } from '@trippy/core/tz';
-import { isNameLength, MAX_NAME_LENGTH, nameTooLong } from '@trippy/core/validate';
+import {
+	isNameLength,
+	isNotesLength,
+	MAX_NAME_LENGTH,
+	nameTooLong,
+	notesTooLong
+} from '@trippy/core/validate';
 import {
 	createEvent,
 	crewsForTrip,
@@ -52,6 +58,29 @@ import { providerStatus } from '@trippy/server/places';
 export const schedule = new Hono<Env>();
 
 schedule.use('*', requireMember);
+
+export const SCHEDULE_LOCKED =
+	'The schedule is locked. The organizer can unlock it to make changes.';
+
+/**
+ * A frozen board takes no writes.
+ *
+ * Guarded here rather than in each mutation because the point of the lock is
+ * that it covers the whole page: a check per route is a check somebody adding
+ * the next route can forget, and the failure would be silent. Reads are never
+ * refused, so anyone can still look at the agreed plan.
+ *
+ * The lock is not a permission. It is set and cleared by the organizer from the
+ * trip's edit dialog, and while it is on it holds against the organizer too,
+ * which is the whole of its value: the accident it exists to stop is a drag by
+ * whoever is looking at the board, and that is usually the person who built it.
+ */
+schedule.use('*', async (c, next) => {
+	if (c.req.method !== 'GET' && c.get('trip').schedule_locked) {
+		return fail(c, 403, SCHEDULE_LOCKED);
+	}
+	await next();
+});
 
 const VIEWS = ['day', 'agenda'] as const;
 type ViewMode = (typeof VIEWS)[number];
@@ -664,12 +693,15 @@ schedule.post('/events', async (c) => {
 	const sentTitle = str(b.title);
 	if (sentTitle && !isNameLength(sentTitle)) return fail(c, 400, nameTooLong());
 
+	const notes = str(b.notes);
+	if (notes && !isNotesLength(notes)) return fail(c, 400, notesTooLong());
+
 	// Free time is deliberately nowhere, so it is the one type with no link. A
 	// journey's link is the far end of it: where it lands.
 	const place = isLocatedType(type)
 		? placeFor(trip.id, type, str(b.poiId), str(b.placeName))
 		: null;
-	const title = sentTitle || derivedTitle(type, placeName(place), str(b.notes));
+	const title = sentTitle || derivedTitle(type, placeName(place), notes);
 
 	// Every event, a stay included, occupies real time on its own day, so the
 	// end is always a length from the start. A length is asked for rather than
@@ -701,7 +733,7 @@ schedule.post('/events', async (c) => {
 		cityId: str(b.cityId) || trip.cities[0]?.id || null,
 		lat: place?.lat ?? null,
 		lng: place?.lng ?? null,
-		notes: str(b.notes) || null,
+		notes: notes || null,
 		travelMode: str(b.travelMode) || null,
 		people,
 		// A client that never sends this gets the old behaviour: a time nobody
@@ -943,6 +975,9 @@ schedule.post('/events/:eventId/op', async (c) => {
 			   never leave the block nameless. */
 			const sentTitle = b.title === undefined || b.title === null ? null : str(b.title);
 			if (sentTitle && !isNameLength(sentTitle)) return fail(c, 400, nameTooLong());
+			if (b.notes != null && !isNotesLength(String(b.notes))) {
+				return fail(c, 400, notesTooLong());
+			}
 			const derivedFrom = place === undefined ? currentPlaceName(eventId) : placeName(place);
 			const title =
 				sentTitle === null ? undefined : sentTitle || derivedTitle(type, derivedFrom, str(b.notes));

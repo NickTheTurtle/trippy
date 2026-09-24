@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { isLocatedType, STAY_CHECK_IN, type EventType } from '@trippy/core/types';
-import { MAX_NAME_LENGTH } from '@trippy/core/validate';
+import { MAX_NAME_LENGTH, MAX_NOTES_LENGTH } from '@trippy/core/validate';
 import { api } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
 import Modal, { ModalFooter, ModalForm } from '../../components/ui/Modal';
@@ -25,6 +25,8 @@ import {
 } from './shared';
 import StayDates from './StayDates';
 import type { Cell, Crew, EventDraft, EventRow, LegRow, SavedPoi } from './types';
+
+const cf = copy.schedule.fields;
 
 /**
  * One event: retype, retime, re-people, relocate, delete, and set the journeys
@@ -364,7 +366,7 @@ export default function EventDialog({
 						    half of a 390px dialog. */}
 						<div className="grid grid-cols-12 gap-x-2.5 gap-y-3.5">
 							{placeField}
-							<FieldShell label="Type" className={placeable ? 'col-span-4' : 'col-span-12'}>
+							<FieldShell label={cf.type} className={placeable ? 'col-span-4' : 'col-span-12'}>
 								<Select
 									value={type}
 									onChange={(v) => {
@@ -373,7 +375,7 @@ export default function EventDialog({
 										setType(next);
 									}}
 									options={TYPE_OPTIONS}
-									ariaLabel="Type"
+									ariaLabel={cf.type}
 								/>
 							</FieldShell>
 
@@ -402,7 +404,7 @@ export default function EventDialog({
 									    the board read another, with nothing to say which the
 									    save would use. */}
 									<Field
-										label="Date"
+										label={cf.date}
 										className="col-span-12 sm:col-span-5"
 										type="date"
 										min={firstDay}
@@ -414,27 +416,32 @@ export default function EventDialog({
 											setDate(typed < firstDay ? firstDay : typed > lastDay ? lastDay : typed);
 										}}
 									/>
-									<FieldShell label="When" className="col-span-12 sm:col-span-7">
+									<FieldShell label={cf.when} className="col-span-12 sm:col-span-7">
 										<div className="tfpair">
 											<TimeField
 												value={startMin}
 												onChange={(v) => moveStart(String(v))}
-												ariaLabel="Start"
+												ariaLabel={cf.start}
 											/>
 											<span className="tfto">to</span>
 											<TimeField
 												value={endMin}
 												onChange={(v) => setEnd(String(v))}
 												onCommit={fixEnd}
-												ariaLabel="End"
+												ariaLabel={cf.end}
 											/>
 										</div>
 									</FieldShell>
 								</>
 							)}
 							{type === 'travel' && (
-								<FieldShell label="Mode" optional className="col-span-12 sm:col-span-5">
-									<Select value={mode} onChange={setMode} options={MODE_OPTIONS} ariaLabel="Mode" />
+								<FieldShell label={cf.mode} optional className="col-span-12 sm:col-span-5">
+									<Select
+										value={mode}
+										onChange={setMode}
+										options={MODE_OPTIONS}
+										ariaLabel={cf.mode}
+									/>
 								</FieldShell>
 							)}
 							<PeoplePicker
@@ -455,7 +462,7 @@ export default function EventDialog({
 							    this is cleared, so the field says what it overrides
 							    without a hint line repeating it. */}
 							<Field
-								label="Label"
+								label={cf.label}
 								optional
 								className="col-span-12"
 								value={label}
@@ -465,8 +472,9 @@ export default function EventDialog({
 							/>
 
 							<TextArea
-								label="Notes"
+								label={cf.notes}
 								optional
+								maxLength={MAX_NOTES_LENGTH}
 								className="col-span-12"
 								value={notes}
 								onChange={(e) => setNotes(e.target.value)}

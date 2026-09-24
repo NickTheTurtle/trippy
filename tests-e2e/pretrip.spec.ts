@@ -154,13 +154,13 @@ test.describe('preparation', () => {
 			await page.getByRole('button', { name: cp.sections.costs }).click();
 
 			await addCost(page, { label: 'Rental car', amount: '150' });
-			await page.getByRole('button', { name: cp.costTable.editLabel('Rental car') }).click();
+			await page.getByRole('button', { name: copy.common.editLabel('Rental car') }).click();
 			const dialog = page.getByRole('dialog');
 			await dialog.getByLabel(cp.costDialog.labelField).fill('Rental van');
 			await dialog.getByRole('button', { name: copy.common.save }).click();
 			await expect(page.getByText('Rental van')).toBeVisible();
 
-			await page.getByRole('button', { name: cp.costTable.editLabel('Rental van') }).click();
+			await page.getByRole('button', { name: copy.common.editLabel('Rental van') }).click();
 			await page
 				.getByRole('dialog')
 				.getByRole('button', { name: copy.common.delete, exact: true })

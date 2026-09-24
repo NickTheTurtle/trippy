@@ -1,14 +1,7 @@
 import Cover from '../../components/Cover';
 import type { Stay } from '../../lib/api-types';
 import { formatNights, formatPerNight } from '../../lib/format';
-import {
-	CARD,
-	EditCardButton,
-	OnCalendarMark,
-	OpenLink,
-	VotePill,
-	VoteRule
-} from './card-controls';
+import { CARD, EditCardButton, OpenLink, VotePill, VoteRule } from './card-controls';
 import { copy } from '../../copy';
 
 const c = copy.discover.stayCard;
@@ -74,7 +67,6 @@ export default function StayCard({
 			<div className="flex flex-none flex-wrap items-center gap-1.5 px-4 pt-2.5 pb-3.5">
 				<VotePill votes={o.votes} youVoted={!!o.you_voted} subject={o.name} onVote={onVote} />
 				{o.url && <OpenLink url={o.url} name={o.name} />}
-				{o.linked > 0 && <OnCalendarMark linked={o.linked} />}
 				<EditCardButton name={o.name} onEdit={onEdit} className="ml-auto" />
 			</div>
 
