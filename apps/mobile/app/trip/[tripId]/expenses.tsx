@@ -24,7 +24,7 @@ type Section = (typeof SECTIONS)[number];
 export default function Expenses() {
 	const tripId = useTripId();
 	const { data, error, loading, reload } = useApi<ExpensesData>(`/trips/${tripId}/expenses`);
-	useLiveSection(['expenses', 'members'], reload);
+	useLiveSection(['expenses', 'members', 'trip'], reload);
 	const [section, setSection] = useState<Section>('expenses');
 	const [editing, setEditing] = useState<Expense | null>(null);
 	const [adding, setAdding] = useState(false);

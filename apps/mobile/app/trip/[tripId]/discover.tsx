@@ -34,7 +34,7 @@ type Kind = (typeof KINDS)[number]['key'];
 export default function Discover() {
 	const tripId = useTripId();
 	const { data, error, loading, reload } = useApi<DiscoverData>(`/trips/${tripId}/discover`);
-	useLiveSection(['trip', 'pois', 'lodging', 'schedule'], reload);
+	useLiveSection(['pois', 'lodging', 'schedule', 'members', 'trip'], reload);
 
 	const [cityId, setCityId] = useState<string | null>(null);
 	const [kind, setKind] = useState<Kind>('all');

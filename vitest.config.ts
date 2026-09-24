@@ -1,7 +1,8 @@
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 
-const core = (path: string) => fileURLToPath(new URL(`./packages/core/src/${path}`, import.meta.url));
+const core = (path: string) =>
+	fileURLToPath(new URL(`./packages/core/src/${path}`, import.meta.url));
 
 export default defineConfig({
 	resolve: {
@@ -22,6 +23,7 @@ export default defineConfig({
 			// line in a config.
 			{ find: '@trippy/core/validate', replacement: core('validate.ts') },
 			{ find: '@trippy/core/sample', replacement: core('sample.ts') },
+			{ find: '@trippy/core/sse', replacement: core('sse.ts') },
 			{ find: '@trippy/core/types', replacement: core('types.ts') },
 			{ find: '@trippy/core', replacement: core('index.ts') }
 		]

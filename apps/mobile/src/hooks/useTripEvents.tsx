@@ -10,8 +10,10 @@ import {
 	useState,
 	type ReactNode
 } from 'react';
+import { createSseParser, type SseMessage } from '@trippy/core/sse';
 import { API_BASE } from '../lib/api';
 import { getToken } from '../lib/token';
+import { isInteractionBusy, onInteractionBusyChanged } from '../ui/busy';
 
 export const TRIP_TOPICS = [
 	'trip',
@@ -37,9 +39,8 @@ export type TripEvents = TripEventsControl & { status: LiveStatus; control: Trip
 const MAX_ATTEMPTS = 6;
 const BACKOFF = [1000, 2000, 4000, 8000, 15000, 30000];
 const COALESCE_MS = 120;
+const BUSY_POLL_MS = 500;
 const STABLE_MS = 20000;
-
-type SseMessage = { event: string; data: string; id: string | null };
 
 export function useTripEvents(tripId: string | null): TripEvents {
 	const [status, setStatus] = useState<LiveStatus>(tripId ? 'connecting' : 'off');
@@ -47,8 +48,13 @@ export function useTripEvents(tripId: string | null): TripEvents {
 	const listeners = useRef<Set<Listener>>(new Set());
 	const pending = useRef<Set<() => void>>(new Set());
 	const flushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const connectedFor = useRef<string | null>(null);
 
 	const flush = useCallback(() => {
+		if (isInteractionBusy()) {
+			flushTimer.current = setTimeout(flush, BUSY_POLL_MS);
+			return;
+		}
 		flushTimer.current = null;
 		const due = [...pending.current];
 		pending.current.clear();
@@ -69,6 +75,15 @@ export function useTripEvents(tripId: string | null): TripEvents {
 		[flush]
 	);
 
+	useEffect(
+		() =>
+			onInteractionBusyChanged(() => {
+				if (pending.current.size && flushTimer.current === null)
+					flushTimer.current = setTimeout(flush, 0);
+			}),
+		[flush]
+	);
+
 	useEffect(() => {
 		if (!tripId) {
 			setStatus('off');
@@ -76,11 +91,11 @@ export function useTripEvents(tripId: string | null): TripEvents {
 		}
 
 		let stopped = false;
+		let exhausted = false;
 		let controller: AbortController | null = null;
 		let timer: ReturnType<typeof setTimeout> | null = null;
 		let attempts = 0;
 		let openedAt = 0;
-		let connectedOnce = false;
 		let lastEventId: string | null = null;
 		let appState: AppStateStatus = (AppState.currentState ?? 'active') as AppStateStatus;
 
@@ -96,8 +111,15 @@ export function useTripEvents(tripId: string | null): TripEvents {
 
 		const provedItself = () => openedAt !== 0 && Date.now() - openedAt > STABLE_MS;
 
-		const giveUp = () => {
+		const terminalOff = () => {
 			stopped = true;
+			clearTimer();
+			abort();
+			setStatus('off');
+		};
+
+		const exhaustedOff = () => {
+			exhausted = true;
 			clearTimer();
 			abort();
 			setStatus('off');
@@ -108,11 +130,12 @@ export function useTripEvents(tripId: string | null): TripEvents {
 			abort();
 			if (stopped || appState !== 'active') return;
 			if (attempts >= MAX_ATTEMPTS) {
-				giveUp();
+				exhaustedOff();
 				return;
 			}
 			const base = afterMs ?? BACKOFF[Math.min(attempts, BACKOFF.length - 1)];
 			attempts += 1;
+			exhausted = false;
 			setStatus('retrying');
 			timer = setTimeout(connect, base * (0.8 + Math.random() * 0.4));
 		};
@@ -125,9 +148,11 @@ export function useTripEvents(tripId: string | null): TripEvents {
 			}
 			if (message.event === 'closed') {
 				if (readReason(message.data) === 'revoked') {
-					giveUp();
+					terminalOff();
 					dispatch('*');
 				} else {
+					if (provedItself()) attempts = 0;
+					openedAt = 0;
 					scheduleRetry();
 				}
 				return;
@@ -139,8 +164,10 @@ export function useTripEvents(tripId: string | null): TripEvents {
 
 		async function connect(): Promise<void> {
 			if (stopped || appState !== 'active') return;
-			controller = new AbortController();
+			const ac = new AbortController();
+			controller = ac;
 			const token = await getToken();
+			if (stopped || appState !== 'active' || ac.signal.aborted || controller !== ac) return;
 			const headers: Record<string, string> = {
 				accept: 'text/event-stream',
 				'x-trippy-client': 'native'
@@ -151,11 +178,11 @@ export function useTripEvents(tripId: string | null): TripEvents {
 			try {
 				const res = await expoFetch(`${API_BASE}/api/trips/${tripId}/events`, {
 					headers,
-					signal: controller.signal
+					signal: ac.signal
 				});
 				if (!res.ok || !res.body) {
 					if (res.status === 404 || res.status === 401) {
-						giveUp();
+						terminalOff();
 						dispatch('*');
 						return;
 					}
@@ -166,10 +193,13 @@ export function useTripEvents(tripId: string | null): TripEvents {
 					return;
 				}
 				openedAt = Date.now();
+				exhausted = false;
 				setStatus('live');
-				if (connectedOnce) dispatch('*');
-				connectedOnce = true;
-				await readSse(res.body, handleMessage);
+				if (connectedFor.current === tripId) dispatch('*');
+				connectedFor.current = tripId;
+				await readStream(res.body, handleMessage, (id) => {
+					lastEventId = id;
+				});
 				if (!stopped && appState === 'active') {
 					if (provedItself()) attempts = 0;
 					openedAt = 0;
@@ -200,6 +230,12 @@ export function useTripEvents(tripId: string | null): TripEvents {
 			if (!wasActive && !stopped) {
 				dispatch('*');
 				attempts = 0;
+				exhausted = false;
+				setStatus('connecting');
+				void connect();
+			} else if (exhausted && !stopped) {
+				attempts = 0;
+				exhausted = false;
 				setStatus('connecting');
 				void connect();
 			}
@@ -242,41 +278,19 @@ export function useTripEvents(tripId: string | null): TripEvents {
 	);
 }
 
-async function readSse(body: ReadableStream<Uint8Array>, onMessage: (message: SseMessage) => void) {
+async function readStream(
+	body: ReadableStream<Uint8Array>,
+	onMessage: (message: SseMessage) => void,
+	onId: (id: string) => void
+) {
 	const reader = body.getReader();
-	const decoder = new TextDecoder();
-	let text = '';
-	let event = 'message';
-	let data = '';
-	let id: string | null = null;
-
-	const emit = () => {
-		if (data) onMessage({ event, data: data.replace(/\n$/, ''), id });
-		event = 'message';
-		data = '';
-		id = null;
-	};
-
+	const parser = createSseParser({ onMessage, onId });
 	while (true) {
 		const { value, done } = await reader.read();
 		if (done) break;
-		text += decoder.decode(value, { stream: true });
-		let nl = text.indexOf('\n');
-		while (nl >= 0) {
-			const raw = text.slice(0, nl).replace(/\r$/, '');
-			text = text.slice(nl + 1);
-			if (raw === '') emit();
-			else if (!raw.startsWith(':')) {
-				const colon = raw.indexOf(':');
-				const field = colon === -1 ? raw : raw.slice(0, colon);
-				const valueText = colon === -1 ? '' : raw.slice(colon + 1).replace(/^ /, '');
-				if (field === 'event') event = valueText;
-				else if (field === 'data') data += `${valueText}\n`;
-				else if (field === 'id') id = valueText;
-			}
-			nl = text.indexOf('\n');
-		}
+		parser.push(value);
 	}
+	parser.end();
 }
 
 function readReason(data: string): string {

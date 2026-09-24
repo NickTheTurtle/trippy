@@ -15,6 +15,7 @@ import { useMutation } from '../../../src/hooks/useMutation';
 import { TripEventsProvider, useTripEvents } from '../../../src/hooks/useTripEvents';
 import { Button, Field, FormError, Loading, Screen } from '../../../src/ui';
 import { ConfirmSheet } from '../../../src/ui/ConfirmSheet';
+import { LiveOff } from '../../../src/ui/LiveOff';
 import { Sheet } from '../../../src/ui/Sheet';
 import { CheckBox, SearchablePicker } from '../../../src/ui/controls';
 import { useToast } from '../../../src/ui/Toast';
@@ -102,62 +103,65 @@ export default function TripTabs() {
 	return (
 		<TripIdContext.Provider value={id}>
 			<TripEventsProvider value={events}>
-				<Tabs
-					screenOptions={{
-						headerStyle: { backgroundColor: color.bg },
-						headerShadowVisible: false,
-						headerTintColor: color.ink,
-						headerTitle: trip.name,
-						headerTitleStyle: { ...font.heading, fontSize: 17 },
-						headerRight: () => (
-							<View
-								style={{
-									flexDirection: 'row',
-									alignItems: 'center',
-									gap: space.sm,
-									marginRight: space.sm
-								}}
-							>
-								<Pressable
-									onPress={() => (canEdit ? setEditing(true) : setConfirming('leave'))}
-									hitSlop={8}
+				<View style={{ flex: 1 }}>
+					<Tabs
+						screenOptions={{
+							headerStyle: { backgroundColor: color.bg },
+							headerShadowVisible: false,
+							headerTintColor: color.ink,
+							headerTitle: trip.name,
+							headerTitleStyle: { ...font.heading, fontSize: 17 },
+							headerRight: () => (
+								<View
+									style={{
+										flexDirection: 'row',
+										alignItems: 'center',
+										gap: space.sm,
+										marginRight: space.sm
+									}}
 								>
-									<Text style={{ ...type.small, color: color.accent, fontWeight: '600' }}>
-										{canEdit ? copy.tripShell.editTrip : copy.tripShell.leaveTrip}
-									</Text>
-								</Pressable>
-								<AccountMenu />
-							</View>
-						),
-						tabBarActiveTintColor: color.accent,
-						tabBarInactiveTintColor: color.inkFaint,
-						tabBarStyle: { backgroundColor: color.surface, borderTopColor: color.line },
-						tabBarLabelStyle: { fontSize: 11 },
-						sceneStyle: { backgroundColor: color.bg }
-					}}
-				>
-					<Tabs.Screen
-						name="discover"
-						options={{ title: copy.nav.discover, tabBarIcon: icon(ICON.discover) }}
-					/>
-					<Tabs.Screen
-						name="pretrip"
-						options={{ title: copy.nav.preparation, tabBarIcon: icon(ICON.pretrip) }}
-					/>
-					<Tabs.Screen
-						name="calendar"
-						options={{ title: copy.nav.schedule, tabBarIcon: icon(ICON.calendar) }}
-					/>
-					<Tabs.Screen
-						name="expenses"
-						options={{ title: copy.nav.expenses, tabBarIcon: icon(ICON.expenses) }}
-					/>
-					<Tabs.Screen
-						name="people"
-						options={{ title: copy.nav.people, tabBarIcon: icon(ICON.people) }}
-					/>
-					<Tabs.Screen name="index" options={{ href: null }} />
-				</Tabs>
+									<Pressable
+										onPress={() => (canEdit ? setEditing(true) : setConfirming('leave'))}
+										hitSlop={8}
+									>
+										<Text style={{ ...type.small, color: color.accent, fontWeight: '600' }}>
+											{canEdit ? copy.tripShell.editTrip : copy.tripShell.leaveTrip}
+										</Text>
+									</Pressable>
+									<AccountMenu />
+								</View>
+							),
+							tabBarActiveTintColor: color.accent,
+							tabBarInactiveTintColor: color.inkFaint,
+							tabBarStyle: { backgroundColor: color.surface, borderTopColor: color.line },
+							tabBarLabelStyle: { fontSize: 11 },
+							sceneStyle: { backgroundColor: color.bg }
+						}}
+					>
+						<Tabs.Screen
+							name="discover"
+							options={{ title: copy.nav.discover, tabBarIcon: icon(ICON.discover) }}
+						/>
+						<Tabs.Screen
+							name="pretrip"
+							options={{ title: copy.nav.preparation, tabBarIcon: icon(ICON.pretrip) }}
+						/>
+						<Tabs.Screen
+							name="calendar"
+							options={{ title: copy.nav.schedule, tabBarIcon: icon(ICON.calendar) }}
+						/>
+						<Tabs.Screen
+							name="expenses"
+							options={{ title: copy.nav.expenses, tabBarIcon: icon(ICON.expenses) }}
+						/>
+						<Tabs.Screen
+							name="people"
+							options={{ title: copy.nav.people, tabBarIcon: icon(ICON.people) }}
+						/>
+						<Tabs.Screen name="index" options={{ href: null }} />
+					</Tabs>
+					<LiveOff />
+				</View>
 				<EditTripSheet
 					trip={trip}
 					open={editing}
@@ -181,6 +185,7 @@ export default function TripTabs() {
 					confirmLabel={confirming === 'leave' ? copy.common.leave : copy.common.delete}
 					busyLabel={confirming === 'leave' ? copy.common.working : copy.common.deleting}
 					busy={destroy.busy}
+					error={destroy.error}
 					onCancel={() => setConfirming(null)}
 					onConfirm={() => void destroy.run()}
 				/>
@@ -216,25 +221,34 @@ function EditTripSheet({
 	const [endDate, setEndDate] = useState(trip.end_date ?? '');
 	const [currency, setCurrency] = useState(trip.home_currency);
 	const [locked, setLocked] = useState(trip.schedule_locked === 1);
-	const wasSpan = spanDays(trip.start_date ?? '', trip.end_date ?? '') ?? 0;
+	const [initialSpan, setInitialSpan] = useState(
+		spanDays(trip.start_date ?? '', trip.end_date ?? '') ?? 0
+	);
+	const wasOpen = useRef(false);
 	const options = useMemo(
 		() => CURRENCY_CODES.map((code) => ({ key: code, label: code, detail: currencyName(code) })),
 		[]
 	);
 
 	useEffect(() => {
-		if (!open) return;
+		if (!open) {
+			wasOpen.current = false;
+			return;
+		}
+		if (wasOpen.current) return;
+		wasOpen.current = true;
 		setName(trip.name);
 		setStartDate(trip.start_date ?? '');
 		setEndDate(trip.end_date ?? '');
 		setCurrency(trip.home_currency);
 		setLocked(trip.schedule_locked === 1);
+		setInitialSpan(spanDays(trip.start_date ?? '', trip.end_date ?? '') ?? 0);
 	}, [open, trip]);
 
 	const save = useMutation(
 		async () => {
 			const span = spanDays(startDate, endDate);
-			if (span !== null && span > MAX_DAYS && span > wasSpan)
+			if (span !== null && span > MAX_DAYS && span > initialSpan)
 				throw new Error(copy.tripForm.tooLong);
 			await api(`/trips/${trip.id}`, {
 				method: 'PATCH',

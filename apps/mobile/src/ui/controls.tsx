@@ -162,9 +162,7 @@ export function ListPicker({
 
 	// The zone list runs to several hundred entries, so it is searched rather
 	// than scrolled: chips or a wheel would both make finding one a chore.
-	const shown = options
-		.filter((o) => o.toLowerCase().includes(q.trim().toLowerCase()))
-		.slice(0, 120);
+	const shown = options.filter((o) => o.toLowerCase().includes(q.trim().toLowerCase()));
 
 	return (
 		<View style={{ gap: space.xs }}>
@@ -217,25 +215,27 @@ export function ListPicker({
 							color: color.ink
 						}}
 					/>
-					{shown.map((o) => (
-						<Pressable
-							key={o}
-							onPress={() => {
-								onPick(o);
-								setOpen(false);
-							}}
-							style={({ pressed }) => ({
-								paddingVertical: 10,
-								paddingHorizontal: space.sm,
-								borderRadius: radius.sm,
-								backgroundColor: pressed ? color.surface2 : 'transparent'
-							})}
-						>
-							<Text style={{ ...type.body, color: o === value ? color.accentInk : color.ink }}>
-								{o}
-							</Text>
-						</Pressable>
-					))}
+					<ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled">
+						{shown.map((o) => (
+							<Pressable
+								key={o}
+								onPress={() => {
+									onPick(o);
+									setOpen(false);
+								}}
+								style={({ pressed }) => ({
+									paddingVertical: 10,
+									paddingHorizontal: space.sm,
+									borderRadius: radius.sm,
+									backgroundColor: pressed ? color.surface2 : 'transparent'
+								})}
+							>
+								<Text style={{ ...type.body, color: o === value ? color.accentInk : color.ink }}>
+									{o}
+								</Text>
+							</Pressable>
+						))}
+					</ScrollView>
 				</View>
 			) : null}
 		</View>
@@ -305,16 +305,14 @@ export function SearchablePicker({
 	const [q, setQ] = useState('');
 	const current = options.find((o) => o.key === value);
 	const needle = q.trim().toLowerCase();
-	const shown = options
-		.filter((o) => {
-			if (!needle) return true;
-			return (
-				o.key.toLowerCase().includes(needle) ||
-				o.label.toLowerCase().includes(needle) ||
-				(o.detail ?? '').toLowerCase().includes(needle)
-			);
-		})
-		.slice(0, 120);
+	const shown = options.filter((o) => {
+		if (!needle) return true;
+		return (
+			o.key.toLowerCase().includes(needle) ||
+			o.label.toLowerCase().includes(needle) ||
+			(o.detail ?? '').toLowerCase().includes(needle)
+		);
+	});
 
 	return (
 		<View style={{ gap: space.xs }}>
@@ -370,26 +368,30 @@ export function SearchablePicker({
 						}}
 					/>
 					{shown.length === 0 ? <Text style={type.faint}>{noMatches}</Text> : null}
-					{shown.map((o) => (
-						<Pressable
-							key={o.key}
-							onPress={() => {
-								onPick(o.key);
-								setOpen(false);
-							}}
-							style={({ pressed }) => ({
-								paddingVertical: 10,
-								paddingHorizontal: space.sm,
-								borderRadius: radius.sm,
-								backgroundColor: pressed ? color.surface2 : 'transparent'
-							})}
-						>
-							<Text style={{ ...type.body, color: o.key === value ? color.accentInk : color.ink }}>
-								{o.label}
-							</Text>
-							{o.detail ? <Text style={type.faint}>{o.detail}</Text> : null}
-						</Pressable>
-					))}
+					<ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled">
+						{shown.map((o) => (
+							<Pressable
+								key={o.key}
+								onPress={() => {
+									onPick(o.key);
+									setOpen(false);
+								}}
+								style={({ pressed }) => ({
+									paddingVertical: 10,
+									paddingHorizontal: space.sm,
+									borderRadius: radius.sm,
+									backgroundColor: pressed ? color.surface2 : 'transparent'
+								})}
+							>
+								<Text
+									style={{ ...type.body, color: o.key === value ? color.accentInk : color.ink }}
+								>
+									{o.label}
+								</Text>
+								{o.detail ? <Text style={type.faint}>{o.detail}</Text> : null}
+							</Pressable>
+						))}
+					</ScrollView>
 				</View>
 			) : null}
 		</View>

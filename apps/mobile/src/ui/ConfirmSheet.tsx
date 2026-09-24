@@ -1,6 +1,6 @@
 import { Text, View } from 'react-native';
 import { copy } from '@trippy/copy';
-import { Button } from './index';
+import { Button, FormError } from './index';
 import { Sheet } from './Sheet';
 import { space, type } from '../theme';
 
@@ -12,7 +12,8 @@ export function ConfirmSheet({
 	busyLabel = copy.common.working,
 	busy = false,
 	onCancel,
-	onConfirm
+	onConfirm,
+	error = ''
 }: {
 	open: boolean;
 	title: string;
@@ -22,10 +23,12 @@ export function ConfirmSheet({
 	busy?: boolean;
 	onCancel: () => void;
 	onConfirm: () => void;
+	error?: string;
 }) {
 	return (
 		<Sheet open={open} title={title} onClose={onCancel}>
 			<Text style={type.small}>{message}</Text>
+			<FormError message={error} />
 			<View style={{ flexDirection: 'row', gap: space.md }}>
 				<View style={{ flex: 1 }}>
 					<Button label={copy.common.cancel} tone="ghost" onPress={onCancel} disabled={busy} />

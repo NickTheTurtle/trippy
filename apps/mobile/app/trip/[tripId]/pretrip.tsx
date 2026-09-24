@@ -63,7 +63,7 @@ type Section = (typeof SECTIONS)[number];
 export default function Pretrip() {
 	const tripId = useTripId();
 	const { data, error, loading, reload } = useApi<Data>(`/trips/${tripId}/pretrip`);
-	useLiveSection(['tasks', 'costs', 'members'], reload);
+	useLiveSection(['tasks', 'costs', 'members', 'trip'], reload);
 	const [section, setSection] = useState<Section>('tasks');
 
 	if (loading && !data) return <Loading />;
