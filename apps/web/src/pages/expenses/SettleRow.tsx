@@ -27,14 +27,16 @@ export default function SettleRow({
 	return (
 		<li className="flex flex-col gap-1 rounded-md bg-surface-2 px-2.5 py-2 text-body">
 			<div className="flex items-center gap-2">
-				<span className="truncate font-semibold" title={t.from}>
-					{t.from}
+				{/* One wrapping sentence rather than two truncating names. Measured at
+				    390px the names were cut to "Die... pays Ali...", which is the one
+				    thing on this row that has to be read in full: a transfer to the
+				    wrong person is worse than a taller row. The amount and the button
+				    keep their width beside it. */}
+				<span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
+					<span className="font-semibold">{t.from}</span>{' '}
+					<span className="text-meta text-ink-faint">{c.pays}</span> <span>{t.to}</span>
 				</span>
-				<span className="shrink-0 text-meta text-ink-faint">{c.pays}</span>
-				<span className="truncate" title={t.to}>
-					{t.to}
-				</span>
-				<span className="ml-auto font-semibold">{fmt(t.amountCents)}</span>
+				<span className="flex-none font-semibold">{fmt(t.amountCents)}</span>
 				<button
 					className="btn small flex-none"
 					disabled={mark.busy}

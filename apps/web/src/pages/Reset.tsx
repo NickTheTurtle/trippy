@@ -4,6 +4,7 @@ import { AuthNotice, AuthShell } from '../components/ui/AuthShell';
 import { Field } from '../components/ui/Field';
 import { useErrorSlot } from '../components/ui/Toast';
 import { api } from '../lib/api';
+import useDocumentTitle from '../hooks/useDocumentTitle';
 import { copy } from '../copy';
 
 const c = copy.auth.reset;
@@ -12,6 +13,7 @@ export default function Reset() {
 	const [params] = useSearchParams();
 	const token = params.get('token') ?? '';
 	const failure = useErrorSlot();
+	useDocumentTitle([c.title]);
 
 	const [password, setPassword] = useState('');
 	const [done, setDone] = useState(false);

@@ -142,20 +142,26 @@ describe('legs follow the events', () => {
 		expect(after.resolvedMins).toBe(45);
 	});
 
-	it('drops an override when the travelling group changes, rather than leaking it', () => {
+	it('keeps an override when the travelling group changes, because the journey is the same', () => {
 		const first = add({ startMin: 540, endMin: 600, people: [alice, bob], ...HOTEL });
 		const second = add({ startMin: 660, endMin: 720, people: [alice, bob], ...MUSEUM });
 		const leg = schedule.legsForDay(tripId, DAY)[0];
 		expect(schedule.editLeg(leg.id, tripId, alice, 'ferry', 45)).toBe(true);
 
-		// Bob drops out of both ends. Alice's journey is a different journey now,
-		// and a ferry booked for two is not a fact about it.
+		// Bob drops out of both ends. The ferry between these two places is still
+		// the ferry: the key is the pair of events, not the headcount.
 		expect(schedule.setEventPeople(first, tripId, alice, [alice])).toBe(true);
 		expect(schedule.setEventPeople(second, tripId, alice, [alice])).toBe(true);
 
 		const after = schedule.legsForDay(tripId, DAY)[0];
-		expect(after.id).not.toBe(leg.id);
-		expect(after.manual).toBe(false);
+		expect(after.id).toBe(leg.id);
+		expect(after.manual).toBe(true);
+		expect(after.resolvedMode).toBe('ferry');
+		expect(after.people).toEqual([alice]);
+		// The stored travellers follow, even though they are not the identity.
+		expect(
+			db.prepare(`SELECT people FROM travel_legs WHERE id = ?`).get(leg.id)
+		).toMatchObject({ people: alice });
 	});
 
 	it('hands a leg back to the router when the override is cleared', () => {
@@ -309,10 +315,21 @@ describe('an event left on Everyone travels with the whole trip', () => {
 		// What a database written by the old planner looks like: a day whose legs
 		// were never stored, because the old planner found none.
 		db.prepare(`DELETE FROM travel_legs WHERE trip_id = ? AND day = ?`).run(tripId, DAY);
-		expect(schedule.legsForDay(tripId, DAY)).toEqual([]);
-
 		expect(schedule.reconcileAllLegs()).toBeGreaterThan(0);
 		expect(schedule.legsForDay(tripId, DAY)).toHaveLength(1);
+	});
+
+	it('gives a planned journey its row on read, rather than drawing a day without it', () => {
+		add({ startMin: 540, endMin: 600, people: [], ...HOTEL });
+		add({ startMin: 660, endMin: 720, people: [], ...MUSEUM });
+		// Anything that changes the plan without an event write leaves the day in
+		// this state. It used to read back as no travel at all.
+		db.prepare(`DELETE FROM travel_legs WHERE trip_id = ? AND day = ?`).run(tripId, DAY);
+		const legs = schedule.legsForDay(tripId, DAY);
+		expect(legs).toHaveLength(1);
+		expect(
+			db.prepare(`SELECT COUNT(*) AS n FROM travel_legs WHERE trip_id = ? AND day = ?`).get(tripId, DAY)
+		).toMatchObject({ n: 1 });
 	});
 });
 

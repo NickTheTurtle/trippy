@@ -16,12 +16,16 @@ import {
 	type EventType
 } from '@trippy/core/types';
 import { formatDayRange } from '@trippy/core/tz';
+import { guessLeg, routeKey } from '@trippy/core/travel';
+import { daysBetween } from '@trippy/core/plan';
 import {
 	isNameLength,
 	isNotesLength,
+	isOutsideTrip,
 	MAX_NAME_LENGTH,
 	nameTooLong,
-	notesTooLong
+	notesTooLong,
+	stayNightsProblem
 } from '@trippy/core/validate';
 import {
 	createEvent,
@@ -32,10 +36,12 @@ import {
 	editEvent,
 	editLeg,
 	eventTrip,
+	eventVersion,
 	eventsForDay,
 	incomingStays,
 	legsForDay,
 	moveEvent,
+	movedStayCheckout,
 	plannedLegsForDay,
 	resizeEvent,
 	saveAutoLeg,
@@ -46,6 +52,7 @@ import {
 	setEventPeople,
 	shiftDay,
 	staysOnBoard,
+	storedAutoLegs,
 	strandedDayCount,
 	dayHasEvents,
 	STAY_CHECK_IN
@@ -145,17 +152,42 @@ function outOfRange(
  * provider's answer is stored (`saveAutoLeg`) rather than returned directly so
  * the next load of the same day is instant and so an override can be compared
  * against what the automatic answer would have been.
+ *
+ * A journey whose stored answer is already a real route in the mode it wants is
+ * not asked about again. Every leg used to go to `routeLegs` on every load, and
+ * the route cache is in memory, so each restart of the API (every saved file,
+ * under `tsx watch`) re-bought every leg of every day anybody opened. A stored
+ * straight-line guess is still retried, because it is only there because the
+ * provider could not answer at the time. Changing the mode is a different
+ * question, and so is moving either end: the stored answer carries the
+ * `routeKey` (mode plus both endpoints' coordinates) it was bought for, and is
+ * only reused while that still matches. The leg key is just the pair of
+ * events, so without it a route survived its events being moved anywhere.
  */
 async function dayLegs(tripId: string, day: string, canBill?: () => boolean) {
 	const planned = plannedLegsForDay(tripId, day);
 	if (planned.length) {
 		const stored = new Map(legsForDay(tripId, day).map((l) => [l.key, l]));
-		const routed = await routeLegs(
-			planned,
-			(leg) => stored.get(leg.key)?.mode ?? undefined,
-			canBill
-		);
-		for (const [key, r] of routed) saveAutoLeg(tripId, day, key, r.mode, r.mins);
+		const known = storedAutoLegs(tripId, day);
+		const question = (leg: (typeof planned)[number]) =>
+			routeKey(leg, stored.get(leg.key)?.mode ?? guessLeg(leg.km).mode);
+		const toRoute = planned.filter((leg) => {
+			const auto = known.get(leg.key);
+			return !(auto?.routed && auto.autoMins != null && auto.routeKey === question(leg));
+		});
+		if (toRoute.length) {
+			const byKey = new Map(toRoute.map((leg) => [leg.key, leg]));
+			const routed = await routeLegs(
+				toRoute,
+				(leg) => stored.get(leg.key)?.mode ?? undefined,
+				canBill
+			);
+			for (const [key, r] of routed) {
+				const leg = byKey.get(key);
+				const asked = leg ? routeKey(leg, r.mode) : null;
+				saveAutoLeg(tripId, day, key, r.mode, r.mins, r.routed, asked);
+			}
+		}
 	}
 	return legsForDay(tripId, day);
 }
@@ -178,8 +210,7 @@ function tripRange(
 
 /** Whole days from `start` to `end` inclusive. Arithmetic, so no walk. */
 function spanDays(start: string, end: string): number {
-	const ms = Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`);
-	return Math.round(ms / 86400000) + 1;
+	return daysBetween(start, end) + 1;
 }
 
 /**
@@ -618,10 +649,20 @@ function derivedTitle(type: EventType, placeName: string, notes: string): string
  * A trip missing either endpoint cannot bound anything, so it bounds nothing.
  */
 function outsideTrip(trip: Trip, day: string): boolean {
+	return isOutsideTrip(day, isoDay(trip.start_date), isoDay(trip.end_date));
+}
+
+/**
+ * Whether a stay checking out on `checkout` would spend a night outside the
+ * trip. The rule itself is core's (`stayNightsProblem`), shared with the
+ * Discover stay routes so the board and the lodging card cannot disagree about
+ * which stays fit: the last night must be a trip day, so a checkout may fall on
+ * the morning after the trip ends and no later.
+ */
+function checkoutOutsideTrip(trip: Trip, checkout: string): boolean {
 	const from = isoDay(trip.start_date);
 	const to = isoDay(trip.end_date);
-	if (!from || !to || from > to) return false;
-	return day < from || day > to;
+	return stayNightsProblem(null, checkout, from, to) === 'outside';
 }
 
 /** What a day outside the trip is told, with the range quoted back. */
@@ -666,10 +707,29 @@ schedule.post('/events', async (c) => {
 	if (!day) return fail(c, 400, 'Pick a day.');
 	if (outsideTrip(trip, day)) return fail(c, 400, outsideTripMessage(trip));
 
-	const typeRaw = str(b.type) || 'activity';
 	// The vocabulary is core's, so the API, the server and the client all agree
-	// on the same five literals without three copies of the list.
-	const type = isEventType(typeRaw) ? typeRaw : 'activity';
+	// on the same five literals without three copies of the list. Absent or
+	// blank still means an activity; a word that is not a type is refused, by
+	// the same check the edit path uses, where it used to become an activity
+	// without a word.
+	const sentType = typeof b.type === 'string' ? b.type.trim() || undefined : (b.type ?? undefined);
+	const badType = typeProblem(sentType);
+	if (badType) return fail(c, 400, badType);
+	const type: EventType = (sentType as EventType | undefined) ?? 'activity';
+
+	// Refused rather than dropped, as on edit: a misspelt mode used to be stored
+	// as no mode, which hands the journey to the router the caller was trying
+	// to overrule.
+	const badMode = travelModeProblem(b.travelMode);
+	if (badMode) return fail(c, 400, badMode);
+
+	// A city id is only a pointer into this trip. One from another trip (or from
+	// nowhere) used to be stored as sent and pointed the event at a city the
+	// board does not have.
+	const sentCity = str(b.cityId);
+	if (sentCity && !trip.cities.some((city) => city.id === sentCity)) {
+		return fail(c, 400, 'Pick a city on this trip.');
+	}
 
 	// A stay is picked by its dates, not by a clock: it is checked into on one
 	// day and out of on another, and it is drawn as a band across every day in
@@ -677,12 +737,12 @@ schedule.post('/events', async (c) => {
 	const stay = type === 'stay';
 	const start = stay ? STAY_CHECK_IN : num(b.start);
 	if (start === null) return fail(c, 400, 'Pick a start time.');
-	if (start < 0 || start >= 24 * 60) return fail(c, 400, 'Pick a start time within the day.');
+	if (start < 0 || start >= DAY_END_MIN) return fail(c, 400, 'Pick a start time within the day.');
 	const endDay = stay ? isoDay(b.endDay) || shiftDay(day, 1) : null;
 	if (endDay && endDay <= day) return fail(c, 400, 'Check-out must be after check-in.');
 	// A stay on the trip's last night checks out the morning after it ends, so
 	// the checkout is allowed one day past the range the check-in must sit in.
-	if (endDay && outsideTrip(trip, shiftDay(endDay, -1))) {
+	if (endDay && checkoutOutsideTrip(trip, endDay)) {
 		return fail(c, 400, outsideTripMessage(trip));
 	}
 
@@ -712,10 +772,10 @@ schedule.post('/events', async (c) => {
 	if (duration < MIN_EVENT_MINS) {
 		return fail(c, 400, `An event needs to run at least ${MIN_EVENT_MINS} minutes.`);
 	}
-	if (!stay && start + duration > 24 * 60) {
+	if (!stay && start + duration > DAY_END_MIN) {
 		return fail(c, 400, 'That runs past the end of the day. Shorten it or start earlier.');
 	}
-	const end = stay ? 24 * 60 : start + duration;
+	const end = stay ? DAY_END_MIN : start + duration;
 
 	const people = strList(b.people);
 	if (allStrangers(trip, people)) return fail(c, 400, STRANGERS_MESSAGE);
@@ -730,7 +790,7 @@ schedule.post('/events', async (c) => {
 		poiId: place && 'poiId' in place ? place.poiId : null,
 		lodgingId: place && 'lodgingId' in place ? place.lodgingId : null,
 		placeText: place && 'text' in place ? place.text : null,
-		cityId: str(b.cityId) || trip.cities[0]?.id || null,
+		cityId: sentCity || trip.cities[0]?.id || null,
 		lat: place?.lat ?? null,
 		lng: place?.lng ?? null,
 		notes: notes || null,
@@ -755,7 +815,15 @@ schedule.put('/events/:eventId/people', async (c) => {
 	const people = strList((await body(c)).people);
 	if (allStrangers(trip, people)) return fail(c, 400, STRANGERS_MESSAGE);
 
-	return okOr(c, setEventPeople(eventId, trip.id, c.get('user').id, people), 403, 'Not allowed');
+	// The version the write left behind comes back with it. The dialog saves the
+	// event first and the people second, each on its own request, so the number
+	// the event save answered with is already stale by the time this lands; the
+	// dialog keeps whatever this says so its next save is checked against the
+	// row as it now is rather than refused against its own write.
+	if (!setEventPeople(eventId, trip.id, c.get('user').id, people)) {
+		return fail(c, 403, 'Not allowed');
+	}
+	return c.json({ ok: true, version: eventVersion(eventId) });
 });
 
 /**
@@ -771,6 +839,26 @@ schedule.put('/events/:eventId/people', async (c) => {
  */
 function sent(v: unknown): boolean {
 	return v !== undefined;
+}
+
+/**
+ * Whether a type the body named is one of core's five. Absent is not a problem:
+ * create reads it as an activity and edit leaves the stored type alone. Shared
+ * by both paths so a word one of them refuses cannot slip through the other.
+ */
+function typeProblem(v: unknown): string | null {
+	if (!sent(v)) return null;
+	return typeof v === 'string' && isEventType(v) ? null : 'Pick an event type.';
+}
+
+/**
+ * Whether a travel mode the body named is a real one. Empty and null are the
+ * reset (hand the journey back to the router), so only a word that is neither
+ * is a mistake. Shared by create, edit and the leg editor.
+ */
+function travelModeProblem(v: unknown): string | null {
+	if (!sent(v) || v === null || v === '') return null;
+	return typeof v === 'string' && isTransportMode(v) ? null : 'Pick a travel mode.';
 }
 
 /**
@@ -856,18 +944,14 @@ function opProblem(op: string, b: Record<string, unknown>): string | null {
 
 	// A type outside the five was dropped by the store, which left the block as
 	// whatever it already was and reported success.
-	if (sent(b.type) && !(typeof b.type === 'string' && isEventType(b.type))) {
-		return 'Pick an event type.';
-	}
+	const badType = typeProblem(b.type);
+	if (badType) return badType;
 
 	// Empty is the reset, and null is how a client writes the same thing. A word
 	// that is neither was silently treated as the reset, so a misspelt mode
 	// unpinned the journey instead of pinning it.
-	if (sent(b.travelMode) && b.travelMode !== null && b.travelMode !== '') {
-		if (typeof b.travelMode !== 'string' || !isTransportMode(b.travelMode)) {
-			return 'Pick a travel mode.';
-		}
-	}
+	const badMode = travelModeProblem(b.travelMode);
+	if (badMode) return badMode;
 
 	// A place is picked from a list, so anything that is not a string is not a
 	// pick. An id that is a string and unknown still unlinks, deliberately.
@@ -916,8 +1000,18 @@ schedule.post('/events/:eventId/op', async (c) => {
 		return fail(c, 400, outsideTripMessage(trip));
 	}
 	const targetEnd = isoDay(b.endDay);
-	if (targetEnd && outsideTrip(trip, shiftDay(targetEnd, -1))) {
+	if (targetEnd && checkoutOutsideTrip(trip, targetEnd)) {
 		return fail(c, 400, outsideTripMessage(trip));
+	}
+	// A drag carries only the day it lands on, and a stay keeps its length in
+	// nights, so the checkout it would end up with is not in the body at all.
+	// Checking only a sent `endDay` let a four-night stay dragged onto the last
+	// day check out three days after the trip, on days the board does not have.
+	if (str(b.op) === 'move' && targetDay) {
+		const checkout = movedStayCheckout(eventId, targetDay);
+		if (checkout && checkoutOutsideTrip(trip, checkout)) {
+			return fail(c, 400, outsideTripMessage(trip));
+		}
 	}
 
 	// A dialog save carries both ends of the clock at once, a drag carries one
@@ -927,12 +1021,14 @@ schedule.post('/events/:eventId/op', async (c) => {
 	const problem = opProblem(str(b.op), b);
 	if (problem) return fail(c, 400, problem);
 
-	// A drag and a resize are deliberately left unversioned. They carry exactly
-	// one field each, so there is nothing stale riding along to overwrite, and
+	// A drag and a resize are deliberately left unchecked. They carry exactly one
+	// field each, so there is nothing stale riding along to overwrite, and
 	// holding a gesture to a version the board refetches constantly would refuse
 	// perfectly good drags whenever somebody else touched another event. The
 	// dialog save is the one that writes a whole record back, and that is the one
-	// that is checked.
+	// that is checked. Both still bump the version, and answer with the new one,
+	// so a dialog opened before the drag is refused rather than dragging the
+	// block back when it saves.
 	let okay = false;
 	switch (str(b.op)) {
 		case 'move':
@@ -1016,12 +1112,14 @@ schedule.post('/events/:eventId/op', async (c) => {
 		}
 		case 'delete':
 			okay = deleteEvent(eventId, userId, trip.id);
-			break;
+			return okOr(c, okay, 403, 'Not allowed');
 		default:
 			return fail(c, 400, 'Unknown op.');
 	}
 
-	return okOr(c, okay, 403, 'Not allowed');
+	if (!okay) return fail(c, 403, 'Not allowed');
+	// A drag or a resize: the version it left behind, as the edit save answers.
+	return c.json({ ok: true, version: eventVersion(eventId) });
 });
 
 // --- Travel -----------------------------------------------------------------
@@ -1038,16 +1136,17 @@ schedule.patch('/legs/:legId', async (c) => {
 	const b = await body(c);
 	const mode = str(b.mode);
 	const mins = num(b.mins);
+	// Same rule as an event's mode: empty is the reset, a word that is not a mode
+	// is a mistake, and dropping it silently would reset a pinned journey.
+	const badMode = travelModeProblem(b.mode);
+	if (badMode) return fail(c, 400, badMode);
+	// A journey's name is drawn on the board like an event's title, so it is held
+	// to the same ceiling. Blank still clears it.
+	const title = b.title === undefined ? undefined : str(b.title) || null;
+	if (title && !isNameLength(title)) return fail(c, 400, nameTooLong());
 	return okOr(
 		c,
-		editLeg(
-			c.req.param('legId'),
-			c.get('trip').id,
-			c.get('user').id,
-			mode || null,
-			mins,
-			b.title === undefined ? undefined : str(b.title) || null
-		),
+		editLeg(c.req.param('legId'), c.get('trip').id, c.get('user').id, mode || null, mins, title),
 		404,
 		goneMessage('journey')
 	);

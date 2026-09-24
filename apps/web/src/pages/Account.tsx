@@ -2,18 +2,25 @@ import { useState } from 'react';
 import { api } from '../lib/api';
 import { useApi } from '../hooks/useApi';
 import { useMutation } from '../hooks/useMutation';
+import useDocumentTitle from '../hooks/useDocumentTitle';
 import { useAuth } from '../auth';
-import Select from '../components/ui/Select';
+import TimeZonePicker from '../components/ui/TimeZonePicker';
 import LoadError from '../components/ui/LoadError';
 import Loading from '../components/ui/Loading';
 import { useToast } from '../components/ui/Toast';
-import { Field, FieldShell } from '../components/ui/Field';
+import { Field } from '../components/ui/Field';
 import { copy } from '../copy';
 
 const ca = copy.account;
 
 type AccountData = {
-	profile: { name: string; email: string; homeTz: string };
+	profile: {
+		name: string;
+		email: string;
+		homeTz: string;
+		/** An address this account asked to move to and has not confirmed yet. */
+		pendingEmail?: string | null;
+	};
 	timeZones: string[];
 };
 
@@ -27,6 +34,7 @@ type AccountData = {
  */
 export default function Account() {
 	const { data, error, loading, reload } = useApi<AccountData>('/account');
+	useDocumentTitle([ca.heading]);
 
 	return (
 		<main className="mx-auto flex w-full max-w-[34rem] flex-col gap-5 px-6 pt-10 pb-16">
@@ -42,8 +50,10 @@ export default function Account() {
 
 			{data && (
 				<>
-					{/* Keyed on the loaded values so a reload after a save reseeds the
-					    fields instead of leaving the form showing what was typed. */}
+					{/* Keyed on the loaded address so a reload after a save reseeds the
+					    fields instead of leaving the form showing what was typed. Not on
+					    the pending address: the notice about it is a live region, and
+					    remounting would replace it with one that has nothing to announce. */}
 					<Profile key={data.profile.email} data={data} onSaved={reload} />
 					<Password />
 				</>
@@ -58,19 +68,34 @@ function Profile({ data, onSaved }: { data: AccountData; onSaved: () => void }) 
 	const [name, setName] = useState(data.profile.name);
 	const [email, setEmail] = useState(data.profile.email);
 	const [homeTz, setHomeTz] = useState(data.profile.homeTz);
+	const [currentPassword, setCurrentPassword] = useState('');
 
-	const zones = data.timeZones.map((tz) => ({
-		value: tz,
-		label: tz.replace(/_/g, ' ')
-	}));
+	/* The email is the account's sign-in identity and the key trip invites are
+	 * matched on, so the server asks for the current password before it will
+	 * move it (see `PATCH /account/profile`). The field appears only once the
+	 * address actually differs: asking for a password to rename yourself would
+	 * be a toll on the common case for the sake of the rare one. Compared the
+	 * way the server compares, trimmed and case-folded, so retyping the same
+	 * address in capitals is not a change. */
+	const changingEmail = email.trim().toLowerCase() !== data.profile.email.toLowerCase();
+	const pending = data.profile.pendingEmail ?? null;
 
 	const save = useMutation(
 		async () => {
-			await api('/account/profile', {
+			const res = await api<{ pendingEmail?: string | null }>('/account/profile', {
 				method: 'PATCH',
-				body: { name, email, homeTz }
+				body: changingEmail ? { name, email, homeTz, currentPassword } : { name, homeTz }
 			});
-			toast.success(ca.profile.saved);
+			// A 202 names the address a link went to: nothing about the email has
+			// changed yet, so the field goes back to the address that still signs
+			// in, and the notice under it says where to look. The notice is the
+			// result, so a "Profile saved." beside it would say it twice.
+			if (res?.pendingEmail) {
+				setEmail(data.profile.email);
+				setCurrentPassword('');
+			} else {
+				toast.success(ca.profile.saved);
+			}
 			// The top bar renders the session user, not this form, so it has to be
 			// told the name it is showing has changed.
 			await refresh();
@@ -99,14 +124,33 @@ function Profile({ data, onSaved }: { data: AccountData; onSaved: () => void }) 
 					value={email}
 					onChange={(e) => setEmail(e.target.value)}
 				/>
-				<FieldShell label={ca.profile.timeZoneLabel}>
-					<Select
-						value={homeTz}
-						onChange={setHomeTz}
-						options={zones}
-						ariaLabel={ca.profile.timeZoneAriaLabel}
+				{/* A live region so the notice is read out when a save produces it.
+				    Rendered from the loaded profile rather than the save's response,
+				    so it is still there after a reload, for as long as the link is
+				    waiting to be opened. `sr-only` while empty rather than absent: a
+				    region has to exist before its text arrives to be announced, and
+				    out of the flow it adds no gap to the form. */}
+				<p role="status" className={pending ? 'muted -mt-1.5 text-meta' : 'sr-only'}>
+					{pending ? ca.profile.emailPending(pending) : ''}
+				</p>
+				{changingEmail && (
+					<Field
+						label={ca.profile.currentPasswordLabel}
+						type="password"
+						autoComplete="current-password"
+						required
+						value={currentPassword}
+						onChange={(e) => setCurrentPassword(e.target.value)}
 					/>
-				</FieldShell>
+				)}
+				<TimeZonePicker
+					label={ca.profile.timeZoneLabel}
+					ariaLabel={ca.profile.timeZoneAriaLabel}
+					zones={data.timeZones}
+					value={homeTz}
+					onChange={setHomeTz}
+					noMatches={ca.profile.timeZoneNoMatches}
+				/>
 				<button className="btn primary mt-1 self-start" type="submit" disabled={save.busy}>
 					{save.busy ? copy.common.saving : copy.common.save}
 				</button>

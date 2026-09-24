@@ -1,11 +1,13 @@
 import {
 	createContext,
+	createElement,
 	useCallback,
 	useContext,
 	useEffect,
 	useMemo,
 	useRef,
-	useState
+	useState,
+	type ReactNode
 } from 'react';
 
 /**
@@ -76,12 +78,27 @@ export type TripTopic = (typeof TRIP_TOPICS)[number];
  */
 export type LiveStatus = 'connecting' | 'live' | 'retrying' | 'off';
 
-export type TripEvents = {
-	status: LiveStatus;
+/**
+ * The half of the stream that never changes identity while a trip is open.
+ *
+ * Kept apart from `status` on purpose. They used to share one context value,
+ * so every status change (`live` on each reconnect) handed every subscriber a
+ * new object, every `useLiveSection` effect re-ran, and each cleanup deleted
+ * the reload the reconnect had just queued for it, 120ms before the flush that
+ * would have run it. A reconnect therefore refetched nothing, which is exactly
+ * the moment a refetch is the only way to learn what was missed.
+ */
+export type TripEventsControl = {
 	/** Attach a section. Returns the detach, for the effect cleanup. */
 	subscribe: (topics: readonly TripTopic[], invalidate: () => void) => () => void;
 	/** Start over after giving up. For a "try again" affordance. */
 	retry: () => void;
+};
+
+export type TripEvents = TripEventsControl & {
+	status: LiveStatus;
+	/** The same `subscribe` and `retry`, as one stable object for the provider. */
+	control: TripEventsControl;
 };
 
 /** How many times the browser's own reconnect (which resumes) is allowed first. */
@@ -128,6 +145,15 @@ export function useTripEvents(tripId: string | null): TripEvents {
 	const [status, setStatus] = useState<LiveStatus>(tripId ? 'connecting' : 'off');
 	const [generation, setGeneration] = useState(0);
 	const listeners = useRef<Set<Listener>>(new Set());
+	/**
+	 * The trip this tab has had a live stream for at least once. A ref, not a
+	 * local of the connect effect: the manual Reconnect bumps `generation`,
+	 * which re-runs that effect from scratch, and a local reset there made the
+	 * first open after Reconnect look like a first connection, so nothing was
+	 * refetched after a gap that could have been minutes long. Keyed by trip so
+	 * switching trips still starts clean.
+	 */
+	const connectedFor = useRef<string | null>(null);
 
 	// The coalescing/deferral queue, shared by every section on the page.
 	const pending = useRef<Set<() => void>>(new Set());
@@ -169,7 +195,6 @@ export function useTripEvents(tripId: string | null): TripEvents {
 		let browserRetries = 0;
 		let attempts = 0;
 		let openedAt = 0;
-		let connectedBefore = false;
 		let stopped = false;
 
 		const teardown = () => {
@@ -226,8 +251,8 @@ export function useTripEvents(tripId: string | null): TripEvents {
 				setStatus('live');
 				// Anything could have happened while this was down, and a stream we
 				// opened ourselves carries no resume point, so assume the worst.
-				if (connectedBefore) dispatch('*');
-				connectedBefore = true;
+				if (connectedFor.current === tripId) dispatch('*');
+				connectedFor.current = tripId;
 			};
 
 			for (const topic of TRIP_TOPICS) {
@@ -294,9 +319,14 @@ export function useTripEvents(tripId: string | null): TripEvents {
 	const subscribe = useCallback((topics: readonly TripTopic[], invalidate: () => void) => {
 		const entry: Listener = { topics: new Set(topics), invalidate };
 		listeners.current.add(entry);
+		// The listener goes; a reload already queued for it stays. A detach is
+		// usually a re-attach a moment later (a section's effect re-running), and
+		// dropping the queued reload there is how a reconnect used to lose every
+		// refetch it asked for. Running it after a real unmount is harmless: it
+		// is a state update on a component that is gone, which React ignores.
+		// The trip's own teardown below still clears the whole queue.
 		return () => {
 			listeners.current.delete(entry);
-			pending.current.delete(invalidate);
 		};
 	}, []);
 
@@ -305,7 +335,11 @@ export function useTripEvents(tripId: string | null): TripEvents {
 		setGeneration((n) => n + 1);
 	}, []);
 
-	return useMemo(() => ({ status, subscribe, retry }), [status, subscribe, retry]);
+	const control = useMemo(() => ({ subscribe, retry }), [subscribe, retry]);
+	return useMemo(
+		() => ({ status, subscribe, retry, control }),
+		[status, subscribe, retry, control]
+	);
 }
 
 function readReason(data: unknown): string {
@@ -317,13 +351,35 @@ function readReason(data: unknown): string {
 	}
 }
 
-const TripEventsContext = createContext<TripEvents | null>(null);
+/** Stable for the life of a trip: what sections subscribe through. */
+const TripEventsControlContext = createContext<TripEventsControl | null>(null);
+/** Changes on every reconnect: read only by what reports the stream's state. */
+const TripLiveStatusContext = createContext<LiveStatus | null>(null);
 
-export const TripEventsProvider = TripEventsContext.Provider;
+/**
+ * Provides both halves. Two contexts rather than one, so a status change
+ * re-renders `LiveOff` and nothing else; see `TripEventsControl`.
+ */
+export function TripEventsProvider({
+	value,
+	children
+}: {
+	value: TripEvents;
+	children: ReactNode;
+}) {
+	return createElement(
+		TripEventsControlContext.Provider,
+		{ value: value.control },
+		createElement(TripLiveStatusContext.Provider, { value: value.status }, children)
+	);
+}
 
 /** The stream's state, for the one quiet line that reports it. Null off a trip. */
-export function useLiveStatus(): TripEvents | null {
-	return useContext(TripEventsContext);
+export function useLiveStatus(): { status: LiveStatus; retry: () => void } | null {
+	const control = useContext(TripEventsControlContext);
+	const status = useContext(TripLiveStatusContext);
+	if (!control || status === null) return null;
+	return { status, retry: control.retry };
 }
 
 /**
@@ -334,15 +390,19 @@ export function useLiveStatus(): TripEvents | null {
  * does nothing, which is what lets a page use it unconditionally.
  */
 export function useLiveSection(topics: readonly TripTopic[], reload: () => void): void {
-	const events = useContext(TripEventsContext);
+	const events = useContext(TripEventsControlContext);
 	// Depend on the topics by value: every caller passes an array literal, and
 	// depending on its identity would resubscribe on every render.
 	const key = topics.join(',');
 	const reloadRef = useRef(reload);
 	reloadRef.current = reload;
+	// One function for the life of the section, so a reload queued before a
+	// resubscribe and the same reload queued after it are one entry in the
+	// queue's Set rather than two refetches.
+	const invalidate = useCallback(() => reloadRef.current(), []);
 
 	useEffect(() => {
 		if (!events) return;
-		return events.subscribe(key.split(',') as TripTopic[], () => reloadRef.current());
-	}, [events, key]);
+		return events.subscribe(key.split(',') as TripTopic[], invalidate);
+	}, [events, key, invalidate]);
 }

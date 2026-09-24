@@ -200,7 +200,8 @@ describe('who is on an event', () => {
 
 		const res = await put(f, id, { people: [] });
 		expect(res.status).toBe(200);
-		expect(await res.json()).toEqual({ ok: true });
+		// The version rides along now; see "the version a write hands back".
+		expect(await res.json()).toEqual({ ok: true, version: expect.any(Number) });
 		expect(storedPeople(id)).toEqual([]);
 		expect((await loaded(f, id)).people).toEqual([]);
 	});
@@ -230,5 +231,85 @@ describe('who is on an event', () => {
 		const res = await put(f, id, { people: [f.organizer, f.member] });
 		expect(res.status).toBe(200);
 		expect(storedPeople(id)).toEqual([f.organizer, f.member].sort());
+	});
+});
+
+/**
+ * The version a write hands back.
+ *
+ * A drag, a resize and a people save all bump an event's version without
+ * checking it, so a dialog opened before any of them is refused rather than
+ * silently writing the old clock or the old people back. The dialog's own
+ * writes are sequential (the event, then the people), so each answers with the
+ * version it left, and the dialog carries that forward instead of refusing
+ * itself on its next save.
+ */
+describe('the version a write hands back', () => {
+	function op(f: Fixture, eventId: string, body: Record<string, unknown>) {
+		return app.request(`/trips/${f.tripId}/schedule/events/${eventId}/op`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json', cookie: f.cookie },
+			body: JSON.stringify(body)
+		});
+	}
+	function stored(eventId: string): number {
+		return (
+			db.prepare(`SELECT version FROM events WHERE id = ?`).get(eventId) as { version: number }
+		).version;
+	}
+
+	it('lets a dialog save the event, then the people, then save again', async () => {
+		const f = fixture();
+		const id = await created(await post(f, { people: [f.organizer] }));
+		const opened = stored(id);
+
+		const edit = await op(f, id, { op: 'edit', title: 'ZZ Renamed', version: opened });
+		expect(edit.status).toBe(200);
+		const afterEdit = ((await edit.json()) as { version: number }).version;
+		expect(afterEdit).toBe(stored(id));
+
+		const people = await put(f, id, { people: [f.organizer, f.member] });
+		expect(people.status).toBe(200);
+		const afterPeople = ((await people.json()) as { version: number }).version;
+		expect(afterPeople).toBeGreaterThan(afterEdit);
+		expect(afterPeople).toBe(stored(id));
+
+		// Carrying the number forward is enough for the dialog's next save.
+		const again = await op(f, id, { op: 'edit', title: 'ZZ Again', version: afterPeople });
+		expect(again.status).toBe(200);
+	});
+
+	it('refuses a dialog opened before a drag, instead of dragging the block back', async () => {
+		const f = fixture();
+		const id = await created(await post(f, { people: [f.organizer] }));
+		const opened = stored(id);
+
+		const move = await op(f, id, { op: 'move', startMin: 11 * 60 });
+		expect(move.status).toBe(200);
+		expect(await move.json()).toEqual({ ok: true, version: opened + 1 });
+
+		const stale = await op(f, id, { op: 'edit', startMin: 9 * 60, endMin: 10 * 60, version: opened });
+		expect(stale.status).toBe(409);
+		expect(
+			(db.prepare(`SELECT start_min FROM events WHERE id = ?`).get(id) as { start_min: number })
+				.start_min
+		).toBe(11 * 60);
+	});
+
+	it('refuses a dialog opened before a resize or a people save', async () => {
+		const f = fixture();
+		const id = await created(await post(f, { people: [f.organizer] }));
+		const opened = stored(id);
+
+		const resize = await op(f, id, { op: 'resize', endMin: 11 * 60 });
+		expect(resize.status).toBe(200);
+		expect(((await resize.json()) as { version: number }).version).toBe(opened + 1);
+		expect((await op(f, id, { op: 'edit', title: 'ZZ Stale', version: opened })).status).toBe(409);
+
+		const beforePeople = stored(id);
+		expect((await put(f, id, { people: [f.member] })).status).toBe(200);
+		expect(
+			(await op(f, id, { op: 'edit', title: 'ZZ Stale', version: beforePeople })).status
+		).toBe(409);
 	});
 });

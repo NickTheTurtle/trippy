@@ -88,6 +88,31 @@ export const env = {
 	/** Where an invite's link points. The web app, not the API. */
 	get APP_URL(): string {
 		return process.env.APP_URL ?? 'http://localhost:5174';
+	},
+	/**
+	 * The SNS topics the SES bounce receiver will act on, comma-separated.
+	 *
+	 * A valid SNS signature proves AWS wrote the message, not that it was written
+	 * for us: any AWS account can create a topic, subscribe this URL to it and
+	 * publish a perfectly signed "complaint" for any address. The topic ARN is
+	 * part of the signed string, so an allowlist of our own topics is what ties a
+	 * genuine message to our SES identity. Empty means none: every message is
+	 * refused, which is the safe reading of a receiver nobody has configured.
+	 */
+	get SES_SNS_TOPIC_ARN(): string[] {
+		return (process.env.SES_SNS_TOPIC_ARN ?? '')
+			.split(',')
+			.map((s) => s.trim())
+			.filter(Boolean);
+	},
+	/**
+	 * The interface the API binds. Unset keeps Node's default of every interface,
+	 * which a phone on the LAN needs to reach a dev server. Production sets
+	 * `127.0.0.1`, because Caddy on the same host is the only intended client and
+	 * a public socket would let callers skip it (and its TLS and headers).
+	 */
+	get HOST(): string | undefined {
+		return process.env.HOST?.trim() || undefined;
 	}
 };
 

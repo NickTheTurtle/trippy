@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { createApiFixture } from './fixtures/api';
-import { addCity, seedMembers } from './fixtures/seed';
+import { apiURL, createApiFixture, registerUser, type ApiFixture } from './fixtures/api';
+import { addCity, addExpense, expensesData, invite, seedMembers } from './fixtures/seed';
 import { copy } from './fixtures/copy';
 import { signIn } from './fixtures/session';
 
@@ -20,6 +20,94 @@ const PHONE = { width: 390, height: 844 };
 const DESKTOP = { width: 1440, height: 900 };
 
 test.describe('narrow layouts', () => {
+	test('at 390px a long name, the tabs and the money rows all fit without cutting words', async ({
+		page,
+		request
+	}) => {
+		const user = await registerUser(request, {
+			name: 'Maximilian Alexander Featherstonehaugh-Worthington'
+		});
+		try {
+			const created = await request.post(`${apiURL}/trips`, {
+				headers: { cookie: user.sessionCookie },
+				data: {
+					name: 'Narrow trip',
+					dates: '',
+					startDate: '2027-02-10',
+					endDate: '2027-02-12',
+					homeCurrency: 'USD'
+				}
+			});
+			const tripId = ((await created.json()) as { trip: { id: string } }).trip.id;
+			const fixture = { ...user, tripId } as unknown as ApiFixture;
+			// Invited one by one rather than through `seedMembers`, which makes the
+			// address out of the name and so cannot take a name with spaces.
+			for (const [name, local] of [
+				['Diederik van der Westhuizen', 'diederik'],
+				['Alessandra Montgomery-Vasquez', 'alessandra']
+			]) {
+				await invite(request, fixture, `${local}-${tripId}@example.test`, name);
+			}
+			const ids = Object.fromEntries(
+				(await expensesData(request, fixture, tripId)).members.map((m) => [m.name, m.id])
+			);
+			await addExpense(request, fixture, tripId, {
+				description: 'Dinner at the long named restaurant by the river',
+				amount: 240,
+				payerId: ids['Diederik van der Westhuizen'],
+				splitMode: 'shares',
+				participantIds: Object.values(ids),
+				weights: Object.fromEntries(Object.values(ids).map((id, i) => [id, i + 1])),
+				spentOn: '2027-02-11'
+			});
+
+			await signIn(page, user.sessionCookie);
+			await page.setViewportSize(PHONE);
+			await page.goto(`/trips/${tripId}/expenses`);
+			const row = page.getByRole('listitem').filter({ hasText: 'Dinner at the long' });
+			await expect(row).toBeVisible();
+
+			// Nothing on the page is wider than the phone: the account name used to
+			// push the top bar 191px past the edge.
+			const overflow = await page.evaluate(
+				() => document.documentElement.scrollWidth - window.innerWidth
+			);
+			expect(overflow).toBe(0);
+
+			// On Expenses the one tab after it is on screen, not scrolled out of
+			// sight with nothing to say it was there. Polled: a tab change glides.
+			const peopleLink = page.getByRole('link', { name: copy.nav.people, exact: true });
+			await expect
+				.poll(async () => {
+					const b = await peopleLink.boundingBox();
+					return b ? b.x + b.width : Infinity;
+				})
+				.toBeLessThanOrEqual(PHONE.width);
+
+			// Rows wrap rather than cut: no piece of text is clipped inside its box.
+			const clipped = (sel: string) =>
+				page
+					.locator(sel)
+					.evaluateAll((els) =>
+						els.flatMap((el) =>
+							[el, ...el.querySelectorAll('*')]
+								.filter((n) => n instanceof HTMLElement && n.scrollWidth > n.clientWidth + 1)
+								.map((n) => n.textContent)
+						)
+					);
+			expect(await row.evaluate((el) => el.textContent)).toContain('split by shares');
+			expect(await clipped('main li')).toEqual([]);
+
+			await page.getByRole('button', { name: copy.expenses.navAriaLabel }).click();
+			await page.getByRole('option', { name: copy.expenses.sections.settle }).click();
+			const transfer = page.getByRole('listitem').filter({ hasText: copy.expenses.settleRow.pays });
+			await expect(transfer.first()).toBeVisible();
+			expect(await clipped('main li')).toEqual([]);
+		} finally {
+			user.teardown();
+		}
+	});
+
 	test('a phone gets the sections as a dropdown, a desktop gets the column', async ({
 		page,
 		request

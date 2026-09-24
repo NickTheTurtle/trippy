@@ -166,30 +166,6 @@ export function WarningIcon() {
 	);
 }
 
-/** A month grid with its binding rings: something has a place on the calendar. */
-export function CalendarIcon() {
-	return (
-		<svg viewBox="0 0 16 16" aria-hidden="true" className="size-4">
-			<rect
-				x="2"
-				y="3.5"
-				width="12"
-				height="10.5"
-				rx="1.6"
-				fill="none"
-				stroke="currentColor"
-				strokeWidth="1.4"
-			/>
-			<path
-				d="M2 6.8h12M5.5 2v3M10.5 2v3"
-				fill="none"
-				stroke="currentColor"
-				strokeWidth="1.4"
-				strokeLinecap="round"
-			/>
-		</svg>
-	);
-}
 /** A closed padlock: the schedule is frozen against changes. */
 export function LockIcon() {
 	return (

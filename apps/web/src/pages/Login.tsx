@@ -4,6 +4,7 @@ import { AuthShell } from '../components/ui/AuthShell';
 import { Field } from '../components/ui/Field';
 import { useErrorSlot } from '../components/ui/Toast';
 import { useAuth } from '../auth';
+import useDocumentTitle from '../hooks/useDocumentTitle';
 import { copy } from '../copy';
 
 const c = copy.auth.login;
@@ -12,6 +13,7 @@ export default function Login() {
 	const { status, logIn } = useAuth();
 	const location = useLocation();
 	const failure = useErrorSlot();
+	useDocumentTitle([c.submitLabel]);
 
 	const [email, setEmail] = useState('');
 	const [password, setPassword] = useState('');

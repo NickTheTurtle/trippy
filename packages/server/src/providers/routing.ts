@@ -1,4 +1,4 @@
-import { guessLeg, minsByMode, type PlannedLeg } from '@trippy/core/travel';
+import { guessLeg, minsByMode, routeKey, type PlannedLeg } from '@trippy/core/travel';
 import { createCache } from '../infra/cache';
 import { assertPaidProviderAllowed, env } from '../infra/env';
 import { noteProviderFailure, noteProviderOk, serviceHealth, type ProviderFailure } from './provider-health';
@@ -38,8 +38,7 @@ const TIMEOUT_MS = 3000;
 const legCache = createCache<RoutedLeg>(6 * 60 * 60 * 1000, 2000);
 
 function key(leg: PlannedLeg, mode: string): string {
-	const r = (n: number) => n.toFixed(4);
-	return `${mode}:${r(leg.fromLat)},${r(leg.fromLng)}>${r(leg.toLat)},${r(leg.toLng)}`;
+	return routeKey(leg, mode);
 }
 
 /** Our vocabulary, in Google's. Ferry and flight have no Routes equivalent. */

@@ -1,9 +1,18 @@
 import { randomUUID } from 'node:crypto';
+import { isCurrencyCode, unknownCurrency } from '@trippy/core/currency';
 import { formatDayRange, normalizeDay } from '@trippy/core/tz';
-import { isNameLength, nameTooLong } from '@trippy/core/validate';
+import {
+	dayOutOfWindow,
+	isDayInWindow,
+	isIanaZone,
+	isNameLength,
+	nameTooLong
+} from '@trippy/core/validate';
 import { db } from '../db';
 import { publish, publishMany } from '../events';
+import { detachMemberFromLedger } from './expenses';
 import { isOrganizer } from './membership';
+import { eventSpansWhere, settleEventSpans, settleTrip } from './schedule';
 
 export interface TripRow {
 	id: string;
@@ -194,7 +203,10 @@ export function createTrip(userId: string, input: TripCreate): TripCreateResult 
 	const range = validateDates(input.startDate, input.endDate);
 	if (typeof range === 'string') return { id: null, error: range };
 	const currency = (input.homeCurrency ?? 'USD').trim().toUpperCase() || 'USD';
-	if (!/^[A-Z]{3}$/.test(currency)) return { id: null, error: 'Pick a currency.' };
+	// Only a code the offline table can convert. Any three letters used to pass,
+	// and the first ledger read then threw converting into a home currency
+	// nothing had a rate for.
+	if (!isCurrencyCode(currency)) return { id: null, error: unknownCurrency() };
 
 	const id = randomUUID();
 	const cover = 'linear-gradient(135deg, #2f6d5e, #7ba697)';
@@ -239,6 +251,10 @@ function validateDates(
 	const end = normalizeDay(rawEnd);
 	if (!start) return 'Pick a valid start date.';
 	if (!end) return 'Pick a valid end date.';
+	// The same window an expense's day is held to (see `DAY_MIN` in core). A trip
+	// in the year 1200 is a slipped keystroke, and every expense entered on it
+	// would then be refused for a range the trip itself had been let off.
+	if (!isDayInWindow(start) || !isDayInWindow(end)) return dayOutOfWindow();
 	if (end < start) return 'The end date must be on or after the start date.';
 	return { start, end };
 }
@@ -252,8 +268,6 @@ function tripLabel(start: string, end: string): string {
 	return formatDayRange(start, end);
 }
 
-const TZ_RE = /^[A-Za-z]+\/[A-Za-z0-9_+-]+$/;
-
 export interface TripEdit {
 	name: string;
 	startDate: string;
@@ -264,8 +278,13 @@ export interface TripEdit {
 	 * Part of the trip rather than of the schedule because it is a decision
 	 * about the trip ("the plan is settled"), and because the edit dialog is
 	 * already the one organizer-only form on the page.
+	 *
+	 * Optional, and absent keeps what is stored. It used to be read as
+	 * `=== true`, so any edit that did not restate it (a script, an older
+	 * client, a rename from somewhere other than the dialog) silently unlocked
+	 * a board the organizer had frozen.
 	 */
-	scheduleLocked: boolean;
+	scheduleLocked?: boolean;
 }
 
 /**
@@ -280,11 +299,17 @@ export function updateTrip(tripId: string, actorId: string, e: TripEdit): string
 	const dates = validateDates(e.startDate, e.endDate);
 	if (typeof dates === 'string') return dates;
 	const currency = e.currency.trim().toUpperCase();
-	if (!/^[A-Z]{3}$/.test(currency)) return 'Pick a currency.';
+	// An unchanged code is let through: a trip created while the picker offered
+	// the whole live feed can hold a code the offline table lacks, and refusing
+	// it here would stop its organizer renaming it or locking its schedule.
+	const stored = db.prepare(`SELECT home_currency FROM trips WHERE id = ?`).get(tripId) as
+		| { home_currency: string }
+		| undefined;
+	if (!isCurrencyCode(currency) && currency !== stored?.home_currency) return unknownCurrency();
 
 	db.prepare(
 		`UPDATE trips SET name = ?, start_date = ?, end_date = ?, dates = ?, home_currency = ?,
-		        schedule_locked = ?
+		        schedule_locked = COALESCE(?, schedule_locked)
 		 WHERE id = ?`
 	).run(
 		name,
@@ -292,7 +317,7 @@ export function updateTrip(tripId: string, actorId: string, e: TripEdit): string
 		dates.end,
 		tripLabel(dates.start, dates.end),
 		currency,
-		e.scheduleLocked ? 1 : 0,
+		e.scheduleLocked === undefined ? null : e.scheduleLocked ? 1 : 0,
 		tripId
 	);
 	// The home currency is part of every balance figure, so the ledger is stale
@@ -361,11 +386,17 @@ export function updateTrip(tripId: string, actorId: string, e: TripEdit): string
 /**
  * Leave a trip. Anyone but the organizer, who would orphan it.
  *
- * Deliberately destroys nothing else. Expenses they paid, shares they owe and
- * votes they cast all stay: the ledger has to keep balancing, and a departure
- * is not a reason to rewrite what the group already agreed. This is the same
- * effect `removeMember` has on a registered member, reached by the member
- * rather than the organizer.
+ * Deliberately destroys nothing else. Expenses they paid and votes they cast
+ * all stay: the ledger has to keep balancing, and a departure is not a reason
+ * to rewrite what the group already agreed. This is the same effect
+ * `removeMember` has on a registered member, reached by the member rather than
+ * the organizer, and it now does the same two things `removeMember` does after
+ * the membership goes: `detachMemberFromLedger`, so their share of a
+ * proportional split is re-divided across whoever remains instead of staying
+ * charged to somebody no longer on the trip (stated splits and what they paid
+ * are left for review), and `settleTrip`, because "Everyone" just got smaller.
+ * The two exits used to differ, so leaving and being removed produced two
+ * different ledgers.
  */
 export function leaveTrip(tripId: string, userId: string): boolean {
 	const row = db
@@ -375,8 +406,12 @@ export function leaveTrip(tripId: string, userId: string): boolean {
 	const res = db
 		.prepare(`DELETE FROM memberships WHERE trip_id = ? AND user_id = ?`)
 		.run(tripId, userId);
-	// Settlement is per member, so the balances everyone else sees change.
-	if (res.changes > 0) publishMany(tripId, ['members', 'expenses', 'schedule']);
+	if (res.changes > 0) {
+		detachMemberFromLedger(tripId, userId);
+		settleTrip(tripId);
+		// Settlement is per member, so the balances everyone else sees change.
+		publishMany(tripId, ['members', 'expenses', 'schedule']);
+	}
 	return res.changes > 0;
 }
 
@@ -402,9 +437,21 @@ function cityRegion(c: CityInput): string | null {
 
 function validCity(c: CityInput): boolean {
 	if (!c.name.trim() || !c.country.trim()) return false;
-	if (!TZ_RE.test(c.tz)) return false;
+	if (!isNameLength(c.name.trim()) || !isNameLength(c.country.trim())) return false;
+	if (!isNameLength(cityRegion(c) ?? '')) return false;
+	// Asked of `Intl` rather than a regex: `Area/Location` refused `UTC` and let
+	// `Mars/Olympus_Mons` through to throw out of every clock drawn for the city.
+	if (!isIanaZone(c.tz)) return false;
 	return true;
 }
+
+/**
+ * Why a city write was refused. Routes turn these into statuses: `forbidden`
+ * is the caller's role (403), `missing` is a city not on this trip (404), and
+ * the rest are the values themselves (400). The boolean and nullable wrappers
+ * below are kept for the callers that only need yes or no.
+ */
+export type CityRefusal = 'forbidden' | 'invalid' | 'duplicate' | 'missing' | 'last';
 
 /**
  * Whether the trip already holds this city.
@@ -445,9 +492,19 @@ export function cityOnTrip(tripId: string, c: CityInput, exclude?: string): bool
  * either fail or require deleting somebody's data; this is the only writer.
  */
 export function addCity(tripId: string, actorId: string, c: CityInput): string | null {
-	if (!isOrganizer(tripId, actorId)) return null;
-	if (!validCity(c)) return null;
-	if (cityOnTrip(tripId, c)) return null;
+	const res = addCityResult(tripId, actorId, c);
+	return res.ok ? res.id : null;
+}
+
+/** `addCity`, saying why when it refuses. */
+export function addCityResult(
+	tripId: string,
+	actorId: string,
+	c: CityInput
+): { ok: true; id: string } | { ok: false; reason: CityRefusal } {
+	if (!isOrganizer(tripId, actorId)) return { ok: false, reason: 'forbidden' };
+	if (!validCity(c)) return { ok: false, reason: 'invalid' };
+	if (cityOnTrip(tripId, c)) return { ok: false, reason: 'duplicate' };
 	const next =
 		((
 			db.prepare(`SELECT MAX(sort) AS m FROM cities WHERE trip_id = ?`).get(tripId) as
@@ -471,14 +528,24 @@ export function addCity(tripId: string, actorId: string, c: CityInput): string |
 	// A city is the spine of the itinerary: places, stays and budget cells are
 	// all scoped to it.
 	publishMany(tripId, ['trip', 'schedule', 'lodging', 'costs']);
-	return id;
+	return { ok: true, id };
 }
 
 /** Update an existing city. Organizer only. */
 export function updateCity(tripId: string, actorId: string, cityId: string, c: CityInput): boolean {
-	if (!isOrganizer(tripId, actorId)) return false;
-	if (!validCity(c)) return false;
-	if (cityOnTrip(tripId, c, cityId)) return false;
+	return updateCityResult(tripId, actorId, cityId, c).ok;
+}
+
+/** `updateCity`, saying why when it refuses. */
+export function updateCityResult(
+	tripId: string,
+	actorId: string,
+	cityId: string,
+	c: CityInput
+): { ok: true } | { ok: false; reason: CityRefusal } {
+	if (!isOrganizer(tripId, actorId)) return { ok: false, reason: 'forbidden' };
+	if (!validCity(c)) return { ok: false, reason: 'invalid' };
+	if (cityOnTrip(tripId, c, cityId)) return { ok: false, reason: 'duplicate' };
 	const res = db
 		.prepare(
 			`UPDATE cities SET name = ?, country = ?, region = ?, tz = ?, lat = ?, lng = ?
@@ -495,22 +562,68 @@ export function updateCity(tripId: string, actorId: string, cityId: string, c: C
 			tripId
 		);
 	if (res.changes > 0) publishMany(tripId, ['trip', 'schedule', 'lodging', 'costs']);
-	return res.changes > 0;
+	return res.changes > 0 ? { ok: true } : { ok: false, reason: 'missing' };
 }
 
 /** Remove a city (and its dependent data via cascade). Organizer only; keeps at least one city. */
 export function removeCity(tripId: string, actorId: string, cityId: string): boolean {
-	if (!isOrganizer(tripId, actorId)) return false;
+	return removeCityResult(tripId, actorId, cityId).ok;
+}
+
+/** `removeCity`, saying why when it refuses. */
+export function removeCityResult(
+	tripId: string,
+	actorId: string,
+	cityId: string
+): { ok: true } | { ok: false; reason: CityRefusal } {
+	if (!isOrganizer(tripId, actorId)) return { ok: false, reason: 'forbidden' };
+	const exists = db.prepare(`SELECT 1 FROM cities WHERE id = ? AND trip_id = ?`).get(cityId, tripId);
+	if (!exists) return { ok: false, reason: 'missing' };
 	const count =
 		(
 			db.prepare(`SELECT COUNT(*) AS n FROM cities WHERE trip_id = ?`).get(tripId) as
 				{ n: number } | undefined
 		)?.n ?? 0;
-	if (count <= 1) return false;
-	const res = db.prepare(`DELETE FROM cities WHERE id = ? AND trip_id = ?`).run(cityId, tripId);
+	if (count <= 1) return { ok: false, reason: 'last' };
+	// What was scheduled at the city's places and stays goes with them, as it
+	// does when one place or one stay is deleted (`removePoi`, `removeOption`).
+	// The cascade alone takes the places and stays but only nulls the events'
+	// links, which left blocks on the board claiming coordinates for somewhere
+	// the trip no longer has and naming nothing. Events that merely carry the
+	// city's id are not deleted: `events.city_id` defaults to the trip's first
+	// city on create, so it is not a statement that the block is there.
+	const pois = (
+		db.prepare(`SELECT id FROM pois WHERE city_id = ? AND trip_id = ?`).all(cityId, tripId) as
+			unknown as { id: string }[]
+	).map((r) => r.id);
+	const stays = (
+		db
+			.prepare(`SELECT id FROM lodging_options WHERE city_id = ? AND trip_id = ?`)
+			.all(cityId, tripId) as unknown as { id: string }[]
+	).map((r) => r.id);
+	const spans = [
+		...eventSpansWhere(tripId, 'poi_id', pois),
+		...eventSpansWhere(tripId, 'lodging_id', stays)
+	];
+	let changes = 0;
+	db.exec('BEGIN');
+	try {
+		const byPoi = db.prepare(`DELETE FROM events WHERE trip_id = ? AND poi_id = ?`);
+		for (const id of pois) byPoi.run(tripId, id);
+		const byStay = db.prepare(`DELETE FROM events WHERE trip_id = ? AND lodging_id = ?`);
+		for (const id of stays) byStay.run(tripId, id);
+		changes = Number(
+			db.prepare(`DELETE FROM cities WHERE id = ? AND trip_id = ?`).run(cityId, tripId).changes
+		);
+		db.exec('COMMIT');
+	} catch (err) {
+		db.exec('ROLLBACK');
+		throw err;
+	}
+	if (changes > 0) settleEventSpans(tripId, spans);
 	// Removing a city cascades into its places, stays, lodging votes and budget
 	// cells, and nulls the crew/day city, so every section that reads a city is
 	// invalidated rather than just the header.
-	if (res.changes > 0) publishMany(tripId, ['trip', 'pois', 'lodging', 'costs', 'schedule']);
-	return res.changes > 0;
+	if (changes > 0) publishMany(tripId, ['trip', 'pois', 'lodging', 'costs', 'schedule']);
+	return changes > 0 ? { ok: true } : { ok: false, reason: 'missing' };
 }

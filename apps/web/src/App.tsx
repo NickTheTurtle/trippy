@@ -9,6 +9,7 @@ import Register from './pages/Register';
 import Forgot from './pages/Forgot';
 import Reset from './pages/Reset';
 import Verify from './pages/Verify';
+import VerifyEmail from './pages/VerifyEmail';
 import Account from './pages/Account';
 import Trips from './pages/Trips';
 import TripShell from './pages/TripShell';
@@ -44,6 +45,8 @@ export default function App() {
 				<Route path="/forgot" element={<Forgot />} />
 				<Route path="/reset" element={<Reset />} />
 				<Route path="/verify" element={<Verify />} />
+				{/* Public on purpose: see `VerifyEmail`. */}
+				<Route path="/verify-email" element={<VerifyEmail />} />
 
 				{/* Everything past this point needs a signed-in user. Grouping the
 				    guarded routes under one element beats repeating a check inside

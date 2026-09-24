@@ -24,6 +24,9 @@ const dbPath = join(tempRoot, 'ses-route.test.db');
 mkdirSync(tempRoot, { recursive: true });
 process.env.TRIPPY_DB = dbPath;
 
+/** The one topic this receiver is configured to trust in these cases. */
+const OUR_TOPIC = 'arn:aws:sns:us-east-1:123456789012:ses-bounces';
+
 const verifySnsSignature = vi.fn(async () => true);
 
 vi.mock('@trippy/server/sns', async (importOriginal) => {
@@ -49,6 +52,7 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
+	process.env.SES_SNS_TOPIC_ARN = OUR_TOPIC;
 	db.prepare(`DELETE FROM mail_suppressions`).run();
 	sns.resetSeenMessageIds();
 	verifySnsSignature.mockReset();
@@ -60,6 +64,7 @@ beforeEach(() => {
 });
 
 afterAll(() => {
+	delete process.env.SES_SNS_TOPIC_ARN;
 	vi.unstubAllGlobals();
 	db.close();
 	for (const suffix of ['', '-wal', '-shm']) {
@@ -74,7 +79,7 @@ function complaintEnvelope(email: string, messageId = `id-${Math.random()}`) {
 	return {
 		Type: 'Notification',
 		MessageId: messageId,
-		TopicArn: 'arn:aws:sns:us-east-1:123456789012:ses-bounces',
+		TopicArn: OUR_TOPIC,
 		Timestamp: new Date().toISOString(),
 		SignatureVersion: '2',
 		Signature: 'whatever-the-stub-says',
@@ -148,6 +153,7 @@ describe('the SES notification receiver', () => {
 		await post({
 			Type: 'SubscriptionConfirmation',
 			MessageId: 'sub-1',
+			TopicArn: OUR_TOPIC,
 			Token: 't',
 			Timestamp: new Date().toISOString(),
 			SubscribeURL: 'https://sns.us-east-1.amazonaws.com/?Action=ConfirmSubscription&Token=t'
@@ -158,6 +164,7 @@ describe('the SES notification receiver', () => {
 		await post({
 			Type: 'SubscriptionConfirmation',
 			MessageId: 'sub-2',
+			TopicArn: OUR_TOPIC,
 			Token: 't',
 			Timestamp: new Date().toISOString(),
 			SubscribeURL: 'https://evil.example/?Action=ConfirmSubscription&Token=t'
@@ -184,8 +191,67 @@ describe('the SES notification receiver', () => {
 		const res = await post({
 			Type: 'UnsubscribeConfirmation',
 			MessageId: 'unsub-1',
+			TopicArn: OUR_TOPIC,
 			Timestamp: new Date().toISOString()
 		});
 		expect(res.status).toBe(200);
+	});
+});
+
+/**
+ * The topic gate. A genuine SNS signature proves AWS wrote a message, not that
+ * it came from our topic: any AWS account can subscribe this URL to a topic of
+ * its own and publish signed complaints naming anyone. So the topic is held to
+ * `SES_SNS_TOPIC_ARN` before anything else, for every message type.
+ */
+describe('the SES receiver topic allowlist', () => {
+	it("drops a verified complaint from somebody else's topic, before verifying it", async () => {
+		const envelope = {
+			...complaintEnvelope('victim@example.test'),
+			TopicArn: 'arn:aws:sns:us-east-1:999999999999:attacker'
+		};
+		const res = await post(envelope);
+		expect(res.status).toBe(200);
+		expect(suppressions.isSuppressed('victim@example.test')).toBe(false);
+		// Refused on the topic alone, so no certificate was ever fetched for it.
+		expect(verifySnsSignature).not.toHaveBeenCalled();
+	});
+
+	it('does not confirm a subscription to a foreign topic', async () => {
+		const stub = vi.fn(async () => new Response('ok'));
+		vi.stubGlobal('fetch', stub);
+		await post({
+			Type: 'SubscriptionConfirmation',
+			MessageId: 'sub-foreign',
+			TopicArn: 'arn:aws:sns:us-east-1:999999999999:attacker',
+			Token: 't',
+			Timestamp: new Date().toISOString(),
+			SubscribeURL: 'https://sns.us-east-1.amazonaws.com/?Action=ConfirmSubscription&Token=t'
+		});
+		expect(stub).not.toHaveBeenCalled();
+	});
+
+	it('drops a message with no topic at all', async () => {
+		const envelope = complaintEnvelope('victim@example.test');
+		delete (envelope as Record<string, unknown>).TopicArn;
+		await post(envelope);
+		expect(suppressions.isSuppressed('victim@example.test')).toBe(false);
+	});
+
+	it('refuses everything when no topic is configured', async () => {
+		delete process.env.SES_SNS_TOPIC_ARN;
+		const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+		await post(complaintEnvelope('angry@example.test'));
+		await post(complaintEnvelope('angry@example.test'));
+		expect(suppressions.isSuppressed('angry@example.test')).toBe(false);
+		// Said once, not once per message: a busy topic must not flood the log.
+		expect(warn.mock.calls.filter((c) => String(c[0]).includes('SES_SNS_TOPIC_ARN'))).toHaveLength(1);
+		warn.mockRestore();
+	});
+
+	it('accepts any topic in a comma-separated list', async () => {
+		process.env.SES_SNS_TOPIC_ARN = `arn:aws:sns:eu-west-1:123456789012:other, ${OUR_TOPIC}`;
+		await post(complaintEnvelope('angry@example.test'));
+		expect(suppressions.isSuppressed('angry@example.test')).toBe(true);
 	});
 });

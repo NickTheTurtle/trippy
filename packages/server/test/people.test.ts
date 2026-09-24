@@ -94,7 +94,9 @@ describe('adding a person', () => {
 
 	it('refuses a blank name, an overlong one, and a malformed address', () => {
 		expect(members.addPerson(tripId, organizer, '   ', 'a@example.test')).toBe('invalid');
-		expect(members.addPerson(tripId, organizer, 'x'.repeat(81), '')).toBe('invalid');
+		// The shared name ceiling (200), not the old private 80: the route checks
+		// the same limit first, so the two cannot disagree about one name.
+		expect(members.addPerson(tripId, organizer, 'x'.repeat(201), '')).toBe('invalid');
 		expect(members.addPerson(tripId, organizer, 'Jay', 'nope')).toBe('invalid');
 		expect(members.listPeople(tripId)).toHaveLength(1);
 	});

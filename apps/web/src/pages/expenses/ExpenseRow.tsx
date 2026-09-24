@@ -57,12 +57,15 @@ export default function ExpenseRow({
 				    pushing its siblings onto the next line, and the description was
 				    being cut to a single letter. */}
 				<span className="flex min-w-0 flex-1 basis-40 flex-col">
-					{/* The description truncates; the marks beside it do not. They are
-					    siblings in a flex row rather than inline inside the truncating
-					    span, because a long description would otherwise push the very
-					    thing that flags the row out of view. */}
-					<span className="flex items-center gap-1 text-body font-medium">
-						<span className="truncate" title={e.description}>
+					{/* The description wraps to two lines before it gives up; the marks
+					    beside it do not wrap. They are siblings in a flex row rather
+					    than inline inside the text, because a long description would
+					    otherwise push the very thing that flags the row out of view.
+					    Two lines, not one: a settlement's description is "Payment from
+					    A to B", and cut at one line on a phone it lost the only half
+					    that said who. */}
+					<span className="flex items-start gap-1 text-body font-medium">
+						<span className="line-clamp-2 min-w-0 [overflow-wrap:anywhere]" title={e.description}>
 							{e.description}
 						</span>
 						{/* A settlement is an expense in every way that matters to the maths,
@@ -88,7 +91,10 @@ export default function ExpenseRow({
 							</span>
 						)}
 					</span>
-					<span className="muted truncate text-meta">
+					{/* Wraps rather than truncating: who paid and how it was split is
+					    what the row is for, and at 390px the split and the date were
+					    the part being cut off. */}
+					<span className="muted text-meta [overflow-wrap:anywhere]">
 						{/* The day the money moved, not the day the row was typed in. The
 						    two are usually the same, and when they are not it is because
 						    somebody is entering a week of receipts after getting home,

@@ -107,12 +107,15 @@ describe('num and int', () => {
 		expect(int(-7)).toBe(-7);
 	});
 
-	it('passes a very large count through unchanged rather than mangling it', () => {
-		// Past the safe integer range a number is no longer the count it was
-		// written as, so callers clamp. What is pinned here is that the parser
-		// does not quietly round or truncate on the way.
+	it('refuses a count past the safe integer range rather than storing a different number', () => {
+		// Past 2^53 a double is no longer the count it was written as, and
+		// `node:sqlite` throws reading one back, so the parser refuses it outright
+		// instead of handing callers something they would each have to clamp.
 		expect(int(Number.MAX_SAFE_INTEGER)).toBe(Number.MAX_SAFE_INTEGER);
-		expect(int('1e21')).toBe(1e21);
+		expect(int(-Number.MAX_SAFE_INTEGER)).toBe(-Number.MAX_SAFE_INTEGER);
+		expect(int(Number.MAX_SAFE_INTEGER + 1)).toBeNull();
+		expect(int('1e21')).toBeNull();
+		expect(int(1e300)).toBeNull();
 	});
 });
 

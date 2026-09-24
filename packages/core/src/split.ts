@@ -33,14 +33,24 @@ export function splitByWeight(totalCents: number, weights: number[]): number[] {
 	const n = weights.length;
 	if (n === 0) return [];
 
-	const safe = weights.map((w) => (Number.isFinite(w) && w > 0 ? w : 0));
-	const sum = safe.reduce((a, b) => a + b, 0);
+	const sign = totalCents < 0 ? -1 : 1;
+	const total = Math.abs(Math.round(totalCents));
+
+	let safe = weights.map((w) => (Number.isFinite(w) && w > 0 ? w : 0));
+	let sum = safe.reduce((a, b) => a + b, 0);
+	// Every weight is finite, but two of `1e308` still sum to Infinity, and one
+	// of them times a large total overflows even when the sum does not. Either
+	// turns every share below into NaN. Scaling by the largest weight keeps the
+	// proportions and brings every product back into range; ordinary weights
+	// never reach this branch, so their rounding is untouched.
+	const max = safe.reduce((a, b) => Math.max(a, b), 0);
+	if (max > 0 && (!Number.isFinite(sum) || !Number.isFinite(total * max))) {
+		safe = safe.map((w) => w / max);
+		sum = safe.reduce((a, b) => a + b, 0);
+	}
 	// No usable weights: fall back to an even split so nothing is silently dropped.
 	const eff = sum > 0 ? safe : new Array(n).fill(1);
 	const effSum = sum > 0 ? sum : n;
-
-	const sign = totalCents < 0 ? -1 : 1;
-	const total = Math.abs(Math.round(totalCents));
 
 	const exact = eff.map((w) => (total * w) / effSum);
 	const floors = exact.map((v) => Math.floor(v));

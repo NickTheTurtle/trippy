@@ -1,15 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, Outlet, useNavigate, useOutletContext, useParams } from 'react-router';
+import { Link, Outlet, useLocation, useNavigate, useOutletContext, useParams } from 'react-router';
 import { api } from '../lib/api';
 import { useApi } from '../hooks/useApi';
 import { useTripEvents, TripEventsProvider } from '../hooks/useTripEvents';
 import useMediaQuery from '../hooks/useMediaQuery';
+import useDocumentTitle from '../hooks/useDocumentTitle';
 import { TABS } from '../nav';
 import AddCityDialog from '../components/AddCityDialog';
 import TripFormDialog from '../components/TripFormDialog';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 import { CheckBox } from '../components/ui/CheckBox';
 import UiAvatar from '../components/ui/Avatar';
+import Loading from '../components/ui/Loading';
+import LoadError from '../components/ui/LoadError';
+import { useToast } from '../components/ui/Toast';
 import LiveOff from '../components/LiveOff';
 import TabStrip from '../components/ui/TabStrip';
 import { copy } from '../copy';
@@ -69,7 +73,9 @@ export function useTrip(): Ctx {
 export default function TripShell() {
 	const { tripId } = useParams();
 	const navigate = useNavigate();
-	const { data, error, reload } = useApi<{ trip: Trip }>(`/trips/${tripId}`);
+	const { pathname } = useLocation();
+	const toast = useToast();
+	const { data, error, errorStatus, reload } = useApi<{ trip: Trip }>(`/trips/${tripId}`);
 	const [showEdit, setShowEdit] = useState(false);
 	/**
 	 * The open destructive confirmation, if any. Deleting is reached from the
@@ -93,8 +99,10 @@ export default function TripShell() {
 	const roomyHeader = useMediaQuery('(min-width: 400px)');
 
 	// The header carries the name, the dates, the member avatars and the city
-	// strip, so it follows all three of those topics.
-	useEffect(() => events.subscribe(['trip', 'members', 'schedule'], reload), [events, reload]);
+	// strip, so it follows all three of those topics. Subscribed through the
+	// stable half of the stream, so a status change does not detach it.
+	const { subscribe } = events.control;
+	useEffect(() => subscribe(['trip', 'members', 'schedule'], reload), [subscribe, reload]);
 
 	// `useApi` deliberately keeps the previous response while the next one is in
 	// flight, which is what stops a reload blanking the page. Switching trips
@@ -103,14 +111,56 @@ export default function TripShell() {
 	// section below render the trip you just left for as long as the fetch takes.
 	const trip = data && data.trip.id === tripId ? data.trip : null;
 
+	/* A trip that was readable and no longer is.
+	 *
+	 * `useApi` keeps the last good response through a failed reload, which is
+	 * right for a blip and wrong for this: a member who has been removed, or
+	 * whose trip the organizer deleted, went on looking at the whole trip, and
+	 * every write they tried failed with no explanation. A 404 or 403 on a
+	 * reload of a trip this tab had already loaded is not a blip, it is the
+	 * answer, so it is said once and the tab goes back to the list. A first
+	 * load that fails the same way is the "not found" page below instead: there
+	 * is nothing on screen yet to take away. */
+	const loadedFor = useRef<string | null>(null);
+	if (trip) loadedFor.current = trip.id;
+	const gone = errorStatus === 404 || errorStatus === 403;
+	useEffect(() => {
+		if (!gone || loadedFor.current !== tripId) return;
+		loadedFor.current = null;
+		toast.error(c.gone);
+		navigate('/trips', { replace: true });
+	}, [gone, tripId, toast, navigate]);
+
+	// The tab showing, for the window title: "<Tab> - <Trip> - Trippy".
+	const tab = TABS.find((t) => pathname.split('/')[3] === t.slug);
+	useDocumentTitle(trip ? [tab?.label, trip.name] : [error ? c.notFound : undefined]);
+
 	if (!trip) {
-		if (!error) return null;
+		// Still loading: say so rather than a blank band under the top bar.
+		if (!error) {
+			return (
+				<main className="container py-8">
+					<Loading />
+				</main>
+			);
+		}
+		// Only a trip the server says is not there (or not this caller's, which
+		// it answers the same way) is "not found". Anything else, a 500 or a
+		// dropped connection, is a failure that a second try may fix, and calling
+		// it "not found" sent people back to the list for a trip that was fine.
+		if (!gone) {
+			return (
+				<main className="container py-8">
+					<LoadError message={error} onRetry={reload} />
+				</main>
+			);
+		}
 		return (
 			<main className="container py-8">
 				<p>
 					{c.notFound}{' '}
 					<Link to="/trips" className="text-accent-ink underline">
-						{c.notFoundLink}
+						{copy.common.allTrips}
 					</Link>
 				</p>
 			</main>
@@ -140,7 +190,9 @@ export default function TripShell() {
 						to="/trips"
 						className="tap inline-block pt-3 pb-1.5 text-body text-ink-faint hover:text-accent sm:pt-5 sm:pb-2.5"
 					>
-						{c.backToTrips}
+						{/* The arrow is drawn, not said: the link's name is the words. */}
+						<span aria-hidden="true">← </span>
+						{copy.common.allTrips}
 					</Link>
 
 					{/* Title, dates, roster: two rows on a phone and two columns above it.

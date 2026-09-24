@@ -10,7 +10,8 @@ mkdirSync(tmpRoot, { recursive: true });
 
 const dbPath = resolve(tmpRoot, `trippy-e2e-${process.pid}-${Date.now()}-${randomUUID()}.db`);
 const cli = resolve(here, '..', 'node_modules', '@playwright', 'test', 'cli.js');
-const child = spawn(process.execPath, [cli, 'test'], {
+// Anything after `node run.mjs` (spec files, `--grep`, ...) goes to Playwright.
+const child = spawn(process.execPath, [cli, 'test', ...process.argv.slice(2)], {
 	stdio: 'inherit',
 	cwd: here,
 	env: {

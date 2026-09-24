@@ -32,12 +32,16 @@ import {
 	type SearchKind
 } from '@trippy/server/places';
 import {
+	amountTooLarge,
+	isAmountInRange,
 	isNameLength,
 	isNotesLength,
 	nameTooLong,
 	notesTooLong,
-	safeExternalUrl
+	safeExternalUrl,
+	stayNightsProblem
 } from '@trippy/core/validate';
+import { isCurrencyCode, unknownCurrency } from '@trippy/core/currency';
 import { haversineKm } from '@trippy/core/geo';
 
 export const discover = new Hono<Env>();
@@ -187,6 +191,50 @@ discover.get('/details', async (c) => {
 const CITY_RADIUS_KM = 150;
 
 /**
+ * The provider details a place card carries, checked before they are stored.
+ *
+ * These come from the search result, not from a person, which is why they were
+ * taken as sent: `num()` and `String()` and straight into the row. But the
+ * client is only a client, and every one of them is drawn on a card: a
+ * `ratingCount` of `1e300` rendered as a number nobody can read, a
+ * `priceLevel` of 40 drew forty dollar signs, and a hundred-thousand-entry
+ * `hours` array was a hundred thousand lines in one row. The bounds are the
+ * provider's own: Google rates 1 to 5 and prices 0 to 4, publishes seven days
+ * of hours, and names a photo `places/<id>/photos/<id>`.
+ */
+const MAX_RATING_COUNT = 100_000_000;
+const MAX_HOURS_LINES = 14;
+const MAX_PHOTO_NAME = 1024;
+const PHOTO_NAME_RE = /^places\/[A-Za-z0-9_-]+\/photos\/[A-Za-z0-9_-]+$/;
+
+type PoiExtras = {
+	rating: number | null;
+	ratingCount: number | null;
+	priceLevel: number | null;
+	hours: string[] | null;
+	photo: string | null;
+};
+
+function poiExtras(
+	b: Record<string, unknown>,
+	hours: string[] | null
+): PoiExtras | { error: string } {
+	const bad = { error: 'Those place details do not look right. Pick the place again.' };
+	const rating = num(b.rating);
+	if (rating !== null && (rating < 0 || rating > 5)) return bad;
+	const ratingCount = int(b.ratingCount);
+	if (b.ratingCount != null && b.ratingCount !== '' && ratingCount === null) return bad;
+	if (ratingCount !== null && (ratingCount < 0 || ratingCount > MAX_RATING_COUNT)) return bad;
+	const priceLevel = int(b.priceLevel);
+	if (b.priceLevel != null && b.priceLevel !== '' && priceLevel === null) return bad;
+	if (priceLevel !== null && (priceLevel < 0 || priceLevel > 4)) return bad;
+	if (hours && (hours.length > MAX_HOURS_LINES || hours.some((h) => !isNameLength(h)))) return bad;
+	const photo = optStr(b.photo);
+	if (photo && (photo.length > MAX_PHOTO_NAME || !PHOTO_NAME_RE.test(photo))) return bad;
+	return { rating, ratingCount, priceLevel, hours, photo };
+}
+
+/**
  * Why this place does not belong to this city, or null when it might.
  *
  * Returns null whenever it cannot know: a city the geocoder never placed, or a
@@ -237,6 +285,11 @@ discover.post('/pois', async (c) => {
 	}
 
 	const hours = Array.isArray(b.hours) ? b.hours.map(String) : null;
+	const extras = poiExtras(b, hours);
+	if ('error' in extras) return fail(c, 400, extras.error);
+
+	const category = str(b.category);
+	if (!isNameLength(category)) return fail(c, 400, nameTooLong());
 
 	const link = readLink(b.url);
 	if ('error' in link) return fail(c, 400, link.error);
@@ -251,18 +304,12 @@ discover.post('/pois', async (c) => {
 		c.get('user').id,
 		cityId,
 		name,
-		str(b.category),
+		category,
 		notes,
 		link.url,
 		lat,
 		lng,
-		{
-			rating: num(b.rating),
-			ratingCount: num(b.ratingCount),
-			priceLevel: num(b.priceLevel),
-			hours,
-			photo: optStr(b.photo)
-		},
+		extras,
 		// The Discover bucket. Passing undefined rather than a guess when the
 		// client did not send one is the whole point: the server then derives it
 		// from the provider category, which is better than defaulting to
@@ -335,36 +382,34 @@ function optDay(v: unknown): string | null | 'bad' {
 }
 
 /**
- * A stay covers at least one night, so a checkout on or before the check-in day
- * is refused. "After" is strict: an equal pair is a zero-night stay and a
- * reversed pair is negative, and neither is something a traveller can mean. This
- * mirrors the schedule stay path and the guard in `setDates`, so the same trip
- * cannot hold a stay one path would have rejected. Only meaningful once both
- * ends are set; a half-filled range is undated rather than invalid.
+ * The night range a stay may carry, judged by the one rule in core
+ * (`stayNightsProblem`), with the words each refusal has always used here.
+ *
+ * Two local copies used to live in this file: an order check, and a trip-range
+ * check that capped checkout at the trip's last day. The board caps it at the
+ * morning after the last day instead, so the same stay was accepted on the
+ * calendar and refused on the Discover card, and a check-in on the last day
+ * could never be given any checkout that passed here. Both paths now ask core.
  */
-function checkoutNotAfterCheckIn(checkIn: string | null, checkOut: string | null): boolean {
-	return !!checkIn && !!checkOut && checkIn >= checkOut;
+function nightsProblem(trip: Trip, checkIn: string | null, checkOut: string | null): string | null {
+	switch (stayNightsProblem(checkIn, checkOut, trip.start_date, trip.end_date)) {
+		case 'order':
+			return 'Check-out must be after check-in.';
+		case 'outside':
+			return 'Those nights fall outside the trip.';
+		default:
+			return null;
+	}
 }
 
 /**
- * Nights that fall outside the trip's own dates, which the night range guard
- * above cannot see: May 8 to May 9 is a perfectly ordered one-night stay and
- * was accepted onto a trip running May 10 to May 15, where it then drew a band
- * on days the board does not have.
- *
- * Check-out is bounded by the last day rather than the day after it. The last
- * night of a May 10 to May 15 trip is the 14th into the 15th, so a checkout on
- * the 15th is the latest a traveller can mean.
- *
- * Each end is judged on its own, so a half-filled range is still undated rather
- * than invalid, matching `checkoutNotAfterCheckIn`.
+ * The currency a stay's price is in, or an error for one nothing can convert.
+ * Blank is allowed and means the trip's home currency, as it always has.
  */
-function outsideTrip(trip: Trip, checkIn: string | null, checkOut: string | null): string | null {
-	const first = trip.start_date;
-	const last = trip.end_date;
-	if (!first || !last) return null;
-	const strays = (day: string | null) => !!day && (day < first || day > last);
-	return strays(checkIn) || strays(checkOut) ? 'Those nights fall outside the trip.' : null;
+function stayCurrency(raw: unknown): { code: string } | { error: string } {
+	const code = str(raw).toUpperCase();
+	if (code && !isCurrencyCode(code)) return { error: unknownCurrency() };
+	return { code };
 }
 
 /**
@@ -374,19 +419,24 @@ function outsideTrip(trip: Trip, checkIn: string | null, checkOut: string | null
  * integer cannot pick up a rounding error on the way in. `price`, in major
  * units, is what the current web form posts and stays supported. Absent or
  * empty is null, which is the real state "proposed but not priced yet".
- * `'bad'` means present but not a non-negative amount.
+ * `'bad'` means present but not a non-negative amount; `'big'` means past the
+ * ceiling every other money field is held to (`isAmountInRange`), which is what
+ * keeps the lodging totals, and the page that reads them, from overflowing.
  */
-function stayPriceCents(b: Record<string, unknown>): number | null | 'bad' {
+function stayPriceCents(b: Record<string, unknown>): number | null | 'bad' | 'big' {
 	const blank = (v: unknown) => v === null || v === undefined || v === '';
+	let cents: number | null = null;
 	if (!blank(b.priceCents)) {
-		const cents = int(b.priceCents);
-		return cents === null || cents < 0 ? 'bad' : cents;
-	}
-	if (!blank(b.price)) {
+		const raw = int(b.priceCents);
+		if (raw === null || raw < 0) return 'bad';
+		cents = raw;
+	} else if (!blank(b.price)) {
 		const major = num(b.price);
-		return major === null || major < 0 ? 'bad' : Math.round(major * 100);
+		if (major === null || major < 0) return 'bad';
+		cents = Math.round(major * 100);
 	}
-	return null;
+	if (cents !== null && !isAmountInRange(cents)) return 'big';
+	return cents;
 }
 
 /**
@@ -412,14 +462,14 @@ discover.post('/stays', async (c) => {
 
 	const price = stayPriceCents(b);
 	if (price === 'bad') return fail(c, 400, 'Enter a valid price, or leave it blank.');
+	if (price === 'big') return fail(c, 400, amountTooLarge());
+	const currency = stayCurrency(b.currency);
+	if ('error' in currency) return fail(c, 400, currency.error);
 
 	const checkIn = optDay(b.checkIn);
 	const checkOut = optDay(b.checkOut);
 	if (checkIn === 'bad' || checkOut === 'bad') return fail(c, 400, 'Pick valid dates.');
-	if (checkoutNotAfterCheckIn(checkIn, checkOut)) {
-		return fail(c, 400, 'Check-out must be after check-in.');
-	}
-	const strayNights = outsideTrip(trip, checkIn, checkOut);
+	const strayNights = nightsProblem(trip, checkIn, checkOut);
 	if (strayNights) return fail(c, 400, strayNights);
 
 	const stayLink = readLink(b.url);
@@ -429,16 +479,21 @@ discover.post('/stays', async (c) => {
 	const stayLng = num(b.lng);
 	const elsewhere = wrongCity(trip, str(b.cityId), stayLat, stayLng);
 	if (elsewhere) return fail(c, 400, elsewhere);
+	// The same shape rule a place's photo is held to (see `poiExtras`).
+	const stayPhoto = optStr(b.photo);
+	if (stayPhoto && (stayPhoto.length > MAX_PHOTO_NAME || !PHOTO_NAME_RE.test(stayPhoto))) {
+		return fail(c, 400, 'Those place details do not look right. Pick the place again.');
+	}
 
 	const id = addOption(trip.id, c.get('user').id, str(b.cityId), name, {
 		tag: stayTag,
 		priceCents: price,
 		// Blank: the server falls back to the trip's home currency.
-		currency: str(b.currency),
+		currency: currency.code,
 		url: stayLink.url,
 		checkIn,
 		checkOut,
-		photo: optStr(b.photo),
+		photo: stayPhoto,
 		// Kept so the stay can be booked onto the calendar and the morning's first
 		// journey has somewhere to start from. Null for a stay typed by hand.
 		lat: stayLat,
@@ -499,6 +554,9 @@ discover.patch('/stays/:optionId', async (c) => {
 
 	const price = stayPriceCents(b);
 	if (price === 'bad') return fail(c, 400, 'Enter a valid price, or leave it blank.');
+	if (price === 'big') return fail(c, 400, amountTooLarge());
+	const editCurrency = stayCurrency(b.currency);
+	if ('error' in editCurrency) return fail(c, 400, editCurrency.error);
 
 	const editLink = readLink(b.url);
 	if ('error' in editLink) return fail(c, 400, editLink.error);
@@ -509,7 +567,7 @@ discover.patch('/stays/:optionId', async (c) => {
 			name,
 			tag: str(b.tag) || str(b.notes),
 			priceCents: price,
-			currency: str(b.currency),
+			currency: editCurrency.code,
 			url: editLink.url
 		}),
 		404,
@@ -522,10 +580,7 @@ discover.patch('/stays/:optionId/dates', async (c) => {
 	const checkIn = optDay(b.checkIn);
 	const checkOut = optDay(b.checkOut);
 	if (checkIn === 'bad' || checkOut === 'bad') return fail(c, 400, 'Pick valid dates.');
-	if (checkoutNotAfterCheckIn(checkIn, checkOut)) {
-		return fail(c, 400, 'Check-out must be after check-in.');
-	}
-	const dateStrays = outsideTrip(c.get('trip'), checkIn, checkOut);
+	const dateStrays = nightsProblem(c.get('trip'), checkIn, checkOut);
 	if (dateStrays) return fail(c, 400, dateStrays);
 	return okOr(
 		c,

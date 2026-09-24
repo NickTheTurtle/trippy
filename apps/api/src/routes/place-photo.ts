@@ -24,6 +24,24 @@ const MIN_WIDTH = 64;
 const MAX_WIDTH = 1200;
 const DEFAULT_WIDTH = 640;
 
+/**
+ * The widths a photo is actually fetched and cached at.
+ *
+ * Every distinct width is a distinct billed Places request and a distinct
+ * `photo_cache` row, and the width came straight from the query string: a card
+ * at 318px and one at 322px bought the same picture twice, and a caller could
+ * walk `w` from 64 to 1200 to buy it eleven hundred times. A requested width is
+ * rounded up to the next bucket (never down, so nothing is drawn blurry) and
+ * everything above the largest is served at the largest.
+ */
+export const WIDTH_BUCKETS = [160, 320, 640, 1200] as const;
+
+/** The bucket a requested width is served at. */
+export function snapWidth(asked: number): number {
+	const w = Math.min(Math.max(asked, MIN_WIDTH), MAX_WIDTH);
+	return WIDTH_BUCKETS.find((b) => b >= w) ?? MAX_WIDTH;
+}
+
 export const placePhoto = new Hono<{ Variables: { user: SessionUser | null } }>();
 
 /**
@@ -96,7 +114,7 @@ placePhoto.get('/', requireUser, async (c) => {
 	if (!key) return fail(c, 404, 'Photos unavailable.');
 
 	const asked = int(c.req.query('w'));
-	const width = asked === null ? DEFAULT_WIDTH : Math.min(Math.max(asked, MIN_WIDTH), MAX_WIDTH);
+	const width = asked === null ? DEFAULT_WIDTH : snapWidth(asked);
 
 	const cached = readPhoto(name, width);
 	if (cached) return photo(cached.bytes, cached.contentType);

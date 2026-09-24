@@ -61,14 +61,23 @@ export const copy = {
 			passwordLabel: 'New password',
 			passwordHint: 'At least 8 characters',
 			doneTitle: 'Password changed',
-			doneBlurb: 'Sign in with your new password.',
-			doneAction: 'Log in'
+			doneBlurb: 'Log in with your new password.'
 		},
 		verify: {
 			title: 'Confirming your email',
 			blurb: 'One moment.',
 			failedTitle: 'That link did not work',
-			retry: 'Create an account'
+			retry: 'Create an account',
+			/** Beside `retry`: the account may already exist, from an earlier link. */
+			logIn: 'Log in'
+		},
+		/** The link sent to a new address when a signed-in member changes their email. */
+		verifyEmail: {
+			title: 'Confirming your new email',
+			blurb: 'One moment.',
+			doneTitle: 'Email changed',
+			doneBlurb: 'Log in with the new address from now on.',
+			failedTitle: 'That link did not work'
 		}
 	},
 
@@ -112,7 +121,7 @@ export const copy = {
 			},
 			{
 				title: 'Pick where to sleep',
-				body: 'Put the options up with prices and nights, let the group vote, then lock the choice.'
+				body: 'Put the options up with a nightly price, let the group vote, then lock the pick.'
 			},
 			{
 				title: 'Know what it costs',
@@ -129,7 +138,6 @@ export const copy = {
 	notFound: {
 		heading: 'Page not found',
 		body: 'The address may be mistyped, or what was here has been deleted.',
-		backAuthenticated: 'Back to your trips',
 		backAnonymous: 'Back to the start'
 	},
 
@@ -157,8 +165,8 @@ export const copy = {
 	// Trip shell > header, edit dialog, live-updates notice
 	tripShell: {
 		notFound: 'Trip not found.',
-		notFoundLink: 'Back to trips',
-		backToTrips: '← All trips',
+		/** Toasted when a trip this tab had open is deleted or the reader is removed from it. */
+		gone: 'That trip is no longer available.',
 		editTrip: 'Edit trip',
 		editDialog: {
 			title: 'Edit trip',
@@ -166,13 +174,9 @@ export const copy = {
 			/** The schedule lock. The switch says what it does; nothing else needs to. */
 			lockLabel: 'Lock schedule'
 		},
-		deleteDialog: {
-			fallback: 'Could not delete this trip.'
-		},
 		leaveTrip: 'Leave trip',
 		leaveDialog: {
-			title: (trip: string) => `Leave ${trip}?`,
-			fallback: 'Could not leave this trip.'
+			title: (trip: string) => `Leave ${trip}?`
 		},
 		liveOff: "Live updates are off, so you will not see other people's changes.",
 		reconnect: 'Reconnect'
@@ -233,7 +237,7 @@ export const copy = {
 		errors: {
 			votePlace: 'Could not vote on that location.',
 			voteStay: 'Could not vote on that stay.',
-			removeStay: 'Could not remove that stay.'
+			lockStay: 'Could not change the lock on that stay.'
 		},
 		card: {
 			voteLabel: (youVoted: boolean, subject: string) =>
@@ -242,7 +246,11 @@ export const copy = {
 		},
 		stayCard: {
 			locked: 'Locked',
-			priceTbd: 'Price TBD'
+			priceTbd: 'Price TBD',
+			/** The organizer's control. One stay per city can hold the lock. */
+			lock: 'Lock',
+			unlock: 'Unlock',
+			lockLabel: (locked: boolean, stay: string) => `${locked ? 'Unlock' : 'Lock'} ${stay}`
 		},
 		placeFields: {
 			typeLabel: 'Type',
@@ -305,8 +313,7 @@ export const copy = {
 				`${done ? 'Mark not done for everyone' : 'Mark done for everyone'}: ${label}`,
 			doneSummary: (done: number, total: number) => `${done}/${total} done`,
 			doneMenuLabel: (label: string) => `Who has finished: ${label}`,
-			editLabel: (kind: string, label: string) => `Edit ${kind}: ${label}`,
-			removeLabel: (kind: string, label: string) => `Delete ${kind}: ${label}`
+			editLabel: (kind: string, label: string) => `Edit ${kind}: ${label}`
 		},
 		taskDialog: {
 			title: (kind: 'task' | 'packing', editing: boolean) =>
@@ -363,7 +370,7 @@ export const copy = {
 		 */
 		lock: {
 			tag: 'Locked',
-			hint: 'The organizer locked this schedule; unlock it from Edit trip to make changes'
+			hint: 'Locked by the organizer, who can unlock it from Edit trip'
 		},
 		/** The two event dialogs share every field, so they share one set of labels. */
 		fields: {
@@ -379,6 +386,10 @@ export const copy = {
 			/** Shown when nobody is picked, which the board reads as everyone. */
 			nobody: 'Nobody'
 		},
+		/** The event dialog's title: reading a frozen block, editing one, adding one. */
+		dialog: { view: 'Event', edit: 'Edit event', add: 'Add event' },
+		/** A journey card's own fields; the mode reuses `fields.mode`. */
+		journey: { name: 'Journey name', minutes: 'Minutes' },
 		/**
 		 * What the place search says instead of a list of results. Five states, not
 		 * one: a search in flight, a query too short to send, a search that came
@@ -500,14 +511,18 @@ export const copy = {
 	// Account settings > profile and password
 	account: {
 		heading: 'Account settings',
-		loading: 'Loading...',
 		profile: {
 			heading: 'Profile',
 			saved: 'Profile saved.',
 			nameLabel: 'Name',
 			emailLabel: 'Email',
+			/** Asked for only once the email field differs from the address on file. */
+			currentPasswordLabel: 'Current password',
+			/** The address does not change until the link sent to the new one is opened. */
+			emailPending: (email: string) => `We sent a confirmation link to ${email}.`,
 			timeZoneLabel: 'Home time zone',
 			timeZoneAriaLabel: 'Home time zone',
+			timeZoneNoMatches: 'No time zones matched that.',
 			fallback: 'Could not save your profile.'
 		},
 		password: {
@@ -596,6 +611,10 @@ export const copy = {
 		deleteLabel: (name: string) => `Delete ${name}`,
 		/** Every list that you fill by adding to it says this when it is empty. */
 		nothingAdded: 'Nothing added yet',
+		/** What a page says while its first load is in flight. */
+		loading: 'Loading...',
+		/** The way back to the trip list, wherever it is offered. */
+		allTrips: 'All trips',
 		everyone: EVERYONE
 	},
 

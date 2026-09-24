@@ -135,3 +135,126 @@ function isHost(rest: string): boolean {
 	const host = rest.split(/[/?#]/, 1)[0];
 	return /^[^.]+(\.[^.]+)+$/.test(host) && !host.endsWith('.');
 }
+
+/**
+ * Whether a string names a time zone this runtime can actually render.
+ *
+ * The old test was a regex, `Area/Location`, which refused `UTC` (the zone every
+ * account starts on) and accepted `Mars/Olympus_Mons`, which then threw a
+ * `RangeError` out of every `Intl.DateTimeFormat` that read it, on every page
+ * that drew a clock for that city or that person. Asking `Intl` is the only
+ * test that agrees with what the zone will be used for, and it is available in
+ * every browser, in Node and in Hermes, so this stays pure.
+ *
+ * Fixed-offset strings such as `+05:30` are refused even where a newer runtime
+ * accepts them: the column holds an IANA name, and an offset is not a place, so
+ * it would stop tracking daylight saving the day it was stored.
+ */
+export function isIanaZone(tz: string): boolean {
+	if (typeof tz !== 'string') return false;
+	const zone = tz.trim();
+	if (!zone || zone.length > 64 || /^[+-]/.test(zone) || /^\d/.test(zone)) return false;
+	try {
+		new Intl.DateTimeFormat('en-US', { timeZone: zone });
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * The largest share any one participant may be given in a `shares` split.
+ *
+ * A share is a count ("a couple counts as 2"), so a million is far past any
+ * real use. The ceiling exists because the weights are summed and multiplied
+ * by the total: `1e308` twice is `Infinity`, and a ledger built on that is
+ * `NaN` for every member of the trip.
+ */
+export const MAX_SHARE_WEIGHT = 1e6;
+
+/** Whether a share weight is finite, not negative, and within the ceiling. */
+export function isShareWeight(weight: number): boolean {
+	return Number.isFinite(weight) && weight >= 0 && weight <= MAX_SHARE_WEIGHT;
+}
+
+/** What an out-of-range share is told. */
+export function shareTooLarge(): string {
+	return `Keep each share under ${MAX_SHARE_WEIGHT.toLocaleString('en-US')}.`;
+}
+
+/**
+ * The window a calendar day typed by a person has to fall in.
+ *
+ * `1200-01-01` and `3000-01-01` are real days, and a date picker fed a
+ * two-digit year produces them. They are never a day a group trip meant. This
+ * used to be two constants inside the expenses route, so an expense was held to
+ * it and the trip it belonged to was not: a trip could run in the year 1200 and
+ * every one of its expenses would then be refused for being outside a window the
+ * trip itself had ignored.
+ */
+export const DAY_MIN = '2000-01-01';
+export const DAY_MAX = '2100-12-31';
+
+/** Whether a `YYYY-MM-DD` day sits inside the accepted window. */
+export function isDayInWindow(day: string): boolean {
+	return day >= DAY_MIN && day <= DAY_MAX;
+}
+
+/** What a day outside the window is told. */
+export function dayOutOfWindow(): string {
+	return `Pick a date between ${DAY_MIN.slice(0, 4)} and ${DAY_MAX.slice(0, 4)}.`;
+}
+
+/** The day after a `YYYY-MM-DD` day. Pure calendar arithmetic, no zone involved. */
+function nextDay(day: string): string {
+	const [y, m, d] = day.split('-').map(Number);
+	return new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10);
+}
+
+/**
+ * Whether a day falls outside a trip's own dates.
+ *
+ * A trip missing either endpoint, or holding them inverted, cannot bound
+ * anything, so it bounds nothing: refusing on a guess would block every write
+ * to a trip whose dates are merely unusual. The schedule and the stay routes
+ * each carried a copy of this; there is one now.
+ */
+export function isOutsideTrip(
+	day: string,
+	first: string | null | undefined,
+	last: string | null | undefined
+): boolean {
+	if (!first || !last || first > last) return false;
+	return day < first || day > last;
+}
+
+/**
+ * What is wrong with a stay's night range, or null when nothing is.
+ *
+ *  - `order`   the checkout is on or before the check-in: zero or negative nights.
+ *  - `outside` a night falls outside the trip.
+ *
+ * A night is the day it starts on, so a stay covers `[checkIn, checkOut)`. The
+ * check-in must be a trip day and so must the last night, which is the day
+ * before checkout. That lets a stay begin on the trip's last day and check out
+ * the morning after, which is what the schedule has always allowed. The
+ * Discover path used to cap checkout at the last day instead, which made a
+ * check-in on the last day impossible there (no checkout could then pass both
+ * rules) while the board accepted the same stay. One rule now, in one place.
+ *
+ * Either end may be blank: a half-filled range is undated, not invalid, and
+ * each end present is still judged on its own.
+ */
+export function stayNightsProblem(
+	checkIn: string | null | undefined,
+	checkOut: string | null | undefined,
+	first?: string | null,
+	last?: string | null
+): 'order' | 'outside' | null {
+	if (checkIn && checkOut && checkOut <= checkIn) return 'order';
+	if (checkIn && isOutsideTrip(checkIn, first, last)) return 'outside';
+	if (checkOut && first && last && first <= last) {
+		if (checkOut <= first || checkOut > nextDay(last)) return 'outside';
+	}
+	return null;
+}

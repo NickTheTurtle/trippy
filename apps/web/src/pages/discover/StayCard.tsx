@@ -1,7 +1,7 @@
 import Cover from '../../components/Cover';
 import type { Stay } from '../../lib/api-types';
 import { formatPerNight } from '../../lib/format';
-import { CARD, EditCardButton, OpenLink, VotePill, VoteRule } from './card-controls';
+import { CARD, EditCardButton, LockButton, OpenLink, VotePill, VoteRule } from './card-controls';
 import { copy } from '../../copy';
 
 const c = copy.discover.stayCard;
@@ -23,16 +23,24 @@ export default function StayCard({
 	flipKey,
 	currency,
 	pct,
+	voteBusy = false,
 	onEdit,
-	onVote
+	onVote,
+	onLock,
+	lockBusy = false
 }: {
 	stay: Stay;
 	/** Identity for the grid's reorder animation. See `useFlip`. */
 	flipKey: string;
 	currency: string;
 	pct: number;
+	/** The viewer's vote in this city is on its way to the server. */
+	voteBusy?: boolean;
 	onEdit: () => void;
 	onVote: () => void;
+	/** Set for the organizer only: everybody else sees the lock, not the control. */
+	onLock?: () => void;
+	lockBusy?: boolean;
 }) {
 	const ring = o.locked
 		? 'border-accent shadow-[0_0_0_1px_var(--color-accent)]'
@@ -63,8 +71,15 @@ export default function StayCard({
 			</button>
 
 			<div className="flex flex-none flex-wrap items-center gap-1.5 px-4 pt-2.5 pb-3.5">
-				<VotePill votes={o.votes} youVoted={!!o.you_voted} subject={o.name} onVote={onVote} />
+				<VotePill
+					votes={o.votes}
+					youVoted={!!o.you_voted}
+					subject={o.name}
+					onVote={onVote}
+					busy={voteBusy}
+				/>
 				{o.url && <OpenLink url={o.url} name={o.name} />}
+				{onLock && <LockButton locked={!!o.locked} name={o.name} onLock={onLock} busy={lockBusy} />}
 				<EditCardButton name={o.name} onEdit={onEdit} className="ml-auto" />
 			</div>
 

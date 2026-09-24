@@ -1,4 +1,5 @@
 import { lookupPhoto } from './providers/places';
+import { env } from './infra/env';
 import { citiesNeedingPhotos, setCityPhoto } from './persistence/trips';
 import {
 	lodgingNeedingPhotos,
@@ -80,6 +81,43 @@ async function runJobs(jobs: PhotoJob[], gate?: PhotoGate): Promise<number> {
 }
 
 /**
+ * Whether a lookup could be answered by anybody at all.
+ *
+ * `lookupPhoto` with no key answers "no photo, no position" without asking, and
+ * the drain used to write that answer back as if it had asked: the miss
+ * sentinel on the photo and `place_checked = 1` on the stay, both of which mean
+ * "never ask again". A development database run without a key therefore had
+ * every row it ever saw marked as looked-up-and-empty, and adding a key later
+ * found nothing left to look up. With no key the drain now does nothing and
+ * writes nothing, so the backlog is still there when a key arrives. The key
+ * reads as unset under TRIPPY_OFFLINE_PROVIDERS, so a test run is the same.
+ */
+function canLookUp(): boolean {
+	return !!env.GOOGLE_SERVER_KEY;
+}
+
+/**
+ * One drain per key at a time.
+ *
+ * Discover awaits the drain on every GET, and several members opening the same
+ * trip at once, or one member's page firing two requests, each started their
+ * own. The rows are only marked once a lookup returns, so every concurrent
+ * drain saw the same backlog and bought the same lookups again. A second caller
+ * now waits on the drain already running and gets its answer.
+ */
+const inFlight = new Map<string, Promise<number>>();
+
+function once(key: string, run: () => Promise<number>): Promise<number> {
+	const running = inFlight.get(key);
+	if (running) return running;
+	const started = run().finally(() => {
+		if (inFlight.get(key) === started) inFlight.delete(key);
+	});
+	inFlight.set(key, started);
+	return started;
+}
+
+/**
  * Fill in cover photos for a trip's places and stays, and coordinates for any
  * stay that has never been asked where it is.
  *
@@ -90,14 +128,19 @@ async function runJobs(jobs: PhotoJob[], gate?: PhotoGate): Promise<number> {
  *
  * Returns how many lookups were completed, so a caller can log or test the
  * spend. Safe to call on every board load: once the backlog is drained it costs
- * three indexed queries and no provider traffic.
+ * three indexed queries and no provider traffic. A call made while a drain for
+ * the same trip is running shares it rather than starting a second.
  */
-export async function backfillTripPhotos(
+export function backfillTripPhotos(
 	tripId: string,
 	cap: number = PHOTO_BACKLOG_CAP,
 	gate?: PhotoGate
 ): Promise<number> {
-	if (cap <= 0) return 0;
+	if (cap <= 0 || !canLookUp()) return Promise.resolve(0);
+	return once(`trip:${tripId}`, () => drainTrip(tripId, cap, gate));
+}
+
+async function drainTrip(tripId: string, cap: number, gate?: PhotoGate): Promise<number> {
 	const places = poisNeedingPhotos(tripId, cap);
 	const stays = lodgingNeedingPhotos(tripId, Math.max(0, cap - places.length));
 	// Stays already holding a photo but no position. The photo backlog cannot
@@ -153,14 +196,19 @@ export async function backfillTripPhotos(
 
 /**
  * Fill in cover photos for the first city of each of a user's trips, which is
- * the only city a trip card shows.
+ * the only city a trip card shows. Same two guards as `backfillTripPhotos`: no
+ * key means nothing is written, and one drain per user at a time.
  */
-export async function backfillTripListPhotos(
+export function backfillTripListPhotos(
 	userId: string,
 	cap: number = PHOTO_BACKLOG_CAP,
 	gate?: PhotoGate
 ): Promise<number> {
-	if (cap <= 0) return 0;
+	if (cap <= 0 || !canLookUp()) return Promise.resolve(0);
+	return once(`list:${userId}`, () => drainTripList(userId, cap, gate));
+}
+
+async function drainTripList(userId: string, cap: number, gate?: PhotoGate): Promise<number> {
 	const cities = citiesNeedingPhotos(userId, cap);
 	return runJobs(
 		cities.map((city) => ({

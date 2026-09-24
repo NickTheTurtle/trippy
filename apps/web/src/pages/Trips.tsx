@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { api } from '../lib/api';
 import { useApi } from '../hooks/useApi';
+import useDocumentTitle from '../hooks/useDocumentTitle';
 import Cover from '../components/Cover';
 import EmptyState from '../components/ui/EmptyState';
 import LoadError from '../components/ui/LoadError';
@@ -26,6 +27,7 @@ type Trip = {
 export default function Trips() {
 	const { data, error, loading, reload } = useApi<{ trips: Trip[] }>('/trips');
 	const [showNew, setShowNew] = useState(false);
+	useDocumentTitle([c.heading]);
 
 	return (
 		<>

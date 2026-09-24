@@ -2,10 +2,13 @@ import { useMemo, useState } from 'react';
 import { guessLeg, minsByMode, rekeyLeg } from '@trippy/core/travel';
 import { api } from '../../lib/api';
 import Select, { type Option } from '../../components/ui/Select';
-import WarnMark from '../../components/ui/WarnMark';
+import { FieldShell } from '../../components/ui/Field';
+import { WarningIcon } from '../../components/ui/icons';
 import { copy } from '../../copy';
 import { MODE_OPTIONS, modeLabel } from './shared';
 import type { EventRow, LegRow } from './types';
+
+const cj = copy.schedule.journey;
 
 /** What a reader can say about a journey. */
 type LegEdit = { title: string; mode: string; mins: string };
@@ -242,13 +245,22 @@ export function useJourneys({
 					<div
 						key={j.merged ? j.key : lead.key}
 						className={`jrow${focused ? ' on' : ''}`}
+						role="group"
 						aria-label={`Journey, ${who}`}
 					>
 						{/* Who is on it names the journey: it is the only thing telling
 						    six approaches to the same lunch apart. */}
 						<p className="jwho">
 							<span>{who}</span>
-							{tight && <WarnMark label={copy.viewAs.travelWarning} />}
+							{/* Written out as well as drawn. The triangle's tooltip is a
+							    hover, and a phone has none: the card is the one place a
+							    tight journey is explained, so it says so in words. */}
+							{tight && (
+								<span className="jwarn">
+									<WarningIcon />
+									{copy.viewAs.travelWarning}
+								</span>
+							)}
 							{j.merged && (
 								<button
 									type="button"
@@ -282,32 +294,40 @@ export function useJourneys({
 							)}
 						</p>
 						<div className="jfields">
-							<input
-								className="input jname"
-								aria-label={`Journey name, ${who}`}
-								placeholder={from ? `${modeLabel(now.mode)} from ${from}` : modeLabel(now.mode)}
-								value={now.title}
-								onChange={(e) => setEdit(j.legs, { title: e.target.value })}
-							/>
-							<div className="jmode">
+							{/* Every field says what it is above it, as every other field
+							    in the app does. The name used to be a placeholder alone, and
+							    a placeholder is gone the moment anything is typed, which is
+							    exactly when the reader is checking which box they are in.
+							    The placeholder stays, because it is the name the journey
+							    falls back to once this is cleared. */}
+							<FieldShell label={cj.name} optional className="jname">
+								<input
+									className="input"
+									placeholder={from ? `${modeLabel(now.mode)} from ${from}` : modeLabel(now.mode)}
+									value={now.title}
+									onChange={(e) => setEdit(j.legs, { title: e.target.value })}
+								/>
+							</FieldShell>
+							<FieldShell label={copy.schedule.fields.mode} className="jmode">
 								<Select
 									value={now.mode}
 									onChange={(v) => pickMode(j.legs, v)}
 									options={modeOptionsFor(lead)}
-									ariaLabel={`Mode, ${who}`}
+									ariaLabel={copy.schedule.fields.mode}
 								/>
-							</div>
-							<div className="input jmins">
-								<input
-									type="number"
-									min={1}
-									data-autofocus={focused ? '' : undefined}
-									aria-label={`Minutes, ${who}`}
-									value={now.mins}
-									onChange={(e) => setEdit(j.legs, { mins: e.target.value })}
-								/>
-								<span>min</span>
-							</div>
+							</FieldShell>
+							<FieldShell label={cj.minutes} className="jminsf">
+								<div className="input jmins">
+									<input
+										type="number"
+										min={1}
+										data-autofocus={focused ? '' : undefined}
+										value={now.mins}
+										onChange={(e) => setEdit(j.legs, { mins: e.target.value })}
+									/>
+									<span>min</span>
+								</div>
+							</FieldShell>
 						</div>
 					</div>
 				);

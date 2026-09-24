@@ -1,13 +1,21 @@
 import { randomUUID } from 'node:crypto';
 import { db, backfillDone, markBackfillDone } from '../db';
-import { isEventType, isLocatedType, isTransportMode, type EventType } from '@trippy/core/types';
-import { type PlannedLeg } from '@trippy/core/travel';
 import {
+	DAY_END_MIN,
+	isEventType,
+	isLocatedType,
+	isTransportMode,
+	type EventType
+} from '@trippy/core/types';
+import { legKey, routeKey, type PlannedLeg } from '@trippy/core/travel';
+import {
+	daysBetween,
 	planDay,
 	reflowAutoTimes,
 	resolveLeg,
 	shiftDay,
 	stayBand,
+	SUGGEST_SNAP,
 	type LegOverride
 } from '@trippy/core/plan';
 import { publish, publishMany } from '../events';
@@ -31,14 +39,24 @@ import { conflict, isStale, missing, written, type WriteResult } from './version
  * - a leg the plan no longer calls for is deleted
  * - a leg the plan has newly called for is inserted with no override
  *
- * Matching is on `leg_key`, which is the pair of events plus the sorted people
- * (see `planLegs`). That is what makes an override survive an unrelated edit:
- * dragging an event by ten minutes does not change who is going where, so the
- * key is unchanged and the ferry time someone typed is still there afterwards.
+ * Matching is on `leg_key`, which is the pair of events (see `legKey` in core).
+ * That is what makes an override survive an unrelated edit: dragging an event
+ * by ten minutes, or somebody joining the trip, does not change which two
+ * events a journey joins, so the key is unchanged and the ferry time someone
+ * typed is still there afterwards. The travellers are stored beside it
+ * (`people`) and kept current, but they are not part of the identity: they are
+ * the expanded roster wherever an event is on Everyone, and a roster change
+ * used to re-key, and so orphan, every such journey on the trip.
+ *
+ * Reads reconcile too. `legsForDay` inserts a row for any planned journey that
+ * has none before answering, so a path that changes the plan without coming
+ * through here (a roster change, a place deleted from Discover) can at worst
+ * leave a suggested time un-reflowed until the next write, never a day with its
+ * travel missing.
  */
 
-/** Drag/resize snap granularity, in minutes. */
-const SNAP = 5;
+/** Drag/resize snap granularity, in minutes. The same five a suggested time rounds to. */
+const SNAP = SUGGEST_SNAP;
 
 /** The shortest event the grid can draw with its title. */
 export { MIN_EVENT_MINS } from '@trippy/core/types';
@@ -310,9 +328,12 @@ function planFor(tripId: string, day: string): PlannedLeg[] {
  * settled. `reflowAutoTimes` in core owns the rule itself.
  *
  * The write is deliberately narrow: only `start_min` and `end_min`, only for
- * the ids core returned, and `version` is left alone. A reflow is not somebody
- * editing the block, so bumping the version would fail the next save an open
- * dialog attempts for a change the reader never made.
+ * the ids core returned. `version` is bumped, though nobody chose the move: a
+ * dialog opened on the block before it moved still holds the old clock, and
+ * saving it would silently put the block back. Bumping makes that save a 409
+ * the reader can reload from instead. It used to be left alone on the grounds
+ * that a reflow is not somebody editing the block, which is true, and is also
+ * exactly the kind of write a stale dialog reverts without anyone noticing.
  *
  * Returns whether anything moved, so the caller can re-plan. Moving a block
  * changes the order the chain is walked in, which can change which journeys
@@ -336,11 +357,14 @@ function reflowDay(tripId: string, day: string): boolean {
 
 	const moved = reflowAutoTimes(
 		events.map((e) => ({ ...e, time_auto: auto.has(e.id) })),
-		legsForDay(tripId, day)
+		legsForDay(tripId, day),
+		tripRoster(tripId)
 	);
 	if (!moved.length) return false;
 
-	const upd = db.prepare(`UPDATE events SET start_min = ?, end_min = ? WHERE id = ?`);
+	const upd = db.prepare(
+		`UPDATE events SET start_min = ?, end_min = ?, version = version + 1 WHERE id = ?`
+	);
 	for (const m of moved) upd.run(m.startMin, m.endMin, m.id);
 	return true;
 }
@@ -366,12 +390,23 @@ function reflowDay(tripId: string, day: string): boolean {
  * than once per day they land on, which matters because routing costs money.
  */
 export function recomputeLegs(tripId: string, day: string): void {
-	const planned = planFor(tripId, day);
+	reconcileLegs(tripId, day, planFor(tripId, day));
+}
 
+/**
+ * The body of `recomputeLegs`, against a plan the caller already has.
+ *
+ * Insert-only as far as the day's rows go: a planned journey with no row gets
+ * one (claimed from another day if the pair has one, so its pin comes along),
+ * and a row whose travellers have changed has its `people` brought up to date.
+ * Nothing is deleted. That is what makes it safe to run from a read.
+ */
+function reconcileLegs(tripId: string, day: string, planned: readonly PlannedLeg[]): void {
+	if (!planned.length) return;
 	const existing = db
-		.prepare(`SELECT leg_key FROM travel_legs WHERE trip_id = ? AND day = ?`)
-		.all(tripId, day) as unknown as { leg_key: string }[];
-	const have = new Set(existing.map((r) => r.leg_key));
+		.prepare(`SELECT id, leg_key, people FROM travel_legs WHERE trip_id = ? AND day = ?`)
+		.all(tripId, day) as unknown as { id: string; leg_key: string; people: string }[];
+	const have = new Map(existing.map((r) => [r.leg_key, r]));
 
 	const prior = db.prepare(
 		`SELECT id FROM travel_legs
@@ -387,10 +422,15 @@ export function recomputeLegs(tripId: string, day: string): void {
 		   (id, trip_id, day, leg_key, from_event_id, to_event_id, people)
 		 VALUES (?, ?, ?, ?, ?, ?, ?)`
 	);
+	const retell = db.prepare(`UPDATE travel_legs SET people = ? WHERE id = ?`);
 
 	for (const leg of planned) {
-		if (have.has(leg.key)) continue;
 		const people = leg.people.join(',');
+		const row = have.get(leg.key);
+		if (row) {
+			if (row.people !== people) retell.run(people, row.id);
+			continue;
+		}
 		const kept = prior.get(tripId, leg.key, day) as unknown as { id: string } | undefined;
 		if (kept) claim.run(day, leg.fromEventId, leg.toEventId, people, kept.id);
 		else ins.run(randomUUID(), tripId, day, leg.key, leg.fromEventId, leg.toEventId, people);
@@ -444,10 +484,138 @@ export function reconcileAllLegs(): number {
  * Guarded by a marker row rather than run on every boot: the work is a plan per
  * stored day, which is cheap once and pointless forever after.
  */
+/*
+ * The pair-key re-keying runs before the Everyone reconciliation below. On a
+ * database that has neither marker, the reconciliation would otherwise insert a
+ * fresh, unpinned `from>to` row for every pair first, and the re-key would then
+ * find the key taken and leave the pinned legacy row behind. The re-key also
+ * merges into such a row if one exists anyway (see `rekeyLegacyLegs`), so the
+ * order is belt and braces rather than the only guard.
+ */
+const PAIR_KEY_BACKFILL = 'travel-legs-pair-key';
+const pairKeyPending = !backfillDone(PAIR_KEY_BACKFILL);
+if (pairKeyPending) rekeyLegacyLegs();
+
 const LEGS_BACKFILL = 'travel-legs-everyone-expansion';
 if (!backfillDone(LEGS_BACKFILL)) {
 	reconcileAllLegs();
 	markBackfillDone(LEGS_BACKFILL);
+}
+
+/**
+ * The one-time pass for the key that stopped carrying the travellers.
+ *
+ * Rows written before it are keyed `from>to>people`. Each pair of events keeps
+ * one of its rows and has that row re-keyed to `from>to`: the one somebody
+ * pinned or named if any was, else one the router has answered for, else the
+ * newest. Duplicates exist because every roster change re-keyed the pair and
+ * the next write inserted a fresh row beside the pinned one, and picking the
+ * pinned row is what gives the reader their ferry back.
+ *
+ * The rows not picked are left exactly as they are, under their old key. No
+ * plan asks for that key any more, so nothing reads them, and they go with
+ * their events like every other row. Deleting them would be tidier and is not
+ * worth making the migration destructive for.
+ *
+ * Then the ordinary reconciliation over every stored day, so a day whose pair
+ * had no row at all is given one now rather than on its first read. (The
+ * re-key itself ran above, ahead of the Everyone reconciliation.)
+ */
+if (pairKeyPending) {
+	reconcileAllLegs();
+	markBackfillDone(PAIR_KEY_BACKFILL);
+}
+
+/**
+ * The re-keying half of `PAIR_KEY_BACKFILL`, exported so a test can run it
+ * against rows it wrote in the old shape. Returns how many pairs it settled.
+ *
+ * If a pair already has a row under the new key (written by a reconciliation
+ * that ran first), the legacy row is not re-keyed, since the unique key is
+ * taken, but what it carries is merged into that row: the reader's name, mode
+ * and minutes, and the router's answer, each only where the new row has none.
+ * Nothing is deleted either way.
+ */
+export function rekeyLegacyLegs(): number {
+	const old = db
+		.prepare(
+			`SELECT id, trip_id, from_event_id, to_event_id FROM travel_legs
+			  WHERE leg_key LIKE '%>%>%'
+			  ORDER BY (title IS NOT NULL OR mode IS NOT NULL OR mins IS NOT NULL) DESC,
+			           (auto_mins IS NOT NULL) DESC,
+			           rowid DESC`
+		)
+		.all() as unknown as {
+		id: string;
+		trip_id: string;
+		from_event_id: string;
+		to_event_id: string;
+	}[];
+	const rekey = db.prepare(`UPDATE travel_legs SET leg_key = ? WHERE id = ?`);
+	const current = db.prepare(`SELECT id FROM travel_legs WHERE trip_id = ? AND leg_key = ?`);
+	// Only the reader's three fields move together, and only onto a row with none
+	// of its own: half of one pin laid over half of another is nobody's pin.
+	const mergePin = db.prepare(
+		`UPDATE travel_legs
+		    SET title = src.title, mode = src.mode, mins = src.mins
+		   FROM (SELECT title, mode, mins FROM travel_legs WHERE id = ?) AS src
+		  WHERE travel_legs.id = ?
+		    AND travel_legs.title IS NULL AND travel_legs.mode IS NULL AND travel_legs.mins IS NULL`
+	);
+	const mergeAuto = db.prepare(
+		`UPDATE travel_legs
+		    SET auto_mode = src.auto_mode, auto_mins = src.auto_mins, auto_routed = src.auto_routed,
+		        auto_key = src.auto_key
+		   FROM (SELECT auto_mode, auto_mins, auto_routed, auto_key FROM travel_legs WHERE id = ?) AS src
+		  WHERE travel_legs.id = ? AND travel_legs.auto_mins IS NULL AND src.auto_mins IS NOT NULL`
+	);
+	const picked = new Set<string>();
+	db.exec('BEGIN');
+	try {
+		for (const row of old) {
+			const key = legKey(row.from_event_id, row.to_event_id);
+			const pair = `${row.trip_id}\u0000${key}`;
+			if (picked.has(pair)) continue;
+			picked.add(pair);
+			const taken = current.all(row.trip_id, key) as unknown as { id: string }[];
+			if (!taken.length) {
+				rekey.run(key, row.id);
+				continue;
+			}
+			for (const t of taken) {
+				mergePin.run(row.id, t.id);
+				mergeAuto.run(row.id, t.id);
+			}
+		}
+		db.exec('COMMIT');
+	} catch (err) {
+		db.exec('ROLLBACK');
+		throw err;
+	}
+	return picked.size;
+}
+
+interface StoredLeg {
+	id: string;
+	leg_key: string;
+	title: string | null;
+	auto_mode: string | null;
+	auto_mins: number | null;
+	auto_routed: number;
+	auto_key: string | null;
+	mode: string | null;
+	mins: number | null;
+}
+
+function storedLegs(tripId: string, day: string): Map<string, StoredLeg> {
+	const rows = db
+		.prepare(
+			`SELECT id, leg_key, title, auto_mode, auto_mins, auto_routed, auto_key, mode, mins
+			   FROM travel_legs
+			 WHERE trip_id = ? AND day = ?`
+		)
+		.all(tripId, day) as unknown as StoredLeg[];
+	return new Map(rows.map((r) => [r.leg_key, r]));
 }
 
 /**
@@ -460,6 +628,13 @@ if (!backfillDone(LEGS_BACKFILL)) {
  * journey, so a leg with no duration yet is still drawn and the client's
  * preview of the same leg resolves it the same way.
  *
+ * A planned journey with no row is given one here before answering. Dropping
+ * it instead, which is what this did, turned every path that changes the plan
+ * without an event write (a roster change, a place or stay deleted from
+ * Discover, a city removed) into travel silently vanishing from the board until
+ * somebody happened to drag something on that day. The reconciliation is
+ * insert-only and one plan over one day, so it is cheap enough to run on a read.
+ *
  * The only thing left here is the column renaming, because the stored row is
  * snake_case and the answer is not.
  */
@@ -467,33 +642,30 @@ export function legsForDay(tripId: string, day: string): LegRow[] {
 	const planned = planFor(tripId, day);
 	if (!planned.length) return [];
 
-	const rows = db
-		.prepare(
-			`SELECT id, leg_key, title, auto_mode, auto_mins, mode, mins FROM travel_legs
-			 WHERE trip_id = ? AND day = ?`
-		)
-		.all(tripId, day) as unknown as {
-		id: string;
-		leg_key: string;
-		title: string | null;
-		auto_mode: string | null;
-		auto_mins: number | null;
-		mode: string | null;
-		mins: number | null;
-	}[];
-	const stored = new Map(rows.map((r) => [r.leg_key, r]));
+	let stored = storedLegs(tripId, day);
+	if (planned.some((leg) => !stored.has(leg.key))) {
+		reconcileLegs(tripId, day, planned);
+		stored = storedLegs(tripId, day);
+	}
 
 	const out: LegRow[] = [];
 	for (const leg of planned) {
 		const row = stored.get(leg.key);
-		// A plan that has not been reconciled yet (a read racing a write) simply
-		// shows one fewer journey rather than inventing a row id the client would
-		// then try to edit.
+		// Only reachable if the insert above lost a race with a delete of one of
+		// the two events; showing one fewer journey beats inventing a row id the
+		// client would then try to edit.
 		if (!row) continue;
+		// A routed answer for two points that are no longer where this journey's
+		// events are is not an answer about this journey. Until the next board
+		// load routes it again it falls back to the straight-line guess, rather
+		// than planning the day around a drive to where the museum used to be.
+		// A row routed before `auto_key` existed has none and is trusted as before.
+		const stale = row.auto_key != null && row.auto_mode != null &&
+			row.auto_key !== routeKey(leg, row.auto_mode);
 		const override: LegOverride = {
 			title: row.title,
-			autoMode: row.auto_mode,
-			autoMins: row.auto_mins,
+			autoMode: stale ? null : row.auto_mode,
+			autoMins: stale ? null : row.auto_mins,
 			mode: row.mode,
 			mins: row.mins
 		};
@@ -507,17 +679,64 @@ export function plannedLegsForDay(tripId: string, day: string): PlannedLeg[] {
 	return planFor(tripId, day);
 }
 
-/** Record what the routing provider said. Never touches a user's own override. */
+/**
+ * What the router has already answered for a day's journeys, by leg key.
+ *
+ * `routed` is false when the stored minutes are the straight-line estimate the
+ * routing ladder fell back to, so a caller deciding whether to route again can
+ * skip only the answers a real provider gave. `routeKey` is what the answer
+ * was an answer to: the mode and both endpoints' coordinates, as
+ * `routeKey()` in `providers/routing.ts` builds it. See `saveAutoLeg`.
+ */
+export function storedAutoLegs(
+	tripId: string,
+	day: string
+): Map<
+	string,
+	{ autoMode: string | null; autoMins: number | null; routed: boolean; routeKey: string | null }
+> {
+	const out = new Map<
+		string,
+		{ autoMode: string | null; autoMins: number | null; routed: boolean; routeKey: string | null }
+	>();
+	for (const [key, r] of storedLegs(tripId, day)) {
+		out.set(key, {
+			autoMode: r.auto_mode,
+			autoMins: r.auto_mins,
+			routed: !!r.auto_routed,
+			routeKey: r.auto_key
+		});
+	}
+	return out;
+}
+
+/**
+ * Record what the routing provider said. Never touches a user's own override.
+ *
+ * `routed` says whether a provider actually answered or the ladder fell back to
+ * the straight-line estimate. It is stored so the next board load can skip a
+ * journey whose real route is already known, which is what stops every load
+ * re-buying every leg, while still retrying one that only has a guess.
+ *
+ * `routeKey` is the question the answer belongs to (mode plus both endpoints'
+ * coordinates). The leg key is only the pair of events, and an event can move
+ * without changing its id, so without this a 20-minute drive stayed 20 minutes
+ * after one end was moved 200 km away. A row whose stored key no longer matches
+ * is routed again.
+ */
 export function saveAutoLeg(
 	tripId: string,
 	day: string,
-	legKey: string,
+	key: string,
 	mode: string,
-	mins: number
+	mins: number,
+	routed = true,
+	routeKey: string | null = null
 ): void {
 	db.prepare(
-		`UPDATE travel_legs SET auto_mode = ?, auto_mins = ? WHERE trip_id = ? AND day = ? AND leg_key = ?`
-	).run(mode, Math.max(1, Math.round(mins)), tripId, day, legKey);
+		`UPDATE travel_legs SET auto_mode = ?, auto_mins = ?, auto_routed = ?, auto_key = ?
+		  WHERE trip_id = ? AND day = ? AND leg_key = ?`
+	).run(mode, Math.max(1, Math.round(mins)), routed ? 1 : 0, routeKey, tripId, day, key);
 }
 
 // --- Events -----------------------------------------------------------------
@@ -571,6 +790,22 @@ export function eventTrip(eventId: string): string | null {
 }
 
 /**
+ * Where a stay would check out if it were dragged to `toDay`, or null when the
+ * event is not a stay (or does not exist).
+ *
+ * A drag keeps the stay's length in nights, so the checkout it lands on is not
+ * in the request at all: the route has to work it out to refuse a drag that
+ * would carry the checkout past the end of the trip. Uses the same `nights`
+ * rule `moveEvent` does, so the two cannot disagree.
+ */
+export function movedStayCheckout(eventId: string, toDay: string): string | null {
+	const row = db.prepare(`SELECT type, day, end_day FROM events WHERE id = ?`).get(eventId) as
+		{ type: string; day: string; end_day: string | null } | undefined;
+	if (!row || row.type !== 'stay') return null;
+	return shiftDay(toDay, nights(row));
+}
+
+/**
  * True when this user may mutate this event, and which day it is on.
  *
  * `tripId` is required and is checked against the event's owner before
@@ -605,17 +840,148 @@ function mayEdit(
  * day passes nothing and gets the two days it always got.
  */
 function touched(tripId: string, day: string, ...alsoNulls: (string | null | undefined)[]): void {
-	const days = [day, ...alsoNulls.filter((d): d is string => !!d)].sort();
-	const last = days[days.length - 1];
+	settleDays(tripId, [day, ...alsoNulls.filter((d): d is string => !!d)]);
+	publish(tripId, 'schedule');
+}
+
+/**
+ * Re-plan and reflow every day from the earliest of `days` to one past the
+ * latest. The shared body of `touched` and the two exported entry points below.
+ */
+function settleDays(tripId: string, days: string[]): void {
+	if (!days.length) return;
+	const sorted = [...days].sort();
+	const last = sorted[sorted.length - 1];
+	const range: string[] = [];
 	// One past the end, because the morning after a stay leaves it.
-	for (let d = days[0]; d <= shiftDay(last, 1); d = shiftDay(d, 1)) {
+	for (let d = sorted[0]; d <= shiftDay(last, 1); d = shiftDay(d, 1)) range.push(d);
+	settleEach(tripId, range);
+}
+
+/** Re-plan and reflow each of `days` once, in order. */
+function settleEach(tripId: string, days: readonly string[]): void {
+	for (const d of days) {
 		recomputeLegs(tripId, d);
 		// A suggested block follows the journey that arrives at it, so it can only
 		// be placed once the journeys are settled; moving it then changes the
 		// chain, so the journeys are settled again afterwards.
 		if (reflowDay(tripId, d)) recomputeLegs(tripId, d);
 	}
-	publish(tripId, 'schedule');
+}
+
+/**
+ * Every day a set of event spans can have changed the plan of, each once.
+ *
+ * A span covers its own day through its checkout, plus the morning after,
+ * which planned its first journey from the night. Spans overlap (every block
+ * on a day is a span of that day and the next), so settling span by span did
+ * most days two or three times over; this is the union, sorted.
+ */
+function daysOfSpans(spans: readonly { day: string; end_day: string | null }[]): string[] {
+	const days = new Set<string>();
+	for (const s of spans) {
+		const last = shiftDay(s.end_day && s.end_day > s.day ? s.end_day : s.day, 1);
+		for (let d = s.day; d <= last; d = shiftDay(d, 1)) days.add(d);
+	}
+	return [...days].sort();
+}
+
+/**
+ * Settle days after a write that has already committed, without letting the
+ * settle fail that write.
+ *
+ * The callers (a roster change, a delete from Discover, a stay learning where
+ * it is) have finished their own work before this runs, and the member who
+ * made the request should not be told it failed because a re-plan behind it
+ * did. So the whole settle is one unit, a SAVEPOINT (which nests inside a
+ * transaction a caller may hold, and is a transaction of its own otherwise),
+ * rolled back on any error and logged rather than thrown. Nothing is lost by
+ * that: `legsForDay` reconciles on read, so the worst case is a suggested time
+ * that waits for the next write to reflow.
+ */
+function settleQuietly(tripId: string, days: readonly string[], why: string): void {
+	if (!days.length) return;
+	db.exec('SAVEPOINT settle_schedule');
+	try {
+		settleEach(tripId, days);
+		db.exec('RELEASE settle_schedule');
+	} catch (err) {
+		try {
+			db.exec('ROLLBACK TO settle_schedule');
+			db.exec('RELEASE settle_schedule');
+		} catch {
+			/* the savepoint is already gone; nothing left to undo */
+		}
+		console.error(
+			`[schedule] settling ${days.length} day(s) after ${why} failed for trip ${tripId}; reads will reconcile`,
+			err
+		);
+	}
+}
+
+/**
+ * Settle the days some events covered, for a write that changed them outside
+ * this module: a place or stay deleted from Discover takes its events with it,
+ * and a stay given coordinates it did not have starts planning journeys.
+ *
+ * Only the days the spans touch are settled, each once, rather than one range
+ * from the earliest day to the latest, because the events a place had can be
+ * months apart and the days between them did not change. Never throws; see
+ * `settleQuietly`. Does not publish: the caller already publishes the topics
+ * its write touched, `schedule` among them.
+ */
+export function settleEventSpans(
+	tripId: string,
+	spans: readonly { day: string; end_day: string | null }[]
+): void {
+	settleQuietly(tripId, daysOfSpans(spans), 'an event change');
+}
+
+/**
+ * Settle every day of a trip that carries an event, for a roster change.
+ *
+ * Joining, leaving, being removed and being merged into a real account all
+ * change who "Everyone" is, and so which journeys exist and when a suggested
+ * block can start, on every day at once. None of them is an event write, so
+ * nothing else would notice until somebody dragged something. Each day is
+ * settled once, in one savepoint, and a failure is logged rather than failing
+ * the roster change, which has already committed (see `settleQuietly`).
+ *
+ * Does not publish, for the same reason as `settleEventSpans`.
+ */
+export function settleTrip(tripId: string): void {
+	const spans = db
+		.prepare(`SELECT DISTINCT day, end_day FROM events WHERE trip_id = ?`)
+		.all(tripId) as unknown as { day: string; end_day: string | null }[];
+	settleQuietly(tripId, daysOfSpans(spans), 'a roster change');
+}
+
+/**
+ * The spans of the events a delete is about to take, read before it runs.
+ *
+ * For a caller that removes events by something other than their id (a place,
+ * a stay option, a city), so it can hand the answer to `settleEventSpans` once
+ * the rows are gone.
+ */
+export function eventSpansWhere(
+	tripId: string,
+	column: 'poi_id' | 'lodging_id',
+	ids: readonly string[]
+): { day: string; end_day: string | null }[] {
+	if (!ids.length) return [];
+	return db
+		.prepare(
+			`SELECT DISTINCT day, end_day FROM events
+			  WHERE trip_id = ? AND ${column} IN (${ids.map(() => '?').join(',')})`
+		)
+		.all(tripId, ...ids) as unknown as { day: string; end_day: string | null }[];
+}
+
+/** An event's current version, or null when it does not exist. */
+export function eventVersion(eventId: string): number | null {
+	const row = db.prepare(`SELECT version FROM events WHERE id = ?`).get(eventId) as
+		{ version: number } | undefined;
+	return row?.version ?? null;
 }
 
 /** The checkout a stay is stored with: what was asked for, or the morning after. */
@@ -630,8 +996,8 @@ export function createEvent(tripId: string, userId: string, e: NewEvent): string
 	if (!isMember(tripId, userId)) return null;
 	const type: EventType = isEventType(e.type) ? e.type : 'activity';
 	const located = isLocatedType(type);
-	const start = Math.max(0, Math.min(Math.round(e.startMin), 24 * 60 - MIN_EVENT_MINS));
-	const end = Math.max(start + MIN_EVENT_MINS, Math.min(Math.round(e.endMin), 24 * 60));
+	const start = Math.max(0, Math.min(Math.round(e.startMin), DAY_END_MIN - MIN_EVENT_MINS));
+	const end = Math.max(start + MIN_EVENT_MINS, Math.min(Math.round(e.endMin), DAY_END_MIN));
 	const endDay = stayEnd(type, e.day, e.endDay);
 
 	const id = randomUUID();
@@ -682,6 +1048,12 @@ export function deleteEvent(eventId: string, userId: string, tripId: string): bo
  *
  * Dragging a block is somebody choosing where it goes, so it stops being a
  * suggestion and stops following the day.
+ *
+ * The version is bumped but never checked. A drag carries one field, so there
+ * is nothing stale riding along for it to overwrite and no reason to refuse it;
+ * but a dialog opened on the block before the drag carries the old clock, and
+ * without the bump its save would put the block back where it was with nobody
+ * the wiser. `eventVersion` reads the new number for a caller that wants it.
  */
 export function moveEvent(
 	eventId: string,
@@ -698,13 +1070,14 @@ export function moveEvent(
 
 	const snapped = Math.round(startMin / SNAP) * SNAP;
 	const duration = ev.end_min - ev.start_min;
-	const clamped = Math.max(0, Math.min(snapped, 24 * 60 - duration));
+	const clamped = Math.max(0, Math.min(snapped, DAY_END_MIN - duration));
 	// A stay is not dragged: it is a band rather than a block, and its length is
 	// in nights. A move that lands on another day still has to carry the
 	// checkout with it, or the range would invert.
 	const movedEnd = where.end_day && toDay ? shiftDay(toDay, nights(where)) : where.end_day;
 	db.prepare(
-		`UPDATE events SET start_min = ?, end_min = ?, day = COALESCE(?, day), end_day = ?, time_auto = 0 WHERE id = ?`
+		`UPDATE events SET start_min = ?, end_min = ?, day = COALESCE(?, day), end_day = ?, time_auto = 0,
+		        version = version + 1 WHERE id = ?`
 	).run(clamped, clamped + duration, toDay ?? null, movedEnd, eventId);
 	touched(tripId, where.day, where.end_day, toDay, movedEnd);
 	return true;
@@ -713,14 +1086,14 @@ export function moveEvent(
 /** How many nights a stay runs for, which a move has to preserve. */
 function nights(where: { day: string; end_day: string | null }): number {
 	if (!where.end_day) return 1;
-	const at = (iso: string) => {
-		const [y, m, d] = iso.split('-').map(Number);
-		return Date.UTC(y, m - 1, d);
-	};
-	return Math.max(1, Math.round((at(where.end_day) - at(where.day)) / 86400000));
+	return Math.max(1, daysBetween(where.day, where.end_day));
 }
 
-/** Resize an event by moving its end. Snaps and clamps to the day. */
+/**
+ * Resize an event by moving its end. Snaps and clamps to the day.
+ *
+ * Bumps the version without checking it, for the reason `moveEvent` gives.
+ */
 export function resizeEvent(
 	eventId: string,
 	userId: string,
@@ -733,8 +1106,11 @@ export function resizeEvent(
 		{ start_min: number } | undefined;
 	if (!ev) return false;
 	const snapped = Math.round(endMin / SNAP) * SNAP;
-	const clamped = Math.max(ev.start_min + MIN_EVENT_MINS, Math.min(snapped, 24 * 60));
-	db.prepare(`UPDATE events SET end_min = ? WHERE id = ?`).run(clamped, eventId);
+	const clamped = Math.max(ev.start_min + MIN_EVENT_MINS, Math.min(snapped, DAY_END_MIN));
+	db.prepare(`UPDATE events SET end_min = ?, version = version + 1 WHERE id = ?`).run(
+		clamped,
+		eventId
+	);
 	touched(tripId, where.day, where.end_day);
 	return true;
 }
@@ -896,11 +1272,11 @@ export function editEvent(
 		const wanted = Number.isFinite(edit.startMin as number)
 			? (edit.startMin as number)
 			: cur.start_min;
-		const start = Math.max(0, Math.min(Math.round(wanted), 24 * 60 - MIN_EVENT_MINS));
+		const start = Math.max(0, Math.min(Math.round(wanted), DAY_END_MIN - MIN_EVENT_MINS));
 		const wantedEnd = Number.isFinite(edit.endMin as number)
 			? (edit.endMin as number)
 			: cur.end_min;
-		const end = Math.max(start + MIN_EVENT_MINS, Math.min(Math.round(wantedEnd), 24 * 60));
+		const end = Math.max(start + MIN_EVENT_MINS, Math.min(Math.round(wantedEnd), DAY_END_MIN));
 		sets.push('start_min = ?', 'end_min = ?');
 		args.push(start, end);
 		// Typing a time is choosing one, so the block stops following the day.
@@ -949,10 +1325,22 @@ export function editEvent(
 	args.push(eventId);
 	db.prepare(`UPDATE events SET ${sets.join(', ')} WHERE id = ?`).run(...args);
 	touched(tripId, where.day, where.end_day, movedTo, movedEnd);
-	return written(next);
+	// Read back rather than `next`: settling the day can reflow this very block
+	// (it is still a suggestion when the edit did not change its start), and a
+	// reflow bumps the version too. Handing back `next` would leave the dialog
+	// holding a number its own next save is refused against.
+	return written(eventVersion(eventId) ?? next);
 }
 
-/** Replace who is on an event. This is what makes the group split, or rejoin. */
+/**
+ * Replace who is on an event. This is what makes the group split, or rejoin.
+ *
+ * Bumps the version without checking it. The people picker saves on its own
+ * request, after the dialog's edit, so checking would have the dialog refuse
+ * its own second write; not bumping would let a dialog opened before the change
+ * write back a record that no longer matches who is on the block. The caller
+ * reads the new number with `eventVersion`.
+ */
 export function setEventPeople(
 	eventId: string,
 	tripId: string,
@@ -962,6 +1350,7 @@ export function setEventPeople(
 	const where = mayEdit(eventId, userId, tripId);
 	if (!where) return false;
 	writePeople(eventId, tripId, people);
+	db.prepare(`UPDATE events SET version = version + 1 WHERE id = ?`).run(eventId);
 	touched(tripId, where.day, where.end_day);
 	return true;
 }

@@ -3,6 +3,7 @@ import { db } from '../db';
 import { publish, publishMany } from '../events';
 import { poiKindFromCategory, toPoiKind, type PoiKind } from '@trippy/core/types';
 import { cityInTrip, isMember } from './membership';
+import { eventSpansWhere, settleEventSpans } from './schedule';
 
 export interface PoiRow {
 	id: string;
@@ -230,19 +231,28 @@ export function linkedItemCount(tripId: string, poiId: string): number {
  */
 export function removePoi(tripId: string, actorId: string, poiId: string): boolean {
 	if (!isMember(tripId, actorId)) return false;
+	// Read before the delete: the days those events were on are the days whose
+	// journeys and suggested times have to be settled again afterwards.
+	const spans = eventSpansWhere(tripId, 'poi_id', [poiId]);
+	let removed = false;
 	db.exec('BEGIN');
 	try {
 		db.prepare(`DELETE FROM events WHERE poi_id = ? AND trip_id = ?`).run(poiId, tripId);
 		const res = db.prepare(`DELETE FROM pois WHERE id = ? AND trip_id = ?`).run(poiId, tripId);
+		removed = Number(res.changes) > 0;
 		db.exec('COMMIT');
-		// After COMMIT, and both sections: the schedule loses the events that were
-		// scheduled from this place.
-		if (Number(res.changes) > 0) publishMany(tripId, ['pois', 'schedule']);
-		return Number(res.changes) > 0;
 	} catch (err) {
 		db.exec('ROLLBACK');
 		throw err;
 	}
+	if (!removed) return false;
+	// The journey that used to run through a deleted block now runs past it, and
+	// a suggested block after it follows whatever is now before it.
+	settleEventSpans(tripId, spans);
+	// After COMMIT, and both sections: the schedule loses the events that were
+	// scheduled from this place.
+	publishMany(tripId, ['pois', 'schedule']);
+	return true;
 }
 
 /**

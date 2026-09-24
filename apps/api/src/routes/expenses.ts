@@ -18,7 +18,17 @@ import {
 } from '@trippy/server/expenses';
 import { convertCents, ensureRatesFresh, knownCurrencies } from '@trippy/server/fx';
 import { isSplitMode, type SplitMode } from '@trippy/core/split';
-import { amountTooLarge, isAmountInRange, isNameLength, nameTooLong } from '@trippy/core/validate';
+import { isCurrencyCode, unknownCurrency } from '@trippy/core/currency';
+import {
+	amountTooLarge,
+	dayOutOfWindow,
+	isAmountInRange,
+	isDayInWindow,
+	isNameLength,
+	isShareWeight,
+	nameTooLong,
+	shareTooLarge
+} from '@trippy/core/validate';
 
 export const expenses = new Hono<Env>();
 
@@ -45,7 +55,8 @@ interface ParsedExpense {
 }
 
 /**
- * The range a spent-on day has to fall in.
+ * The range a spent-on day has to fall in lives in core now (`DAY_MIN`,
+ * `DAY_MAX`), because the trip's own dates are held to it too.
  *
  * `1200-01-01` and `3000-01-01` are real calendar days, so `isoDay` accepts
  * them and they are stored exactly as typed. They are never a date anyone meant
@@ -55,8 +66,6 @@ interface ParsedExpense {
  * belongs here where there is a status code to send. The window is wide enough
  * that nobody entering a genuine past or planned expense meets it.
  */
-const DAY_MIN = '2000-01-01';
-const DAY_MAX = '2100-12-31';
 
 /**
  * Reads the day an expense happened from a request body.
@@ -76,9 +85,7 @@ function parseSpentOn(raw: unknown): { day: string | null } | { error: string } 
 
 	const day = isoDay(raw);
 	if (!day) return { error: 'Pick a valid date.' };
-	if (day < DAY_MIN || day > DAY_MAX) {
-		return { error: `Pick a date between ${DAY_MIN.slice(0, 4)} and ${DAY_MAX.slice(0, 4)}.` };
-	}
+	if (!isDayInWindow(day)) return { error: dayOutOfWindow() };
 	return { day };
 }
 
@@ -154,6 +161,12 @@ async function parseExpense(
 					: 'Enter a share of zero or more for everyone.'
 		};
 	}
+	// A share is a count, so it has a ceiling. Unbounded, two of `1e308` summed
+	// to Infinity and every balance on the trip came back NaN. Exact amounts need
+	// no separate cap: they must add up to the total, which is already bounded.
+	if (splitMode === 'shares' && parts.some((p) => !isShareWeight(p.weight))) {
+		return { error: shareTooLarge() };
+	}
 	if (splitMode === 'exact') {
 		const sum = parts.reduce((a, p) => a + p.weight, 0);
 		if (sum !== Math.abs(cents)) {
@@ -168,10 +181,16 @@ async function parseExpense(
 	const spentOn = parseSpentOn(b.spentOn);
 	if ('error' in spentOn) return { error: spentOn.error };
 
+	// Only a code the offline table converts. Anything else used to be stored
+	// and then thrown on by every later read of the ledger, which is a 500 for
+	// the whole trip rather than a 400 for the one form.
+	const currency = str(b.currency).toUpperCase() || home;
+	if (!isCurrencyCode(currency)) return { error: unknownCurrency() };
+
 	return {
 		description,
 		cents,
-		currency: str(b.currency) || home,
+		currency,
 		payerId: str(b.payerId),
 		splitMode,
 		parts,

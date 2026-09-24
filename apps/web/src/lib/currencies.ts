@@ -22,8 +22,8 @@ export { CURRENCY_CODES };
  * Here rather than beside `FALLBACK_RATES` in core on purpose. That table is
  * the definition of a currency the app can convert offline, and its comment
  * says so; this map is a display label, and it has to cover the roughly 160
- * codes the live FX feed adds on top of those twenty, which core has never
- * heard of and must not be read as supporting.
+ * codes the live FX feed carries, more than core's offline table, which is
+ * the only list the app supports.
  *
  * A code with no entry renders as the code alone. Half the point of the name
  * is to be searched for, so a guessed one is worse than none.

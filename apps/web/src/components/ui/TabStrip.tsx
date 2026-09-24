@@ -74,13 +74,42 @@ export default function TabStrip({ base, tabs }: { base: string; tabs: readonly 
 		placed.current = true;
 	}, []);
 
+	/**
+	 * Scrolls the row so the active tab sits in the middle, clamped to the ends.
+	 *
+	 * Centred, not merely brought into view. Scrolled only as far as it took to
+	 * show the active tab, the row stopped with that tab flush against the edge,
+	 * so on Expenses at 390px People was wholly off screen and the row looked
+	 * finished. Centring leaves a neighbour peeking out on every side that has
+	 * more, which is the affordance.
+	 *
+	 * Offsets rather than `scrollIntoView`, which walks up every scrollable
+	 * ancestor and would drag the whole page vertically to bring a tab
+	 * horizontally into view.
+	 */
+	const centre = useCallback((smooth: boolean) => {
+		const el = ref.current;
+		const active = el?.querySelector<HTMLElement>('[aria-current="page"]');
+		if (!el || !active) return;
+		const max = el.scrollWidth - el.clientWidth;
+		if (max <= 0) return;
+		const mid = active.offsetLeft + active.offsetWidth / 2 - el.clientWidth / 2;
+		// Glides on a tab change, jumps otherwise: arriving on a page, or the
+		// row reflowing under a new font, is not a move anybody asked to watch.
+		el.scrollTo({ left: Math.max(0, Math.min(max, mid)), behavior: smooth ? 'smooth' : 'instant' });
+	}, []);
+
 	useEffect(() => {
 		const el = ref.current;
 		if (!el) return;
 		measure();
 		// The row reflows when the window resizes and also when a font finishes
 		// loading, and ResizeObserver catches both without a font-loading hook.
+		// Both change where the middle is, so the row is re-centred as well: the
+		// first centring runs before the web font arrives, against labels that
+		// are about to get wider, and left the row short of where it meant to be.
 		const ro = new ResizeObserver(() => {
+			centre(false);
 			measure();
 			placed.current = false;
 			placeInk();
@@ -88,23 +117,15 @@ export default function TabStrip({ base, tabs }: { base: string; tabs: readonly 
 		ro.observe(el);
 		for (const child of el.children) if (child !== inkRef.current) ro.observe(child);
 		return () => ro.disconnect();
-	}, [measure, placeInk]);
+	}, [measure, placeInk, centre]);
 
 	useLayoutEffect(() => {
-		const el = ref.current;
-		if (!el) return;
-		const active = el.querySelector('[aria-current="page"]');
-		if (!active) return;
-		// Scrolled by hand rather than with `scrollIntoView`, which walks up every
-		// scrollable ancestor and would drag the whole page vertically to bring a
-		// tab horizontally into view.
-		const box = active.getBoundingClientRect();
-		const strip = el.getBoundingClientRect();
-		if (box.left < strip.left) el.scrollLeft -= strip.left - box.left + 16;
-		else if (box.right > strip.right) el.scrollLeft += box.right - strip.right + 16;
+		// `placed` is false until the ink has been put down once, which is the
+		// same "is this the first placement" question the scroll is asking.
+		centre(placed.current);
 		measure();
 		placeInk();
-	}, [pathname, measure, placeInk]);
+	}, [pathname, measure, placeInk, centre]);
 
 	return (
 		<div className={`tabswrap${edges.left ? ' more-l' : ''}${edges.right ? ' more-r' : ''}`}>

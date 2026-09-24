@@ -1,4 +1,6 @@
-import { Link } from 'react-router';
+import { Link, Navigate } from 'react-router';
+import { useAuth } from '../auth';
+import useDocumentTitle from '../hooks/useDocumentTitle';
 import { copy } from '../copy';
 
 const c = copy.landing;
@@ -10,8 +12,18 @@ const c = copy.landing;
  * only reader is someone who has not signed in yet. That is why the primary
  * action is registering rather than a link into the app, and why it repeats the
  * header's wording instead of offering a third phrasing for the same thing.
+ *
+ * The redirect is here rather than in a guard around the route, because this
+ * is the one public page that has it: the auth pages each already send a
+ * signed-in visitor on in their own way. Nothing renders while the session is
+ * still being checked, for the reason `RequireAuth` gives: a signed-in reload
+ * of `/` would otherwise flash the pitch before leaving it.
  */
 export default function Landing() {
+	const { status } = useAuth();
+	useDocumentTitle([]);
+	if (status === 'loading') return null;
+	if (status === 'authenticated') return <Navigate to="/trips" replace />;
 	return (
 		<main className="container py-16">
 			<section className="max-w-2xl">

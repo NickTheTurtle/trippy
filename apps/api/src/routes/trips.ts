@@ -1,20 +1,20 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { requireUser, requireMember } from '../middleware';
-import { body, num, optStr, str } from '../parse';
-import { fail, ok } from '../respond';
+import { body, bool, num, optStr, str } from '../parse';
+import { fail, goneMessage, ok } from '../respond';
 import type { Env } from '../types';
 import {
 	listTripsForUser,
 	getTripForUser,
 	createTrip,
 	updateTrip,
-	addCity,
-	updateCity,
-	removeCity,
-	cityOnTrip,
+	addCityResult,
+	updateCityResult,
+	removeCityResult,
 	deleteTrip,
 	leaveTrip,
-	type CityInput
+	type CityInput,
+	type CityRefusal
 } from '@trippy/server/trips';
 import { backfillTripListPhotos } from '@trippy/server/photos';
 import { photoGate } from '../provider-quota';
@@ -59,21 +59,38 @@ trips.post('/', async (c) => {
 trips.get('/:tripId', requireMember, (c) => c.json({ trip: c.get('trip') }));
 
 /**
- * Rename / re-date / re-denominate. Organizer only, which `updateTrip` enforces
- * itself and reports as a message string, so the check and the wording it
- * produces stay in one place rather than being restated here.
+ * What a member who is not the organizer is told, per action. A 403 in the
+ * `respond.ts` sense: the caller is on the trip, so there is nothing to hide,
+ * only a permission they do not have. These used to come back as 400 with
+ * sentences like "Could not add that city.", which read as a problem with the
+ * values and sent members hunting for a typo that was not there.
+ */
+const NOT_ORGANIZER = {
+	edit: 'Only the organizer can edit this trip.',
+	cities: 'Only the organizer can change the cities on this trip.'
+};
+
+/**
+ * Rename / re-date / re-denominate. Organizer only, which `updateTrip` also
+ * enforces; the role is checked here first so the refusal can be a 403 rather
+ * than a 400 that reads like a bad value.
+ *
+ * `scheduleLocked` is optional. Absent keeps the stored lock: it used to be
+ * read as `=== true`, so any edit that did not restate it unfroze the board.
  */
 trips.patch('/:tripId', requireMember, async (c) => {
+	const trip = c.get('trip');
+	if (trip.role !== 'organizer') return fail(c, 403, NOT_ORGANIZER.edit);
 	const b = await body(c);
-	const problem = updateTrip(c.get('trip').id, c.get('user').id, {
+	const problem = updateTrip(trip.id, c.get('user').id, {
 		name: str(b.name),
 		startDate: str(b.startDate),
 		endDate: str(b.endDate),
 		currency: str(b.currency),
-		scheduleLocked: b.scheduleLocked === true
+		scheduleLocked: bool(b.scheduleLocked) ?? undefined
 	});
 	if (problem) return fail(c, 400, problem);
-	return c.json({ trip: getTripForUser(c.get('trip').id, c.get('user').id) });
+	return c.json({ trip: getTripForUser(trip.id, c.get('user').id) });
 });
 
 /**
@@ -102,35 +119,46 @@ trips.post('/:tripId/leave', requireMember, (c) => {
  * Itinerary. A trip's cities are what every other section is scoped to, so a
  * trip without one is a dead end: `POST` is what turns a freshly created trip
  * into a usable one. All three are organizer-only, enforced inside the server
- * functions, which is also where the shape of a city is validated.
+ * functions, which is also where the shape of a city is validated. Each
+ * refusal carries its reason, so a member is told 403 (not the organizer), a
+ * vanished city 404, and a bad value 400.
  */
+function cityRefusal(c: Context<Env>, reason: CityRefusal, input?: CityInput) {
+	switch (reason) {
+		case 'forbidden':
+			return fail(c, 403, NOT_ORGANIZER.cities);
+		case 'missing':
+			return fail(c, 404, goneMessage('city'));
+		case 'duplicate':
+			return fail(c, 400, `${input?.name.trim() ?? 'That city'} is already on this trip.`);
+		case 'last':
+			return fail(c, 400, 'A trip needs at least one city.');
+		default:
+			return fail(c, 400, 'Enter a city name, a country and a time zone from the list.');
+	}
+}
+
 trips.post('/:tripId/cities', requireMember, async (c) => {
 	const b = await body(c);
 	const input = cityInput(b);
-	// Asked separately from the add so the refusal can say which city, and why.
-	if (cityOnTrip(c.get('trip').id, input))
-		return fail(c, 400, `${input.name.trim()} is already on this trip.`);
-	const id = addCity(c.get('trip').id, c.get('user').id, input);
-	if (!id) return fail(c, 400, 'Could not add that city.');
+	const res = addCityResult(c.get('trip').id, c.get('user').id, input);
+	if (!res.ok) return cityRefusal(c, res.reason, input);
 	return c.json({ trip: getTripForUser(c.get('trip').id, c.get('user').id) }, 201);
 });
 
 trips.patch('/:tripId/cities/:cityId', requireMember, async (c) => {
 	const b = await body(c);
 	const input = cityInput(b);
-	if (cityOnTrip(c.get('trip').id, input, c.req.param('cityId')))
-		return fail(c, 400, `${input.name.trim()} is already on this trip.`);
-	const okay = updateCity(c.get('trip').id, c.get('user').id, c.req.param('cityId'), input);
-	if (!okay) return fail(c, 400, 'Could not save that city.');
+	const res = updateCityResult(c.get('trip').id, c.get('user').id, c.req.param('cityId'), input);
+	if (!res.ok) return cityRefusal(c, res.reason, input);
 	return c.json({ trip: getTripForUser(c.get('trip').id, c.get('user').id) });
 });
 
 trips.delete('/:tripId/cities/:cityId', requireMember, (c) => {
 	// The last city cannot go: removing it would leave the trip in exactly the
 	// dead-end state the add route exists to get out of.
-	if (!removeCity(c.get('trip').id, c.get('user').id, c.req.param('cityId'))) {
-		return fail(c, 400, 'A trip needs at least one city.');
-	}
+	const res = removeCityResult(c.get('trip').id, c.get('user').id, c.req.param('cityId'));
+	if (!res.ok) return cityRefusal(c, res.reason);
 	return c.json({ trip: getTripForUser(c.get('trip').id, c.get('user').id) });
 });
 

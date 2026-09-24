@@ -102,19 +102,22 @@ export default function PlaceField({
 	];
 
 	return (
-		/* Focus and a click on the box both open it. `SearchDropdown` opens on
-		   typing and on the arrows, which is right for a search that costs a
-		   request, but the saved list is already in memory and a picker that shows
-		   nothing until you guess at it is not browsable. The mousedown is
-		   filtered to the input itself so that clicking a row, which keeps focus
-		   in the input, does not reopen the menu the pick just closed. */
+		/* A press on the box opens it. `SearchDropdown` opens on typing and on the
+		   arrows, which is right for a search that costs a request, but the saved
+		   list is already in memory and a picker that shows nothing until you guess
+		   at it is not browsable. The mousedown is filtered to the input itself so
+		   that clicking a row, which keeps focus in the input, does not reopen the
+		   menu the pick just closed.
+
+		   Focus alone deliberately does not open it. The event dialog puts the
+		   caret in this field when it opens, and a menu that opened on focus came
+		   up with its first row highlighted: the Enter a reader pressed to save
+		   what they had come to change picked that row instead, and swapped the
+		   block's place without a word. A tap is a mousedown too, so a phone still
+		   opens the list the moment the box is touched; a keyboard asks with the
+		   down arrow, the same as every other combobox in the app. */
 		<div
 			className={className}
-			onFocusCapture={(e) => {
-				if ((e.target as HTMLElement).tagName !== 'INPUT') return;
-				setOpen(true);
-				setTyping(false);
-			}}
 			onMouseDownCapture={(e) => {
 				if ((e.target as HTMLElement).tagName !== 'INPUT') return;
 				setOpen(true);

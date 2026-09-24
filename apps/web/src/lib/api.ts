@@ -39,6 +39,26 @@ export class ApiError extends Error {
 
 type Options = { method?: string; body?: unknown; signal?: AbortSignal };
 
+/**
+ * Who to tell when a request comes back 401.
+ *
+ * A session can end while a tab is open (it expires, a password change on
+ * another device signs this one out, the account is deleted), and before this
+ * nothing noticed: every page simply failed its loads while the top bar went on
+ * showing a name. One listener, registered by `AuthProvider`, is told instead,
+ * and the route guard does the rest.
+ *
+ * `/auth/*` is exempt. A 401 there is an answer about the request, not about
+ * the session: `/auth/login` says it for a wrong password and `/auth/me` for a
+ * signed-out visitor, and treating either as "your session just ended" would
+ * loop the public pages through the provider.
+ */
+let unauthorized: (() => void) | null = null;
+
+export function onUnauthorized(listener: (() => void) | null): void {
+	unauthorized = listener;
+}
+
 export async function api<T>(path: string, options: Options = {}): Promise<T> {
 	const { method = 'GET', body, signal } = options;
 
@@ -70,6 +90,7 @@ export async function api<T>(path: string, options: Options = {}): Promise<T> {
 			typeof (payload as { error?: unknown }).error === 'string'
 				? (payload as { error: string }).error
 				: copy.api.requestFailed;
+		if (res.status === 401 && !path.startsWith('/auth/')) unauthorized?.();
 		throw new ApiError(res.status, message);
 	}
 

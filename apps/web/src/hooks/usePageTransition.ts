@@ -104,9 +104,19 @@ export default function usePageTransition(): (to: string, forward: boolean) => v
 	);
 }
 
-/** Resolves once the panel holds something, or the ceiling is reached. */
+/**
+ * Resolves once the panel holds something, or the ceiling is reached.
+ *
+ * The "Loading..." line does not count. Sections render it while their first
+ * fetch is in flight, and it is a child with text, so without the exclusion
+ * the hold ended the instant it appeared and the move slid in the placeholder:
+ * the empty slide this hold exists to prevent, with a word on it. `Loading`
+ * marks itself `data-loading` so this can tell it from the page.
+ */
 function settled(pane: HTMLElement): Promise<void> {
-	const ready = () => pane.childElementCount > 0 || (pane.textContent ?? '').trim() !== '';
+	const ready = () =>
+		pane.querySelector('[data-loading]') === null &&
+		(pane.childElementCount > 0 || (pane.textContent ?? '').trim() !== '');
 	if (ready()) return Promise.resolve();
 	return new Promise((resolve) => {
 		let done = false;

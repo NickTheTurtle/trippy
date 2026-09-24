@@ -19,10 +19,8 @@
  * would plan a day the server does not.
  */
 import { guessLeg, placeLeg } from '@trippy/core/travel';
-import { planDay, stayBand, stayEndOf, isNightOf } from '@trippy/core/plan';
+import { planDay, stayBand, stayEndOf } from '@trippy/core/plan';
 import type { BoardDay, EventDraft, EventRow, LegRow } from './types';
-
-export { stayEndOf, isNightOf };
 
 /**
  * The day's events and lodgings with the draft applied.
@@ -96,18 +94,28 @@ function boardStays(rows: EventRow[], day: string): EventRow[] {
  *
  * `roster` is the trip's member ids, which is what "Everyone" means at this
  * moment.
+ *
+ * `known` is every stored journey the page has loaded, keyed by leg key, across
+ * all the days of the window rather than this one. A journey is identified by
+ * its two events (`from>to`), not by its day, and the server carries a
+ * row across dates when a block moves (`recomputeLegs` claims it from the day
+ * it left), pin and all. Matching only this day's rows made a block being sent
+ * to tomorrow in the dialog preview its journeys at the bare estimate, and then
+ * snap to the pinned ferry once saved. The window is what the client has; a
+ * move beyond it still previews the estimate until the save comes back.
  */
 export function replanLegs(
 	entry: BoardDay,
 	draft: EventDraft | null,
-	roster: readonly string[]
+	roster: readonly string[],
+	known?: ReadonlyMap<string, LegRow>
 ): LegRow[] {
 	const { events } = applyDraft(entry, draft);
 	const planned = planDay({ day: entry.day, events, incoming: entry.incoming }, roster);
 
 	const stored = new Map(entry.legs.map((l) => [l.key, l]));
 	return planned.map((leg) => {
-		const row = stored.get(leg.key);
+		const row = stored.get(leg.key) ?? known?.get(leg.key);
 		const auto = guessLeg(leg.km);
 		const resolvedMode = row?.mode ?? row?.autoMode ?? auto.mode;
 		const resolvedMins = row?.mins ?? row?.autoMins ?? auto.mins;

@@ -4,10 +4,11 @@ import {
 	useContext,
 	useEffect,
 	useMemo,
+	useRef,
 	useState,
 	type ReactNode
 } from 'react';
-import { api, ApiError, type User } from './lib/api';
+import { api, ApiError, onUnauthorized, type User } from './lib/api';
 
 /**
  * Who is signed in, for the whole app.
@@ -68,6 +69,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 		return () => ac.abort();
 	}, []);
 
+	// A request elsewhere in the app was refused for want of a session. Asked
+	// again rather than taken at its word, because a 401 from a route is only a
+	// strong hint: `/auth/me` is the one question whose answer is the session,
+	// and asking it costs one request on a path that is already failing. Several
+	// sections failing together share the one check.
+	const checking = useRef(false);
+	useEffect(() => {
+		onUnauthorized(() => {
+			if (checking.current) return;
+			checking.current = true;
+			api<{ user: User }>('/auth/me')
+				.then(({ user }) => setState({ status: 'authenticated', user }))
+				.catch((err) => {
+					// Only a definite "nobody" signs this tab out. An unreachable server
+					// says nothing about the session, and the page that failed is
+					// already saying so.
+					if (err instanceof ApiError && err.status === 401) {
+						setState({ status: 'anonymous', user: null });
+					}
+				})
+				.finally(() => {
+					checking.current = false;
+				});
+		});
+		return () => onUnauthorized(null);
+	}, []);
+
 	const logIn = useCallback(async (email: string, password: string) => {
 		const { user } = await api<{ user: User }>('/auth/login', {
 			method: 'POST',
@@ -77,9 +105,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 	}, []);
 
 	const register = useCallback(async (name: string, email: string, password: string) => {
+		// The browser's zone, so a new account's "today" is the reader's rather
+		// than UTC's. The server ignores anything it does not recognise.
+		const homeTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
 		const res = await api<{ user?: User; pending?: boolean }>('/auth/register', {
 			method: 'POST',
-			body: { name, email, password }
+			body: { name, email, password, homeTz }
 		});
 		if (!res.user) return 'pending' as const;
 		setState({ status: 'authenticated', user: res.user });

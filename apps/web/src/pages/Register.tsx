@@ -4,6 +4,7 @@ import { AuthNotice, AuthShell } from '../components/ui/AuthShell';
 import { Field } from '../components/ui/Field';
 import { useErrorSlot } from '../components/ui/Toast';
 import { useAuth } from '../auth';
+import useDocumentTitle from '../hooks/useDocumentTitle';
 import { copy } from '../copy';
 
 const c = copy.auth.register;
@@ -12,6 +13,7 @@ export default function Register() {
 	const { status, register } = useAuth();
 	const [params] = useSearchParams();
 	const failure = useErrorSlot();
+	useDocumentTitle([c.submitLabel]);
 
 	// An invite link carries the address it was sent to, so the one field that
 	// has to match exactly for the invite to be consumed is filled in already.

@@ -1049,11 +1049,14 @@ test.describe('schedule board colour and edit affordance', () => {
 
 			// A plain click no longer opens the editor: it selects the block and
 			// aims the map at it. The accessible name promises that rather than
-			// "Open".
+			// "Open". The name is on the block's face, the button that fills it;
+			// the pencil is a sibling of the face rather than a button inside it.
 			const block = page.locator('.sched .block.activity').first();
+			const face = block.locator('.bface');
 			await expect(block).toBeVisible();
-			await expect(block).toHaveAccessibleName(/Show on the map/);
-			await expect(block).not.toHaveAccessibleName(/Open/);
+			await expect(face).toHaveAccessibleName(/Show on the map/);
+			await expect(face).not.toHaveAccessibleName(/Open/);
+			await expect(face.getByRole('button')).toHaveCount(0);
 
 			// The pencil is present but invisible until the block is hovered, which
 			// is the board's reveal-on-hover idiom rather than a permanent control.

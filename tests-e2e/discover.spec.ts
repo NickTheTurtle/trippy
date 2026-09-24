@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
-import { createApiFixture } from './fixtures/api';
-import { addCity, addPlace, addStay } from './fixtures/seed';
+import { createApiFixture, registerUser } from './fixtures/api';
+import { addCity, addPlace, addStay, invite } from './fixtures/seed';
 import { copy } from './fixtures/copy';
-import { signIn } from './fixtures/session';
+import { signIn, signedInContext } from './fixtures/session';
 
 /**
  * Discover: cities, places and stays. Cities and places are seeded through the
@@ -102,6 +102,135 @@ test.describe('discover', () => {
 
 			await expect(page.getByRole('button', { name: 'Oceanario', exact: true })).toBeHidden();
 			await expect(page.getByText(copy.common.nothingAdded, { exact: true })).toBeVisible();
+		} finally {
+			fixture.teardown();
+		}
+	});
+
+	test('a double tap on a vote counts once, and shows at once', async ({ page, request }) => {
+		const fixture = await createApiFixture(request);
+		try {
+			const cityId = await addCity(request, fixture, LISBON);
+			await addPlace(request, fixture, { cityId, name: 'Miradouro' });
+			await signIn(page, fixture.sessionCookie);
+			// Slow the vote down so the second tap lands while the first is still
+			// on the wire, which is the case the guard exists for.
+			let votes = 0;
+			await page.route(/\/api\/trips\/[^/]+\/discover\/pois\/[^/]+\/vote$/, async (route) => {
+				votes++;
+				await new Promise((r) => setTimeout(r, 600));
+				await route.continue();
+			});
+			await page.goto(`/trips/${fixture.tripId}/discover`);
+
+			const pill = page.getByRole('button', {
+				name: copy.discover.card.voteLabel(false, 'Miradouro')
+			});
+			await expect(pill).toContainText('0');
+			await pill.dblclick();
+
+			// Optimistic: the pill has flipped before the slowed request returns.
+			const voted = page.getByRole('button', {
+				name: copy.discover.card.voteLabel(true, 'Miradouro')
+			});
+			await expect(voted).toContainText('1', { timeout: 400 });
+			await expect(voted).toHaveAttribute('aria-pressed', 'true');
+
+			// And it stays there once the server has answered and the grid reloaded:
+			// one request, not a toggle and its undo.
+			await page.waitForTimeout(1200);
+			await expect(voted).toContainText('1');
+			expect(votes).toBe(1);
+		} finally {
+			fixture.teardown();
+		}
+	});
+
+	test('the organizer locks a stay from its card, and a member only sees the lock', async ({
+		page,
+		browser,
+		request
+	}) => {
+		const fixture = await createApiFixture(request);
+		const member = await registerUser(request, { name: 'Lodger' });
+		await invite(request, fixture, member.email);
+		const sc = copy.discover.stayCard;
+		try {
+			const cityId = await addCity(request, fixture, LISBON);
+			await addStay(request, fixture, { cityId, name: 'Casa Azul', priceCents: 9000 });
+			await addStay(request, fixture, { cityId, name: 'Hotel Rio', priceCents: 15000 });
+			await signIn(page, fixture.sessionCookie);
+			await page.goto(`/trips/${fixture.tripId}/discover`);
+
+			const casa = page.locator('article').filter({ hasText: 'Casa Azul' });
+			const rio = page.locator('article').filter({ hasText: 'Hotel Rio' });
+			await casa.getByRole('button', { name: sc.lockLabel(false, 'Casa Azul') }).click();
+			await expect(casa.getByText(sc.locked, { exact: true })).toBeVisible();
+
+			// One lock per city: locking the other moves it rather than adding one.
+			await rio.getByRole('button', { name: sc.lockLabel(false, 'Hotel Rio') }).click();
+			await expect(rio.getByText(sc.locked, { exact: true })).toBeVisible();
+			await expect(casa.getByText(sc.locked, { exact: true })).toHaveCount(0);
+
+			// And it is a toggle: pressing it again releases the lock.
+			await rio.getByRole('button', { name: sc.lockLabel(true, 'Hotel Rio') }).click();
+			await expect(rio.getByText(sc.locked, { exact: true })).toHaveCount(0);
+			await rio.getByRole('button', { name: sc.lockLabel(false, 'Hotel Rio') }).click();
+			await expect(rio.getByText(sc.locked, { exact: true })).toBeVisible();
+
+			// The member sees which stay is locked, and no control to change it.
+			const other = await signedInContext(browser, member.sessionCookie);
+			try {
+				await other.page.goto(`/trips/${fixture.tripId}/discover`);
+				const theirRio = other.page.locator('article').filter({ hasText: 'Hotel Rio' });
+				await expect(theirRio.getByText(sc.locked, { exact: true })).toBeVisible();
+				await expect(other.page.getByRole('button', { name: /^(Lock|Unlock) / })).toHaveCount(0);
+			} finally {
+				await other.context.close();
+			}
+		} finally {
+			fixture.teardown();
+			member.teardown();
+		}
+	});
+
+	test('a stay delete the server refuses keeps the confirmation open', async ({
+		page,
+		request
+	}) => {
+		const fixture = await createApiFixture(request);
+		try {
+			const cityId = await addCity(request, fixture, LISBON);
+			await addStay(request, fixture, { cityId, name: 'Pensao Flor' });
+			await signIn(page, fixture.sessionCookie);
+			const reason = 'Could not delete that just now.';
+			await page.route(/\/api\/trips\/[^/]+\/discover\/stays\/[^/]+$/, (route) =>
+				route.request().method() === 'DELETE'
+					? route.fulfill({ status: 500, json: { error: reason } })
+					: route.continue()
+			);
+			await page.goto(`/trips/${fixture.tripId}/discover`);
+
+			await page.getByRole('button', { name: copy.common.editLabel('Pensao Flor') }).click();
+			await page
+				.getByRole('dialog')
+				.getByRole('button', { name: copy.common.delete, exact: true })
+				.click();
+			const confirm = page.getByRole('dialog');
+			await confirm.getByRole('button', { name: copy.common.delete, exact: true }).click();
+
+			// Still asking, with the reason in the corner, and the stay still there.
+			await expect(page.locator('.toast.bad').filter({ hasText: reason })).toBeVisible();
+			await expect(confirm.getByText(copy.ui.confirmDialog.undone)).toBeVisible();
+
+			// Cancelled and asked again, the old refusal is not waiting for it.
+			await confirm.getByRole('button', { name: copy.common.cancel, exact: true }).click();
+			await page
+				.getByRole('dialog')
+				.getByRole('button', { name: copy.common.delete, exact: true })
+				.click();
+			await expect(page.getByRole('dialog').getByText(copy.ui.confirmDialog.undone)).toBeVisible();
+			await expect(page.locator('.toast.bad').filter({ hasText: reason })).toHaveCount(0);
 		} finally {
 			fixture.teardown();
 		}

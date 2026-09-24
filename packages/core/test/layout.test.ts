@@ -6,12 +6,13 @@ function placed(events: LayoutEvent[]) {
 }
 
 describe('layoutDay', () => {
-	it('returns empty placement, flows and crossings for empty input', () => {
+	it('returns empty placement and flows for empty input', () => {
 		const out = layoutDay([]);
 
 		expect(out.placed.size).toBe(0);
 		expect(out.flows).toEqual([]);
-		expect(out.crossings).toBe(0);
+		// The crossing count is a test-only measure now, not part of every layout.
+		expect('crossings' in out).toBe(false);
 	});
 
 	it('places a single interval at full width', () => {

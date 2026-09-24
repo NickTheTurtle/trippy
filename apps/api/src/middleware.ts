@@ -1,10 +1,27 @@
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
+import { bodyLimit } from 'hono/body-limit';
 import { createMiddleware } from 'hono/factory';
 import { fail } from './respond';
 import { getSessionUser, type SessionUser } from '@trippy/server/auth';
 import { getTripForUser } from '@trippy/server/trips';
 
 export const COOKIE = 'session';
+
+/**
+ * The largest request body any route will read.
+ *
+ * No request this API serves is anywhere near 256 KB: the largest real body is
+ * an event save with a 4000 character note. Without a ceiling, `c.req.json()`
+ * buffers whatever arrives, so one caller streaming a few hundred megabytes
+ * holds that much of this process's memory per connection. Refused with 413 in
+ * the standard envelope before any route reads a byte of it.
+ */
+export const BODY_LIMIT_BYTES = 256 * 1024;
+
+export const limitBody = bodyLimit({
+	maxSize: BODY_LIMIT_BYTES,
+	onError: (c) => fail(c, 413, 'That request is too large.')
+});
 
 /**
  * Native clients have no cookie jar worth relying on, so they present the same

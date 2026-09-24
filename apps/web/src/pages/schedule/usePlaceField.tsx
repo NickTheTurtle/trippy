@@ -38,7 +38,7 @@ export function usePlaceField({
 	provider,
 	initialPoi = '',
 	initialPlace = '',
-	className = 'col-span-8'
+	className = 'col-span-12 sm:col-span-8'
 }: {
 	/** The schedule's own base, `/trips/:tripId/schedule`. */
 	base: string;
@@ -128,5 +128,5 @@ export function usePlaceField({
 		/>
 	) : null;
 
-	return { poi, place, spot, pickable, placeable, field, retype };
+	return { poi, place, spot, placeable, field, retype };
 }

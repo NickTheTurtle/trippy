@@ -1,4 +1,5 @@
 import {
+	DAY_END_MIN,
 	EVENT_TYPE_LABELS,
 	EVENT_TYPES,
 	TRANSPORT_MODES,
@@ -26,13 +27,13 @@ import type { Cell, SavedPoi } from './types';
  * what makes a board lurch while it is being dragged over.
  */
 export const DEFAULT_START = 6 * 60;
-export const DAY_END = 24 * 60;
+/** Midnight, where the board ends: core's, so the board and the server's
+    "within the day" checks cannot disagree about where the day stops. */
+export const DAY_END = DAY_END_MIN;
 /** The shortest event the server will store, and so the shortest one offerable. */
 export { MIN_EVENT_MINS } from '@trippy/core/types';
 /** One pixel a minute: a 15-minute event, the shortest the server allows, is 15px. */
 export const PX_PER_MIN = 1;
-/** Width of the hour gutter, and of the lane journeys are drawn in. */
-export const GUTTER_PX = 56;
 
 /**
  * The id a block being added stands under until it has one of its own.

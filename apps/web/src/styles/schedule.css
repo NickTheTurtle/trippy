@@ -2,10 +2,10 @@
  * Schedule page styles.
  *
  * Plain CSS rather than Tailwind utilities: the day board is an
- * absolutely-positioned time grid whose geometry (a 56px hour gutter, a 92px
- * travel lane, colour mixes off a per-type `--c`) is the layout itself, not
- * decoration. Expressing that in utility classes would spread one coordinate
- * system across dozens of arbitrary-value brackets.
+ * absolutely-positioned time grid whose geometry (a 56px hour gutter, journeys
+ * sharing the event columns, colour mixes off a per-type `--c`) is the layout
+ * itself, not decoration. Expressing that in utility classes would spread one
+ * coordinate system across dozens of arbitrary-value brackets.
  *
  * Every rule is scoped under `.sched`, which the page root carries, so generic
  * names like `.board` and `.lane` cannot leak into the rest of the app.
@@ -126,8 +126,10 @@
  *
  * The tag stands where the Add button stood, so the row keeps its shape and the
  * absence is legible rather than looking like a control that failed to render.
- * It is also the footer of the read-only event dialog, which is drawn in a
- * portal outside the page, so the rule is not scoped to the board.
+ * It is also the footer of the read-only event dialog. That dialog is rendered
+ * inside the page, under `.sched` like the rest of the board's dialogs, and the
+ * rule is left unscoped only because the tag means the same thing wherever it
+ * turns up.
  *
  * Nothing else is taken away. A block, a stay and an agenda row all still open
  * their event, so they still read as pressable: the lock stops the board being
@@ -576,6 +578,38 @@
 	outline-offset: -1px;
 	z-index: 8;
 }
+/* The block's face: the button that selects or opens it, filling the box.
+ *
+ * A sibling of the pencil and the grip rather than their parent, because a
+ * button inside a button is not a button. The box keeps the padding and hands
+ * it down, so the text sits exactly where it sat when it was the box's own. */
+.sched .bface {
+	position: absolute;
+	inset: 0;
+	padding: inherit;
+	overflow: hidden;
+	border-radius: inherit;
+	outline: none;
+}
+.sched .bface:focus-visible {
+	box-shadow: inset 0 0 0 2px var(--color-accent);
+}
+/* A frozen block cannot be picked up, so it does not offer a hand to pick it
+   up with. It still opens, which is what the pointer says instead. */
+.sched.locked .block:not(.leg) {
+	cursor: pointer;
+}
+/* On a phone the board is scrolled far more often than a block is moved, so a
+ * swipe that starts on a block pans the board like any other page. A block is
+ * lifted by a still long press instead (`LONG_PRESS_MS` in `Schedule.tsx`),
+ * which also has to keep the platform's own long-press callout out of the way. */
+@media (pointer: coarse) {
+	.sched .block,
+	.sched .bresize {
+		touch-action: manipulation;
+		-webkit-touch-callout: none;
+	}
+}
 /* An automatic journey. The same block as a travel event somebody typed, with
    one difference that is a fact about the journey rather than about its
    origin: it cannot be dragged, because its place on the clock is the gap
@@ -688,6 +722,39 @@
 .sched .block .bedit:focus-visible {
 	opacity: 1;
 }
+/* A screen with no hover would never reveal a pencil that waits for one, and
+ * the block's own tap only aims the map, so on a phone there was no visible way
+ * into the editor at all. There it is always drawn. */
+@media (hover: none) {
+	.sched .block .bedit,
+	.sched .stayedit {
+		opacity: 0.75;
+	}
+}
+/* The icon keeps its size, so a block is not buried under a toolbar of
+ * pencils, and a finger gets a 44px target anchored to the block's top corner
+ * instead, which is the one place on a block a tap was never going to mean
+ * anything else. Anchored rather than centred like the app's general `.tap`
+ * overlay in `index.css`: the pencil sits against the corner, so a centred
+ * target lost half its reach to the block's clipped edge. It is the pencil's
+ * own `position: absolute` that holds the overlay; the general rule used to
+ * set `position: relative` on it as well, which on a phone dropped the pencil
+ * out of its corner and onto the block's title. */
+@media (pointer: coarse) {
+	.sched .block .bedit::before {
+		content: '';
+		position: absolute;
+		top: -1px;
+		right: -1px;
+		width: 44px;
+		height: 44px;
+	}
+	.sched .stayedit {
+		min-width: 44px;
+		min-height: 44px;
+		margin: -0.4rem -0.45rem -0.4rem 0;
+	}
+}
 .sched .bt {
 	font-size: 0.85rem;
 	font-weight: 500;
@@ -745,11 +812,6 @@
 	color: var(--color-ink-soft);
 	cursor: help;
 }
-
-/* --- Travel arrows -------------------------------------------------------
- *
- * Only the journeys a day was too dense to draw. Everything else is a block in
- * the lane with the events. */
 
 /* --- Map and the day's agenda -------------------------------------------- */
 
@@ -859,9 +921,28 @@
 .sched .agendawhat {
 	flex: 1;
 	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 0.1rem;
+}
+/* Two lines, then the ellipsis. One line was the whole title on a desktop and
+   a word and a half of it on a phone, where every journey is "Transit from"
+   and then nothing: the part that tells two journeys apart was the part cut. */
+.sched .agendatitle {
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+	line-clamp: 2;
 	overflow: hidden;
-	white-space: nowrap;
-	text-overflow: ellipsis;
+	overflow-wrap: anywhere;
+}
+.sched .agendawarn,
+.sched .schedule .jwarn {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.25rem;
+	color: var(--color-warn);
+	font-size: var(--text-micro);
 }
 .sched .agendameta {
 	flex: 0 0 auto;
@@ -873,6 +954,18 @@
 }
 .sched .agendarow.tight .agendameta {
 	color: var(--color-warn);
+}
+/* Below 560px the meta moves under the title rather than beside it: beside it,
+   "Transit · 17m" took a third of the row from a name that needed it more. */
+@media (max-width: 560px) {
+	.sched .agendarow {
+		flex-wrap: wrap;
+	}
+	.sched .agendameta {
+		flex-basis: 100%;
+		padding-left: calc(4.5rem + 0.5rem);
+		font-size: var(--text-micro);
+	}
 }
 
 /* Below `lg` every trip page stacks, and on a phone the calendar's toolbar
@@ -909,6 +1002,17 @@
 	display: flex;
 	flex-direction: column;
 	gap: 0.8rem;
+}
+/* A frozen block's dialog. The fields are inert, so nothing in them responds;
+ * this is the reader's half of that, because a field nothing happens in reads
+ * as broken rather than as frozen unless it looks it. The dim is on what the
+ * body holds and not on the body, which has to stay live: it is the one box in
+ * the dialog that scrolls. */
+.sched .schedule .mbody.readonly > [inert] {
+	opacity: 0.7;
+}
+.sched .schedule .mbody.readonly {
+	cursor: not-allowed;
 }
 /* --- Event dialog --------------------------------------------------------
  *
@@ -974,22 +1078,27 @@
 }
 .sched .schedule .jfields {
 	display: flex;
-	align-items: center;
+	align-items: flex-end;
 	gap: 0.4rem;
 }
 .sched .schedule .jname {
 	flex: 1 1 auto;
 	min-width: 0;
 }
+.sched .schedule .jname .input {
+	width: 100%;
+}
 .sched .schedule .jmode {
 	flex: 0 0 10.5rem;
+}
+.sched .schedule .jminsf {
+	flex: 0 0 5rem;
 }
 /* The unit belongs inside the box with the number, not floating past its edge. */
 .sched .schedule .jmins {
 	display: flex;
 	align-items: center;
 	gap: 0.2rem;
-	flex: 0 0 5rem;
 	height: var(--control-h);
 	padding: 0 0.5rem;
 }

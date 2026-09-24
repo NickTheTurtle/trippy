@@ -316,7 +316,26 @@ export default function EventDialog({
 	const placeMoved = poi !== savedPick || place.trim() !== openedOn.trim();
 
 	const op = (body: Record<string, unknown>) =>
-		api(`${base}/events/${event!.id}/op`, { method: 'POST', body });
+		api<{ ok?: boolean; version?: number }>(`${base}/events/${event!.id}/op`, {
+			method: 'POST',
+			body
+		});
+
+	/* The version this form is writing against.
+	 *
+	 * Taken from the row the dialog was opened on and never from a later load:
+	 * the page used to hand this dialog a row it re-read on every live reload,
+	 * so the version was always the newest one and a stale form overwrote
+	 * whoever had saved in the meantime without a word. The page now holds the
+	 * opened row still (see `opened` in `Schedule.tsx`), and this is the one
+	 * place the number moves: each of this dialog's own writes answers with the
+	 * version it left behind, so a save that is refused halfway, after the edit
+	 * landed and before the people did, can be pressed again without being
+	 * refused by its own first half. */
+	const version = useRef(event?.version);
+	const took = (res: { version?: number } | null | undefined) => {
+		if (typeof res?.version === 'number') version.current = res.version;
+	};
 
 	/* The delete goes straight through `api` rather than a mutation, so a refusal
 	   throws and the confirmation shows the server's own message instead of
@@ -379,39 +398,46 @@ export default function EventDialog({
 			// Two calls, because the people are their own endpoint: they are what
 			// splits and rejoins the group, and the server recomputes the day's
 			// travel off them rather than off anything in the edit.
-			await op({
-				op: 'edit',
-				/* Sent on every save, because the field is on screen on every save.
+			took(
+				await op({
+					op: 'edit',
+					/* Sent on every save, because the field is on screen on every save.
 				   Blank is not silence: it is the organiser clearing the label, and
 				   the server reads it as a request to derive the name again from the
 				   place and the notes this body is writing. */
-				title: label.trim(),
-				type,
-				notes: notes.trim(),
-				startMin: staying ? undefined : startAt,
-				endMin: staying ? undefined : endAt,
-				// A stay moves and stretches by its dates; everything else moves by
-				// the one date it has. Both arrive as `day`, and the server ignores
-				// one that names the day the block is already on.
-				day: onDay,
-				endDay: staying ? checkOut : undefined,
-				// Absent leaves it alone; empty hands the journey back to the router.
-				travelMode: type === 'travel' ? mode : undefined,
-				// Absent leaves the place alone; empty unlinks it.
-				poiId: placeable && placeMoved ? poi : undefined,
-				// Only carries a name when nothing is picked: a link names itself.
-				placeName: placeable && placeMoved && !poi ? place.trim() : undefined,
-				// What this form was opened on. The server refuses the write if the
-				// event has moved on since, rather than letting this copy of every
-				// untouched field overwrite whoever saved first.
-				version: event.version
-			});
+					title: label.trim(),
+					type,
+					notes: notes.trim(),
+					startMin: staying ? undefined : startAt,
+					endMin: staying ? undefined : endAt,
+					// A stay moves and stretches by its dates; everything else moves by
+					// the one date it has. Both arrive as `day`, and the server ignores
+					// one that names the day the block is already on.
+					day: onDay,
+					endDay: staying ? checkOut : undefined,
+					// Absent leaves it alone; empty hands the journey back to the router.
+					travelMode: type === 'travel' ? mode : undefined,
+					// Absent leaves the place alone; empty unlinks it.
+					poiId: placeable && placeMoved ? poi : undefined,
+					// Only carries a name when nothing is picked: a link names itself.
+					placeName: placeable && placeMoved && !poi ? place.trim() : undefined,
+					// What this form was opened on. The server refuses the write if the
+					// event has moved on since, rather than letting this copy of every
+					// untouched field overwrite whoever saved first.
+					version: version.current
+				})
+			);
 			// Never null here: `submit` refuses an emptied field before it gets
-			// this far.
-			await api(`${base}/events/${event.id}/people`, {
-				method: 'PUT',
-				body: { people: people ?? [] }
-			});
+			// this far. The people write bumps the version too (re-peopling
+			// replans the day), and answers with the one it left, which is what
+			// the next press of Save has to send. Read defensively all the same:
+			// a missing number leaves the last one standing rather than clearing it.
+			took(
+				await api<{ version?: number }>(`${base}/events/${event.id}/people`, {
+					method: 'PUT',
+					body: { people: people ?? [] }
+				})
+			);
 
 			// The journeys last: they are planned off the people just saved, and
 			// read back from the day the block has moved to rather than left.
@@ -439,7 +465,7 @@ export default function EventDialog({
 				size="lg"
 				dock={dock}
 				peek={peek}
-				title={locked ? 'Event' : event ? 'Edit event' : 'Add event'}
+				title={locked ? cs.dialog.view : event ? cs.dialog.edit : cs.dialog.add}
 				subtitle={staying ? rangeLabel(checkIn, checkOut) : dayLabel(onDay)}
 				onClose={onClose}
 			>
@@ -447,8 +473,14 @@ export default function EventDialog({
 					{/* Inert rather than disabled field by field: the clock and the
 					    pickers are spans and buttons of the app's own, so there is no
 					    one attribute they all honour, and a reader tabbing through a
-					    frozen board should not land inside it either. */}
-					<div className="mbody flex flex-col gap-4" inert={locked || undefined}>
+					    frozen board should not land inside it either.
+
+					    On what the body holds, not on the body. `.mbody` is the
+					    dialog's only scroll box, and an inert box takes no wheel and
+					    no touch: a long read-only event on a phone showed its first
+					    screen and could not be scrolled to its notes or its journeys,
+					    which is most of what a locked board is opened to read. */}
+					<div className={`mbody flex flex-col gap-4${locked ? ' readonly' : ''}`}>
 						{/* The same 12-column grid the rest of the app's dialogs use, so a
 						    field keeps its width whether or not the row beside it is
 						    showing: the mode field comes and goes with the type, and the
@@ -469,10 +501,15 @@ export default function EventDialog({
 
 						    The clock and whatever shares its row take the whole width
 						    below `sm`: two clocks of three segments each do not fit in
-						    half of a 390px dialog. */}
-						<div className="grid grid-cols-12 gap-x-2.5 gap-y-3.5">
+						    half of a 390px dialog. The place and its type share a row only
+						    from `sm` for the same reason: a third of a phone's dialog is
+						    too narrow for "Activity" and its chevron. */}
+						<div className="grid grid-cols-12 gap-x-2.5 gap-y-3.5" inert={locked || undefined}>
 							{placeField}
-							<FieldShell label={cf.type} className={placeable ? 'col-span-4' : 'col-span-12'}>
+							<FieldShell
+								label={cf.type}
+								className={placeable ? 'col-span-12 sm:col-span-4' : 'col-span-12'}
+							>
 								<Select
 									value={type}
 									onChange={(v) => {
@@ -492,6 +529,8 @@ export default function EventDialog({
 								<StayDates
 									checkIn={checkIn}
 									checkOut={checkOut}
+									firstDay={firstDay}
+									lastDay={lastDay}
 									onCheckIn={setCheckIn}
 									onCheckOut={setCheckOut}
 								/>
@@ -560,7 +599,7 @@ export default function EventDialog({
 								crews={crews}
 								className={
 									staying
-										? 'col-span-4'
+										? 'col-span-12 sm:col-span-4'
 										: type === 'travel'
 											? 'col-span-12 sm:col-span-7'
 											: 'col-span-12'
@@ -590,7 +629,7 @@ export default function EventDialog({
 							/>
 						</div>
 
-						{journeys.section}
+						{journeys.section && <div inert={locked || undefined}>{journeys.section}</div>}
 					</div>
 
 					{/* A frozen board has nothing to save and nothing to delete, so the

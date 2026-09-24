@@ -432,13 +432,13 @@ export function updateSettlementDay(
  * Removing the last participant would leave an expense divided between nobody,
  * so that one is left for review too rather than being quietly orphaned.
  *
- * Returns how many rows were re-divided and how many still need a person to
- * look at them.
+ * Returns nothing. It used to return how many rows were re-divided and how many
+ * needed review, which no caller read, and the review count was wrong besides:
+ * an expense the leaver both paid and shared in was counted once as paid and
+ * again as a participant. The review list itself is derived on read, so there
+ * is no number here anybody needs.
  */
-export function detachMemberFromLedger(
-	tripId: string,
-	userId: string
-): { redistributed: number; needsReview: number } {
+export function detachMemberFromLedger(tripId: string, userId: string): void {
 	const rows = db
 		.prepare(
 			`SELECT e.id, e.split_mode, e.payer_id,
@@ -454,13 +454,6 @@ export function detachMemberFromLedger(
 		participants: number;
 	}[];
 
-	const paid = db
-		.prepare(`SELECT COUNT(*) AS n FROM expenses WHERE trip_id = ? AND payer_id = ?`)
-		.get(tripId, userId) as { n: number } | undefined;
-
-	let redistributed = 0;
-	let needsReview = paid?.n ?? 0;
-
 	const drop = db.prepare(`DELETE FROM expense_participants WHERE expense_id = ? AND user_id = ?`);
 	const bump = db.prepare(`UPDATE expenses SET version = version + 1 WHERE id = ?`);
 
@@ -468,21 +461,17 @@ export function detachMemberFromLedger(
 	try {
 		for (const e of rows) {
 			const proportional = e.split_mode === 'even' || e.split_mode === 'shares';
-			if (!proportional || e.payer_id === userId || e.participants <= 1) {
-				needsReview++;
-				continue;
-			}
+			// Stated splits, what they paid for, and a last participant are left for
+			// a person to look at.
+			if (!proportional || e.payer_id === userId || e.participants <= 1) continue;
 			drop.run(e.id, userId);
 			bump.run(e.id);
-			redistributed++;
 		}
 		db.exec('COMMIT');
 	} catch (err) {
 		db.exec('ROLLBACK');
 		throw err;
 	}
-
-	return { redistributed, needsReview };
 }
 
 export function deleteExpense(tripId: string, actorId: string, expenseId: string): boolean {

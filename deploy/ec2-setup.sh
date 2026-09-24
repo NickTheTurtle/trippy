@@ -29,6 +29,7 @@
 #   #   export MAIL_FROM='trips@trippy.dxu.info'  # turns on email verification
 #   #   export AWS_ACCESS_KEY_ID='...' AWS_SECRET_ACCESS_KEY='...' SES_REGION='us-east-1'
 #   #   export RESEND_API_KEY='...'               # used only if SES keys are absent
+#   #   export SES_SNS_TOPIC_ARN='arn:aws:sns:us-east-1:<acct>:ses-bounces'  # SNS topic(s) the bounce receiver trusts
 #   #   export TRIPPY_REGISTER_LIMIT='5'          # signups per IP before backoff
 #   #   export TRIPPY_TRUSTED_PROXIES='1'         # Caddy proxy hop count; defaults to 1 here
 #   #   export TRIPPY_PROVIDER_LIMIT='60'         # paid provider calls per user before backoff
@@ -267,7 +268,7 @@ for v in APP_URL TRIPPY_REGISTER_LIMIT TRIPPY_TRUSTED_PROXIES TRIPPY_PROVIDER_LI
          TRIPPY_PROVIDER_IP_LIMIT TRIPPY_ROUTING_LIMIT \
          GOOGLE_SERVER_KEY GOOGLE_PLACES_KEY GOOGLE_MAPS_KEY MAIL_FROM \
          AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN \
-         SES_REGION AWS_REGION RESEND_API_KEY; do
+         SES_REGION AWS_REGION RESEND_API_KEY SES_SNS_TOPIC_ARN; do
   warn_if_existing_env_name_unset "$v"
 done
 
@@ -283,6 +284,10 @@ umask 077
 {
   echo "NODE_ENV=production"
   echo "PORT=${PORT}"
+  # Loopback only: Caddy on this same host is the one intended client (see the
+  # Caddyfile below, reverse_proxy 127.0.0.1:${PORT}). A socket on the public
+  # interface would only be a way around Caddy, its TLS and its headers.
+  echo "HOST=127.0.0.1"
   echo "TRIPPY_DB=${DATA_DIR}/app.db"
   echo "APP_URL=${APP_URL:-$PUBLIC_URL}"
   echo "TRIPPY_REGISTER_LIMIT=${TRIPPY_REGISTER_LIMIT:-5}"
@@ -299,7 +304,7 @@ append_if_set() {
 }
 for v in GOOGLE_SERVER_KEY GOOGLE_PLACES_KEY GOOGLE_MAPS_KEY MAIL_FROM \
          AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN \
-         SES_REGION AWS_REGION RESEND_API_KEY \
+         SES_REGION AWS_REGION RESEND_API_KEY SES_SNS_TOPIC_ARN \
          TRIPPY_PROVIDER_LIMIT TRIPPY_PROVIDER_IP_LIMIT TRIPPY_ROUTING_LIMIT; do
   append_if_set "$v"
 done

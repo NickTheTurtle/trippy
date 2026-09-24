@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { api } from '../../lib/api';
+import { api, ApiError } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
 import { parseMoneyToCents } from '../../lib/format';
 import Modal, { ModalFooter, ModalForm } from '../../components/ui/Modal';
@@ -72,6 +72,12 @@ export default function AddDialog({
 	const [hits, setHits] = useState<PlaceHit[]>([]);
 	const [searching, setSearching] = useState(false);
 	const [searched, setSearched] = useState(false);
+	/**
+	 * Why the last search failed, when it did. Kept apart from an empty result:
+	 * a rate limit, a provider that is down and a dropped connection all used to
+	 * read "No matches", which sent people off to retype a name that was fine.
+	 */
+	const [searchError, setSearchError] = useState('');
 	/** Closed by picking a result, reopened by typing. */
 	const [listOpen, setListOpen] = useState(false);
 	/** True while the picked result's ratings, hours and photo are loading. */
@@ -116,6 +122,7 @@ export default function AddDialog({
 	);
 
 	function runSearch(q: string) {
+		setSearchError('');
 		if (q.length < MIN_QUERY) {
 			setHits([]);
 			setSearched(false);
@@ -140,11 +147,13 @@ export default function AddDialog({
 		api<{ results: PlaceHit[] }>(`${base}/search?${params}`, { signal: ctl.signal })
 			.then((d) => {
 				setHits(d.results ?? []);
+				setSearchError('');
 				setSearched(true);
 			})
-			.catch(() => {
+			.catch((err) => {
 				if (ctl.signal.aborted) return;
 				setHits([]);
+				setSearchError(err instanceof ApiError ? err.message : copy.api.requestFailed);
 				setSearched(true);
 			})
 			.finally(() => {
@@ -251,6 +260,7 @@ export default function AddDialog({
 			unpick();
 			setHits([]);
 			setSearched(false);
+			setSearchError('');
 			setListOpen(false);
 			clearTimeout(timer.current);
 			searchCtl.current?.abort();
@@ -363,9 +373,11 @@ export default function AddDialog({
 									? c.keepTyping
 									: searching
 										? c.searching
-										: searched
-											? c.noMatches(query)
-											: c.keepTyping
+										: searchError
+											? searchError
+											: searched
+												? c.noMatches(query)
+												: c.keepTyping
 							}
 							footer={
 								/* The attribution has to sit with the data it describes. */

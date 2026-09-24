@@ -26,12 +26,11 @@ import { copy } from '../../copy';
 export default function Loading({ className = '' }: { className?: string }) {
 	return (
 		// `status` rather than `alert`: waiting is not an interruption, and the
-		// page that follows is the real answer.
-		<div role="status" className={className}>
-			{/* COPY: this string is filed under `account` because Account was the
-			    one page that had it. Wanted as `copy.common.loading` once cleared,
-			    now that every page says it. */}
-			<EmptyState message={copy.account.loading} />
+		// page that follows is the real answer. `data-loading` is what the tab
+		// transition reads to tell this placeholder from the page it stands in
+		// for (see `usePageTransition`).
+		<div role="status" data-loading="" className={className}>
+			<EmptyState message={copy.common.loading} />
 		</div>
 	);
 }

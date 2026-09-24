@@ -113,9 +113,3 @@ export default function useSlideIn(
 		};
 	}, [ref, key, rank, stillness]);
 }
-
-/** The day a schedule is showing, as a whole number of days, for use as a rank. */
-export function dayRank(day: string): number {
-	const at = Date.parse(`${day}T00:00:00Z`);
-	return Number.isNaN(at) ? 0 : Math.round(at / 86400000);
-}

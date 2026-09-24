@@ -120,7 +120,9 @@ function TripMapInner({
 			for (const i of located) {
 				const ll: [number, number] = [i.lat as number, i.lng as number];
 				line.push(ll);
-				pts.push(ll);
+				// A track that opts out of framing is drawn but does not steer the
+				// camera: see `MapTrack.fit`.
+				if (t.fit !== false) pts.push(ll);
 			}
 			/* One pin per point rather than one per item, so several things at one
 			   address stop hiding under each other. The line still runs through
@@ -174,7 +176,6 @@ function TripMapInner({
 		}
 
 		dayPts.current = pts;
-		if (pts.length === 0) return;
 		// A focused pin owns the camera: a redraw must not yank it back to the
 		// whole day while the reader is looking at one place.
 		if (focusRef.current?.lat != null && focusRef.current?.lng != null) return;
@@ -185,8 +186,15 @@ function TripMapInner({
 		const where = pts.map((p) => `${p[0].toFixed(5)},${p[1].toFixed(5)}`).join('|');
 		if (where === fitted.current) return;
 		fitted.current = where;
+		frame(map, L, pts);
+	}
+
+	/** The framed points, or the city when there are none to frame. */
+	function frame(map: LMap, L: typeof import('leaflet'), pts: [number, number][]) {
+		const c = centerRef.current;
 		if (pts.length === 1) map.setView(pts[0], 14);
-		else map.fitBounds(L.latLngBounds(pts).pad(0.25));
+		else if (pts.length > 1) map.fitBounds(L.latLngBounds(pts).pad(0.25));
+		else if (c?.lat != null && c?.lng != null) map.setView([c.lat, c.lng], 12);
 	}
 
 	useEffect(() => {
@@ -257,9 +265,7 @@ function TripMapInner({
 			map.setView([focus.lat, focus.lng], 16);
 			return;
 		}
-		const pts = dayPts.current;
-		if (pts.length === 1) map.setView(pts[0], 14);
-		else if (pts.length > 1) map.fitBounds(L.latLngBounds(pts).pad(0.25));
+		frame(map, L, dayPts.current);
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [focusKey]);
 

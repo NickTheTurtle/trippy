@@ -112,9 +112,28 @@ describe('stay nights against the trip', () => {
 
 	it('refuses a check-out after the trip ends', async () => {
 		const f = fixture();
-		const res = await addStay(f, { checkIn: '2026-10-14', checkOut: '2026-10-16' });
+		// The last night must be a trip day, so the morning after the last day is
+		// the latest checkout; the day after that is a night outside the trip.
+		const res = await addStay(f, { checkIn: '2026-10-14', checkOut: '2026-10-17' });
 		expect(res.status).toBe(400);
 		expect(await res.json()).toMatchObject({ error: OUTSIDE });
+	});
+
+	// The same rule the board holds a stay to (core's `stayNightsProblem`): a
+	// check-in on the trip's last day checks out the morning after. This path
+	// used to cap checkout at the last day, so that stay could be put on the
+	// calendar and could never be given any checkout here.
+	it('takes a stay that checks in on the last day and out the morning after', async () => {
+		const f = fixture();
+		const res = await addStay(f, { checkIn: '2026-10-15', checkOut: '2026-10-16' });
+		expect(res.status).toBe(201);
+	});
+
+	it('refuses a checkout on or before the check-in with the order message', async () => {
+		const f = fixture();
+		const res = await addStay(f, { checkIn: '2026-10-13', checkOut: '2026-10-13' });
+		expect(res.status).toBe(400);
+		expect(await res.json()).toMatchObject({ error: 'Check-out must be after check-in.' });
 	});
 
 	// The last night runs into the final day, so a checkout on it is the latest

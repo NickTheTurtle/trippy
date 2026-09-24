@@ -26,6 +26,10 @@ export const db = new DatabaseSync(file);
 db.exec(`
 	PRAGMA journal_mode = WAL;
 	PRAGMA foreign_keys = ON;
+	-- One process writes, but not the only one that opens the file: Litestream
+	-- checkpoints it in production and the e2e teardown deletes rows from it.
+	-- Without a wait either of those turns a write into "database is locked".
+	PRAGMA busy_timeout = 5000;
 
 	CREATE TABLE IF NOT EXISTS users (
 		id            TEXT PRIMARY KEY,
@@ -308,6 +312,10 @@ function dropColumn(table: string, column: string): void {
 addColumn('lodging_options', 'check_in', 'TEXT');
 addColumn('lodging_options', 'check_out', 'TEXT');
 
+// The zone the registering browser reported, carried to the account the link
+// creates. Null for a pending row written before this, which starts on UTC.
+addColumn('pending_registrations', 'home_tz', 'TEXT');
+
 // Cover image for a discovered place. Holds either a Google Places photo
 // resource name (proxied via /api/place-photo so the API key stays server-side)
 // or a plain https URL for hand-entered places.
@@ -419,6 +427,11 @@ addColumn('trips', 'schedule_locked', 'INTEGER NOT NULL DEFAULT 0');
  * `trip_tasks.assignee` (a comma-joined display string) stays as the fallback
  * for tasks nobody is assigned to, which keep the single shared `done` flag.
  */
+// Read before the tables are created: the two backfills below are only for a
+// database that is gaining them on this boot. See `TASK_ROSTER_BACKFILL`.
+const perPersonTasksExisted = !!db
+	.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'task_assignees'`)
+	.get();
 db.exec(`
 	CREATE TABLE IF NOT EXISTS task_assignees (
 		task_id TEXT NOT NULL REFERENCES trip_tasks(id) ON DELETE CASCADE,
@@ -435,29 +448,65 @@ db.exec(`
 	CREATE INDEX IF NOT EXISTS idx_task_done_task ON task_done(task_id);
 `);
 
-// Backfill: the old assignee column held member *names*, joined by ", ".
-// Match them back to real users through the trip's membership so existing
-// tasks keep their people. Runs once; after this, rows exist and the
-// NOT EXISTS guard makes it a no-op.
+/*
+ * The move from one shared tick to per-person rows, run exactly once.
+ *
+ * Both statements used to run on every boot. The first was nearly harmless,
+ * guarded per task by NOT EXISTS, though it would still re-match names onto a
+ * task whose roster somebody had since emptied. The second was not: it copied
+ * `trip_tasks.done = 1` into `task_done` for every assignee, and a task keeps
+ * that flag after it gains assignees, so every restart re-ticked the box of
+ * anybody who had unticked it. Under `tsx watch` that is every saved file.
+ *
+ * Guarded by a `schema_backfills` marker now, and run only when the per-person
+ * tables did not exist before this boot. A database that already had them has
+ * been through this backfill (on every boot, in fact), so running it once more
+ * under the new marker would only re-tick one last time. The marker table is
+ * created here as well as below, because this is the first backfill in the file
+ * to need it; `CREATE TABLE IF NOT EXISTS` makes the second a no-op.
+ *
+ * The flag itself is also cleared on the tasks the backfill hands to people,
+ * and `updateTask` clears it whenever a task gains assignees, so nothing is left
+ * behind for a future copy of this statement to misread.
+ */
 db.exec(`
-	INSERT OR IGNORE INTO task_assignees (task_id, user_id)
-	SELECT t.id, u.id
-	FROM trip_tasks t
-	JOIN memberships m ON m.trip_id = t.trip_id
-	JOIN users u ON u.id = m.user_id
-	WHERE t.assignee <> ''
-	  AND (', ' || t.assignee || ', ') LIKE ('%, ' || u.name || ', %')
-	  AND NOT EXISTS (SELECT 1 FROM task_assignees a WHERE a.task_id = t.id)
+	CREATE TABLE IF NOT EXISTS schema_backfills (
+		name    TEXT PRIMARY KEY,
+		done_at INTEGER NOT NULL
+	);
 `);
-
-// A task that was already ticked keeps that meaning: everyone assigned is done.
-db.exec(`
-	INSERT OR IGNORE INTO task_done (task_id, user_id, done_at)
-	SELECT a.task_id, a.user_id, 0
-	FROM task_assignees a
-	JOIN trip_tasks t ON t.id = a.task_id
-	WHERE t.done = 1
-`);
+const TASK_ROSTER_BACKFILL = 'task-assignees-from-names';
+if (!backfillDone(TASK_ROSTER_BACKFILL)) {
+	if (!perPersonTasksExisted) {
+		// The old assignee column held member *names*, joined by ", ". Match them
+		// back to real users through the trip's membership so existing tasks keep
+		// their people.
+		db.exec(`
+			INSERT OR IGNORE INTO task_assignees (task_id, user_id)
+			SELECT t.id, u.id
+			FROM trip_tasks t
+			JOIN memberships m ON m.trip_id = t.trip_id
+			JOIN users u ON u.id = m.user_id
+			WHERE t.assignee <> ''
+			  AND (', ' || t.assignee || ', ') LIKE ('%, ' || u.name || ', %')
+			  AND NOT EXISTS (SELECT 1 FROM task_assignees a WHERE a.task_id = t.id)
+		`);
+		// A task that was already ticked keeps that meaning: everyone assigned is
+		// done. Then the shared flag is released, because from here on the rows
+		// are the answer for a task with people on it.
+		db.exec(`
+			INSERT OR IGNORE INTO task_done (task_id, user_id, done_at)
+			SELECT a.task_id, a.user_id, 0
+			FROM task_assignees a
+			JOIN trip_tasks t ON t.id = a.task_id
+			WHERE t.done = 1;
+			UPDATE trip_tasks SET done = 0
+			 WHERE done = 1 AND kind <> 'packing'
+			   AND EXISTS (SELECT 1 FROM task_assignees a WHERE a.task_id = trip_tasks.id);
+		`);
+	}
+	markBackfillDone(TASK_ROSTER_BACKFILL);
+}
 
 // A packing item is one person's own bag, so it carries no roster: it is a
 // list you tick, not work to hand out. Rows an earlier version wrote (or the
@@ -751,6 +800,34 @@ db.exec(`
 addColumn('travel_legs', 'title', 'TEXT');
 
 /**
+ * Whether `auto_mins` came from a routing provider or from the straight-line
+ * estimate the routing ladder falls back to.
+ *
+ * A board load used to route every planned journey every time, because the
+ * route cache is in memory and `tsx watch` restarts the process on every saved
+ * file, so each load re-bought the same Google Routes answers. The board now
+ * skips a journey whose stored answer is a real route in the mode it wants,
+ * and it needs this to tell that apart from a guess stored while the provider
+ * was down, which should be retried rather than kept forever.
+ *
+ * Defaults to 0, so every existing row reads as "not known to be routed" and is
+ * routed once more on its next load (through the same cache and quota as
+ * before), after which it is skipped.
+ */
+addColumn('travel_legs', 'auto_routed', 'INTEGER NOT NULL DEFAULT 0');
+
+/**
+ * What a stored routed answer was an answer to: the mode and both endpoints'
+ * coordinates (`routeKey` in core). The leg key is the pair of events, and an
+ * event can be moved without changing its id, so `auto_routed` alone would keep
+ * a 20-minute drive after one end moved 200 km. The board routes again when
+ * this no longer matches, and reads ignore a mismatched answer until it has.
+ * Nullable with no default: rows routed before it existed have no key, are
+ * trusted on read as before, and are routed once more on their next load.
+ */
+addColumn('travel_legs', 'auto_key', 'TEXT');
+
+/**
  * A stay ends on its own day.
  *
  * A stay used to be the one event spanning midnight: its `end_min` was a
@@ -988,6 +1065,30 @@ db.exec(
  */
 addColumn('mail_suppressions', 'expires_at', 'INTEGER');
 addColumn('mail_suppressions', 'soft_count', 'INTEGER NOT NULL DEFAULT 0');
+
+/**
+ * An email change waiting for the new address to prove itself.
+ *
+ * Changing `users.email` straight from the profile form let anyone signed in
+ * type somebody else's address and, because `consumeInvites` runs on a change,
+ * walk into every trip that person had been invited to. The address is now the
+ * same kind of claim a registration is: nothing about the account changes until
+ * the link sent to the new address is opened (see `startEmailChange`).
+ *
+ * Keyed by user, so asking twice replaces the first request and voids its link.
+ * Only the token's SHA-256 is kept, as with the other emailed links. A new
+ * table, so the migration is additive by construction.
+ */
+db.exec(`
+	CREATE TABLE IF NOT EXISTS pending_email_changes (
+		user_id    TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+		email      TEXT NOT NULL,
+		token_hash TEXT NOT NULL,
+		expires_at INTEGER NOT NULL,
+		created_at INTEGER NOT NULL
+	);
+	CREATE INDEX IF NOT EXISTS idx_email_change_token ON pending_email_changes(token_hash);
+`);
 
 /**
  * The last thing each paid provider did: succeed, or fail and how.
