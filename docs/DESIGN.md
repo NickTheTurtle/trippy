@@ -3757,6 +3757,12 @@ accessible label naming the thing, and let the primary action fill the rest of t
 Two-button confirmation sheets are the exception because they are the destructive decision
 itself: Cancel and Delete both stay visible there.
 
+**Pretrip share math moved to core before the native port reused it.** Estimated costs
+answer two different questions, the group's total and one member's share, and both clients
+must split assigned and unassigned rows the same way. The pure `totalFor` / `amountFor`
+helpers therefore live in `@trippy/core/pretrip-shares` rather than being copied into the
+native screen; the web file remains a shim so existing imports keep working.
+
 **Native Discover keeps the web's list model and leaves maps for the map PR.** Cities stay
 the standing axis, filters stay All / Attractions / Food & Drinks / Stays, and one
 vote-sorted list mixes stays and places with stays first on ties just like web. The native

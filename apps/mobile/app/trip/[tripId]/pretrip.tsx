@@ -2,28 +2,30 @@ import { useMemo, useState } from 'react';
 import { Pressable, RefreshControl, Text, View } from 'react-native';
 import { copy } from '@trippy/copy';
 import { cap, formatMoney } from '@trippy/copy/format';
+import { amountFor, isFor, totalFor } from '@trippy/core/pretrip-shares';
 import { api } from '../../../src/lib/api';
 import { useTripId } from '../../../src/trip-id';
 import { useApi } from '../../../src/hooks/useApi';
 import { useMutation } from '../../../src/hooks/useMutation';
 import { useLiveSection } from '../../../src/hooks/useTripEvents';
 import { Card, EmptyState, FormError, Head, Loading, Screen } from '../../../src/ui';
-import { CheckBox, SegmentedControl } from '../../../src/ui/controls';
+import { CheckBox, Picker, SegmentedControl } from '../../../src/ui/controls';
 import { TaskSheet } from '../../../src/screens/TaskSheet';
 import { CostSheet } from '../../../src/screens/CostSheet';
 import { color, space, type } from '../../../src/theme';
 
 type Member = { id: string; name: string };
+type Crew = { id: string; name: string; members: string[]; locked?: boolean };
 type TaskPerson = { id: string; name: string; done: boolean };
 type Task = {
 	id: string;
 	kind: string;
 	label: string;
+	flag: string | null;
 	people: TaskPerson[];
 	shared: boolean;
 	done: boolean;
 	doneCount: number;
-	/** Sent back on edit so a save over somebody else's is refused. */
 	version: number;
 };
 type CostPerson = { id: string; name: string };
@@ -32,9 +34,7 @@ type CostItem = {
 	category: string;
 	label: string;
 	amountCents: number;
-	/** Blank means the trip's home currency. */
 	currency: string;
-	/** `amountCents` in the trip's home currency. Every total is built from this. */
 	homeCents: number;
 	people: CostPerson[];
 };
@@ -42,9 +42,11 @@ type CostItem = {
 type Data = {
 	me: string;
 	members: Member[];
+	crews: Crew[];
 	tasks: Task[];
 	packing: Task[];
 	currency: string;
+	currencies: string[];
 	memberCount: number;
 	categories: string[];
 	budget: { items: CostItem[]; grandTotal: number };
@@ -53,62 +55,126 @@ type Data = {
 const SECTIONS = ['tasks', 'packing', 'costs'] as const;
 type Section = (typeof SECTIONS)[number];
 
-/**
- * Preparation, as three sections behind a segmented control.
- *
- * The web page shows all three stacked under a section nav. On a phone that is
- * a very long scroll to reach the costs, so the nav becomes a real switch and
- * only one section is mounted at a time.
- */
 export default function Pretrip() {
 	const tripId = useTripId();
 	const { data, error, loading, reload } = useApi<Data>(`/trips/${tripId}/pretrip`);
 	useLiveSection(['tasks', 'costs', 'members', 'trip'], reload);
 	const [section, setSection] = useState<Section>('tasks');
+	const [editingTask, setEditingTask] = useState<Task | null>(null);
+	const [addingTask, setAddingTask] = useState(false);
+	const [editingCost, setEditingCost] = useState<CostItem | null>(null);
+	const [addingCost, setAddingCost] = useState(false);
+	const [viewAs, setViewAs] = useState('');
 
 	if (loading && !data) return <Loading />;
+	if (!data) {
+		return (
+			<Screen>
+				<FormError message={error ?? copy.api.loadFailed} />
+			</Screen>
+		);
+	}
+
+	const grand = data.budget.grandTotal;
+	const perPerson = data.memberCount ? grand / data.memberCount : grand;
+	const shownTotal = totalFor(data.budget.items, viewAs, data.memberCount);
 
 	return (
-		<Screen refreshControl={<RefreshControl refreshing={loading && !!data} onRefresh={reload} />}>
-			{error ? <FormError message={error} /> : null}
+		<>
+			<Screen refreshControl={<RefreshControl refreshing={loading && !!data} onRefresh={reload} />}>
+				{error ? <FormError message={error} /> : null}
+				<SegmentedControl
+					items={SECTIONS.map((key) => ({ key, label: copy.preparation.sections[key] }))}
+					active={section}
+					onPick={(key) => setSection(key as Section)}
+				/>
 
-			<SegmentedControl
-				items={SECTIONS.map((s) => ({ key: s, label: copy.preparation.sections[s] }))}
-				active={section}
-				onPick={(k) => setSection(k as Section)}
-			/>
-
-			{data ? (
-				section === 'costs' ? (
-					<Costs tripId={tripId} data={data} reload={reload} />
+				{section === 'costs' ? (
+					<Costs
+						tripId={tripId}
+						data={data}
+						viewAs={viewAs}
+						onViewAs={setViewAs}
+						onAdd={() => setAddingCost(true)}
+						onEdit={setEditingCost}
+						grand={grand}
+						perPerson={perPerson}
+						shownTotal={shownTotal}
+					/>
 				) : (
-					<Tasks tripId={tripId} data={data} kind={section} reload={reload} />
-				)
+					<Tasks
+						tripId={tripId}
+						data={data}
+						kind={section}
+						onAdd={() => setAddingTask(true)}
+						onEdit={setEditingTask}
+						reload={reload}
+					/>
+				)}
+			</Screen>
+
+			{addingTask || editingTask ? (
+				<TaskSheet
+					open
+					tripId={tripId}
+					kind={section === 'packing' ? 'packing' : 'task'}
+					members={data.members}
+					crews={data.crews}
+					task={editingTask}
+					onClose={() => {
+						setAddingTask(false);
+						setEditingTask(null);
+					}}
+					onSaved={() => {
+						setAddingTask(false);
+						setEditingTask(null);
+						reload();
+					}}
+					onConflict={reload}
+				/>
 			) : null}
-		</Screen>
+
+			{addingCost || editingCost ? (
+				<CostSheet
+					open
+					tripId={tripId}
+					currency={data.currency}
+					currencies={data.currencies}
+					categories={data.categories}
+					members={data.members}
+					crews={data.crews}
+					item={editingCost}
+					onClose={() => {
+						setAddingCost(false);
+						setEditingCost(null);
+					}}
+					onSaved={() => {
+						setAddingCost(false);
+						setEditingCost(null);
+						reload();
+					}}
+				/>
+			) : null}
+		</>
 	);
 }
-
-// --- Tasks and packing ------------------------------------------------------
 
 function Tasks({
 	tripId,
 	data,
 	kind,
+	onAdd,
+	onEdit,
 	reload
 }: {
 	tripId: string;
 	data: Data;
 	kind: 'tasks' | 'packing';
+	onAdd: () => void;
+	onEdit: (task: Task) => void;
 	reload: () => void;
 }) {
 	const list = kind === 'packing' ? data.packing : data.tasks;
-	const [editing, setEditing] = useState<Task | null>(null);
-	const [adding, setAdding] = useState(false);
-
-	// The box sends the state it wants rather than "flip", so two people ticking
-	// the same row agree instead of cancelling each other out, and a double tap
-	// on a slow connection is a no-op rather than an untick.
 	const toggle = useMutation(
 		(taskId: string, userId: string | undefined, done: boolean) =>
 			api(`/trips/${tripId}/pretrip/tasks/${taskId}/toggle`, {
@@ -118,107 +184,121 @@ function Tasks({
 		{ fallback: copy.preparation.saveFallback, onSuccess: reload }
 	);
 
-	// The web page splits tasks into the ones assigned to the reader and the
-	// rest, and a task appears in exactly one of the two. Packing has no
-	// assignment at all, so it stays a single list.
-	const { mine, others } = useMemo(() => {
-		if (kind === 'packing') return { mine: [] as Task[], others: list };
-		const mine = list.filter((t) => t.people.some((p) => p.id === data.me));
-		return { mine, others: list.filter((t) => !mine.includes(t)) };
-	}, [list, kind, data.me]);
-
-	const add = (
-		<Pressable onPress={() => setAdding(true)} hitSlop={8}>
-			<Text style={{ ...type.body, color: color.accent, fontWeight: '600' }}>
-				{copy.preparation.add}
-			</Text>
-		</Pressable>
-	);
+	const mine =
+		kind === 'tasks' ? list.filter((task) => task.people.some((p) => p.id === data.me)) : [];
+	const others = kind === 'tasks' ? list.filter((task) => !mine.includes(task)) : list;
 
 	return (
 		<>
 			<FormError message={toggle.error} />
-
 			{mine.length > 0 ? (
-				<Card>
-					<Head>{copy.preparation.myTasks.title}</Head>
-					<View style={{ marginTop: space.sm }}>
-						{mine.map((t) => (
-							<TaskRow
-								key={t.id}
-								task={t}
-								me={data.me}
-								onToggle={(userId, done) => void toggle.run(t.id, userId, done)}
-								onEdit={() => setEditing(t)}
-							/>
-						))}
-					</View>
-				</Card>
+				<TaskCard
+					title={copy.preparation.myTasks.title}
+					items={mine}
+					me={data.me}
+					kind="tasks"
+					onToggle={(taskId, userId, done) => void toggle.run(taskId, userId, done)}
+					onEdit={onEdit}
+				/>
 			) : null}
-
-			<Card>
-				<Head action={add}>
-					{mine.length > 0 ? copy.preparation.myTasks.othersTitle : copy.preparation.sections[kind]}
-				</Head>
-				{others.length === 0 ? (
-					<EmptyState message="Nothing added yet" />
-				) : (
-					<View style={{ marginTop: space.sm }}>
-						{others.map((t) => (
-							<TaskRow
-								key={t.id}
-								task={t}
-								me={data.me}
-								onToggle={(userId, done) => void toggle.run(t.id, userId, done)}
-								onEdit={() => setEditing(t)}
-							/>
-						))}
-					</View>
-				)}
-			</Card>
-
-			<TaskSheet
-				open={adding || editing !== null}
-				tripId={tripId}
-				kind={kind === 'packing' ? 'packing' : 'task'}
-				members={data.members}
-				task={editing}
-				onClose={() => {
-					setAdding(false);
-					setEditing(null);
-				}}
-				onSaved={() => {
-					setAdding(false);
-					setEditing(null);
-					reload();
-				}}
+			<TaskCard
+				title={
+					mine.length > 0 ? copy.preparation.myTasks.othersTitle : copy.preparation.sections[kind]
+				}
+				items={others}
+				me={data.me}
+				kind={kind}
+				onAdd={onAdd}
+				onToggle={(taskId, userId, done) => void toggle.run(taskId, userId, done)}
+				onEdit={onEdit}
 			/>
 		</>
+	);
+}
+
+function TaskCard({
+	title,
+	items,
+	me,
+	kind,
+	onAdd,
+	onToggle,
+	onEdit
+}: {
+	title: string;
+	items: Task[];
+	me: string;
+	kind: 'tasks' | 'packing';
+	onAdd?: () => void;
+	onToggle: (taskId: string, userId: string | undefined, done: boolean) => void;
+	onEdit: (task: Task) => void;
+}) {
+	return (
+		<Card>
+			<Head action={onAdd ? <AddText onPress={onAdd} /> : undefined}>{title}</Head>
+			{items.length === 0 ? (
+				<EmptyState message={copy.common.nothingAdded} />
+			) : (
+				<View style={{ marginTop: space.sm }}>
+					{items.map((task) => (
+						<TaskRow
+							key={task.id}
+							task={task}
+							me={me}
+							kind={kind}
+							onToggle={onToggle}
+							onEdit={() => onEdit(task)}
+						/>
+					))}
+				</View>
+			)}
+		</Card>
 	);
 }
 
 function TaskRow({
 	task,
 	me,
+	kind,
 	onToggle,
 	onEdit
 }: {
 	task: Task;
 	me: string;
-	onToggle: (userId: string | undefined, done: boolean) => void;
+	kind: 'tasks' | 'packing';
+	onToggle: (taskId: string, userId: string | undefined, done: boolean) => void;
 	onEdit: () => void;
 }) {
+	const assigned = task.people.length > 0;
 	const mine = task.people.find((p) => p.id === me);
-
+	const state = task.done ? 'on' : task.doneCount > 0 ? 'part' : 'off';
 	return (
 		<View style={{ paddingVertical: space.sm, borderTopWidth: 1, borderTopColor: color.line }}>
 			<View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
 				<CheckBox
-					checked={mine ? mine.done : task.done}
-					label={copy.preparation.taskList.sharedBoxLabel(task.done, task.label)}
-					onPress={() => onToggle(mine ? mine.id : undefined, !(mine ? mine.done : task.done))}
+					checked={state === 'on'}
+					label={
+						assigned
+							? copy.preparation.taskList.allBoxLabel(task.done, task.label)
+							: copy.preparation.taskList.sharedBoxLabel(task.done, task.label)
+					}
+					onPress={() => {
+						if (assigned) {
+							for (const person of task.people) onToggle(task.id, person.id, !task.done);
+						} else {
+							onToggle(task.id, undefined, !task.done);
+						}
+					}}
 				/>
-				<Pressable onPress={onEdit} style={{ flex: 1 }} hitSlop={6}>
+				<Pressable
+					onPress={onEdit}
+					style={{ flex: 1 }}
+					hitSlop={6}
+					accessibilityLabel={copy.preparation.taskList.editLabel(
+						kind === 'packing' ? 'packing' : 'task',
+						task.label
+					)}
+				>
 					<Text
 						style={{
 							...type.body,
@@ -229,14 +309,16 @@ function TaskRow({
 						{task.label}
 					</Text>
 				</Pressable>
-				{task.people.length > 0 ? (
+				{assigned ? (
 					<Text style={type.faint}>
 						{copy.preparation.taskList.doneSummary(task.doneCount, task.people.length)}
 					</Text>
 				) : null}
 			</View>
-
-			{task.people.length > 0 ? (
+			{task.flag ? (
+				<Text style={{ ...type.faint, color: color.warn, marginLeft: 34 }}>{task.flag}</Text>
+			) : null}
+			{assigned ? (
 				<View
 					style={{
 						flexDirection: 'row',
@@ -247,7 +329,7 @@ function TaskRow({
 					}}
 				>
 					{task.people.map((p) => (
-						<Pressable key={p.id} onPress={() => onToggle(p.id, !p.done)} hitSlop={4}>
+						<Pressable key={p.id} onPress={() => onToggle(task.id, p.id, !p.done)} hitSlop={4}>
 							<Text
 								style={{
 									...type.faint,
@@ -261,122 +343,212 @@ function TaskRow({
 						</Pressable>
 					))}
 				</View>
-			) : null}
+			) : mine ? null : null}
 		</View>
 	);
 }
 
-// --- Estimated costs --------------------------------------------------------
-
-function Costs({ tripId, data, reload }: { tripId: string; data: Data; reload: () => void }) {
-	const [editing, setEditing] = useState<CostItem | null>(null);
-	const [adding, setAdding] = useState(false);
+function Costs({
+	tripId,
+	data,
+	viewAs,
+	onViewAs,
+	onAdd,
+	onEdit,
+	grand,
+	perPerson,
+	shownTotal
+}: {
+	tripId: string;
+	data: Data;
+	viewAs: string;
+	onViewAs: (id: string) => void;
+	onAdd: () => void;
+	onEdit: (item: CostItem) => void;
+	grand: number;
+	perPerson: number;
+	shownTotal: number;
+}) {
 	const [open, setOpen] = useState<Record<string, boolean>>({});
-
-	const perPerson = data.memberCount > 0 ? data.budget.grandTotal / data.memberCount : 0;
-
-	const byCategory = useMemo(() => {
-		const groups = new Map<string, CostItem[]>();
-		for (const cat of data.categories) groups.set(cat, []);
-		for (const item of data.budget.items) {
-			if (!groups.has(item.category)) groups.set(item.category, []);
-			groups.get(item.category)!.push(item);
-		}
-		return [...groups.entries()];
-	}, [data.budget.items, data.categories]);
-
+	const fmt = (cents: number) => formatMoney(cents, data.currency, { whole: true });
+	const shown = viewAs
+		? data.budget.items.filter((item) => isFor(item, viewAs))
+		: data.budget.items;
 	return (
 		<>
 			<Card>
 				<View style={{ flexDirection: 'row', alignItems: 'center', gap: space.lg }}>
 					<View style={{ flex: 1 }}>
 						<Text style={type.faint}>{copy.preparation.tripTotal}</Text>
-						<Text style={type.head}>{formatMoney(data.budget.grandTotal, data.currency)}</Text>
+						<Text style={type.head}>{fmt(grand)}</Text>
 					</View>
 					<View style={{ flex: 1 }}>
-						<Text style={type.faint}>{copy.preparation.perPerson}</Text>
-						<Text style={type.head}>{formatMoney(Math.round(perPerson), data.currency)}</Text>
-					</View>
-					<Pressable onPress={() => setAdding(true)} hitSlop={8}>
-						<Text style={{ ...type.body, color: color.accent, fontWeight: '600' }}>
-							{copy.preparation.add}
+						<Text style={type.faint}>
+							{viewAs ? shareLabel(data.members, viewAs, data.me) : copy.preparation.perPerson}
 						</Text>
-					</Pressable>
+						<Text style={type.head}>{fmt(viewAs ? shownTotal : perPerson)}</Text>
+					</View>
+					<AddText onPress={onAdd} />
 				</View>
 			</Card>
-
-			{byCategory.map(([category, items]) => {
-				const subtotal = items.reduce((sum, it) => sum + it.homeCents, 0);
-				const expanded = open[category] ?? items.length > 0;
-				return (
-					<Card key={category}>
-						<Pressable
-							onPress={() => setOpen((o) => ({ ...o, [category]: !expanded }))}
-							style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}
-						>
-							<Text style={{ ...type.faint, width: 14 }}>{expanded ? '▾' : '▸'}</Text>
-							<Text style={{ ...type.body, fontWeight: '600', flex: 1 }}>{cap(category)}</Text>
-							<Text style={type.small}>{formatMoney(subtotal, data.currency)}</Text>
-						</Pressable>
-
-						{expanded ? (
-							items.length === 0 ? (
-								<EmptyState message="Nothing added yet" />
-							) : (
-								items.map((it) => (
+			{data.budget.items.length > 0 ? (
+				<ViewAs members={data.members} me={data.me} value={viewAs} onChange={onViewAs} />
+			) : null}
+			<Card>
+				{data.budget.items.length === 0 ? (
+					<EmptyState message={copy.common.nothingAdded} />
+				) : (
+					<View>
+						{data.categories.map((category) => {
+							const rows = shown.filter((item) => item.category === category);
+							const subtotal = rows.reduce(
+								(sum, item) => sum + amountFor(item, viewAs, data.memberCount),
+								0
+							);
+							const expanded = rows.length > 0 && (open[category] ?? true);
+							return (
+								<View
+									key={category}
+									style={{
+										borderTopWidth: 1,
+										borderTopColor: color.line,
+										paddingVertical: space.sm
+									}}
+								>
 									<Pressable
-										key={it.id}
-										onPress={() => setEditing(it)}
-										style={{
-											flexDirection: 'row',
-											alignItems: 'center',
-											gap: space.md,
-											paddingVertical: space.sm,
-											borderTopWidth: 1,
-											borderTopColor: color.line
-										}}
+										onPress={() => rows.length && setOpen((o) => ({ ...o, [category]: !expanded }))}
+										style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}
 									>
-										<View style={{ flex: 1 }}>
-											<Text style={type.body}>{it.label}</Text>
-											{it.people.length > 0 ? (
-												<Text style={type.faint}>{it.people.map((p) => p.name).join(', ')}</Text>
-											) : (
-												<Text style={type.faint}>{copy.preparation.costDialog.forEveryone}</Text>
-											)}
-										</View>
-										<View style={{ alignItems: 'flex-end' }}>
-											<Text style={type.small}>
-												{formatMoney(it.amountCents, it.currency || data.currency)}
-											</Text>
-											{it.currency && it.currency !== data.currency ? (
-												<Text style={type.faint}>≈ {formatMoney(it.homeCents, data.currency)}</Text>
-											) : null}
-										</View>
+										<Text style={{ ...type.faint, width: 14 }}>
+											{rows.length ? (expanded ? '▾' : '▸') : ''}
+										</Text>
+										<Text style={{ ...type.body, fontWeight: '600', flex: 1 }}>
+											{cap(category)}
+										</Text>
+										<Text style={type.small}>{fmt(subtotal)}</Text>
 									</Pressable>
-								))
-							)
-						) : null}
-					</Card>
-				);
-			})}
-
-			<CostSheet
-				open={adding || editing !== null}
-				tripId={tripId}
-				currency={data.currency}
-				categories={data.categories}
-				members={data.members}
-				item={editing}
-				onClose={() => {
-					setAdding(false);
-					setEditing(null);
-				}}
-				onSaved={() => {
-					setAdding(false);
-					setEditing(null);
-					reload();
-				}}
-			/>
+									{expanded
+										? rows.map((item) => (
+												<CostRow
+													key={item.id}
+													item={item}
+													home={data.currency}
+													viewAs={viewAs}
+													memberCount={data.memberCount}
+													fmt={fmt}
+													onPress={() => onEdit(item)}
+												/>
+											))
+										: null}
+								</View>
+							);
+						})}
+						<View style={{ flexDirection: 'row', paddingTop: space.md }}>
+							<Text style={{ ...type.body, fontWeight: '700', flex: 1 }}>
+								{viewAs
+									? shareLabel(data.members, viewAs, data.me)
+									: copy.preparation.costTable.total}
+							</Text>
+							<Text style={{ ...type.body, fontWeight: '700' }}>{fmt(shownTotal)}</Text>
+						</View>
+					</View>
+				)}
+			</Card>
 		</>
 	);
+}
+
+function CostRow({
+	item,
+	home,
+	viewAs,
+	memberCount,
+	fmt,
+	onPress
+}: {
+	item: CostItem;
+	home: string;
+	viewAs: string;
+	memberCount: number;
+	fmt: (cents: number) => string;
+	onPress: () => void;
+}) {
+	const converted = !!item.currency && item.currency !== home;
+	return (
+		<Pressable
+			onPress={onPress}
+			style={{ flexDirection: 'row', gap: space.md, paddingVertical: space.sm }}
+			accessibilityLabel={copy.common.editLabel(item.label)}
+		>
+			<View style={{ flex: 1 }}>
+				<Text style={type.body}>{item.label}</Text>
+				<Text style={type.faint}>
+					{item.people.length ? item.people.map((p) => p.name).join(', ') : copy.viewAs.everyone}
+				</Text>
+			</View>
+			<View style={{ alignItems: 'flex-end' }}>
+				{viewAs ? (
+					<>
+						<Text style={type.small}>{fmt(amountFor(item, viewAs, memberCount))}</Text>
+						<Text style={type.faint}>
+							{copy.preparation.costTable.ofTotal(fmt(item.homeCents))}
+						</Text>
+					</>
+				) : (
+					<>
+						<Text style={type.small}>
+							{formatMoney(item.amountCents, item.currency || home, { whole: true })}
+						</Text>
+						{converted ? <Text style={type.faint}>≈ {fmt(item.homeCents)}</Text> : null}
+					</>
+				)}
+			</View>
+		</Pressable>
+	);
+}
+
+function ViewAs({
+	members,
+	me,
+	value,
+	onChange
+}: {
+	members: Member[];
+	me: string;
+	value: string;
+	onChange: (id: string) => void;
+}) {
+	if (members.length < 2) return null;
+	return (
+		<Card style={{ gap: space.sm }}>
+			<Text style={type.faint}>{copy.viewAs.label}</Text>
+			<Picker
+				options={[
+					{ key: '', label: copy.viewAs.everyone },
+					...members.map((m) => ({
+						key: m.id,
+						label: m.name + (m.id === me ? copy.preparation.youSuffix : '')
+					}))
+				]}
+				value={value}
+				onPick={onChange}
+			/>
+		</Card>
+	);
+}
+
+function AddText({ onPress }: { onPress: () => void }) {
+	return (
+		<Pressable onPress={onPress} hitSlop={8}>
+			<Text style={{ ...type.body, color: color.accent, fontWeight: '600' }}>
+				{copy.preparation.add}
+			</Text>
+		</Pressable>
+	);
+}
+
+function shareLabel(members: Member[], id: string, me: string): string {
+	return id === me
+		? copy.viewAs.yourShare
+		: copy.viewAs.share(members.find((m) => m.id === id)?.name ?? '');
 }
