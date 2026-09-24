@@ -3,6 +3,9 @@ import SearchDropdown from '../../components/ui/SearchDropdown';
 import { MIN_QUERY } from '../discover/place-meta';
 import type { Option } from '../../components/ui/Select';
 import type { PlaceHit } from '../../lib/api-types';
+import { copy } from '../../copy';
+
+const cps = copy.schedule.placeSearch;
 
 /** A saved place, or a result the provider offered under it. */
 type Row = { saved: Option; head: string | null } | { hit: PlaceHit; head: string | null };
@@ -171,12 +174,12 @@ export default function PlaceField({
 					!typing || !query
 						? null
 						: searching
-							? 'Searching...'
+							? cps.searching
 							: onPickHit && query.length < MIN_QUERY
-								? 'Keep typing to search.'
+								? cps.keepTyping
 								: onPickHit && searched
-									? 'Nothing found.'
-									: 'No match.'
+									? cps.nothingFound
+									: cps.noMatch
 				}
 				footer={
 					found.length > 0 && attribution ? (

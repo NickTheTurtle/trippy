@@ -12,6 +12,7 @@ import {
 	setMemberEmail
 } from '@trippy/server/members';
 import { createCrew, crewsForTrip, deleteCrew, editCrew } from '@trippy/server/schedule';
+import { isNameLength, nameTooLong } from '@trippy/core/validate';
 
 export const people = new Hono<Env>();
 
@@ -80,6 +81,7 @@ people.post('/invites', async (c) => {
 	const payload = await body(c);
 	const name = str(payload.name);
 	const email = str(payload.email);
+	if (name && !isNameLength(name)) return fail(c, 400, nameTooLong());
 	const result = addPerson(c.get('trip').id, c.get('user').id, name, email);
 
 	switch (result) {
@@ -119,6 +121,11 @@ people.patch('/:userId/email', async (c) => {
 			return c.json({ message: 'Email removed.' });
 		case 'ok':
 			return c.json({ message: "Saved. They'll join when they register." });
+		case 'merged':
+			// They already had an account, so nothing is waiting on a registration:
+			// the placeholder's expenses, votes and assignments moved to them and
+			// the roster now shows their own name.
+			return c.json({ message: `${email} is on the trip.` });
 		case 'taken':
 			return fail(c, 409, 'That person is already a member or invited.');
 		case 'invalid':
@@ -133,6 +140,11 @@ people.patch('/:userId/email', async (c) => {
 people.patch('/:userId', async (c) => {
 	const name = str((await body(c)).name);
 	if (!name) return fail(c, 400, 'Enter a display name.');
+	// Same limit as every other name, for the same reason and one of its own: a
+	// display name is drawn in the header, in the account menu and against every
+	// row the person touched, and a 500 character one with no space in it has
+	// nothing to wrap on. It pushed the page out to 4454px on a 390px screen.
+	if (!isNameLength(name)) return fail(c, 400, nameTooLong());
 	if (!renameMember(c.get('trip').id, c.get('user').id, c.req.param('userId'), name)) {
 		// One message for "not the organizer" and for "that person owns their own
 		// name", so neither is discovered by trying the other.

@@ -6,9 +6,12 @@
  * that interpolate a value are functions taking that value, so the sentence
  * stays whole here rather than being assembled at the call site.
  *
- * Not here: text the server sends at runtime, and the schedule page, which is
- * frozen pending its redesign.
+ * Not here: text the server sends at runtime.
  */
+
+/** The whole group. Said on several surfaces, and must read the same on each. */
+const EVERYONE = 'Everyone';
+
 export const copy = {
 	// Auth > login and register pages
 	auth: {
@@ -125,7 +128,7 @@ export const copy = {
 	// Catch-all route for an unknown URL
 	notFound: {
 		heading: 'Page not found',
-		body: 'That link does not point at anything in this app.',
+		body: 'The address may be mistyped, or what was here has been deleted.',
 		backAuthenticated: 'Back to your trips',
 		backAnonymous: 'Back to the start'
 	},
@@ -159,10 +162,11 @@ export const copy = {
 		editTrip: 'Edit trip',
 		editDialog: {
 			title: 'Edit trip',
-			fallback: 'Could not save that trip.'
+			fallback: 'Could not save that trip.',
+			/** The schedule lock. The switch says what it does; nothing else needs to. */
+			lockLabel: 'Lock schedule'
 		},
 		deleteDialog: {
-			title: (trip: string) => `Delete ${trip}?`,
 			fallback: 'Could not delete this trip.'
 		},
 		leaveTrip: 'Leave trip',
@@ -202,23 +206,26 @@ export const copy = {
 		cityList: {
 			navLabel: 'Cities',
 			addCity: 'Add city',
-			removeLabel: (city: string) => `Delete ${city}`,
+
 			lastCityTitle: 'A trip needs at least one city',
-			deleteTitle: (city: string, region?: string | null) =>
-				`Delete ${region ? `${city}, ${region}` : city}?`
+			/**
+			 * A city with its region when it has one. The region is set only when a
+			 * same-named city is already on the trip, so most cities are just their
+			 * name. Shared because the sidebar row, the narrow dropdown and the
+			 * delete confirmation all have to name a city the same way.
+			 */
+			cityLabel: (city: string, region?: string | null) => (region ? `${city}, ${region}` : city)
 		},
 		header: {
 			typeAriaLabel: 'Type',
 			add: 'Add'
 		},
 		deletePlace: {
-			title: (place: string) => `Delete ${place}?`,
 			/** Asked instead when the location is on the calendar and takes events with it. */
 			linkedTitle: (place: string, linked: number) =>
 				`Delete ${place} and ${linked} event${linked === 1 ? '' : 's'}?`
 		},
 		deleteStay: {
-			title: (stay: string) => `Delete ${stay}?`,
 			/** Asked instead when the stay is booked on the calendar and takes its nights with it. */
 			linkedTitle: (stay: string, linked: number) =>
 				`Delete ${stay} and ${linked} booked night${linked === 1 ? '' : 's'}?`
@@ -231,23 +238,11 @@ export const copy = {
 		card: {
 			voteLabel: (youVoted: boolean, subject: string) =>
 				`${youVoted ? 'Remove your vote from' : 'Vote for'} ${subject}`,
-			openLabel: (name: string) => `Open ${name} (opens in a new tab)`,
-			/**
-			 * The calendar mark in a card's bottom corner. The mark is drawn, not
-			 * written, so this is its accessible name and its tooltip in one place,
-			 * and it carries the count the drawing cannot.
-			 */
-			onCalendar: (linked: number) =>
-				linked === 1 ? 'On the calendar' : `On the calendar ×${linked}`
-		},
-		placeCard: {
-			editLabel: (name: string) => `Edit ${name}`,
-			removeLabel: (name: string) => `Delete ${name}`
+			openLabel: (name: string) => `Open ${name} (opens in a new tab)`
 		},
 		stayCard: {
 			locked: 'Locked',
-			priceTbd: 'Price TBD',
-			removeLabel: (name: string) => `Delete ${name}`
+			priceTbd: 'Price TBD'
 		},
 		placeFields: {
 			typeLabel: 'Type',
@@ -302,13 +297,6 @@ export const copy = {
 		perPerson: 'Per person',
 		youSuffix: ' (you)',
 		saveFallback: 'Could not save that.',
-		deleteTask: {
-			taskTitle: (task: string) => `Delete ${task}?`,
-			packingTitle: (item: string) => `Delete ${item}?`
-		},
-		deleteCost: {
-			title: (estimate: string) => `Delete ${estimate}?`
-		},
 		myTasks: {
 			title: 'Assigned to you',
 			othersTitle: 'Other tasks'
@@ -336,8 +324,6 @@ export const copy = {
 		},
 		costTable: {
 			sectionLabel: (category: string) => `${category} estimates`,
-			editLabel: (label: string) => `Edit ${label}`,
-			removeLabel: (label: string) => `Delete ${label}`,
 			ofTotal: (total: string) => `of ${total}`,
 			total: 'Total'
 		},
@@ -349,8 +335,61 @@ export const copy = {
 			currencyLabel: 'Currency',
 			categoryLabel: 'Category',
 			forLabel: 'For',
-			forEveryone: 'Everyone',
+			forEveryone: EVERYONE,
 			fallback: 'Could not save that item.'
+		}
+	},
+
+	// Schedule > the board, its day navigation, and the two event dialogs
+	schedule: {
+		views: { day: 'Day', agenda: 'Agenda' },
+		viewAriaLabel: 'Schedule view',
+		nav: {
+			previousDay: 'Previous day',
+			nextDay: 'Next day',
+			jumpToDate: 'Jump to a date'
+		},
+		block: {
+			/** The grip on a block's bottom edge, which is a drag and not a button. */
+			resizeLabel: 'Drag to change the end time'
+		},
+		addStay: '+ Add stay',
+		add: '+ Add',
+		viewAsAriaLabel: 'View the schedule as',
+		/**
+		 * The frozen board. The tag replaces the Add button rather than sitting
+		 * beside it, because the point is that there is nothing to press: an
+		 * explanation under a button that still looks live reads as a bug.
+		 */
+		lock: {
+			tag: 'Locked',
+			hint: 'The organizer locked this schedule; unlock it from Edit trip to make changes'
+		},
+		/** The two event dialogs share every field, so they share one set of labels. */
+		fields: {
+			type: 'Type',
+			when: 'When',
+			start: 'Start',
+			end: 'End',
+			mode: 'Mode',
+			date: 'Date',
+			label: 'Label',
+			notes: 'Notes',
+			participants: 'Participants',
+			/** Shown when nobody is picked, which the board reads as everyone. */
+			nobody: 'Nobody'
+		},
+		/**
+		 * What the place search says instead of a list of results. Five states, not
+		 * one: a search in flight, a query too short to send, a search that came
+		 * back with nothing, and a local list with no match all mean different
+		 * things to somebody waiting for a name to appear.
+		 */
+		placeSearch: {
+			searching: 'Searching...',
+			keepTyping: 'Keep typing to search.',
+			nothingFound: 'Nothing found.',
+			noMatch: 'No match.'
 		}
 	},
 
@@ -367,8 +406,6 @@ export const copy = {
 		formerTag: 'left the trip',
 		nothingToSettle: 'Nothing to settle',
 		noneForMember: (who: string) => `Nothing here for ${who}`,
-		deletePaymentTitle: (payment: string) => `Delete ${payment}?`,
-		deleteExpenseTitle: (expense: string) => `Delete ${expense}?`,
 		row: {
 			paymentTag: 'payment',
 			incomeTag: 'income',
@@ -381,9 +418,7 @@ export const copy = {
 				if (mode === 'exact') return `split by amount, ${people}`;
 				return `split ${people}`;
 			},
-			deleteLabel: (description: string) => `Delete ${description}`,
 			openLabel: (description: string) => `Open ${description}`,
-			editLabel: (description: string) => `Edit ${description}`,
 			reviewTitle: 'Someone on this expense has left the trip. Edit it to reassign their share.'
 		},
 		settleRow: {
@@ -431,15 +466,12 @@ export const copy = {
 	people: {
 		membersHeading: 'Members',
 		navAriaLabel: 'People sections',
-		deleteTitle: (name: string) => `Delete ${name}?`,
 		row: {
 			sampleCompanion: 'Sample companion',
 			youTag: 'you',
 			organizerTag: 'organizer',
 			invitedTag: 'invited',
-			sampleTag: 'sample',
-			removeLabel: (name: string) => `Delete ${name}`,
-			editLabel: (name: string) => `Edit ${name}`
+			sampleTag: 'sample'
 		},
 		edit: {
 			title: 'Edit person',
@@ -455,14 +487,12 @@ export const copy = {
 		},
 		crews: {
 			heading: 'Crews',
-			editLabel: (name: string) => `Edit ${name}`,
 			nobody: 'Nobody yet',
 			addTitle: 'Add crew',
 			editTitle: 'Edit crew',
 			nameLabel: 'Name',
 			peopleLabel: 'People',
 			peopleAriaLabel: 'Crew members',
-			deleteTitle: (name: string) => `Delete ${name}?`,
 			fallback: 'Could not save that crew.'
 		}
 	},
@@ -516,7 +546,6 @@ export const copy = {
 		sectionNav: { ariaLabel: 'Sections' },
 		field: { optionalSuffix: ' (optional)' },
 		tripMap: {
-			noPoints: 'Schedule something with a location to see it on the map.',
 			failed: 'Could not draw the map.'
 		},
 		mapCard: {
@@ -558,14 +587,22 @@ export const copy = {
 		working: 'Working...',
 		/** A delete confirmation names the thing in its title and asks nothing else. */
 		deleteTitle: (name: string) => `Delete ${name}?`,
+		/**
+		 * The pencil and the bin beside a row, wherever the row sits. Both are
+		 * drawn, so this is the whole of what a screen reader gets, and the name
+		 * has to be in it or every row on the page reads alike.
+		 */
+		editLabel: (name: string) => `Edit ${name}`,
+		deleteLabel: (name: string) => `Delete ${name}`,
 		/** Every list that you fill by adding to it says this when it is empty. */
-		nothingAdded: 'Nothing added yet'
+		nothingAdded: 'Nothing added yet',
+		everyone: EVERYONE
 	},
 
 	// Shared by the money lists: estimated costs and the expense ledger
 	viewAs: {
 		label: 'View as',
-		everyone: 'Everyone',
+		everyone: EVERYONE,
 		yourShare: 'Your share',
 		share: (name: string) => `${name}'s share`,
 		/**

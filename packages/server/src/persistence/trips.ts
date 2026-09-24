@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { formatDayRange, normalizeDay } from '@trippy/core/tz';
+import { isNameLength, nameTooLong } from '@trippy/core/validate';
 import { db } from '../db';
 import { publish, publishMany } from '../events';
 import { isOrganizer } from './membership';
@@ -13,6 +14,8 @@ export interface TripRow {
 	start_date: string;
 	end_date: string;
 	role: string;
+	/** 1 when the organizer has frozen the board. SQLite has no boolean. */
+	schedule_locked: number;
 }
 
 export interface CityRow {
@@ -36,7 +39,8 @@ export function listTripsForUser(userId: string): (TripRow & {
 })[] {
 	const trips = db
 		.prepare(
-			`SELECT t.id, t.name, t.dates, t.cover, t.home_currency, t.start_date, t.end_date, m.role,
+			`SELECT t.id, t.name, t.dates, t.cover, t.home_currency, t.start_date, t.end_date,
+			        t.schedule_locked, m.role,
 			        (SELECT COUNT(*) FROM memberships x WHERE x.trip_id = t.id) AS memberCount
 			 FROM trips t JOIN memberships m ON m.trip_id = t.id
 			 WHERE m.user_id = ?
@@ -94,7 +98,8 @@ export function getTripForUser(
 ): (TripRow & { cities: CityRow[]; members: string[]; memberList: TripMember[] }) | null {
 	const trip = db
 		.prepare(
-			`SELECT t.id, t.name, t.dates, t.cover, t.home_currency, t.start_date, t.end_date, m.role
+			`SELECT t.id, t.name, t.dates, t.cover, t.home_currency, t.start_date, t.end_date,
+			        t.schedule_locked, m.role
 			 FROM trips t JOIN memberships m ON m.trip_id = t.id
 			 WHERE t.id = ? AND m.user_id = ?`
 		)
@@ -181,6 +186,11 @@ export type TripCreateResult = { id: string; error: null } | { id: null; error: 
 export function createTrip(userId: string, input: TripCreate): TripCreateResult {
 	const name = input.name.trim();
 	if (!name) return { id: null, error: 'Enter a name.' };
+	// Held to the same limit as every other name on a trip. It was the one that
+	// was not: a trip name is drawn in the card on the trips list, in the header
+	// of every page and in the tab title, and a 500 character one was accepted
+	// and then rendered in all three.
+	if (!isNameLength(name)) return { id: null, error: nameTooLong() };
 	const range = validateDates(input.startDate, input.endDate);
 	if (typeof range === 'string') return { id: null, error: range };
 	const currency = (input.homeCurrency ?? 'USD').trim().toUpperCase() || 'USD';
@@ -249,6 +259,13 @@ export interface TripEdit {
 	startDate: string;
 	endDate: string;
 	currency: string;
+	/**
+	 * Freezes the board against every write but the organizer's own unlock.
+	 * Part of the trip rather than of the schedule because it is a decision
+	 * about the trip ("the plan is settled"), and because the edit dialog is
+	 * already the one organizer-only form on the page.
+	 */
+	scheduleLocked: boolean;
 }
 
 /**
@@ -259,17 +276,28 @@ export function updateTrip(tripId: string, actorId: string, e: TripEdit): string
 	if (!isOrganizer(tripId, actorId)) return 'Only the organizer can edit this trip.';
 	const name = e.name.trim();
 	if (!name) return 'Enter a name.';
+	if (!isNameLength(name)) return nameTooLong();
 	const dates = validateDates(e.startDate, e.endDate);
 	if (typeof dates === 'string') return dates;
 	const currency = e.currency.trim().toUpperCase();
 	if (!/^[A-Z]{3}$/.test(currency)) return 'Pick a currency.';
 
 	db.prepare(
-		`UPDATE trips SET name = ?, start_date = ?, end_date = ?, dates = ?, home_currency = ?
+		`UPDATE trips SET name = ?, start_date = ?, end_date = ?, dates = ?, home_currency = ?,
+		        schedule_locked = ?
 		 WHERE id = ?`
-	).run(name, dates.start, dates.end, tripLabel(dates.start, dates.end), currency, tripId);
-	// The home currency is part of every balance figure, so the ledger is stale too.
-	publishMany(tripId, ['trip', 'expenses']);
+	).run(
+		name,
+		dates.start,
+		dates.end,
+		tripLabel(dates.start, dates.end),
+		currency,
+		e.scheduleLocked ? 1 : 0,
+		tripId
+	);
+	// The home currency is part of every balance figure, so the ledger is stale
+	// too, and the lock changes what the board lets anyone do with it.
+	publishMany(tripId, ['trip', 'expenses', 'schedule']);
 	return null;
 }
 

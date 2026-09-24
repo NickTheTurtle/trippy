@@ -589,12 +589,36 @@ select.input.compact {
 	.modal {
 		max-height: min(94vh, calc(100vh - 1rem));
 	}
+	/*
+	 * Every button in the footer takes the same share of the row.
+	 *
+	 * The delete sits in its own wrapper so that it can be pushed away from Save
+	 * at desk widths. On a phone that wrapper stayed sized to its text while
+	 * Cancel and Save stretched into what was left, so a three-button footer
+	 * read as one narrow button and two wide ones. Flexing the wrapper on the
+	 * same terms as the buttons beside it is what evens the row out; dropping
+	 * the push is what stops it opening a gap where a third button should be.
+	 *
+	 * The basis is a width, not zero, so a long label wraps the row instead of
+	 * squeezing every button into a third of a phone.
+	 */
 	.mfoot {
 		justify-content: stretch;
 	}
 	.mfoot .btn {
-		flex: 1 1 auto;
 		justify-content: center;
+	}
+	.mfoot > .mr-auto {
+		margin-right: 0;
+		display: flex;
+	}
+	.mfoot > .mr-auto > .btn {
+		flex: 1 1 auto;
+	}
+	.mfoot > .mr-auto,
+	.mfoot > .btn {
+		flex: 1 1 7rem;
+		min-width: 0;
 	}
 }
 
@@ -1458,6 +1482,92 @@ html[data-page-nav='back']::view-transition-new(trippage) {
 		height: auto;
 	}
 }
+
+/*
+ * The same idea as the checkbox above, generalised.
+ *
+ * A thumb is about 44px across and a lot of this app is not: pills, the day
+ * arrows, the small buttons in a card's corner. Raising the drawn size of all
+ * of them would be a different app on a phone, with four controls to a row
+ * where there used to be six, so the drawing is left alone and an invisible
+ * target is grown around its centre instead. `max()` means this only ever adds
+ * reach, so putting the class on something already large enough does nothing.
+ *
+ * Centred rather than anchored, so the extra reach is shared between both
+ * sides and a row of them does not drift out of alignment with what it labels.
+ *
+ * Coarse pointers only. A mouse is precise, and on a dense list these overlays
+ * would sit on top of each other and take clicks meant for the row behind.
+ * `z-index` is deliberately not set for the same reason: the overlay stays in
+ * the natural paint order, so the last control in a row cannot swallow the one
+ * after it.
+ */
+@media (pointer: coarse) {
+	:root {
+		/* 42px missed the mark by two, which is not a design decision. */
+		--control-h: 2.75rem;
+	}
+	.tap,
+	.btn.small,
+	.pill,
+	.sched .navbtn,
+	.sched .daypick,
+	.sched .stayadd,
+	.sched .block .bedit {
+		position: relative;
+	}
+	.tap::after,
+	.btn.small::after,
+	.pill::after,
+	.sched .navbtn::after,
+	.sched .daypick::after,
+	.sched .stayadd::after,
+	.sched .block .bedit::after {
+		content: '';
+		position: absolute;
+		left: 50%;
+		top: 50%;
+		translate: -50% -50%;
+		width: max(100%, 44px);
+		height: max(100%, 44px);
+	}
+	/*
+	 * The other half of the problem. An overlay works for a control sitting on
+	 * its own in the page chrome, but not for a row in a list: a 44px overlay on
+	 * a 23px row reaches into the rows above and below, and since the later row
+	 * paints on top it would quietly take taps meant for its neighbour. Rows
+	 * grow for real instead, which pushes the list apart rather than stacking it.
+	 */
+	.tap-grow {
+		min-height: 44px;
+	}
+	/*
+	 * An input draws no pseudo-elements, so the field that jumps to a date has
+	 * to grow for real. It is the one control here that can.
+	 */
+	.daypickfield {
+		min-height: 44px;
+	}
+	/*
+	 * Leaflet ships its own 30px zoom controls. Restyling third-party chrome is
+	 * normally a trap, but these are the only way to zoom without a pinch and
+	 * the map is the part of the schedule a phone leans on hardest.
+	 *
+	 * Its map pins stay at 34px on purpose. Pins cluster, and a pin is placed
+	 * at a coordinate rather than laid out in a row, so padding them out to 44px
+	 * would have neighbouring pins overlap and answer for each other. Tapping
+	 * the wrong place is worse than reaching for the right one, and the map
+	 * zooms, which is the real way to separate two pins that sit close together.
+	 */
+	.leaflet-touch .leaflet-bar a.leaflet-control-zoom-in,
+	.leaflet-touch .leaflet-bar a.leaflet-control-zoom-out,
+	.leaflet-control-zoom-in,
+	.leaflet-control-zoom-out {
+		width: 44px;
+		height: 44px;
+		line-height: 44px;
+	}
+}
 .cbox:has(input:focus-visible) {
 	outline: 2px solid var(--color-accent);
 	outline-offset: 2px;
@@ -1486,10 +1596,6 @@ html[data-page-nav='back']::view-transition-new(trippage) {
 	/* Leaflet panes carry their own z-index; without this the map paints over
 	   the page header when it scrolls under it. */
 	z-index: 0;
-}
-.nogeo {
-	font-size: var(--text-meta);
-	margin: 0.6rem 0 0;
 }
 .wp-pin .wp-pin-body {
 	display: grid;

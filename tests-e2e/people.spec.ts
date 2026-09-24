@@ -43,13 +43,15 @@ test.describe('people', () => {
 
 			// Revoking is removing that row, from inside its own dialog and behind
 			// the house confirmation.
-			await page.getByRole('button', { name: cpl.row.editLabel('Zoe') }).click();
+			await page.getByRole('button', { name: copy.common.editLabel('Zoe') }).click();
 			await page
 				.getByRole('dialog')
 				.getByRole('button', { name: copy.common.delete, exact: true })
 				.click();
 			const confirm = page.getByRole('dialog');
-			await expect(confirm.getByRole('heading', { name: cpl.deleteTitle('Zoe') })).toBeVisible();
+			await expect(
+				confirm.getByRole('heading', { name: copy.common.deleteTitle('Zoe') })
+			).toBeVisible();
 			await confirm.getByRole('button', { name: copy.common.delete, exact: true }).click();
 			await expect(roster.getByRole('listitem').filter({ hasText: 'Zoe' })).toHaveCount(0);
 		} finally {
@@ -99,7 +101,7 @@ test.describe('people', () => {
 			await dialog.getByLabel(cpl.add.emailLabel).fill('typo@example.test');
 			await dialog.getByRole('button', { name: copy.common.add, exact: true }).click();
 
-			await page.getByRole('button', { name: cpl.row.editLabel('Kim') }).click();
+			await page.getByRole('button', { name: copy.common.editLabel('Kim') }).click();
 			dialog = page.getByRole('dialog');
 			await dialog.getByLabel(cpl.edit.emailLabel).fill('kim@example.test');
 			await dialog.getByRole('button', { name: copy.common.save, exact: true }).click();
@@ -109,6 +111,40 @@ test.describe('people', () => {
 			await expect(row).not.toContainText('typo@example.test');
 		} finally {
 			fixture.teardown();
+		}
+	});
+
+	// The stand-in turned out to be somebody already using the app. Typing their
+	// address into the placeholder used to be refused, which left the organizer
+	// with a member they could not point at the right person.
+	test('an organizer points a stand-in at an address that already has an account', async ({
+		page,
+		request
+	}) => {
+		const fixture = await createApiFixture(request);
+		const friend = await registerUser(request, { name: 'Robin' });
+		try {
+			await signIn(page, fixture.sessionCookie);
+			await page.goto(`/trips/${fixture.tripId}/people`);
+
+			await page.getByRole('button', { name: copy.common.add, exact: true }).click();
+			const dialog = page.getByRole('dialog');
+			await dialog.getByLabel(cpl.add.nameLabel).fill('Stand In');
+			await dialog.getByRole('button', { name: copy.common.add, exact: true }).click();
+
+			await page.getByRole('button', { name: copy.common.editLabel('Stand In') }).click();
+			await page.getByRole('dialog').getByLabel(cpl.edit.emailLabel).fill(friend.email);
+			await page
+				.getByRole('dialog')
+				.getByRole('button', { name: copy.common.save, exact: true })
+				.click();
+
+			// One row, under their own account's name, not two.
+			await expect(page.getByRole('listitem').filter({ hasText: 'Robin' })).toBeVisible();
+			await expect(page.getByRole('listitem').filter({ hasText: 'Stand In' })).toHaveCount(0);
+		} finally {
+			fixture.teardown();
+			friend.teardown();
 		}
 	});
 
@@ -148,7 +184,7 @@ test.describe('people', () => {
 
 			const row = page.getByRole('listitem').filter({ hasText: 'Mallory' });
 			await expect(row).toBeVisible();
-			await page.getByRole('button', { name: cpl.row.removeLabel('Mallory') }).click();
+			await page.getByRole('button', { name: copy.common.deleteLabel('Mallory') }).click();
 			// The row states who they are; the removal lives in that dialog's footer.
 			await page
 				.getByRole('dialog')
@@ -159,7 +195,7 @@ test.describe('people', () => {
 			const confirm = page.getByRole('dialog');
 			await expect(confirm.getByText(copy.ui.confirmDialog.undone)).toBeVisible();
 			await expect(
-				confirm.getByRole('heading', { name: cpl.deleteTitle('Mallory') })
+				confirm.getByRole('heading', { name: copy.common.deleteTitle('Mallory') })
 			).toBeVisible();
 			await confirm.getByRole('button', { name: copy.common.delete, exact: true }).click();
 

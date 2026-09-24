@@ -30,11 +30,17 @@ test.describe('settle-up guards', () => {
 
 			// The fixture paid for itself alone, so it is owed nothing and owes
 			// nothing: a transfer out of a zero (or positive) balance is refused.
-			const res = await apiSend(request, fixture, 'POST', `/trips/${fixture.tripId}/expenses/settle`, {
-				fromId: fixture.userId,
-				toId: fixture.userId,
-				amountCents: 1000
-			});
+			const res = await apiSend(
+				request,
+				fixture,
+				'POST',
+				`/trips/${fixture.tripId}/expenses/settle`,
+				{
+					fromId: fixture.userId,
+					toId: fixture.userId,
+					amountCents: 1000
+				}
+			);
 			expect(res.status()).toBe(400);
 			expect((await res.json()).error).toBe('That person does not owe anything.');
 		} finally {
@@ -55,11 +61,17 @@ test.describe('settle-up guards', () => {
 
 			// Alice owes exactly 4500. One cent over her debt would tip her balance
 			// past zero into the fixture's favour, so it is refused.
-			const res = await apiSend(request, fixture, 'POST', `/trips/${fixture.tripId}/expenses/settle`, {
-				fromId: members['Alice'],
-				toId: fixture.userId,
-				amountCents: 4501
-			});
+			const res = await apiSend(
+				request,
+				fixture,
+				'POST',
+				`/trips/${fixture.tripId}/expenses/settle`,
+				{
+					fromId: members['Alice'],
+					toId: fixture.userId,
+					amountCents: 4501
+				}
+			);
 			expect(res.status()).toBe(400);
 			expect((await res.json()).error).toBe(
 				'That is more than they owe. Enter the outstanding amount or less.'
@@ -86,12 +98,18 @@ test.describe('settle-up guards', () => {
 			const t = before.settlement[0];
 			expect(t.amountCents).toBe(4500);
 
-			const res = await apiSend(request, fixture, 'POST', `/trips/${fixture.tripId}/expenses/settle`, {
-				fromId: t.fromId,
-				toId: t.toId,
-				amountCents: t.amountCents,
-				token: t.token
-			});
+			const res = await apiSend(
+				request,
+				fixture,
+				'POST',
+				`/trips/${fixture.tripId}/expenses/settle`,
+				{
+					fromId: t.fromId,
+					toId: t.toId,
+					amountCents: t.amountCents,
+					token: t.token
+				}
+			);
 			expect(res.status(), await res.text()).toBe(201);
 
 			// Paying the whole debt leaves the ledger even and nothing to settle.

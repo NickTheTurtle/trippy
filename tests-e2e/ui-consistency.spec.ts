@@ -95,7 +95,7 @@ test.describe('ui consistency', () => {
 			await signIn(page, fixture.sessionCookie);
 			await page.goto(`/trips/${fixture.tripId}/discover`);
 
-			await page.getByRole('button', { name: copy.discover.cityList.removeLabel('Porto') }).click();
+			await page.getByRole('button', { name: copy.common.deleteLabel('Porto') }).click();
 			const confirm = page.getByRole('dialog');
 
 			// The body is the house sentence, and the title names the thing.
@@ -182,29 +182,22 @@ test.describe('ui consistency', () => {
 		}
 	});
 
-	test('the slugs a tab used to have still land on the tab that owns them', async ({
+	test('a slug a tab used to have is now a dead address like any other', async ({
 		page,
 		request
 	}) => {
 		const fixture = await createApiFixture(request);
 		try {
 			await signIn(page, fixture.sessionCookie);
-			// Renaming a slug to match its label is only free while the old one keeps
-			// working, so the redirects are the load-bearing half of that change.
-			const moved = [
-				['calendar', 'schedule', copy.nav.schedule],
-				['pretrip', 'preparation', copy.nav.preparation],
-				['costs', 'preparation', copy.nav.preparation],
-				['lodging', 'discover', copy.nav.discover]
-			] as const;
+			// These four used to redirect to the tabs that absorbed or renamed them.
+			// The app is in beta and nobody has a saved link to honour, so they fall
+			// through to the catch-all now. Pinned because the alternative to a
+			// redirect is supposed to be an honest 404, not a blank page.
+			const retired = ['calendar', 'pretrip', 'costs', 'lodging'];
 
-			for (const [from, to, label] of moved) {
-				await page.goto(`/trips/${fixture.tripId}/${from}`);
-				await expect(page).toHaveURL(new RegExp(`/trips/${fixture.tripId}/${to}$`));
-				await expect(page.getByRole('link', { name: label })).toHaveAttribute(
-					'aria-current',
-					'page'
-				);
+			for (const slug of retired) {
+				await page.goto(`/trips/${fixture.tripId}/${slug}`);
+				await expect(page.getByRole('heading', { name: copy.notFound.heading })).toBeVisible();
 			}
 		} finally {
 			fixture.teardown();
@@ -289,9 +282,7 @@ test.describe('ui consistency', () => {
 			};
 
 			const schedule = await row('schedule');
-			expect(schedule.filter, 'the schedule filter misses its own button').toEqual(
-				schedule.button
-			);
+			expect(schedule.filter, 'the schedule filter misses its own button').toEqual(schedule.button);
 
 			const discover = await row('discover');
 			expect(discover.filter, 'discover filter misses its own button').toEqual(discover.button);

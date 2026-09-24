@@ -91,7 +91,7 @@ test.describe('narrow layouts', () => {
 				page.getByRole('button', { name: copy.discover.cityList.addCity })
 			).toBeVisible();
 			await expect(
-				page.getByRole('button', { name: copy.discover.cityList.removeLabel(LISBON.name) })
+				page.getByRole('button', { name: copy.common.deleteLabel(LISBON.name) })
 			).toBeVisible();
 
 			// The type filter is pills here and a dropdown on a desktop, so only one

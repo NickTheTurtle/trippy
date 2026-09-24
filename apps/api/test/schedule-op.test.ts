@@ -300,7 +300,7 @@ describe('a dialog save the server cannot read', () => {
 		const f = fixture();
 		const id = await event(f, { type: 'stay', endDay: NEXT_DAY });
 		expect(await refusal(await op(f, id, { op: 'edit', day: NEXT_DAY, endDay: DAY }))).toBe(
-			'Check out after you check in.'
+			'Check-out must be after check-in.'
 		);
 	});
 

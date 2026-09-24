@@ -9,7 +9,6 @@ import type { Person } from './types';
 import { copy } from '../../copy';
 
 const c = copy.people.edit;
-const cpl = copy.people;
 
 /**
  * One member of the trip: their name, the address an invite goes to, and the
@@ -58,7 +57,7 @@ export default function EditMember({
 	const editable = person.placeholder || person.seeded || own;
 
 	const del = useDeleteAction({
-		title: cpl.deleteTitle(person.name),
+		title: copy.common.deleteTitle(person.name),
 		busyLabel: copy.common.deleting,
 		onDelete: onRemove
 	});

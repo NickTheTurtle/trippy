@@ -46,7 +46,7 @@ function TopBar() {
 			<div className="container flex h-16 items-center justify-between">
 				<Link
 					to={status === 'authenticated' ? '/trips' : '/'}
-					className="flex items-center gap-2 font-serif text-heading font-[560]"
+					className="tap flex items-center gap-2 font-serif text-heading font-[560]"
 				>
 					<Logo />
 					<span>{copy.shell.brand}</span>

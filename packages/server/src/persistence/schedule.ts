@@ -742,11 +742,12 @@ export interface EventEdit {
 	startMin?: number;
 	endMin?: number;
 	/**
-	 * When a stay is checked into and out of.
+	 * The day the block sits on, and for a stay the morning it is left.
 	 *
 	 * A stay is the one block that is not on a clock: it is a range of nights,
-	 * so this is how it is moved and lengthened, and `startMin`/`endMin` do not
-	 * apply to it. Absent leaves the range alone.
+	 * so this pair is how it is moved and lengthened, and `startMin`/`endMin` do
+	 * not apply to it. Everything else owns a single day, and `day` moves it to
+	 * another one without touching its clock. Absent leaves the date alone.
 	 */
 	day?: string;
 	endDay?: string;
@@ -817,8 +818,7 @@ export function editEvent(
 	const where = mayEdit(eventId, userId, tripId);
 	if (!where) return missing;
 	const current = db.prepare(`SELECT version FROM events WHERE id = ?`).get(eventId) as
-		| { version: number }
-		| undefined;
+		{ version: number } | undefined;
 	if (!current) return missing;
 	if (isStale(expectedVersion, current.version)) return conflict;
 	const sets: string[] = [];
@@ -836,7 +836,13 @@ export function editEvent(
 		// because a block claiming coordinates it does not honour is what made the
 		// old chain plan journeys nobody was making.
 		if (edit.type === 'freetime') {
-			sets.push('lat = NULL', 'lng = NULL', 'poi_id = NULL', 'lodging_id = NULL', 'place_text = NULL');
+			sets.push(
+				'lat = NULL',
+				'lng = NULL',
+				'poi_id = NULL',
+				'lodging_id = NULL',
+				'place_text = NULL'
+			);
 		}
 	}
 	if (edit.notes !== undefined) {
@@ -858,7 +864,13 @@ export function editEvent(
 			args.push(edit.place.text?.trim() || null);
 			args.push(edit.place.lat, edit.place.lng);
 		} else {
-			sets.push('poi_id = NULL', 'lodging_id = NULL', 'place_text = NULL', 'lat = NULL', 'lng = NULL');
+			sets.push(
+				'poi_id = NULL',
+				'lodging_id = NULL',
+				'place_text = NULL',
+				'lat = NULL',
+				'lng = NULL'
+			);
 		}
 	}
 	if (edit.travelMode !== undefined) {
@@ -903,13 +915,24 @@ export function editEvent(
 		movedEnd = stayEnd('stay', movedTo, edit.endDay ?? where.end_day) as string;
 		sets.push('day = ?', 'end_day = ?');
 		args.push(movedTo, movedEnd);
-	} else if (edit.type && edit.type !== 'stay') {
-		// Leaving the type behind leaves the range behind with it: a block that is
-		// no longer a stay occupies its own day like everything else.
-		sets.push('end_day = NULL');
-	} else if (edit.type === 'stay' && !where.end_day) {
-		sets.push('end_day = ?');
-		args.push(shiftDay(where.day, 1));
+	} else {
+		/* Every other block owns one day, so a date is a move and nothing more.
+		   The clock is deliberately left alone, and so is `time_auto`: choosing a
+		   date is not choosing a time, and a block still following its day should
+		   go on following the day it has moved to. */
+		if (!staying && edit.day && edit.day !== where.day) {
+			movedTo = edit.day;
+			sets.push('day = ?');
+			args.push(movedTo);
+		}
+		if (edit.type && edit.type !== 'stay') {
+			// Leaving the type behind leaves the range behind with it: a block that
+			// is no longer a stay occupies its own day like everything else.
+			sets.push('end_day = NULL');
+		} else if (edit.type === 'stay' && !where.end_day) {
+			sets.push('end_day = ?');
+			args.push(shiftDay(where.day, 1));
+		}
 	}
 
 	if (!sets.length) return missing;

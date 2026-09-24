@@ -53,10 +53,7 @@ export default function EditTask({
 	const editing = draft.id !== null;
 
 	const del = useDeleteAction({
-		title:
-			draft.kind === 'packing'
-				? copy.preparation.deleteTask.packingTitle(draft.label)
-				: copy.preparation.deleteTask.taskTitle(draft.label),
+		title: copy.common.deleteTitle(draft.label),
 		busyLabel: copy.common.deleting,
 		onDelete
 	});

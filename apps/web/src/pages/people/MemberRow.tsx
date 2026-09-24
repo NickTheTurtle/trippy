@@ -71,7 +71,9 @@ export default function MemberRow({
 				<button
 					type="button"
 					onClick={onOpen}
-					aria-label={editable ? c.editLabel(person.name) : c.removeLabel(person.name)}
+					aria-label={
+						editable ? copy.common.editLabel(person.name) : copy.common.deleteLabel(person.name)
+					}
 					className={`${shell} cursor-pointer border-0 bg-transparent hover:bg-surface-2`}
 				>
 					{body}

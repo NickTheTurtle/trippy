@@ -198,7 +198,7 @@ test.describe('keyboard', () => {
 			await signIn(page, fixture.sessionCookie);
 			await page.goto(`/trips/${fixture.tripId}/expenses`);
 
-			const trigger = page.getByRole('button', { name: ce.row.editLabel('Solo lunch') });
+			const trigger = page.getByRole('button', { name: copy.common.editLabel('Solo lunch') });
 			await trigger.click();
 
 			const dialog = page.getByRole('dialog');

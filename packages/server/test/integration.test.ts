@@ -1,5 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { splitByWeight } from '@trippy/core/split';
+import { MAX_NAME_LENGTH, nameTooLong } from '@trippy/core/validate';
 import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -1100,6 +1101,40 @@ describe('schema and migrations', () => {
 		expect(tableCount('expense_participants', 'expense_id = ?', expenseId)).toBe(0);
 		expect(tableCount('poi_votes', 'poi_id = ? AND user_id = ?', poiId, placeholder)).toBe(0);
 		expect(tableCount('memberships', 'user_id = ?', placeholder)).toBe(0);
+	});
+});
+
+describe('trip name length', () => {
+	it('holds a trip name to the same limit as every other name', () => {
+		const organizer = createUser('trip-name-length');
+		const tooLong = 'Z'.repeat(MAX_NAME_LENGTH + 1);
+
+		const created = trips.createTrip(organizer, {
+			name: tooLong,
+			startDate: '2026-10-01',
+			endDate: '2026-10-03',
+			homeCurrency: 'USD'
+		});
+		expect(created.id).toBeNull();
+		expect(created.error).toBe(nameTooLong());
+
+		const atLimit = trips.createTrip(organizer, {
+			name: 'Z'.repeat(MAX_NAME_LENGTH),
+			startDate: '2026-10-01',
+			endDate: '2026-10-03',
+			homeCurrency: 'USD'
+		});
+		expect(atLimit.id).not.toBeNull();
+
+		const f = createTripFixture('trip-name-length-edit');
+		expect(
+			trips.updateTrip(f.tripId, f.organizer, {
+				name: tooLong,
+				startDate: '2026-10-01',
+				endDate: '2026-10-03',
+				currency: 'USD'
+			})
+		).toBe(nameTooLong());
 	});
 });
 

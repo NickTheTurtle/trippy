@@ -4,13 +4,13 @@ import { api, ApiError } from '../lib/api';
 import { useApi } from '../hooks/useApi';
 import { useLiveSection } from '../hooks/useTripEvents';
 import useMediaQuery from '../hooks/useMediaQuery';
-import useSlideIn, { dayRank } from '../hooks/useSlideIn';
+import useSlideIn from '../hooks/useSlideIn';
 import { useTrip } from './TripShell';
 import FormError from '../components/ui/FormError';
 import EmptyState from '../components/ui/EmptyState';
 import Select from '../components/ui/Select';
 import WarnMark from '../components/ui/WarnMark';
-import { PencilIcon } from '../components/ui/icons';
+import { LockIcon, PencilIcon } from '../components/ui/icons';
 import { useToast } from '../components/ui/Toast';
 import GoogleMap, { type MapTrack, type MapCenter } from '../components/GoogleMap';
 import TripMap from '../components/TripMap';
@@ -51,9 +51,11 @@ import type {
 } from './schedule/types';
 import '../styles/schedule.css';
 
+const cs = copy.schedule;
+
 const VIEW_OPTIONS: { v: ViewMode; label: string }[] = [
-	{ v: 'day', label: 'Day' },
-	{ v: 'agenda', label: 'Agenda' }
+	{ v: 'day', label: cs.views.day },
+	{ v: 'agenda', label: cs.views.agenda }
 ];
 
 /**
@@ -124,12 +126,26 @@ type Drag = {
 	pointerStartY: number;
 	/** Where the pointer is now, so the edge loop can run without one moving. */
 	pointerY: number;
+	/** Where the pointer is across the strip, for the same reason sideways. */
+	pointerX: number;
 	origStart: number;
 	/** How long the block is, so a drag cannot push it off the end of the day. */
 	mins: number;
 	/** Minutes the viewport has been travelled past where the pointer reaches. */
 	creep: number;
 	liveStart: number;
+	/** Where the strip stood when the block was picked up. */
+	scrollLeft0: number;
+	/**
+	 * How far the strip has travelled since, which the block is offset by.
+	 *
+	 * A block is drawn inside its own day's panel, so it travels with that panel
+	 * and would slide out from under a hand that has not moved. Offsetting it by
+	 * exactly what the strip has done leaves it where the pointer put it while
+	 * the days pass behind it, which is the whole picture of carrying something
+	 * to another date.
+	 */
+	dx: number;
 };
 
 /** A block's bottom edge under the pointer. */
@@ -145,6 +161,15 @@ type Resize = {
 const EDGE_PX = 72;
 /** Minutes a second the board travels at when the pointer is at the very edge. */
 const EDGE_RATE = 150;
+/**
+ * Days a second the strip travels at when the pointer is held against a side.
+ *
+ * Expressed in days rather than pixels so it reads the same on a phone and on a
+ * wide screen: what the hand is asking for is the next date, not a distance. A
+ * little over one a second is fast enough not to feel stuck and slow enough to
+ * stop on the day you meant.
+ */
+const EDGE_DAY_RATE = 1.1;
 /** The shortest day viewport worth scrolling inside, on a short screen. */
 const MIN_VIEW_H = 320;
 /**
@@ -165,6 +190,17 @@ const VIEW_AIR = 8;
  * rather than the top of the grid.
  */
 const BOARD_PAD_PX = 12;
+
+/**
+ * How long the strip has to be still before the day it is on becomes the url.
+ *
+ * Long enough to sit out the tail of a flick, which decelerates for a good part
+ * of a second and crosses days while it does; short enough that letting go on a
+ * day and reaching for the map does not find the address bar still behind. A
+ * settle is only an address: the board has already been showing the day since
+ * the scroll passed its middle, so nothing the reader can see waits on this.
+ */
+const SETTLE_MS = 140;
 
 /**
  * Where a dragged block sits: the pointer's own travel, plus whatever the edge
@@ -210,6 +246,8 @@ type BlockProps = {
 	to: number;
 	boardStart: number;
 	dragging: boolean;
+	/** How far the strip has travelled under a block being carried, in pixels. */
+	dx: number;
 	resizing: boolean;
 	editing: boolean;
 	memberCount: number;
@@ -228,9 +266,9 @@ type BlockProps = {
 	/** A journey arrives on top of this block, so its top-left corner squares off
 	    to let the two left borders run as one line. */
 	hasLegAbove: boolean;
+	/** A frozen board draws no grip and no pencil: nothing here can be changed. */
+	locked: boolean;
 };
-
-const EDIT_ACTION = 'Edit';
 
 const Block = memo(function Block({
 	ev,
@@ -242,6 +280,7 @@ const Block = memo(function Block({
 	to,
 	boardStart,
 	dragging,
+	dx,
 	resizing,
 	editing,
 	memberCount,
@@ -255,7 +294,8 @@ const Block = memo(function Block({
 	onGripDown,
 	onGripMove,
 	onGripUp,
-	hasLegAbove
+	hasLegAbove,
+	locked
 }: BlockProps) {
 	const bud = whoBudget(width, to - from, ev.title, lanePx);
 	const cls = [
@@ -281,6 +321,7 @@ const Block = memo(function Block({
 				width: `calc(${width * 100}% - 6px)`,
 				top: `${topPx(from, boardStart)}px`,
 				height: `${heightPx(from, to, boardStart)}px`,
+				...(dx ? { transform: `translateX(${dx}px)` } : null),
 				['--trows' as string]: bud.trows,
 				['--wrows' as string]: bud.wrows
 			}}
@@ -309,7 +350,7 @@ const Block = memo(function Block({
 			</div>
 			<div className="bwho">
 				{ev.people.length === 0 || ev.people.length === memberCount ? (
-					<span className="who all">Everyone</span>
+					<span className="who all">{copy.common.everyone}</span>
 				) : ev.people.length <= bud.fit ? (
 					ev.people.map((id) => (
 						<span key={id} className="who">
@@ -329,29 +370,33 @@ const Block = memo(function Block({
 					</>
 				) : null}
 			</div>
-			<div
-				className="bresize"
-				role="separator"
-				aria-label="Drag to change the end time"
-				onPointerDown={(e) => onGripDown(e, ev)}
-				onPointerMove={onGripMove}
-				onPointerUp={onGripUp}
-			/>
-			<button
-				type="button"
-				className="bedit"
-				aria-label={`${EDIT_ACTION} ${ev.title}`}
-				// Swallow the pointer so pressing the pencil opens the editor rather
-				// than beginning a drag on the block behind it, and stop the click
-				// from reaching the block, whose own click only focuses the map.
-				onPointerDown={(e) => e.stopPropagation()}
-				onClick={(e) => {
-					e.stopPropagation();
-					onOpen(ev.id);
-				}}
-			>
-				<PencilIcon />
-			</button>
+			{!locked && (
+				<>
+					<div
+						className="bresize"
+						role="separator"
+						aria-label={cs.block.resizeLabel}
+						onPointerDown={(e) => onGripDown(e, ev)}
+						onPointerMove={onGripMove}
+						onPointerUp={onGripUp}
+					/>
+					<button
+						type="button"
+						className="bedit"
+						aria-label={copy.common.editLabel(ev.title)}
+						// Swallow the pointer so pressing the pencil opens the editor rather
+						// than beginning a drag on the block behind it, and stop the click
+						// from reaching the block, whose own click only focuses the map.
+						onPointerDown={(e) => e.stopPropagation()}
+						onClick={(e) => {
+							e.stopPropagation();
+							onOpen(ev.id);
+						}}
+					>
+						<PencilIcon />
+					</button>
+				</>
+			)}
 		</div>
 	);
 });
@@ -525,6 +570,7 @@ type ToolbarProps = {
 	viewAsOptions: { value: string; label: string; warn?: string }[];
 	onViewAs: (id: string) => void;
 	onAdd: () => void;
+	locked: boolean;
 };
 
 const Toolbar = memo(function Toolbar({
@@ -534,11 +580,12 @@ const Toolbar = memo(function Toolbar({
 	readAs,
 	viewAsOptions,
 	onViewAs,
-	onAdd
+	onAdd,
+	locked
 }: ToolbarProps) {
 	return (
 		<div className="toolbar">
-			<div className="pills" role="group" aria-label="Schedule view">
+			<div className="pills" role="group" aria-label={cs.viewAriaLabel}>
 				{VIEW_OPTIONS.map((o) => (
 					<Link
 						key={o.v}
@@ -565,9 +612,16 @@ const Toolbar = memo(function Toolbar({
 						/>
 					</div>
 				)}
-				<button className="btn primary" type="button" onClick={onAdd}>
-					+ Add
-				</button>
+				{locked ? (
+					<span className="lockmark" title={cs.lock.hint}>
+						<LockIcon />
+						{cs.lock.tag}
+					</span>
+				) : (
+					<button className="btn primary" type="button" onClick={onAdd}>
+						{cs.add}
+					</button>
+				)}
 			</div>
 		</div>
 	);
@@ -594,7 +648,8 @@ const BoardHead = memo(function BoardHead({
 	first,
 	last,
 	prev,
-	next
+	next,
+	onStep
 }: {
 	label: string;
 	view: string;
@@ -603,6 +658,8 @@ const BoardHead = memo(function BoardHead({
 	last: string;
 	prev: string | null;
 	next: string | null;
+	/** Slide the strip to a neighbour, so an arrow makes the move a hand would. */
+	onStep?: (day: string) => void;
 }) {
 	const navigate = useNavigate();
 	const picker = useRef<HTMLInputElement | null>(null);
@@ -665,11 +722,16 @@ const BoardHead = memo(function BoardHead({
 	return (
 		<div className="boardhead">
 			{prev ? (
-				<Link className="navbtn" to={navUrl(prev, view)} aria-label="Previous day">
+				<Link
+					className="navbtn"
+					to={navUrl(prev, view)}
+					aria-label={cs.nav.previousDay}
+					onClick={() => onStep?.(prev)}
+				>
 					‹
 				</Link>
 			) : (
-				<button className="navbtn" type="button" disabled aria-label="Previous day">
+				<button className="navbtn" type="button" disabled aria-label={cs.nav.previousDay}>
 					‹
 				</button>
 			)}
@@ -680,7 +742,7 @@ const BoardHead = memo(function BoardHead({
 							type="button"
 							className="daypick"
 							onClick={openPicker}
-							aria-label="Jump to a date"
+							aria-label={cs.nav.jumpToDate}
 						>
 							{label}
 						</button>
@@ -707,11 +769,16 @@ const BoardHead = memo(function BoardHead({
 				)}
 			</span>
 			{next ? (
-				<Link className="navbtn" to={navUrl(next, view)} aria-label="Next day">
+				<Link
+					className="navbtn"
+					to={navUrl(next, view)}
+					aria-label={cs.nav.nextDay}
+					onClick={() => onStep?.(next)}
+				>
 					›
 				</Link>
 			) : (
-				<button className="navbtn" type="button" disabled aria-label="Next day">
+				<button className="navbtn" type="button" disabled aria-label={cs.nav.nextDay}>
 					›
 				</button>
 			)}
@@ -722,6 +789,12 @@ const BoardHead = memo(function BoardHead({
 export default function Schedule() {
 	const { trip } = useTrip();
 	const base = `/trips/${trip.id}/schedule`;
+	/**
+	 * The board is frozen. Checked in front of every write the page starts, and
+	 * again by the API, which is the boundary that matters: hiding a button is
+	 * how a locked board reads, not how it holds.
+	 */
+	const locked = trip.schedule_locked === 1;
 
 	// Read-only: every day and view change is a <Link>, so the board stays
 	// addressable and the back button walks back through the days.
@@ -892,6 +965,22 @@ export default function Schedule() {
 	const rootRef = useRef<HTMLDivElement>(null);
 	const pullRef = useRef(0);
 	const [viewH, setViewH] = useState(0);
+
+	/**
+	 * The day the strip is showing, which is not always the day in the url.
+	 *
+	 * The board is a strip of full-width days that scrolls sideways and settles
+	 * on one. The url follows a settle, and while a gesture is still in flight it
+	 * is behind, so the stepper and the lodging band read this instead: they name
+	 * the day under the reader's eyes, and a band still naming the day they have
+	 * scrolled away from is worse than no band at all. Null until the reader has
+	 * moved, which is to say the url is the answer until a hand says otherwise.
+	 */
+	const [shownDay, setShownDay] = useState<string | null>(null);
+	/** True while the strip is being positioned by code rather than by a hand. */
+	const placing = useRef(false);
+	/** The day the last settle committed, so it is not committed twice. */
+	const committed = useRef<string | null>(null);
 	useLayoutEffect(() => {
 		const el = scrollRef.current;
 		if (!el) return;
@@ -1101,6 +1190,109 @@ export default function Schedule() {
 	);
 	const anchorCity = anchor?.city ?? null;
 
+	/* The day under the reader, which the stepper, the band and the map name. */
+	const reading = useMemo(() => {
+		const on = shownDay && board.some((b) => b.day === shownDay) ? shownDay : (data?.day ?? null);
+		return board.find((b) => b.day === on) ?? anchor;
+	}, [board, shownDay, data?.day, anchor]);
+
+	const navigate = useNavigate();
+
+	/**
+	 * Put the day the url names under the reader, without motion.
+	 *
+	 * The strip holds three days and recycles them: settling on the right-hand
+	 * one makes it the middle one of a fresh three, so every step re-indexes the
+	 * panels underneath a reader who has not moved. Re-seating the scroll here is
+	 * what makes that invisible, because the day they are looking at is the same
+	 * day before and after: only its index changed. This is also what makes the
+	 * strip cover a four hundred day trip on three panels.
+	 *
+	 * Layout effect, so the seat is taken in the same frame the new panels are
+	 * painted in. A passive effect would paint the old offset first, which is a
+	 * flash of the wrong day.
+	 */
+	useLayoutEffect(() => {
+		const el = scrollRef.current;
+		if (!el || !data || data.view === 'agenda') return;
+		const i = board.findIndex((b) => b.day === data.day);
+		if (i < 0) return;
+		placing.current = true;
+		el.scrollLeft = i * el.clientWidth;
+		setShownDay(data.day);
+		committed.current = data.day;
+		// Released on the next frame: setting scrollLeft queues a scroll event,
+		// and reading it as a gesture would commit the seat we just took.
+		const id = requestAnimationFrame(() => {
+			placing.current = false;
+		});
+		return () => cancelAnimationFrame(id);
+	}, [data, board]);
+
+	/**
+	 * Follow the strip, and commit the day it comes to rest on.
+	 *
+	 * Two jobs on one listener because they are the same measurement. The day
+	 * being read is updated continuously, so the stepper and the band keep up
+	 * with the hand; the url is written only once the strip has stopped, because
+	 * a url per frame would fill the back button with every day scrolled past.
+	 *
+	 * `replace`, for the same reason: the strip is one continuous movement
+	 * through the trip, not a series of visits, so it leaves one entry behind
+	 * rather than one per day. The arrows and the date picker still push, since
+	 * those are decisions rather than travel.
+	 */
+	useEffect(() => {
+		const el = scrollRef.current;
+		if (!el || !data || data.view === 'agenda') return;
+		let settle = 0;
+		const onScroll = () => {
+			if (placing.current) return;
+			const w = el.clientWidth;
+			if (!w) return;
+			const landed = board[Math.round(el.scrollLeft / w)]?.day;
+			if (!landed) return;
+			setShownDay(landed);
+			window.clearTimeout(settle);
+			settle = window.setTimeout(() => {
+				// Not while something is being carried. The strip travelling is
+				// half of a cross-day drag, and rewriting the url mid-gesture would
+				// refetch the window and take the panel the block is drawn in out
+				// from under the hand holding it. The drop writes the url itself.
+				if (placing.current || dragRef.current || landed === committed.current) return;
+				committed.current = landed;
+				navigate(navUrl(landed, data.view), { replace: true });
+			}, SETTLE_MS);
+		};
+		el.addEventListener('scroll', onScroll, { passive: true });
+		return () => {
+			el.removeEventListener('scroll', onScroll);
+			window.clearTimeout(settle);
+		};
+	}, [board, data, navigate]);
+
+	/**
+	 * Slide the strip to a neighbour, which is what an arrow now does.
+	 *
+	 * The arrows are still links, so the board stays addressable and the back
+	 * button still walks the days. This runs first, over the panels that are on
+	 * screen at the time of the click: the old three are still painted while the
+	 * new day is being fetched, so the strip glides to the neighbour the reader
+	 * asked for, and the re-seat above lands on the same day once the payload
+	 * arrives. One motion, whether it was a hand or an arrow that started it.
+	 */
+	const stepTo = useCallback(
+		(day: string) => {
+			const el = scrollRef.current;
+			if (!el) return;
+			const i = board.findIndex((b) => b.day === day);
+			if (i < 0) return;
+			committed.current = day;
+			el.scrollTo({ left: i * el.clientWidth, behavior: 'smooth' });
+		},
+		[board]
+	);
+
 	/**
 	 * Whether Google has taken itself off the table.
 	 *
@@ -1117,19 +1309,29 @@ export default function Schedule() {
 	/**
 	 * The first minute the board draws when nothing is being dragged.
 	 *
-	 * The day's own contents decide it: its blocks and its journeys, both of
+	 * The days' own contents decide it: their blocks and their journeys, both of
 	 * which already carry the draft in an open dialog, so setting a block to 4:40
 	 * opens the board as it is typed. A drag opens it further through `openFloor`
 	 * rather than through here, because this snaps to the hour and a gesture
 	 * needs the minute.
+	 *
+	 * Every drawn day, not just the one being read. The panels of the strip share
+	 * one grid origin, which is what makes their hour lines meet across a scroll;
+	 * a window measured off the anchor alone would draw a neighbour's 4am block
+	 * above the top of its own panel, where it is clipped and sitting at the
+	 * wrong hour. The cost is that a neighbour's early start opens the day you
+	 * are reading too, which is the right way round: an hour of empty grid is
+	 * cheaper than a block in the wrong place.
 	 */
 	const winStart = useMemo(
 		() =>
-			windowStart([
-				...(anchor?.events ?? []).map((e) => e.start_min),
-				...(anchor?.legs ?? []).map((l) => l.startMin)
-			]),
-		[anchor]
+			windowStart(
+				board.flatMap((entry) => [
+					...entry.events.map((e) => e.start_min),
+					...entry.legs.map((l) => l.startMin)
+				])
+			),
+		[board]
 	);
 
 	/**
@@ -1237,23 +1439,37 @@ export default function Schedule() {
 	/* Opening an event: the pencil on a block, or a stay band, asks for the
 	   editor. Pointing at a block no longer opens it; a click focuses the map
 	   instead, so `openBlock` is reached through the pencil alone. */
-	const openBlock = useCallback((id: string) => {
-		setOpenLegId('');
-		setOpenEventId(id);
-	}, []);
+	const openBlock = useCallback(
+		(id: string) => {
+			// The dialog is an edit form, so a frozen board has nothing to open. The
+			// rows it is reached from already read what it would say.
+			if (locked) return;
+			setOpenLegId('');
+			setOpenEventId(id);
+		},
+		[locked]
+	);
 	/* Opening a journey's arrival, keeping the leg's id so the dialog opens on
 	   the journey that was meant. Reached from the agenda list, whose rows open
 	   the way they always have: the click-focuses-the-map change is the day
 	   board's, and the agenda has no pencil to move editing onto. */
-	const openLeg = useCallback((leg: LegRow) => {
-		setOpenLegId(leg.id);
-		setOpenEventId(leg.toEventId);
-	}, []);
-	/** Add something to the day being read, with no time chosen yet. */
-	const shownDay = data?.day;
+	const openLeg = useCallback(
+		(leg: LegRow) => {
+			if (locked) return;
+			setOpenLegId(leg.id);
+			setOpenEventId(leg.toEventId);
+		},
+		[locked]
+	);
+	/** Add something to the day being read, with no time chosen yet.
+	 *
+	 * The day under the reader rather than the day in the url, because while the
+	 * strip is mid-gesture those differ and the button belongs to the day on
+	 * screen. */
+	const addDay = reading?.day ?? data?.day;
 	const addHere = useCallback(() => {
-		if (shownDay) setAdding({ day: shownDay, start: null });
-	}, [shownDay]);
+		if (addDay && !locked) setAdding({ day: addDay, start: null });
+	}, [addDay, locked]);
 	const closeEvent = () => {
 		setOpenEventId('');
 		setOpenLegId('');
@@ -1326,8 +1542,9 @@ export default function Schedule() {
 
 	const peopleLabel = useCallback(
 		(ids: string[]) => {
-			if (ids.length === 0) return 'Everyone';
-			if (ids.length === members.length) return 'Everyone';
+			// Naming nobody and naming everybody are the same fact, and the stored
+			// form is the empty list: see `PeoplePicker`.
+			if (ids.length === 0 || ids.length === members.length) return copy.common.everyone;
 			return ids.map((id) => shortName(id)).join(', ');
 		},
 		[members.length, shortName]
@@ -1520,7 +1737,7 @@ export default function Schedule() {
 	const addFromMap = useCallback(
 		(poiId: string) => {
 			const p = savedById.get(poiId);
-			if (!p || !shownDay) return;
+			if (!p || !shownDay || locked) return;
 			setAdding({
 				day: shownDay,
 				start: null,
@@ -1528,7 +1745,7 @@ export default function Schedule() {
 				poi: { id: p.id, name: p.name }
 			});
 		},
-		[savedById, shownDay]
+		[savedById, shownDay, locked]
 	);
 	/* The camera returns to the whole day when the selection is dropped: on a day
 	   change, because the focused block is not on the new day, and on Escape while
@@ -1595,6 +1812,7 @@ export default function Schedule() {
 
 	const onPointerDown = useCallback(
 		(e: React.PointerEvent, ev: EventRow, day: string) => {
+			if (locked) return;
 			// Let the resize grip through.
 			if ((e.target as HTMLElement).closest('.bresize')) return;
 			(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
@@ -1604,13 +1822,16 @@ export default function Schedule() {
 				day,
 				pointerStartY: e.clientY,
 				pointerY: e.clientY,
+				pointerX: e.clientX,
 				origStart: ev.start_min,
 				mins: ev.end_min - ev.start_min,
 				creep: 0,
-				liveStart: ev.start_min
+				liveStart: ev.start_min,
+				scrollLeft0: scrollRef.current?.scrollLeft ?? 0,
+				dx: 0
 			});
 		},
-		[putDrag]
+		[putDrag, locked]
 	);
 
 	const onPointerMove = useCallback(
@@ -1620,7 +1841,12 @@ export default function Schedule() {
 			const y = e.clientY;
 			if (Math.abs(y - d.pointerStartY) > 3) didDrag.current = true;
 			// The ref is the truth and is right immediately; the frame draws it.
-			dragRef.current = { ...d, pointerY: y, liveStart: liveStartFor(d, d.creep, y) };
+			dragRef.current = {
+				...d,
+				pointerY: y,
+				pointerX: e.clientX,
+				liveStart: liveStartFor(d, d.creep, y)
+			};
 			touch();
 		},
 		[touch]
@@ -1638,6 +1864,14 @@ export default function Schedule() {
 	 * is, barely moving at the threshold and a couple of hours a second at the
 	 * very edge, which is slow enough to stop on a minute and quick enough to
 	 * cross a night.
+	 *
+	 * The sides do the same thing for dates. Holding the block against the left
+	 * or right of the box runs the strip through the days it has loaded, and the
+	 * block stays put while they pass, so it is let go on whichever day has
+	 * arrived under it. The reach is the loaded window, a day either side: a
+	 * longer move is the Date field's job, since carrying a block across a
+	 * fortnight by leaning on the edge of the screen is nobody's idea of a
+	 * shortcut.
 	 */
 	useEffect(() => {
 		if (!drag) return;
@@ -1648,8 +1882,9 @@ export default function Schedule() {
 			const dt = Math.min(now - last, 100) / 1000;
 			last = now;
 			const d = dragRef.current;
-			const box = scrollRef.current?.getBoundingClientRect();
-			if (d && box) {
+			const el = scrollRef.current;
+			const box = el?.getBoundingClientRect();
+			if (d && el && box) {
 				const pastTop = box.top + EDGE_PX - d.pointerY;
 				const pastBottom = d.pointerY - (box.bottom - EDGE_PX);
 				const rate = (past: number) => (Math.min(past, EDGE_PX) / EDGE_PX) * EDGE_RATE * dt;
@@ -1661,9 +1896,25 @@ export default function Schedule() {
 						: pastBottom > 0 && d.liveStart < DAY_END - d.mins
 							? -rate(pastBottom)
 							: 0;
-				if (by) {
-					const creep = d.creep + by;
-					dragRef.current = { ...d, creep, liveStart: liveStartFor(d, creep, d.pointerY) };
+
+				const pastLeft = box.left + EDGE_PX - d.pointerX;
+				const pastRight = d.pointerX - (box.right - EDGE_PX);
+				const days = (past: number) =>
+					(Math.min(past, EDGE_PX) / EDGE_PX) * EDGE_DAY_RATE * el.clientWidth * dt;
+				const sideways = pastLeft > 0 ? -days(pastLeft) : pastRight > 0 ? days(pastRight) : 0;
+				if (sideways) el.scrollLeft += sideways;
+
+				// The strip may also have moved under a still hand, so what it has
+				// done is read back off the box rather than accumulated here.
+				const dx = el.scrollLeft - d.scrollLeft0;
+				if (by || dx !== d.dx) {
+					const creep = by ? d.creep + by : d.creep;
+					dragRef.current = {
+						...d,
+						creep,
+						dx,
+						liveStart: liveStartFor(d, creep, d.pointerY)
+					};
 					dirty.current = true;
 				}
 			}
@@ -1684,18 +1935,27 @@ export default function Schedule() {
 		if (!d) return;
 		const snapped = Math.round(d.liveStart / 5) * 5;
 		const { id, origStart, day } = d;
+		// Whichever day the strip has brought under the block.
+		const el = scrollRef.current;
+		const w = el?.clientWidth ?? 0;
+		const toDay = (w ? board[Math.round(el!.scrollLeft / w)]?.day : null) ?? day;
 		putDrag(null);
-		if (snapped === origStart) return;
+		if (snapped === origStart && toDay === day) return;
 		setPending({ id, start: snapped });
 		// Hold the window where the gesture left it until the day comes back.
 		setOpenFloor(snapped);
-		// The day rides along because a move carries one, and sending the block's
-		// own day keeps a drag in the 3-day view on the column it was drawn in.
-		await act(() => eventOp(id, { op: 'move', startMin: snapped, day }));
-	}, [act, eventOp, putDrag]);
+		// A drop on another date is a decision, so it goes in the history the way
+		// the arrows do, and it is the url that walks the strip to the new day:
+		// the board re-seats on whatever day it names.
+		if (toDay !== day && data) navigate(navUrl(toDay, data.view));
+		// The day rides along because a move carries one, and sending the day the
+		// block was let go over is the whole of dragging across dates.
+		await act(() => eventOp(id, { op: 'move', startMin: snapped, day: toDay }));
+	}, [act, eventOp, putDrag, board, data, navigate]);
 
 	const onResizeDown = useCallback(
 		(e: React.PointerEvent, ev: EventRow) => {
+			if (locked) return;
 			e.stopPropagation();
 			(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
 			didDrag.current = false;
@@ -1707,7 +1967,7 @@ export default function Schedule() {
 				liveEnd: ev.end_min
 			});
 		},
-		[putResize]
+		[putResize, locked]
 	);
 
 	const onResizeMove = useCallback(
@@ -1740,22 +2000,24 @@ export default function Schedule() {
 	}, [act, eventOp, putResize]);
 
 	/**
-	 * The board's entrance when the day or the view changes under it.
+	 * The board's entrance when the view changes under it.
 	 *
-	 * One rank covers both, because only one of them moves at a time. A day is
-	 * worth two of a view, so that stepping to tomorrow and switching Day to
-	 * Agenda both read as a step forward and neither is mistaken for the other.
+	 * A day step no longer comes through here. The board is a strip now, and a
+	 * step is a real horizontal movement of it: the panels travel, the arrows
+	 * start the same travel a hand would, and a scripted 64px slide of the card
+	 * on top of that is a second motion disagreeing with the first about how far
+	 * the board went and in which direction. The slide was standing in for a
+	 * movement the board could not make, and the board can make it now.
 	 *
-	 * Only the board moves. A day step changes what the calendar is drawing and
-	 * nothing else on the page, so the toolbar and the map it shares the row
-	 * with stay put. Moving the whole section is reserved for a tab change,
-	 * where the whole section really is what was replaced.
+	 * A view change still slides, because Day and Agenda really do replace what
+	 * the card is drawing rather than move it, and there is no gesture between
+	 * them for the strip to borrow.
 	 */
 	const boardRef = useRef<HTMLDivElement>(null);
 	useSlideIn(
 		boardRef,
-		data && `${data.day}:${data.view}`,
-		data ? dayRank(data.day) * 2 + VIEW_OPTIONS.findIndex((o) => o.v === data.view) : 0
+		data && data.view,
+		data ? VIEW_OPTIONS.findIndex((o) => o.v === data.view) : 0
 	);
 
 	if (!data) return error ? <FormError message={error} variant="banner" /> : null;
@@ -1808,29 +2070,29 @@ export default function Schedule() {
 							onClick={() => focusOnMap(s.id)}
 						>
 							<span className="stayname">{s.title}</span>
-							<span className="staywho">
-								{s.people.length === 0 || s.people.length === members.length
-									? 'Everyone'
-									: s.people.map((id) => shortName(id)).join(', ')}
-							</span>
+							<span className="staywho">{peopleLabel(s.people)}</span>
 						</button>
-						<button
-							type="button"
-							className="stayedit"
-							aria-label={`${EDIT_ACTION} ${s.title}`}
-							onClick={() => openBlock(s.id)}
-						>
-							<PencilIcon />
-						</button>
+						{!locked && (
+							<button
+								type="button"
+								className="stayedit"
+								aria-label={copy.common.editLabel(s.title)}
+								onClick={() => openBlock(s.id)}
+							>
+								<PencilIcon />
+							</button>
+						)}
 					</div>
 				))}
-				<button
-					type="button"
-					className="stayadd"
-					onClick={() => setAdding({ day: entry.day, start: null, type: 'stay' })}
-				>
-					+ Add stay
-				</button>
+				{!locked && (
+					<button
+						type="button"
+						className="stayadd"
+						onClick={() => setAdding({ day: entry.day, start: null, type: 'stay' })}
+					>
+						{cs.addStay}
+					</button>
+				)}
 			</div>
 		);
 	}
@@ -1857,6 +2119,7 @@ export default function Schedule() {
 				to={endFor(ev)}
 				boardStart={boardStart}
 				dragging={drag?.id === ev.id}
+				dx={drag?.id === ev.id ? drag.dx : 0}
 				resizing={resize?.id === ev.id}
 				editing={preview?.id === ev.id}
 				memberCount={members.length}
@@ -1871,6 +2134,7 @@ export default function Schedule() {
 				onGripMove={onResizeMove}
 				onGripUp={onResizeUp}
 				hasLegAbove={legTargets.has(ev.id)}
+				locked={locked}
 			/>
 		);
 	}
@@ -1938,10 +2202,21 @@ export default function Schedule() {
 	}
 
 	function dayBoard(entry: BoardDay, opts: { lanePx: number; measure?: boolean }) {
-		if (entry.events.length === 0 && entry.legs.length === 0) {
-			return <EmptyState graphic message={copy.common.nothingAdded} />;
-		}
-
+		/* An empty day draws the calendar, not a graphic.
+		 *
+		 * It used to show the same drawn bug every other empty list in the app
+		 * shows, which was wrong here for two reasons. A day with nothing on it
+		 * is not an empty collection, it is a free day, and the hours are the
+		 * answer to "when could this go": the grid is where you double-click to
+		 * put something at four o'clock, and the graphic had nothing to click.
+		 * The other reason arrived with the strip. Panels sit side by side, so a
+		 * graphic a couple of hundred pixels tall next to a full day of hours
+		 * made the board's height jump as it was scrolled, and an empty day read
+		 * as having been scrolled off the end of the trip rather than as a day
+		 * with a free morning.
+		 *
+		 * The agenda keeps its graphic, because a list of nothing really is
+		 * nothing: there are no hours there to offer instead. */
 		/* Journeys share the event columns rather than sitting in a lane of their
 		   own. Travel is part of the day, not a footnote to it: an hour on a
 		   ferry is an hour you cannot be anywhere else, and drawing it beside the
@@ -2001,7 +2276,7 @@ export default function Schedule() {
 						// A double click on empty track is "put something here". On a
 						// block it is not: blocks have their own dialogs, and opening a
 						// second one over the top would be a trap.
-						if ((e.target as HTMLElement).closest('.block')) return;
+						if (locked || (e.target as HTMLElement).closest('.block')) return;
 						const rect = e.currentTarget.getBoundingClientRect();
 						const mins = boardStart + (e.clientY - rect.top) / PX_PER_MIN;
 						const snapped = Math.round(mins / 15) * 15;
@@ -2091,7 +2366,7 @@ export default function Schedule() {
 	}
 
 	return (
-		<div className="sched" ref={rootRef}>
+		<div className={locked ? 'sched locked' : 'sched'} ref={rootRef}>
 			<Toolbar
 				view={view}
 				day={data.day}
@@ -2100,21 +2375,23 @@ export default function Schedule() {
 				viewAsOptions={viewAsOptions}
 				onViewAs={setViewAs}
 				onAdd={addHere}
+				locked={locked}
 			/>
 
 			<div className="split">
 				<div className="boardcol">
 					<div className="board card" ref={boardRef}>
 						<BoardHead
-							label={dayLabel(data.day)}
+							label={dayLabel(reading?.day ?? data.day)}
 							view={view}
-							day={data.day}
+							day={reading?.day ?? data.day}
 							first={data.firstDay}
 							last={data.lastDay}
 							prev={dayStep(-1)}
 							next={dayStep(1)}
+							onStep={stepTo}
 						/>
-						{anchor && stayBands(anchor)}
+						{reading && stayBands(reading)}
 						{anchor ? (
 							/* The board's viewport, whichever board is in it. The stepper and
 							   the lodging band are outside it on purpose: they name the day,
@@ -2124,15 +2401,57 @@ export default function Schedule() {
 							   then scrolled the title and the stepper off the top exactly as
 							   the hours used to. It is the same box because it is the same
 							   complaint, and `max-height` costs a short day nothing: no
-							   overflow, no scrollbar. */
+							   overflow, no scrollbar.
+
+							   It scrolls both ways now. Sideways it is a strip of whole days
+							   that snaps to one at a time, which is what lets a block be
+							   dragged onto another date and what makes the day step a
+							   movement rather than a redraw. */
 							<div
-								className={view === 'agenda' ? 'boardscroll list' : 'boardscroll'}
+								className={
+									view === 'agenda' ? 'boardscroll list' : `boardscroll${drag ? ' held' : ''}`
+								}
 								ref={scrollRef}
 								style={viewH ? { maxHeight: `${viewH}px` } : undefined}
 							>
-								{view === 'agenda'
-									? agendaBoard()
-									: dayBoard(anchor, { lanePx: laneW || 560, measure: true })}
+								{view === 'agenda' ? (
+									agendaBoard()
+								) : (
+									<div className="daytrack">
+										{board.map((entry) => (
+											<div
+												className="daypanel"
+												key={entry.day}
+												data-day={entry.day}
+												/* The days either side are drawn but not read. They are
+												   off screen, so a reader who can see the board is
+												   looking at one day; a reader who cannot was being
+												   handed three days of blocks as one unbroken list,
+												   with yesterday's events announced as today's. `inert`
+												   is what says that: it takes the panel out of the
+												   accessibility tree and out of the tab order together,
+												   where `aria-hidden` alone would have left focusable
+												   buttons inside a hidden subtree.
+
+												   Lifted for the length of a drag. A block being carried
+												   across dates travels with its own panel, and that
+												   panel stops being the one being read the moment the
+												   strip passes the halfway point: made inert under the
+												   hand holding it, the gesture would die mid-air. */
+												inert={!drag && entry.day !== (reading?.day ?? data.day)}
+											>
+												{dayBoard(entry, {
+													lanePx: laneW || 560,
+													// One panel is measured, and they are all the same
+													// width: a second observer on a strip that
+													// re-indexes would report the same number twice and
+													// re-render the board for it.
+													measure: entry.day === data.day
+												})}
+											</div>
+										))}
+									</div>
+								)}
 							</div>
 						) : null}
 					</div>
@@ -2185,6 +2504,8 @@ export default function Schedule() {
 					stays={data.stays}
 					cities={data.cities}
 					cityId={openEvent.city_id ?? cityOfDay(openEvent.day)}
+					firstDay={data.firstDay}
+					lastDay={data.lastDay}
 					provider={data.provider}
 					dock={dockSide}
 					peek={roomToDock}

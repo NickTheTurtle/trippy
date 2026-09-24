@@ -31,7 +31,13 @@ import {
 	MIN_QUERY,
 	type SearchKind
 } from '@trippy/server/places';
-import { isNameLength, nameTooLong, safeExternalUrl } from '@trippy/core/validate';
+import {
+	isNameLength,
+	isNotesLength,
+	nameTooLong,
+	notesTooLong,
+	safeExternalUrl
+} from '@trippy/core/validate';
 import { haversineKm } from '@trippy/core/geo';
 
 export const discover = new Hono<Env>();
@@ -216,6 +222,9 @@ discover.post('/pois', async (c) => {
 	if (!isNameLength(name)) return fail(c, 400, nameTooLong());
 	let notes = optStr(b.notes);
 	if (activity && placeName) notes = notes ? `${placeName} · ${notes}` : placeName;
+	// Checked after the join, not before: the place name is prepended here, so
+	// the value the limit has to hold is the one that ends up in the column.
+	if (notes && !isNotesLength(notes)) return fail(c, 400, notesTooLong());
 
 	if (poiTitleExists(trip.id, cityId, name)) {
 		return fail(
@@ -270,6 +279,9 @@ discover.patch('/pois/:poiId', async (c) => {
 	if (!name) return fail(c, 400, 'Enter a name.');
 	if (!isNameLength(name)) return fail(c, 400, nameTooLong());
 
+	const notes = optStr(b.notes);
+	if (notes && !isNotesLength(notes)) return fail(c, 400, notesTooLong());
+
 	const link = readLink(b.url);
 	if ('error' in link) return fail(c, 400, link.error);
 
@@ -277,7 +289,7 @@ discover.patch('/pois/:poiId', async (c) => {
 		c,
 		updatePoi(c.get('trip').id, c.get('user').id, c.req.param('poiId'), {
 			name,
-			notes: optStr(b.notes),
+			notes,
 			url: link.url,
 			// Patch semantics: only forwarded when the client actually sent it.
 			// Defaulting it here would reclassify a food location as an attraction
@@ -335,6 +347,27 @@ function checkoutNotAfterCheckIn(checkIn: string | null, checkOut: string | null
 }
 
 /**
+ * Nights that fall outside the trip's own dates, which the night range guard
+ * above cannot see: May 8 to May 9 is a perfectly ordered one-night stay and
+ * was accepted onto a trip running May 10 to May 15, where it then drew a band
+ * on days the board does not have.
+ *
+ * Check-out is bounded by the last day rather than the day after it. The last
+ * night of a May 10 to May 15 trip is the 14th into the 15th, so a checkout on
+ * the 15th is the latest a traveller can mean.
+ *
+ * Each end is judged on its own, so a half-filled range is still undated rather
+ * than invalid, matching `checkoutNotAfterCheckIn`.
+ */
+function outsideTrip(trip: Trip, checkIn: string | null, checkOut: string | null): string | null {
+	const first = trip.start_date;
+	const last = trip.end_date;
+	if (!first || !last) return null;
+	const strays = (day: string | null) => !!day && (day < first || day > last);
+	return strays(checkIn) || strays(checkOut) ? 'Those nights fall outside the trip.' : null;
+}
+
+/**
  * The per-night price of a stay, in whole cents.
  *
  * `priceCents` is the field to send: it is what the column holds, and an
@@ -372,6 +405,11 @@ discover.post('/stays', async (c) => {
 	if (!name) return fail(c, 400, 'Enter a name.');
 	if (!isNameLength(name)) return fail(c, 400, nameTooLong());
 
+	// A stay's `tag` is its one free-text line, and the add popup calls that
+	// field notes, so it answers to the same limit.
+	const stayTag = str(b.tag) || str(b.notes);
+	if (stayTag && !isNotesLength(stayTag)) return fail(c, 400, notesTooLong());
+
 	const price = stayPriceCents(b);
 	if (price === 'bad') return fail(c, 400, 'Enter a valid price, or leave it blank.');
 
@@ -381,6 +419,8 @@ discover.post('/stays', async (c) => {
 	if (checkoutNotAfterCheckIn(checkIn, checkOut)) {
 		return fail(c, 400, 'Check-out must be after check-in.');
 	}
+	const strayNights = outsideTrip(trip, checkIn, checkOut);
+	if (strayNights) return fail(c, 400, strayNights);
 
 	const stayLink = readLink(b.url);
 	if ('error' in stayLink) return fail(c, 400, stayLink.error);
@@ -391,9 +431,7 @@ discover.post('/stays', async (c) => {
 	if (elsewhere) return fail(c, 400, elsewhere);
 
 	const id = addOption(trip.id, c.get('user').id, str(b.cityId), name, {
-		// `notes` is the field name the add popup uses for the one free-text line
-		// a stay carries; the column has always been called `tag`.
-		tag: str(b.tag) || str(b.notes),
+		tag: stayTag,
 		priceCents: price,
 		// Blank: the server falls back to the trip's home currency.
 		currency: str(b.currency),
@@ -454,6 +492,9 @@ discover.patch('/stays/:optionId', async (c) => {
 	if (!name) return fail(c, 400, 'Enter a name.');
 	if (!isNameLength(name)) return fail(c, 400, nameTooLong());
 
+	const editTag = str(b.tag) || str(b.notes);
+	if (editTag && !isNotesLength(editTag)) return fail(c, 400, notesTooLong());
+
 	const price = stayPriceCents(b);
 	if (price === 'bad') return fail(c, 400, 'Enter a valid price, or leave it blank.');
 
@@ -463,6 +504,8 @@ discover.patch('/stays/:optionId', async (c) => {
 	if (checkoutNotAfterCheckIn(checkIn, checkOut)) {
 		return fail(c, 400, 'Check-out must be after check-in.');
 	}
+	const editStrays = outsideTrip(c.get('trip'), checkIn, checkOut);
+	if (editStrays) return fail(c, 400, editStrays);
 
 	const editLink = readLink(b.url);
 	if ('error' in editLink) return fail(c, 400, editLink.error);
@@ -491,6 +534,8 @@ discover.patch('/stays/:optionId/dates', async (c) => {
 	if (checkoutNotAfterCheckIn(checkIn, checkOut)) {
 		return fail(c, 400, 'Check-out must be after check-in.');
 	}
+	const dateStrays = outsideTrip(c.get('trip'), checkIn, checkOut);
+	if (dateStrays) return fail(c, 400, dateStrays);
 	return okOr(
 		c,
 		setDates(c.get('trip').id, c.get('user').id, c.req.param('optionId'), checkIn, checkOut),

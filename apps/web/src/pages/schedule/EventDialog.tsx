@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { isLocatedType, STAY_CHECK_IN, type EventType } from '@trippy/core/types';
-import { MAX_NAME_LENGTH } from '@trippy/core/validate';
+import { MAX_NAME_LENGTH, MAX_NOTES_LENGTH } from '@trippy/core/validate';
 import { api } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
 import Modal, { ModalFooter, ModalForm } from '../../components/ui/Modal';
@@ -10,8 +10,7 @@ import TimeField from '../../components/ui/TimeField';
 import { FieldShell, Field, TextArea } from '../../components/ui/Field';
 import { copy } from '../../copy';
 import PeoplePicker from './PeoplePicker';
-import PlaceField from './PlaceField';
-import { usePlaceLookup } from './usePlaceSearch';
+import { usePlaceField } from './usePlaceField';
 import { useJourneys } from './Journeys';
 import {
 	DAY_END,
@@ -20,15 +19,14 @@ import {
 	TYPE_OPTIONS,
 	dayLabel,
 	deriveTitle,
-	keepsPick,
 	NO_PEOPLE,
-	placeLabel,
-	placeOptions,
 	rangeLabel,
 	shiftDay
 } from './shared';
 import StayDates from './StayDates';
 import type { Cell, Crew, EventDraft, EventRow, LegRow, SavedPoi } from './types';
+
+const cf = copy.schedule.fields;
 
 /**
  * One event: retype, retime, re-people, relocate, delete, and set the journeys
@@ -64,6 +62,8 @@ export default function EventDialog({
 	stays,
 	cities,
 	cityId,
+	firstDay,
+	lastDay,
 	provider,
 	dock,
 	peek,
@@ -87,6 +87,9 @@ export default function EventDialog({
 	stays: SavedPoi[];
 	cities: (Cell | null)[];
 	cityId: string | null;
+	/** The first and last day the trip reaches, which bound the date field. */
+	firstDay: string;
+	lastDay: string;
 	/** Who answers the place search, for the attribution under its results. */
 	provider?: 'google' | 'osm';
 	/** Which edge to stand at. */
@@ -105,6 +108,10 @@ export default function EventDialog({
 	   block that is not a stay yet, so switching type to one has an answer. */
 	const [checkIn, setCheckIn] = useState(event.day);
 	const [checkOut, setCheckOut] = useState(event.end_day ?? shiftDay(event.day, 1));
+	/* The day everything else sits on. Its own state because the date is now a
+	   field rather than a fact about where the dialog was opened from, and a
+	   block can be sent to another day without being dragged there. */
+	const [date, setDate] = useState(event.day);
 	/* `null` once the organiser has emptied the field. Distinct from `[]`, which
 	   is how everyone is stored, and refused at the save rather than at the tick. */
 	const [people, setPeople] = useState<string[] | null>([...event.people]);
@@ -113,7 +120,6 @@ export default function EventDialog({
 	/* Which link the block already has depends on what it is: a stay is booked
 	   into a proposed stay, everything else is scheduled at a saved place. */
 	const savedPick = (event.type === 'stay' ? event.lodging_id : event.poi_id) ?? '';
-	const [poi, setPoi] = useState(savedPick);
 	/* The name the box opens on: the linked place's, or the one typed by hand
 	   when there is no link. Both are the same field to the reader, so both have
 	   to come back when the dialog is reopened. */
@@ -121,7 +127,25 @@ export default function EventDialog({
 		((event.type === 'stay' ? stays : saved).find((p) => p.id === savedPick)?.name ??
 			(savedPick ? '' : event.place_text)) ||
 		'';
-	const [place, setPlace] = useState(openedOn);
+
+	const {
+		poi,
+		place,
+		spot,
+		placeable,
+		field: placeField,
+		retype
+	} = usePlaceField({
+		base,
+		type,
+		cities,
+		cityId,
+		saved,
+		stays,
+		provider,
+		initialPoi: savedPick,
+		initialPlace: openedOn
+	});
 
 	const journeys = useJourneys({ legs, eventOf, peopleLabel, focusLegId });
 
@@ -129,7 +153,7 @@ export default function EventDialog({
 	const endMin = Number(end);
 	const staying = type === 'stay';
 	/** The day the block lands on, which is its check-in once it is a stay. */
-	const onDay = staying ? checkIn : event.day;
+	const onDay = staying ? checkIn : date;
 
 	/**
 	 * Moving the start carries the end with it, keeping the length.
@@ -158,38 +182,9 @@ export default function EventDialog({
 	const preview = useRef(onPreview);
 	preview.current = onPreview;
 
-	// Only a located type stands somewhere: free time is deliberately nowhere.
-	// A journey's location is the far end of it: where it puts you, and where
-	// the rest of the day is then planned from.
-	const placeable = isLocatedType(type);
-	const placeFieldLabel = placeLabel(type);
-
-	/* The provider search is biased to a city, so a day without one searches
-	   nothing and the field is the saved list alone. */
-	const searchCity = cities.find((c): c is Cell => c?.id === cityId) ?? null;
-	const { found, onTyped, fieldProps } = usePlaceLookup({
-		base,
-		city: searchCity,
-		type,
-		provider,
-		onPicked: (made, stay) => {
-			setPlace(made.name);
-			// Linked only when the block can hold what was added: a hotel found
-			// from an activity is saved to the trip either way, but this block is
-			// not the thing that books it.
-			setPoi(stay === staying ? made.id : '');
-		}
-	});
-
-	/* One picker, two lists: a stay is booked into one of the stays the group is
-	   voting on, everything else happens at a saved place. Anything the provider
-	   search added while this dialog has been open goes in front of both. */
-	const pickable = staying ? [...found.stays, ...stays] : [...found.places, ...saved];
-
 	/* Where the draft stands, which the board, the map and the planner all read
 	   as coordinates. An event can hold coordinates without a saved place, so an
 	   untouched picker keeps them; choosing "No location" is what clears them. */
-	const spot = pickable.find((p) => p.id === poi) ?? null;
 	const lat = placeable ? (spot ? spot.lat : poi ? null : event.lat) : null;
 	const lng = placeable ? (spot ? spot.lng : poi ? null : event.lng) : null;
 
@@ -253,8 +248,6 @@ export default function EventDialog({
 	// preview when the dialog goes, whether it was saved, cancelled or escaped.
 	useEffect(() => () => preview.current?.(null), []);
 
-	const poiOptions = placeOptions(pickable, cities, cityId, type);
-
 	/* Sent only when it has actually changed.
 	 *
 	 * An empty place means "unlink", and it clears the event's coordinates with
@@ -295,8 +288,10 @@ export default function EventDialog({
 				notes: notes.trim(),
 				startMin: staying ? undefined : startMin,
 				endMin: staying ? undefined : endMin,
-				// A stay moves and stretches by its dates instead of by its clock.
-				day: staying ? checkIn : undefined,
+				// A stay moves and stretches by its dates; everything else moves by
+				// the one date it has. Both arrive as `day`, and the server ignores
+				// one that names the day the block is already on.
+				day: onDay,
 				endDay: staying ? checkOut : undefined,
 				// Absent leaves it alone; empty hands the journey back to the router.
 				travelMode: type === 'travel' ? mode : undefined,
@@ -342,7 +337,7 @@ export default function EventDialog({
 				dock={dock}
 				peek={peek}
 				title="Edit event"
-				subtitle={staying ? rangeLabel(checkIn, checkOut) : dayLabel(event.day)}
+				subtitle={staying ? rangeLabel(checkIn, checkOut) : dayLabel(onDay)}
 				onClose={onClose}
 			>
 				<ModalForm className="schedule" onSubmit={submit}>
@@ -370,40 +365,17 @@ export default function EventDialog({
 						    below `sm`: two clocks of three segments each do not fit in
 						    half of a 390px dialog. */}
 						<div className="grid grid-cols-12 gap-x-2.5 gap-y-3.5">
-							{placeable && (
-								<PlaceField
-									label={placeFieldLabel}
-									className="col-span-8"
-									options={poiOptions}
-									value={place}
-									onChange={(text, id) => {
-										setPlace(text);
-										setPoi(id);
-										// Only a typed query searches. A pick puts a name in the
-										// box that nobody asked the provider for.
-										onTyped(id ? '' : text);
-									}}
-									{...fieldProps}
-								/>
-							)}
-							<FieldShell
-								label="Type"
-								className={placeable ? 'col-span-4' : 'col-span-12 sm:col-span-5'}
-							>
+							{placeField}
+							<FieldShell label={cf.type} className={placeable ? 'col-span-4' : 'col-span-12'}>
 								<Select
 									value={type}
 									onChange={(v) => {
 										const next = v as EventType;
-										// The pick and the name it wrote go together: see the add
-										// dialog.
-										if (!keepsPick(type, next, spot)) {
-											setPoi('');
-											setPlace('');
-										}
+										retype(next);
 										setType(next);
 									}}
 									options={TYPE_OPTIONS}
-									ariaLabel="Type"
+									ariaLabel={cf.type}
 								/>
 							</FieldShell>
 
@@ -418,26 +390,58 @@ export default function EventDialog({
 									onCheckOut={setCheckOut}
 								/>
 							) : (
-								<FieldShell label="When" className="col-span-12 sm:col-span-7">
-									<div className="tfpair">
-										<TimeField
-											value={startMin}
-											onChange={(v) => moveStart(String(v))}
-											ariaLabel="Start"
-										/>
-										<span className="tfto">to</span>
-										<TimeField
-											value={endMin}
-											onChange={(v) => setEnd(String(v))}
-											onCommit={fixEnd}
-											ariaLabel="End"
-										/>
-									</div>
-								</FieldShell>
+								<>
+									{/* The date sits beside the clock rather than inside it: a
+									    block that is on the wrong day is moved by saying so,
+									    which is the one move a drag down a single day's column
+									    cannot make. Bounded by the trip, because the board
+									    only draws days the trip has.
+
+									    Clamped, not merely bounded. `min` and `max` colour a
+									    date input's own picker but do not stop a date being
+									    typed into it, and a typed 2027-05-16 on a trip that
+									    ends on the 15th left the field reading one day while
+									    the board read another, with nothing to say which the
+									    save would use. */}
+									<Field
+										label={cf.date}
+										className="col-span-12 sm:col-span-5"
+										type="date"
+										min={firstDay}
+										max={lastDay}
+										value={date}
+										onChange={(e) => {
+											const typed = e.target.value;
+											if (!typed) return;
+											setDate(typed < firstDay ? firstDay : typed > lastDay ? lastDay : typed);
+										}}
+									/>
+									<FieldShell label={cf.when} className="col-span-12 sm:col-span-7">
+										<div className="tfpair">
+											<TimeField
+												value={startMin}
+												onChange={(v) => moveStart(String(v))}
+												ariaLabel={cf.start}
+											/>
+											<span className="tfto">to</span>
+											<TimeField
+												value={endMin}
+												onChange={(v) => setEnd(String(v))}
+												onCommit={fixEnd}
+												ariaLabel={cf.end}
+											/>
+										</div>
+									</FieldShell>
+								</>
 							)}
 							{type === 'travel' && (
-								<FieldShell label="Mode" optional className="col-span-12 sm:col-span-5">
-									<Select value={mode} onChange={setMode} options={MODE_OPTIONS} ariaLabel="Mode" />
+								<FieldShell label={cf.mode} optional className="col-span-12 sm:col-span-5">
+									<Select
+										value={mode}
+										onChange={setMode}
+										options={MODE_OPTIONS}
+										ariaLabel={cf.mode}
+									/>
 								</FieldShell>
 							)}
 							<PeoplePicker
@@ -448,8 +452,8 @@ export default function EventDialog({
 								className={
 									staying
 										? 'col-span-4'
-										: placeable && type !== 'travel'
-											? 'col-span-12 sm:col-span-5'
+										: type === 'travel'
+											? 'col-span-12 sm:col-span-7'
 											: 'col-span-12'
 								}
 							/>
@@ -458,7 +462,7 @@ export default function EventDialog({
 							    this is cleared, so the field says what it overrides
 							    without a hint line repeating it. */}
 							<Field
-								label="Label"
+								label={cf.label}
 								optional
 								className="col-span-12"
 								value={label}
@@ -468,8 +472,9 @@ export default function EventDialog({
 							/>
 
 							<TextArea
-								label="Notes"
+								label={cf.notes}
 								optional
+								maxLength={MAX_NOTES_LENGTH}
 								className="col-span-12"
 								value={notes}
 								onChange={(e) => setNotes(e.target.value)}

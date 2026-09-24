@@ -55,7 +55,7 @@ export default function EditCost({
 	const [assignees, setAssignees] = useState<Set<string>>(new Set(draft.assignees));
 
 	const del = useDeleteAction({
-		title: copy.preparation.deleteCost.title(draft.label),
+		title: copy.common.deleteTitle(draft.label),
 		busyLabel: copy.common.deleting,
 		onDelete
 	});

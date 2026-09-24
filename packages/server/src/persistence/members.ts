@@ -161,7 +161,8 @@ export function addPerson(
 	return clean ? 'invited' : 'created';
 }
 
-export type EmailEditResult = 'ok' | 'cleared' | 'taken' | 'invalid' | 'forbidden' | 'missing';
+export type EmailEditResult =
+	'ok' | 'cleared' | 'merged' | 'taken' | 'invalid' | 'forbidden' | 'missing';
 
 /**
  * Set, change or clear the address an invited person was invited at. Organizers
@@ -176,6 +177,11 @@ export type EmailEditResult = 'ok' | 'cleared' | 'taken' | 'invalid' | 'forbidde
  * addressed to) and the `placeholder:<email>` hash (what `consumeInvites` and
  * `removeMember` read), so both move together or the invite becomes unrevocable
  * or unconsumable.
+ *
+ * Typing an address that already has an account behind it is not an error. It
+ * is the organizer saying the stand-in is that person, so the placeholder is
+ * absorbed into them on the spot rather than waiting for a registration that
+ * has already happened.
  */
 export function setMemberEmail(
 	tripId: string,
@@ -192,11 +198,15 @@ export function setMemberEmail(
 	const previous = user.password_hash.slice('placeholder:'.length);
 	if (clean && !isValidEmail(clean)) return 'invalid';
 	if (clean && clean !== previous) {
-		// An address with an account behind it cannot be attached to a placeholder:
-		// the two would be one person with two rows, and the ledger has no way to
-		// say which of them owes what. The organizer removes the placeholder and
-		// adds the real person, which merges nothing and loses nothing.
-		if (db.prepare(`SELECT 1 FROM users WHERE email = ?`).get(clean)) return 'taken';
+		// An address with an account behind it means the stand-in turned out to be
+		// somebody already using the app. That is the same sentence a registration
+		// at an invited address makes, so it gets the same answer: the placeholder
+		// hands over everything it is holding and the real person takes its place
+		// on the roster. Refusing instead, which is what this did, left the
+		// organizer with a member they could not point at the right person.
+		const account = db.prepare(`SELECT id FROM users WHERE email = ?`).get(clean) as
+			{ id: string } | undefined;
+		if (account) return merge(tripId, userId, account.id);
 		// UNIQUE (trip_id, email) would reject this anyway; catching it here says
 		// which of the two things went wrong.
 		if (db.prepare(`SELECT 1 FROM trip_invites WHERE trip_id = ? AND email = ?`).get(tripId, clean))
@@ -225,6 +235,34 @@ export function setMemberEmail(
 	}
 	publish(tripId, 'members');
 	return clean ? 'ok' : 'cleared';
+}
+
+/**
+ * Replace a placeholder on one trip with the real account it turned out to be.
+ *
+ * The placeholder's own invite goes first: it is addressed to whatever was
+ * typed before, and the row it points at is about to stop existing.
+ *
+ * No membership is inserted for the real account. `absorbPlaceholder` moves the
+ * placeholder's own membership row across, which both adds somebody new and
+ * leaves an existing member's role alone, so inserting one here would either
+ * duplicate that or overwrite an organizer back down to a member.
+ */
+function merge(tripId: string, placeholderId: string, userId: string): EmailEditResult {
+	db.exec('BEGIN');
+	try {
+		db.prepare(`DELETE FROM trip_invites WHERE trip_id = ? AND placeholder_id = ?`).run(
+			tripId,
+			placeholderId
+		);
+		absorbPlaceholder(userId, placeholderId);
+		db.exec('COMMIT');
+	} catch (err) {
+		db.exec('ROLLBACK');
+		throw err;
+	}
+	publishMany(tripId, [...ABSORB_TOPICS]);
+	return 'merged';
 }
 
 /**
@@ -367,38 +405,33 @@ export function removeMember(tripId: string, actorId: string, userId: string): b
 }
 
 /**
- * When a user registers, turn any pending invites for their email into
- * memberships.
+ * Hand one placeholder's trip history to a real account, then delete it.
  *
- * Handing a placeholder's data over and then deleting it is a multi-table
- * rewrite, so it runs in one transaction: a failure partway through would leave
- * expenses or votes split between the placeholder and the real account, or an
- * invite whose placeholder is already gone.
+ * Two things reach this. A registration at an invited address is one; an
+ * organizer typing a registered person's address into a placeholder's email
+ * field is the other. Both are the same sentence, "this stand-in turned out to
+ * be that person", so both run the same rewrite rather than each carrying half
+ * of it.
+ *
+ * The caller owns the transaction, because neither caller's work is finished
+ * when this returns: the registration still has invites to drop and the
+ * organizer's edit still has an invite of its own to clear.
+ *
+ * The statement list must cover every foreign key that references `users(id)`
+ * ON DELETE CASCADE and carries trip history, because anything still pointing
+ * at the placeholder when its `users` row is deleted below is destroyed by that
+ * cascade with no undo. The authoritative set is in `db.ts`.
+ *
+ * Conflict handling is per table, not blanket. Every join table below has a
+ * composite primary key containing `user_id`, so the real account can already
+ * hold the identical row, and a plain UPDATE would violate that primary key and
+ * abort the whole rewrite. `UPDATE OR IGNORE` skips exactly those colliding
+ * rows and leaves them on the placeholder; the `DELETE FROM users` that follows
+ * then cascades them away. So a collision resolves to the real account's own
+ * row, one row per key, and nothing throws.
  */
-export function consumeInvites(userId: string, email: string): void {
-	const clean = email.trim().toLowerCase();
-	const invites = db
-		.prepare(`SELECT id, trip_id, placeholder_id FROM trip_invites WHERE email = ?`)
-		.all(clean) as unknown as { id: string; trip_id: string; placeholder_id: string | null }[];
-	const addMember = db.prepare(
-		`INSERT OR IGNORE INTO memberships (trip_id, user_id, role) VALUES (?, ?, 'member')`
-	);
-	const drop = db.prepare(`DELETE FROM trip_invites WHERE id = ?`);
-	// Statements that hand a placeholder's data over to the real account, in
-	// order, each run as (realUserId, placeholderId).
-	//
-	// This list must cover every foreign key that references `users(id)` ON
-	// DELETE CASCADE and carries trip history, because anything still pointing at
-	// the placeholder when its `users` row is deleted below is destroyed by that
-	// cascade with no undo. The authoritative set is in `db.ts`.
-	//
-	// Conflict handling is per table, not blanket. Every join table below has a
-	// composite primary key containing `user_id`, so the real account can already
-	// hold the identical row, and a plain UPDATE would violate that primary key
-	// and abort the registration. `UPDATE OR IGNORE` skips exactly those
-	// colliding rows and leaves them on the placeholder; the `DELETE FROM users`
-	// that follows then cascades them away. So a collision resolves to the real
-	// account's own row, one row per key, and nothing throws.
+function absorbPlaceholder(userId: string, placeholderId: string): void {
+	if (!db.prepare(`SELECT 1 FROM users WHERE id = ?`).get(placeholderId)) return;
 	const relinks = [
 		// PK (trip_id, user_id): collides when the real account is already a member
 		// of the trip they were invited to.
@@ -436,18 +469,37 @@ export function consumeInvites(userId: string, email: string): void {
 		// says everything the two said. The time-segmented crew membership this
 		// replaced needed a hand-written merge; a plain set does not.
 		`UPDATE OR IGNORE crew_members SET user_id = ? WHERE user_id = ?`
-	].map((sql) => db.prepare(sql));
+	];
+	for (const sql of relinks) db.prepare(sql).run(userId, placeholderId);
+	db.prepare(`DELETE FROM users WHERE id = ?`).run(placeholderId);
+}
+
+/** What a placeholder turning into a real account changes, for anyone reading. */
+const ABSORB_TOPICS = ['members', 'expenses', 'schedule', 'pois', 'lodging', 'tasks'] as const;
+
+/**
+ * When a user registers, turn any pending invites for their email into
+ * memberships.
+ *
+ * Handing a placeholder's data over and then deleting it is a multi-table
+ * rewrite, so it runs in one transaction: a failure partway through would leave
+ * expenses or votes split between the placeholder and the real account, or an
+ * invite whose placeholder is already gone.
+ */
+export function consumeInvites(userId: string, email: string): void {
+	const clean = email.trim().toLowerCase();
+	const invites = db
+		.prepare(`SELECT id, trip_id, placeholder_id FROM trip_invites WHERE email = ?`)
+		.all(clean) as unknown as { id: string; trip_id: string; placeholder_id: string | null }[];
+	const addMember = db.prepare(
+		`INSERT OR IGNORE INTO memberships (trip_id, user_id, role) VALUES (?, ?, 'member')`
+	);
+	const drop = db.prepare(`DELETE FROM trip_invites WHERE id = ?`);
 	if (invites.length === 0) return;
 	db.exec('BEGIN');
 	try {
 		for (const inv of invites) {
-			if (inv.placeholder_id) {
-				const exists = db.prepare(`SELECT 1 FROM users WHERE id = ?`).get(inv.placeholder_id);
-				if (exists) {
-					for (const stmt of relinks) stmt.run(userId, inv.placeholder_id);
-					db.prepare(`DELETE FROM users WHERE id = ?`).run(inv.placeholder_id);
-				}
-			}
+			if (inv.placeholder_id) absorbPlaceholder(userId, inv.placeholder_id);
 			addMember.run(inv.trip_id, userId);
 			drop.run(inv.id);
 		}
@@ -462,7 +514,5 @@ export function consumeInvites(userId: string, email: string): void {
 	// so anyone with the trip open is looking at a stale name on stale rows.
 	// Topics are the `TRIP_TOPICS` names from `events.ts`; `schedule` covers both
 	// item assignees and party membership, which the calendar reads together.
-	for (const inv of invites) {
-		publishMany(inv.trip_id, ['members', 'expenses', 'schedule', 'pois', 'lodging', 'tasks']);
-	}
+	for (const inv of invites) publishMany(inv.trip_id, [...ABSORB_TOPICS]);
 }

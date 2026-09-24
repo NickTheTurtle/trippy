@@ -82,7 +82,7 @@ export default function TaskList({
 								onClick={() => onEdit(it)}
 								aria-label={c.editLabel(kind, it.label)}
 								title={it.label}
-								className={`min-w-0 flex-1 basis-48 cursor-pointer truncate border-0 bg-transparent p-0 text-left text-body ${it.done ? 'text-ink-faint line-through' : ''}`}
+								className={`tap-grow min-w-0 flex-1 basis-48 cursor-pointer truncate border-0 bg-transparent p-0 text-left text-body ${it.done ? 'text-ink-faint line-through' : ''}`}
 							>
 								{it.label}
 							</button>
@@ -150,7 +150,7 @@ function Box({
 			aria-pressed={state === 'on'}
 			aria-label={label}
 			title={label}
-			className={`grid size-[18px] flex-none cursor-pointer place-items-center rounded-[5px] border p-0 transition-colors ${
+			className={`tap grid size-[18px] flex-none cursor-pointer place-items-center rounded-[5px] border p-0 transition-colors ${
 				state === 'on'
 					? 'border-accent bg-accent text-white'
 					: state === 'part'
