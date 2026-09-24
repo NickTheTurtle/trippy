@@ -18,13 +18,21 @@ repo.
 **Yours to edit:**
 
 - `packages/core/src/` - **pure logic, no I/O**: `types.ts`, `settlement.ts`, `split.ts`,
-  `tz.ts`, `layout.ts`, `cover.ts`, `sample.ts`, `index.ts`
-- `packages/server/src/` - persistence and integrations:
-  - *Schema:* `db.ts` (schema + migrations), `seed-athens.ts`
-  - *Entities:* `trips.ts`, `members.ts`, `parties.ts`, `schedule.ts`, `pois.ts`,
-    `lodging.ts`, `expenses.ts`, `costs.ts`, `tasks.ts`
-  - *Infra:* `auth.ts`, `env.ts`, `cache.ts`
-  - *External providers:* `places.ts`, `geocode.ts`, `routing.ts`, `fx.ts`
+  `tz.ts`, `layout.ts`, `travel.ts`, `plan.ts`, `conflicts.ts`, `currency.ts`, `geo.ts`,
+  `validate.ts`, `cover.ts`, `sample.ts`, `index.ts`
+- `packages/server/src/` - persistence and integrations, grouped into folders:
+  - *Schema:* `db.ts` (schema + migrations), `seeds/`
+  - *Persistence:* `persistence/` - `trips.ts`, `members.ts`, `membership.ts`,
+    `schedule.ts`, `pois.ts`, `lodging.ts`, `expenses.ts`, `costs.ts`, `tasks.ts`,
+    `suppressions.ts`, `versioning.ts`
+  - *Infra:* `infra/` - `auth.ts`, `env.ts`, `cache.ts`, `throttle.ts`, `tokens.ts`,
+    `sigv4.ts`, `sns.ts`
+  - *Paid providers:* `providers/` - `places.ts`, `geocode.ts`, `routing.ts`, `fx.ts`,
+    `mail.ts`, `photo-cache.ts`, `provider-health.ts`
+  - *Other:* `events.ts`, `photos.ts`
+
+Re-read the folder before assuming a path. This tree was reorganized recently, and flat
+top-level modules such as `trips.ts` or `cache.ts` no longer exist directly under `src/`.
 
 **Not yours:** `apps/api`, `apps/web`. If a change requires them, do not
 edit - report the required change as part of your contract summary and let the Lead route it.
@@ -45,13 +53,16 @@ edit - report the required change as part of your contract summary and let the L
    integer/minor-unit safe with no float drift, and totals must reconcile to zero.
    Timezone logic in `tz.ts` is IANA-zone aware - a trip spans multiple cities, so never
    assume the host's local zone or a fixed UTC offset.
-5. **External providers cost money and rate-limit.** `places.ts`, `geocode.ts`,
-   `routing.ts`, and `fx.ts` call paid third-party APIs keyed from `.env`. Respect the
-   existing `cache.ts` layer - never bypass it, never add an uncached call in a loop, and
-   never fan out a provider call per row. Keys come from `env.ts`; never inline one.
-6. **Verify before reporting:**
-   `npm run check -w @trippy/core` and `npm run check -w @trippy/server`.
-   Paste the real output.
+5. **External providers cost money and rate-limit.** `providers/places.ts`,
+   `providers/geocode.ts`, `providers/routing.ts`, and `providers/fx.ts` call paid
+   third-party APIs keyed from `.env`. Respect the existing `infra/cache.ts` and
+   `infra/throttle.ts` layers - never bypass them, never add an uncached call in a loop,
+   and never fan out a provider call per row. Keys come from `infra/env.ts`; never inline
+   one.
+6. **Verify before reporting:** `npm run check -w @trippy/core`,
+   `npm run check -w @trippy/server`, and `npm test` (vitest). Unit tests live in
+   `packages/server/test/`; a settlement, split, or timezone change must land with
+   coverage. Paste the real output.
 7. **Report a contract**, not prose. End with the exact new/changed type signatures, column
    names and SQL types, and any behavioral rule downstream layers must honor. The API and UI
    agents get only what you write down.

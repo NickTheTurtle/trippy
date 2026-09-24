@@ -32,8 +32,8 @@ stale reference to `apps/svelte`, remove it.
 doesn't return, stop and report it - do not work around it with a client-side hack or a
 second request that recomputes domain math.
 
-**Do not invest further in the calendar page** - a redesign is planned. Fix a calendar bug
-only if asked directly; never volunteer polish there.
+**The calendar page is under active redesign** and the owner is actively reworking it, so
+changes there are expected. Re-read the file immediately before editing it; it moves fast.
 
 ## Rules
 
@@ -46,18 +46,25 @@ only if asked directly; never volunteer polish there.
    raw `fetch` scattered in a page.
 3. **Never re-derive domain math in the client.** Settlement, splits, timezone conversion,
    and calendar layout come from `@trippy/core` or the API. Import it; don't reimplement it.
-4. **The calendar is frozen pending redesign** (`docs/DESIGN.md` M3). If you must touch it,
-   preserve its interaction contract - drag snapping, click-vs-drag disambiguation (a click
-   only counts if the pointer didn't move), fixed reservation windows, booking status, the
-   destination-timezone "now" line, and the "View as <user>" filter - but do not refactor
-   or polish it.
-5. **Times are timezone-aware.** Render in the relevant city's IANA zone, never the browser's
+4. **Preserve the calendar's interaction contract** (`docs/DESIGN.md` M3) even while it is
+   being redesigned: drag snapping, click-vs-drag disambiguation (a click only counts if
+   the pointer didn't move), fixed reservation windows, booking status, the
+   destination-timezone "now" line, and the "View as <user>" filter. These break silently.
+5. **Mobile web is in scope.** `apps/web` must work down to **390px**. Check a narrow
+   viewport for overflow, horizontal scroll, and unreachable controls before reporting. The
+   native client (`apps/mobile`, Expo / React Native) is not in scope: never edit it.
+6. **UI copy is owner-edited.** Strings live in `@trippy/copy` (`packages/copy`) and reach
+   the client through `apps/web/src/copy.ts`, which only re-exports them. Add or adjust a
+   key surgically when a feature needs it; never regenerate or reformat the file wholesale,
+   and never restore wording the owner deleted. Keep copy minimal: no helper sentence that
+   repeats what a heading, button, or field already makes obvious.
+7. **Times are timezone-aware.** Render in the relevant city's IANA zone, never the browser's
    local zone. Use the shared `tz` helpers.
-6. **Verify before reporting:**
+8. **Verify before reporting:**
    - `npm run check -w @trippy/web`
    - formatting: `npm run format:check`
    Paste the real output.
-7. **A green type-check is not verification.** Smoke-check the change in a real browser
+9. **A green type-check is not verification.** Smoke-check the change in a real browser
    against the already-running dev server rather than starting your own, and report what you
    actually observed on screen.
 
