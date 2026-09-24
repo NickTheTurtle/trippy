@@ -15,11 +15,11 @@ export function SheetFooter({
 	onDestructive,
 	children
 }: {
-	primaryLabel: string;
+	primaryLabel?: string;
 	primaryBusyLabel?: string;
 	primaryBusy?: boolean;
 	primaryDisabled?: boolean;
-	onPrimary: () => void;
+	onPrimary?: () => void;
 	destructiveLabel?: string;
 	destructiveIcon?: string;
 	onDestructive?: () => void;
@@ -35,28 +35,36 @@ export function SheetFooter({
 						accessibilityLabel={destructiveLabel}
 						onPress={onDestructive}
 						style={({ pressed }) => ({
-							width: 44,
 							height: 44,
+							width: primaryLabel ? 44 : undefined,
+							flex: primaryLabel ? undefined : 1,
 							borderRadius: radius.md,
 							borderWidth: 1,
 							borderColor: color.dangerInk,
 							backgroundColor: color.dangerInk,
 							alignItems: 'center',
 							justifyContent: 'center',
+							flexDirection: 'row',
+							gap: space.sm,
 							opacity: pressed ? 0.82 : 1
 						})}
 					>
 						<Text style={{ color: '#fff', fontSize: 18 }}>{destructiveIcon}</Text>
+						{primaryLabel ? null : (
+							<Text style={{ color: '#fff', fontWeight: '600' }}>{copy.common.delete}</Text>
+						)}
 					</Pressable>
 				) : null}
-				<View style={{ flex: 1 }}>
-					<Button
-						label={primaryBusy ? primaryBusyLabel : primaryLabel}
-						onPress={onPrimary}
-						busy={primaryBusy}
-						disabled={primaryDisabled}
-					/>
-				</View>
+				{primaryLabel && onPrimary ? (
+					<View style={{ flex: 1 }}>
+						<Button
+							label={primaryBusy ? primaryBusyLabel : primaryLabel}
+							onPress={onPrimary}
+							busy={primaryBusy}
+							disabled={primaryDisabled}
+						/>
+					</View>
+				) : null}
 			</View>
 		</View>
 	);

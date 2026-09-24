@@ -1,133 +1,215 @@
-import { useState } from 'react';
-import { RefreshControl, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Pressable, RefreshControl, Text, View } from 'react-native';
 import { copy } from '@trippy/copy';
-import { api } from '../../../src/lib/api';
 import { useTripId } from '../../../src/trip-id';
 import { useApi } from '../../../src/hooks/useApi';
-import { useMutation } from '../../../src/hooks/useMutation';
 import { useLiveSection } from '../../../src/hooks/useTripEvents';
-import { Button, Card, EmptyState, Field, FormError, Head, Loading, Screen } from '../../../src/ui';
-import { color, radius, space, type } from '../../../src/theme';
+import { useToast } from '../../../src/ui/Toast';
+import { Button, Card, EmptyState, FormError, Head, Loading, Screen } from '../../../src/ui';
+import { SegmentedControl } from '../../../src/ui/controls';
+import { color, space, type } from '../../../src/theme';
+import {
+	AddPersonSheet,
+	CrewSheet,
+	MemberSheet,
+	Tag,
+	type Crew,
+	type Person
+} from '../../../src/screens/PeopleSheets';
 
-type Person = {
-	id: string;
-	name: string;
-	email: string;
-	role: string;
-	seeded: boolean;
-	placeholder: boolean;
-	invitedEmail: string | null;
-};
-
-type Data = { me: string; organizer: boolean; people: Person[] };
+type Data = { me: string; organizer: boolean; people: Person[]; crews: Crew[] };
+const SECTIONS = ['members', 'crews'] as const;
+type Section = (typeof SECTIONS)[number];
 
 export default function People() {
 	const tripId = useTripId();
+	const toast = useToast();
 	const { data, error, loading, reload } = useApi<Data>(`/trips/${tripId}/people`);
 	useLiveSection(['members'], reload);
-	const [name, setName] = useState('');
-	const [email, setEmail] = useState('');
-	const [notice, setNotice] = useState('');
+	const [section, setSection] = useState<Section>('members');
+	const [adding, setAdding] = useState(false);
+	const [editing, setEditing] = useState<Person | null>(null);
+	const [crewDraft, setCrewDraft] = useState<Crew | null | false>(false);
 
-	const invite = useMutation(
-		async () => {
-			const res = await api<{ message: string }>(`/trips/${tripId}/people/invites`, {
-				method: 'POST',
-				body: { name, email }
-			});
-			setNotice(res.message);
-			setName('');
-			setEmail('');
-		},
-		{ fallback: copy.people.add.fallback, onSuccess: reload }
-	);
+	useEffect(() => {
+		if (error) toast.error(error);
+	}, [error, toast]);
 
 	if (loading && !data) return <Loading />;
+	if (!data) {
+		return (
+			<Screen>
+				<FormError message={error ?? copy.api.loadFailed} />
+				<Button label={copy.api.retry} onPress={reload} />
+			</Screen>
+		);
+	}
+
+	const knownNames = Object.fromEntries(data.people.map((person) => [person.id, person.name]));
+	const memberRows = data.people;
+	const crews = data.crews;
+	const canAdd = section === 'crews' || data.organizer;
 
 	return (
-		<Screen refreshControl={<RefreshControl refreshing={loading && !!data} onRefresh={reload} />}>
-			{error ? <FormError message={error} /> : null}
-
-			<Card>
-				<Head>{copy.people.membersHeading}</Head>
-				{data && data.people.length > 0 ? (
-					<View style={{ marginTop: space.sm }}>
-						{data.people.map((p) => (
-							<PersonRow key={p.id} person={p} me={data.me} />
-						))}
-					</View>
+		<>
+			<Screen refreshControl={<RefreshControl refreshing={loading && !!data} onRefresh={reload} />}>
+				<SegmentedControl
+					items={SECTIONS.map((key) => ({
+						key,
+						label: key === 'members' ? copy.people.membersHeading : copy.people.crews.heading
+					}))}
+					active={section}
+					onPick={(key) => setSection(key as Section)}
+				/>
+				{canAdd ? (
+					<Card>
+						<AddRow onPress={() => (section === 'crews' ? setCrewDraft(null) : setAdding(true))} />
+					</Card>
+				) : null}
+				{section === 'members' ? (
+					<Card>
+						<Head>{copy.people.membersHeading}</Head>
+						{memberRows.length ? (
+							<View style={{ marginTop: space.sm }}>
+								{memberRows.map((person) => (
+									<MemberRow
+										key={person.id}
+										person={person}
+										me={data.me}
+										canOpen={
+											person.id === data.me ||
+											(data.organizer &&
+												(person.placeholder || person.seeded || person.role !== 'organizer'))
+										}
+										onOpen={() => setEditing(person)}
+									/>
+								))}
+							</View>
+						) : (
+							<EmptyState message={copy.common.nothingAdded} />
+						)}
+					</Card>
 				) : (
-					<EmptyState message="Nothing added yet" />
+					<Card>
+						<Head>{copy.people.crews.heading}</Head>
+						<View style={{ marginTop: space.sm }}>
+							{crews.map((crew) => {
+								const names = crew.members
+									.filter((id) => knownNames[id])
+									.map((id) => knownNames[id]);
+								const subtitle = names.length ? names.join(', ') : copy.people.crews.nobody;
+								return (
+									<Pressable
+										key={crew.id}
+										disabled={crew.locked}
+										onPress={() => setCrewDraft(crew)}
+										style={{ paddingVertical: space.sm, opacity: crew.locked ? 0.75 : 1 }}
+										accessibilityLabel={crew.locked ? crew.name : copy.common.editLabel(crew.name)}
+									>
+										<Text style={type.body}>{crew.name}</Text>
+										<Text style={type.faint}>{subtitle}</Text>
+									</Pressable>
+								);
+							})}
+						</View>
+					</Card>
 				)}
-			</Card>
+			</Screen>
 
-			{data?.organizer ? (
-				<Card>
-					<Head>{copy.people.add.title}</Head>
-					<View style={{ gap: space.md, marginTop: space.sm }}>
-						<Field label={copy.people.add.nameLabel} value={name} onChangeText={setName} />
-						<Field
-							label={copy.people.add.emailLabel}
-							value={email}
-							onChangeText={setEmail}
-							autoCapitalize="none"
-							keyboardType="email-address"
-							textContentType="emailAddress"
-						/>
-						<FormError message={invite.error} />
-						{notice ? <Text style={type.small}>{notice}</Text> : null}
-						<Button
-							label={invite.busy ? copy.common.adding : copy.common.add}
-							onPress={() => void invite.run()}
-							busy={invite.busy}
-							disabled={!name.trim()}
-						/>
-					</View>
-				</Card>
+			{adding ? (
+				<AddPersonSheet
+					open
+					tripId={tripId}
+					onClose={() => setAdding(false)}
+					onDone={(message) => {
+						setAdding(false);
+						toast.success(message);
+						reload();
+					}}
+				/>
 			) : null}
-		</Screen>
+			{editing ? (
+				<MemberSheet
+					open
+					tripId={tripId}
+					person={editing}
+					me={data.me}
+					organizer={data.organizer}
+					onClose={() => setEditing(null)}
+					onDone={toast.success}
+					onSaved={() => {
+						setEditing(null);
+						reload();
+					}}
+				/>
+			) : null}
+			{crewDraft !== false ? (
+				<CrewSheet
+					open
+					tripId={tripId}
+					crew={crewDraft}
+					people={data.people}
+					onClose={() => setCrewDraft(false)}
+					onDone={() => {
+						setCrewDraft(false);
+						reload();
+					}}
+				/>
+			) : null}
+		</>
 	);
 }
 
-function PersonRow({ person, me }: { person: Person; me: string }) {
-	const c = copy.people.row;
-	const tags = [
-		person.id === me ? c.youTag : null,
-		person.role === 'organizer' ? c.organizerTag : null,
-		person.placeholder && person.invitedEmail ? c.invitedTag : null,
-		person.seeded ? c.sampleTag : null
-	].filter(Boolean) as string[];
-
-	const subtitle = person.seeded ? c.sampleCompanion : person.email;
-
+function AddRow({ onPress }: { onPress: () => void }) {
 	return (
+		<Pressable accessibilityRole="button" onPress={onPress} hitSlop={8}>
+			<Text style={{ ...type.body, color: color.accent, fontWeight: '600' }}>
+				+ {copy.common.add}
+			</Text>
+		</Pressable>
+	);
+}
+
+function MemberRow({
+	person,
+	me,
+	canOpen,
+	onOpen
+}: {
+	person: Person;
+	me: string;
+	canOpen: boolean;
+	onOpen: () => void;
+}) {
+	const tags = [
+		person.id === me ? copy.people.row.youTag : null,
+		person.role === 'organizer' ? copy.people.row.organizerTag : null,
+		person.placeholder && person.invitedEmail ? copy.people.row.invitedTag : null,
+		person.seeded ? copy.people.row.sampleTag : null
+	].filter(Boolean) as string[];
+	const subtitle = person.seeded ? copy.people.row.sampleCompanion : person.email;
+	const body = (
 		<View style={{ paddingVertical: space.sm, gap: space.xs }}>
-			<View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+			<View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, flexWrap: 'wrap' }}>
 				<Text style={type.body}>{person.name}</Text>
-				{tags.map((t) => (
-					<Tag key={t} label={t} />
+				{tags.map((tag) => (
+					<Tag key={tag} label={tag} />
 				))}
 			</View>
-			<Text style={type.small}>{subtitle}</Text>
+			{subtitle ? <Text style={type.small}>{subtitle}</Text> : null}
 		</View>
 	);
-}
-
-function Tag({ label }: { label: string }) {
+	if (!canOpen) return body;
+	const editable = person.placeholder || person.seeded || person.id === me;
 	return (
-		<Text
-			style={{
-				...type.faint,
-				color: color.accentInk,
-				backgroundColor: color.accentSoft,
-				borderRadius: radius.sm,
-				paddingHorizontal: 6,
-				paddingVertical: 1,
-				overflow: 'hidden',
-				fontSize: 11
-			}}
+		<Pressable
+			accessibilityRole="button"
+			onPress={onOpen}
+			accessibilityLabel={
+				editable ? copy.common.editLabel(person.name) : copy.common.deleteLabel(person.name)
+			}
 		>
-			{label}
-		</Text>
+			{body}
+		</Pressable>
 	);
 }
