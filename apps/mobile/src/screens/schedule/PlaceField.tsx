@@ -2,15 +2,16 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { copy } from '@trippy/copy';
 import { isLocatedType, type EventType } from '@trippy/core/types';
-import type { PlaceHit } from '../../lib/api-types';
+import type { PlaceHit, PlaceHitDetails } from '../../lib/api-types';
 import { api } from '../../lib/api';
 import { Field } from '../../ui';
+import { useToast } from '../../ui/Toast';
 import { color, radius, space, type } from '../../theme';
 import { keepsPick, placeLabel, placeOptions, poiKindFor } from './shared';
 import type { Cell, SavedPoi } from './types';
 
 const MIN_QUERY = 3;
-const DEBOUNCE_MS = 350;
+const SEARCH_DEBOUNCE_MS = 600;
 
 export type PlaceDraft = {
 	poi: string;
@@ -20,6 +21,23 @@ export type PlaceDraft = {
 	field: React.ReactNode;
 	retype: (next: EventType) => void;
 };
+
+function newSessionToken(): string {
+	if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID();
+	return `s${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
+}
+
+function withDetails(hit: PlaceHit, details: PlaceHitDetails): PlaceHit {
+	return {
+		...hit,
+		...details,
+		name: details.name ?? hit.name,
+		address: details.address ?? hit.address,
+		category: details.category || hit.category,
+		lat: details.lat ?? hit.lat,
+		lng: details.lng ?? hit.lng
+	};
+}
 
 export function usePlaceField({
 	base,
@@ -55,6 +73,8 @@ export function usePlaceField({
 	const typed = useRef(false);
 	const abort = useRef<AbortController | null>(null);
 	const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const session = useRef<string | null>(null);
+	const toast = useToast();
 	const placeable = isLocatedType(eventType);
 	const staying = eventType === 'stay';
 	const city = cities.find((c): c is Cell => c?.id === cityId) ?? null;
@@ -81,6 +101,7 @@ export function usePlaceField({
 		setSearching(false);
 		setSearched(false);
 		setHits([]);
+		session.current = null;
 	}
 
 	function onTyped(text: string) {
@@ -98,10 +119,12 @@ export function usePlaceField({
 			const ac = new AbortController();
 			abort.current = ac;
 			const discover = base.replace(/\/schedule$/, '/discover');
+			session.current ??= newSessionToken();
 			const params = new URLSearchParams({
 				q: text.trim(),
 				cityId: city.id,
-				kind: staying ? 'stay' : 'place'
+				kind: staying ? 'stay' : 'place',
+				token: session.current
 			});
 			api<{ results: PlaceHit[] }>(`${discover}/search?${params}`, { signal: ac.signal })
 				.then((r) => {
@@ -120,51 +143,66 @@ export function usePlaceField({
 						setSearching(false);
 					}
 				});
-		}, DEBOUNCE_MS);
+		}, SEARCH_DEBOUNCE_MS);
 	}
 
 	async function adopt(hit: PlaceHit) {
-		if (!city) return;
+		if (!city || savingHit) return;
 		setPlace(hit.name);
 		setPoi('');
 		setSavingHit(true);
 		try {
 			const discover = base.replace(/\/schedule$/, '/discover');
+			const spent = session.current;
+			session.current = null;
+			let full = hit;
+			if (hit.id) {
+				const params = new URLSearchParams({ id: hit.id });
+				if (spent) params.set('token', spent);
+				try {
+					const detail = await api<{ details: PlaceHitDetails | null }>(
+						`${discover}/details?${params}`
+					);
+					if (detail.details) full = withDetails(hit, detail.details);
+				} catch {
+					// The suggestion still has a name, so it can still be saved.
+				}
+			}
 			const made = await api<{ id: string }>(`${discover}/${staying ? 'stays' : 'pois'}`, {
 				method: 'POST',
 				body: staying
 					? {
 							cityId: city.id,
-							name: hit.name,
+							name: full.name,
 							currency: '',
-							url: hit.url ?? '',
-							photo: hit.photo ?? null,
-							lat: hit.lat ?? null,
-							lng: hit.lng ?? null
+							url: full.url ?? '',
+							photo: full.photo ?? null,
+							lat: full.lat ?? null,
+							lng: full.lng ?? null
 						}
 					: {
 							cityId: city.id,
-							name: hit.name,
+							name: full.name,
 							activity: '',
-							category: hit.category ?? '',
+							category: full.category ?? '',
 							kind: poiKindFor(eventType) ?? undefined,
-							notes: hit.address ?? '',
-							url: hit.url ?? '',
-							photo: hit.photo ?? null,
-							lat: hit.lat ?? null,
-							lng: hit.lng ?? null,
-							rating: hit.rating ?? null,
-							ratingCount: hit.ratingCount ?? null,
-							priceLevel: hit.priceLevel ?? null,
-							hours: hit.hours ?? null
+							notes: full.address ?? '',
+							url: full.url ?? '',
+							photo: full.photo ?? null,
+							lat: full.lat ?? null,
+							lng: full.lng ?? null,
+							rating: full.rating ?? null,
+							ratingCount: full.ratingCount ?? null,
+							priceLevel: full.priceLevel ?? null,
+							hours: full.hours ?? null
 						}
 			});
 			const savedPlace: SavedPoi = {
 				id: made.id,
-				name: hit.name,
+				name: full.name,
 				city_id: city.id,
-				lat: hit.lat ?? null,
-				lng: hit.lng ?? null,
+				lat: full.lat ?? null,
+				lng: full.lng ?? null,
 				votes: 0,
 				kind: staying ? undefined : (poiKindFor(eventType) ?? undefined)
 			};
@@ -175,6 +213,8 @@ export function usePlaceField({
 			);
 			setPoi(made.id);
 			clearSearch();
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : copy.discover.addDialog.fallback);
 		} finally {
 			setSavingHit(false);
 		}
@@ -206,6 +246,7 @@ export function usePlaceField({
 					{shownOptions.slice(0, 5).map((option, index) => (
 						<Pressable
 							key={option.key}
+							disabled={savingHit}
 							onPress={() => {
 								setPoi(option.key);
 								setPlace(option.label);
@@ -228,6 +269,7 @@ export function usePlaceField({
 						hits.slice(0, 5).map((hit, index) => (
 							<Pressable
 								key={`hit:${hit.id ?? ''}:${hit.name}:${index}`}
+								disabled={savingHit}
 								onPress={() => void adopt(hit)}
 								style={({ pressed }) => ({
 									paddingHorizontal: space.md,

@@ -33,6 +33,10 @@ export default function Calendar() {
 	const [opened, setOpened] = useState<EventRow | null>(null);
 	const openedRef = useRef<ScheduleData | null>(null);
 	openedRef.current = data;
+	const memberName = useMemo(
+		() => new Map((data?.members ?? []).map((member) => [member.id, member.name])),
+		[data?.members]
+	);
 
 	useEffect(() => {
 		if (schedule.error) toast.error(schedule.error);
@@ -83,6 +87,7 @@ export default function Calendar() {
 					>
 						<Button
 							label="‹"
+							accessibilityLabel={copy.schedule.nav.previousDay}
 							tone="ghost"
 							small
 							disabled={!data.prevDay}
@@ -97,6 +102,7 @@ export default function Calendar() {
 						</View>
 						<Button
 							label="›"
+							accessibilityLabel={copy.schedule.nav.nextDay}
 							tone="ghost"
 							small
 							disabled={!data.nextDay}
@@ -139,11 +145,12 @@ export default function Calendar() {
 					</View>
 				</Card>
 
-				<StayBand stays={schedule.anchor.stays} />
+				<StayBand stays={schedule.anchor.stays} onOpenEvent={openSaved} />
 				<Agenda
 					entry={schedule.anchor}
 					eventById={schedule.eventById}
 					peopleLabel={schedule.peopleLabel}
+					memberName={memberName}
 					locked={locked}
 					onOpenEvent={openSaved}
 					onOpenLeg={(leg) => openSaved(leg.toEventId)}
@@ -210,18 +217,30 @@ export default function Calendar() {
 	);
 }
 
-function StayBand({ stays }: { stays: EventRow[] }) {
+function StayBand({
+	stays,
+	onOpenEvent
+}: {
+	stays: EventRow[];
+	onOpenEvent: (id: string) => void;
+}) {
 	if (!stays.length) return null;
 	return (
 		<Card style={{ gap: space.sm }}>
 			<Text style={type.head}>{copy.schedule.mobile.stays}</Text>
 			{stays.map((stay) => (
-				<View key={stay.id} style={{ gap: space.xs }}>
+				<Pressable
+					key={stay.id}
+					accessibilityRole="button"
+					accessibilityLabel={copy.common.editLabel(stay.title)}
+					onPress={() => onOpenEvent(stay.id)}
+					style={({ pressed }) => ({ gap: space.xs, opacity: pressed ? 0.75 : 1 })}
+				>
 					<Text style={type.body}>{stay.title}</Text>
 					<Text style={type.faint}>
 						{stay.end_day ? rangeLabel(stay.day, stay.end_day) : dayLabel(stay.day)}
 					</Text>
-				</View>
+				</Pressable>
 			))}
 		</Card>
 	);
@@ -231,6 +250,7 @@ function Agenda({
 	entry,
 	eventById,
 	peopleLabel,
+	memberName,
 	locked,
 	onOpenEvent,
 	onOpenLeg
@@ -238,6 +258,7 @@ function Agenda({
 	entry: BoardDay;
 	eventById: Map<string, EventRow>;
 	peopleLabel: (ids: string[]) => string;
+	memberName: Map<string, string>;
 	locked: boolean;
 	onOpenEvent: (id: string) => void;
 	onOpenLeg: (leg: LegRow) => void;
@@ -251,7 +272,7 @@ function Agenda({
 					node: (
 						<EventCard
 							event={event}
-							peopleLabel={peopleLabel}
+							memberName={memberName}
 							locked={locked}
 							onPress={() => onOpenEvent(event.id)}
 						/>
@@ -291,12 +312,12 @@ function Agenda({
 
 function EventCard({
 	event,
-	peopleLabel,
+	memberName,
 	locked,
 	onPress
 }: {
 	event: EventRow;
-	peopleLabel: (ids: string[]) => string;
+	memberName: Map<string, string>;
 	locked: boolean;
 	onPress: () => void;
 }) {
@@ -316,11 +337,13 @@ function EventCard({
 						<View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.xs }}>
 							<Tag label={typeLabel(event.type)} />
 							{locked ? <Tag label={copy.schedule.lock.tag} tone="lock" /> : null}
-							{peopleLabel(event.people)
-								.split(', ')
-								.map((name) => (
-									<Tag key={name} label={name} />
-								))}
+							{event.people.length === 0 ? (
+								<Tag label={copy.common.everyone} />
+							) : (
+								event.people.map((id) => (
+									<Tag key={id} label={(memberName.get(id) ?? '?').split(' ')[0]} />
+								))
+							)}
 						</View>
 						{event.place_text ? <Text style={type.faint}>{event.place_text}</Text> : null}
 						{event.notes ? <Text style={type.small}>{event.notes}</Text> : null}

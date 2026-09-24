@@ -6,11 +6,11 @@ import { MAX_NAME_LENGTH, MAX_NOTES_LENGTH } from '@trippy/core/validate';
 import { guessLeg, minsByMode, rekeyLeg } from '@trippy/core/travel';
 import { api } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
-import { Field, FormError } from '../../ui';
+import { Button, Field, FormError } from '../../ui';
 import { Sheet } from '../../ui/Sheet';
 import { SheetFooter } from '../../ui/SheetFooter';
 import { ConfirmSheet } from '../../ui/ConfirmSheet';
-import { CheckBox, Picker } from '../../ui/controls';
+import { Picker } from '../../ui/controls';
 import { color, fieldLabel, radius, space, type } from '../../theme';
 import { usePlaceField } from './PlaceField';
 import {
@@ -20,13 +20,13 @@ import {
 	MODE_OPTIONS,
 	NO_PEOPLE,
 	TYPE_OPTIONS,
-	clockRange,
+	clock,
+	dayLabel,
 	deriveTitle,
 	modeLabel,
-	parseClock,
 	rangeLabel,
 	shiftDay,
-	timeText
+	typeLabel
 } from './shared';
 import type { Cell, Crew, EventDraft, EventRow, LegRow, SavedPoi } from './types';
 
@@ -103,11 +103,10 @@ export function EventSheet({
 	onDone: () => void;
 }) {
 	const opensAt = startMin ?? suggestedStart ?? STAY_CHECK_IN;
+	const openStart = Math.min(opensAt, DAY_END - MIN_EVENT_MINS);
 	const [eventType, setEventType] = useState<EventType>(event?.type ?? initialType);
-	const [start, setStart] = useState(event ? timeText(event.start_min) : timeText(opensAt));
-	const [end, setEnd] = useState(
-		event ? timeText(event.end_min) : timeText(Math.min(DAY_END, opensAt + 60))
-	);
+	const [start, setStart] = useState(event?.start_min ?? openStart);
+	const [end, setEnd] = useState(event?.end_min ?? Math.min(DAY_END, openStart + 60));
 	const [timeChosen, setTimeChosen] = useState(!!event || startMin != null);
 	const [date, setDate] = useState(event?.day ?? day);
 	const [checkIn, setCheckIn] = useState(event?.day ?? day);
@@ -156,12 +155,10 @@ export function EventSheet({
 		setJourneyEdits({});
 	}, [open, event?.id]);
 
-	const startMinNow = parseClock(start) ?? (event ? event.start_min : opensAt);
-	const endMinNow = parseClock(end) ?? Math.min(DAY_END, startMinNow + 60);
 	const staying = eventType === 'stay';
 	const onDay = staying ? checkIn : date;
-	const startAt = staying ? STAY_CHECK_IN : startMinNow;
-	const endAt = staying ? DAY_END : Math.max(startAt + MIN_EVENT_MINS, endMinNow);
+	const startAt = staying ? STAY_CHECK_IN : start;
+	const endAt = staying ? DAY_END : Math.max(startAt + MIN_EVENT_MINS, end);
 	const lat = place.placeable
 		? place.spot
 			? place.spot.lat
@@ -222,6 +219,9 @@ export function EventSheet({
 	const save = useMutation(
 		async () => {
 			if (!people) throw new Error(NO_PEOPLE);
+			if (!staying && endAt - startAt < MIN_EVENT_MINS) {
+				throw new Error(`An event needs to run at least ${MIN_EVENT_MINS} minutes.`);
+			}
 			if (!event) {
 				created.current ??= (
 					await api<{ id: string }>(`${base}/events`, {
@@ -243,12 +243,6 @@ export function EventSheet({
 						}
 					})
 				).id;
-				versionTook(
-					await api<{ version?: number }>(`${base}/events/${created.current}/people`, {
-						method: 'PUT',
-						body: { people }
-					})
-				);
 				await saveJourneys(base, onDay, created.current, legs, journeyEdits);
 				onDone();
 				return;
@@ -282,7 +276,7 @@ export function EventSheet({
 			await saveJourneys(base, onDay, event.id, legs, journeyEdits);
 			onDone();
 		},
-		{ fallback: event ? 'Could not save that event.' : 'Could not add that event.' }
+		{ fallback: event ? copy.schedule.eventSaveFallback : copy.schedule.eventAddFallback }
 	);
 
 	const remove = useMutation(
@@ -290,17 +284,15 @@ export function EventSheet({
 			if (!event) return;
 			await api(`${base}/events/${event.id}/op`, { method: 'POST', body: { op: 'delete' } });
 		},
-		{ fallback: 'Could not delete that event.', onSuccess: onDone }
+		{ fallback: copy.schedule.eventDeleteFallback, onSuccess: onDone }
 	);
 
-	const setStartTime = (text: string) => {
+	const setStartMinute = (nextStart: number) => {
 		setTimeChosen(true);
-		const oldStart = parseClock(start) ?? startAt;
-		const oldEnd = parseClock(end) ?? endAt;
-		setStart(text);
-		const nextStart = parseClock(text);
-		if (nextStart != null)
-			setEnd(timeText(Math.min(DAY_END, nextStart + Math.max(MIN_EVENT_MINS, oldEnd - oldStart))));
+		const length = Math.max(MIN_EVENT_MINS, end - start);
+		const bounded = Math.max(0, Math.min(DAY_END - MIN_EVENT_MINS, nextStart));
+		setStart(bounded);
+		setEnd(Math.min(DAY_END, bounded + length));
 	};
 
 	const setJourney = (leg: LegRow, patch: Partial<JourneyEdit>) => {
@@ -321,21 +313,24 @@ export function EventSheet({
 							? copy.schedule.dialog.edit
 							: copy.schedule.dialog.add
 				}
-				subtitle={staying ? rangeLabel(checkIn, checkOut) : onDay}
+				subtitle={staying ? rangeLabel(checkIn, checkOut) : dayLabel(onDay)}
 				onClose={onClose}
 			>
 				{place.field}
-				<Picker
-					label={copy.schedule.fields.type}
-					options={TYPE_OPTIONS}
-					value={eventType}
-					onPick={(next) => {
-						if (locked) return;
-						const typed = next as EventType;
-						place.retype(typed);
-						setEventType(typed);
-					}}
-				/>
+				{locked ? (
+					<ReadonlyPill label={copy.schedule.fields.type} value={typeLabel(eventType)} />
+				) : (
+					<Picker
+						label={copy.schedule.fields.type}
+						options={TYPE_OPTIONS}
+						value={eventType}
+						onPick={(next) => {
+							const typed = next as EventType;
+							place.retype(typed);
+							setEventType(typed);
+						}}
+					/>
+				)}
 				{staying ? (
 					<DatePair
 						checkIn={checkIn}
@@ -348,42 +343,55 @@ export function EventSheet({
 					/>
 				) : (
 					<>
-						<Field
+						<DayStepper
 							label={copy.schedule.fields.date}
 							value={date}
-							onChangeText={setDate}
-							editable={!locked}
+							min={firstDay}
+							max={lastDay}
+							readonly={locked}
+							onChange={setDate}
 						/>
 						<View style={{ flexDirection: 'row', gap: space.md }}>
 							<View style={{ flex: 1 }}>
-								<Field
+								<TimeStepper
 									label={copy.schedule.fields.start}
 									value={start}
-									onChangeText={setStartTime}
-									editable={!locked}
+									min={0}
+									max={Math.max(0, end - MIN_EVENT_MINS)}
+									readonly={locked}
+									onChange={setStartMinute}
 								/>
 							</View>
 							<View style={{ flex: 1 }}>
-								<Field
+								<TimeStepper
 									label={copy.schedule.fields.end}
 									value={end}
-									onChangeText={(v) => {
+									min={start + MIN_EVENT_MINS}
+									max={DAY_END}
+									readonly={locked}
+									onChange={(v) => {
 										setTimeChosen(true);
 										setEnd(v);
 									}}
-									editable={!locked}
 								/>
 							</View>
 						</View>
 					</>
 				)}
 				{eventType === 'travel' ? (
-					<Picker
-						label={copy.schedule.fields.mode}
-						options={[{ key: '', label: 'Automatic' }, ...MODE_OPTIONS]}
-						value={mode}
-						onPick={(next) => !locked && setMode(next)}
-					/>
+					locked ? (
+						<ReadonlyPill
+							label={`${copy.schedule.fields.mode}${copy.ui.field.optionalSuffix}`}
+							value={mode ? modeLabel(mode) : copy.schedule.journey.automatic}
+						/>
+					) : (
+						<Picker
+							label={`${copy.schedule.fields.mode}${copy.ui.field.optionalSuffix}`}
+							options={[{ key: '', label: copy.schedule.journey.automatic }, ...MODE_OPTIONS]}
+							value={mode}
+							onPick={setMode}
+						/>
+					)
 				) : null}
 				<PeopleChooser
 					people={members}
@@ -393,7 +401,7 @@ export function EventSheet({
 					onChange={setPeople}
 				/>
 				<Field
-					label={copy.schedule.fields.label}
+					label={`${copy.schedule.fields.label}${copy.ui.field.optionalSuffix}`}
 					value={label}
 					placeholder={derived}
 					maxLength={MAX_NAME_LENGTH}
@@ -401,7 +409,10 @@ export function EventSheet({
 					editable={!locked}
 				/>
 				<View style={{ gap: space.xs }}>
-					<Text style={fieldLabel}>{copy.schedule.fields.notes}</Text>
+					<Text style={fieldLabel}>
+						{copy.schedule.fields.notes}
+						{copy.ui.field.optionalSuffix}
+					</Text>
 					<TextInput
 						value={notes}
 						onChangeText={setNotes}
@@ -481,32 +492,167 @@ function DatePair({
 	return (
 		<View style={{ flexDirection: 'row', gap: space.md }}>
 			<View style={{ flex: 1 }}>
-				<Field
+				<DayStepper
 					label={copy.schedule.fields.checkIn}
 					value={checkIn}
-					editable={!readonly}
-					onChangeText={(typed) => {
-						const next = clampDay(typed, firstDay, lastDay);
+					min={firstDay}
+					max={lastDay}
+					readonly={readonly}
+					onChange={(next) => {
 						onCheckIn(next);
 						if (next >= checkOut) onCheckOut(shiftDay(next, 1));
 					}}
 				/>
 			</View>
 			<View style={{ flex: 1 }}>
-				<Field
+				<DayStepper
 					label={copy.schedule.fields.checkOut}
 					value={checkOut}
-					editable={!readonly}
-					onChangeText={(typed) => onCheckOut(clampDay(typed, shiftDay(checkIn, 1), lastOut))}
+					min={shiftDay(checkIn, 1)}
+					max={lastOut}
+					readonly={readonly}
+					onChange={onCheckOut}
 				/>
 			</View>
 		</View>
 	);
 }
 
-function clampDay(value: string, lo: string, hi: string) {
-	if (!value) return lo;
-	return value < lo ? lo : value > hi ? hi : value;
+function DayStepper({
+	label,
+	value,
+	min,
+	max,
+	readonly,
+	onChange
+}: {
+	label: string;
+	value: string;
+	min: string;
+	max: string;
+	readonly: boolean;
+	onChange: (value: string) => void;
+}) {
+	const prev = shiftDay(value, -1);
+	const next = shiftDay(value, 1);
+	return (
+		<View style={{ gap: space.xs }}>
+			<Text style={fieldLabel}>{label}</Text>
+			<View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+				<Button
+					label="‹"
+					accessibilityLabel={`Previous ${label.toLowerCase()}`}
+					tone="ghost"
+					small
+					disabled={readonly || prev < min}
+					onPress={() => onChange(prev)}
+				/>
+				<View
+					style={{
+						flex: 1,
+						minHeight: 34,
+						justifyContent: 'center',
+						alignItems: 'center',
+						borderWidth: 1,
+						borderColor: color.line,
+						borderRadius: radius.md,
+						backgroundColor: color.surface
+					}}
+				>
+					<Text style={type.small}>{dayLabel(value)}</Text>
+				</View>
+				<Button
+					label="›"
+					accessibilityLabel={`Next ${label.toLowerCase()}`}
+					tone="ghost"
+					small
+					disabled={readonly || next > max}
+					onPress={() => onChange(next)}
+				/>
+			</View>
+		</View>
+	);
+}
+
+function TimeStepper({
+	label,
+	value,
+	min,
+	max,
+	readonly,
+	onChange
+}: {
+	label: string;
+	value: number;
+	min: number;
+	max: number;
+	readonly: boolean;
+	onChange: (value: number) => void;
+}) {
+	const step = (delta: number) => Math.max(min, Math.min(max, value + delta));
+	return (
+		<View style={{ gap: space.xs }}>
+			<Text style={fieldLabel}>{label}</Text>
+			<View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+				<Button
+					label="−"
+					accessibilityLabel={`Earlier ${label.toLowerCase()}`}
+					tone="ghost"
+					small
+					disabled={readonly || value <= min}
+					onPress={() => onChange(step(-5))}
+				/>
+				<View
+					style={{
+						flex: 1,
+						minHeight: 34,
+						justifyContent: 'center',
+						alignItems: 'center',
+						borderWidth: 1,
+						borderColor: color.line,
+						borderRadius: radius.md,
+						backgroundColor: color.surface
+					}}
+				>
+					<Text style={type.small}>{timeLabel(value)}</Text>
+				</View>
+				<Button
+					label="+"
+					accessibilityLabel={`Later ${label.toLowerCase()}`}
+					tone="ghost"
+					small
+					disabled={readonly || value >= max}
+					onPress={() => onChange(step(5))}
+				/>
+			</View>
+		</View>
+	);
+}
+
+function timeLabel(value: number): string {
+	return value === DAY_END ? '12:00 AM' : clock(value);
+}
+
+function ReadonlyPill({ label, value }: { label: string; value: string }) {
+	return (
+		<View style={{ gap: space.xs }}>
+			<Text style={fieldLabel}>{label}</Text>
+			<Text
+				style={{
+					...type.small,
+					alignSelf: 'flex-start',
+					color: color.accentInk,
+					backgroundColor: color.accentSoft,
+					borderRadius: radius.sm,
+					paddingHorizontal: space.sm,
+					paddingVertical: 4,
+					overflow: 'hidden'
+				}}
+			>
+				{value}
+			</Text>
+		</View>
+	);
 }
 
 function PeopleChooser({
@@ -553,7 +699,17 @@ function PeopleChooser({
 			<Text style={type.faint}>
 				{value === null ? copy.schedule.fields.nobody : everyone ? copy.common.everyone : ''}
 			</Text>
-			{crews.length ? (
+			{readonly ? (
+				<View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
+					{everyone ? (
+						<ReadonlyTag label={copy.common.everyone} />
+					) : (
+						people
+							.filter((person) => selected.has(person.id))
+							.map((person) => <ReadonlyTag key={person.id} label={person.name} />)
+					)}
+				</View>
+			) : crews.length ? (
 				<View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
 					{crews.map((crew) => (
 						<Chip
@@ -565,16 +721,18 @@ function PeopleChooser({
 					))}
 				</View>
 			) : null}
-			<View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
-				{people.map((person) => (
-					<Chip
-						key={person.id}
-						label={person.name}
-						on={selected.has(person.id)}
-						onPress={() => toggle(person.id)}
-					/>
-				))}
-			</View>
+			{readonly ? null : (
+				<View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
+					{people.map((person) => (
+						<Chip
+							key={person.id}
+							label={person.name}
+							on={selected.has(person.id)}
+							onPress={() => toggle(person.id)}
+						/>
+					))}
+				</View>
+			)}
 		</View>
 	);
 }
@@ -598,9 +756,28 @@ function Chip({ label, on, onPress }: { label: string; on: boolean; onPress: () 
 				opacity: pressed ? 0.7 : 1
 			})}
 		>
-			<CheckBox checked={on} label={label} onPress={onPress} />
+			<Text style={{ color: on ? '#fff' : color.inkFaint }}>{on ? '✓' : '□'}</Text>
 			<Text style={type.small}>{label}</Text>
 		</Pressable>
+	);
+}
+
+function ReadonlyTag({ label }: { label: string }) {
+	return (
+		<Text
+			style={{
+				...type.small,
+				alignSelf: 'flex-start',
+				color: color.accentInk,
+				backgroundColor: color.accentSoft,
+				borderRadius: 999,
+				paddingHorizontal: space.sm,
+				paddingVertical: 6,
+				overflow: 'hidden'
+			}}
+		>
+			{label}
+		</Text>
 	);
 }
 
@@ -622,7 +799,7 @@ function JourneyEditor({
 	if (!legs.length) return null;
 	return (
 		<View style={{ gap: space.sm }}>
-			<Text style={type.head}>Getting here</Text>
+			<Text style={type.head}>{copy.schedule.journey.heading}</Text>
 			{legs.map((leg) => {
 				const edit = edits[leg.key] ?? legEdit(leg);
 				const from = eventOf(leg.fromEventId)?.title ?? null;
@@ -641,31 +818,48 @@ function JourneyEditor({
 						{leg.tight ? (
 							<Text style={{ ...type.small, color: color.warn }}>{copy.viewAs.travelWarning}</Text>
 						) : null}
-						<Field
-							label={copy.schedule.journey.name}
-							value={edit.title}
-							placeholder={from ? `${modeLabel(edit.mode)} from ${from}` : modeLabel(edit.mode)}
-							editable={!readonly}
-							onChangeText={(v) => onSet(leg, { title: v })}
-						/>
-						<Picker
-							label={copy.schedule.fields.mode}
-							options={MODE_OPTIONS.map((o) => ({
-								...o,
-								label: `${o.label} ${estimateFor(leg, o.key)}m`
-							}))}
-							value={edit.mode}
-							onPick={(next) =>
-								!readonly && onSet(leg, { mode: next, mins: String(estimateFor(leg, next)) })
-							}
-						/>
-						<Field
-							label={copy.schedule.journey.minutes}
-							value={edit.mins}
-							keyboardType="number-pad"
-							editable={!readonly}
-							onChangeText={(v) => onSet(leg, { mins: v })}
-						/>
+						{readonly ? (
+							<>
+								<ReadonlyPill
+									label={`${copy.schedule.journey.name}${copy.ui.field.optionalSuffix}`}
+									value={
+										edit.title ||
+										(from ? `${modeLabel(edit.mode)} from ${from}` : modeLabel(edit.mode))
+									}
+								/>
+								<ReadonlyPill label={copy.schedule.fields.mode} value={modeLabel(edit.mode)} />
+								<ReadonlyPill
+									label={copy.schedule.journey.minutes}
+									value={`${edit.mins} ${copy.schedule.journey.minutesUnit}`}
+								/>
+							</>
+						) : (
+							<>
+								<Field
+									label={`${copy.schedule.journey.name}${copy.ui.field.optionalSuffix}`}
+									value={edit.title}
+									placeholder={from ? `${modeLabel(edit.mode)} from ${from}` : modeLabel(edit.mode)}
+									onChangeText={(v) => onSet(leg, { title: v })}
+								/>
+								<Picker
+									label={copy.schedule.fields.mode}
+									options={MODE_OPTIONS.map((o) => ({
+										...o,
+										label: `${o.label} ${copy.schedule.journey.estimate(estimateFor(leg, o.key))}`
+									}))}
+									value={edit.mode}
+									onPick={(next) =>
+										onSet(leg, { mode: next, mins: String(estimateFor(leg, next)) })
+									}
+								/>
+								<Field
+									label={copy.schedule.journey.minutes}
+									value={edit.mins}
+									keyboardType="number-pad"
+									onChangeText={(v) => onSet(leg, { mins: v })}
+								/>
+							</>
+						)}
 					</View>
 				);
 			})}

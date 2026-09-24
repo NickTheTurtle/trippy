@@ -407,7 +407,17 @@ export const copy = {
 		/** The event dialog's title: reading a frozen block, editing one, adding one. */
 		dialog: { view: 'Event', edit: 'Edit event', add: 'Add event' },
 		/** A journey card's own fields; the mode reuses `fields.mode`. */
-		journey: { name: 'Journey name', minutes: 'Minutes' },
+		journey: {
+			heading: 'Getting here',
+			name: 'Journey name',
+			minutes: 'Minutes',
+			minutesUnit: 'min',
+			automatic: 'Automatic',
+			estimate: (minutes: number) => `${minutes}m`
+		},
+		eventSaveFallback: 'Could not save that event.',
+		eventAddFallback: 'Could not add that event.',
+		eventDeleteFallback: 'Could not delete that event.',
 		/**
 		 * What the place search says instead of a list of results. Five states, not
 		 * one: a search in flight, a query too short to send, a search that came

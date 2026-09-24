@@ -50,27 +50,6 @@ export function clockRange(from: number, to: number): string {
 	return meridiem === b.slice(-2) ? `${a.slice(0, -3)} - ${b}` : `${a} - ${b}`;
 }
 
-export function parseClock(text: string): number | null {
-	const raw = text.trim().toLowerCase();
-	const m = /^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/.exec(raw);
-	if (!m) return null;
-	let hour = Number(m[1]);
-	const minute = Number(m[2] ?? '0');
-	if (!Number.isInteger(hour) || !Number.isInteger(minute) || minute < 0 || minute > 59)
-		return null;
-	const mer = m[3];
-	if (mer) {
-		if (hour < 1 || hour > 12) return null;
-		if (hour === 12) hour = 0;
-		if (mer === 'pm') hour += 12;
-	} else if (hour > 23) return null;
-	return hour * 60 + minute;
-}
-
-export function timeText(min: number): string {
-	return clock(min);
-}
-
 export function shiftDay(iso: string, delta: number): string {
 	const [y, m, d] = iso.split('-').map(Number);
 	return new Date(Date.UTC(y, m - 1, d + delta)).toISOString().slice(0, 10);
