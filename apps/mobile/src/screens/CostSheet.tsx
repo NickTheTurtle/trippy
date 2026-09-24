@@ -67,7 +67,7 @@ export function CostSheet({
 		setConfirmDelete(false);
 		save.reset();
 		remove.reset();
-	}, [open, item, categories, currency]);
+	}, [open, item?.id]);
 
 	const save = useMutation(
 		async () => {

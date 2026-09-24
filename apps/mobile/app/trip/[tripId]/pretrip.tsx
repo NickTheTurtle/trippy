@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, RefreshControl, Text, View } from 'react-native';
 import { copy } from '@trippy/copy';
 import { cap, formatMoney } from '@trippy/copy/format';
@@ -8,10 +8,11 @@ import { useTripId } from '../../../src/trip-id';
 import { useApi } from '../../../src/hooks/useApi';
 import { useMutation } from '../../../src/hooks/useMutation';
 import { useLiveSection } from '../../../src/hooks/useTripEvents';
-import { Card, EmptyState, FormError, Head, Loading, Screen } from '../../../src/ui';
+import { Button, Card, EmptyState, FormError, Head, Loading, Screen } from '../../../src/ui';
 import { CheckBox, Picker, SegmentedControl } from '../../../src/ui/controls';
 import { TaskSheet } from '../../../src/screens/TaskSheet';
 import { CostSheet } from '../../../src/screens/CostSheet';
+import { useToast } from '../../../src/ui/Toast';
 import { color, space, type } from '../../../src/theme';
 
 type Member = { id: string; name: string };
@@ -71,6 +72,7 @@ export default function Pretrip() {
 		return (
 			<Screen>
 				<FormError message={error ?? copy.api.loadFailed} />
+				<Button label={copy.api.retry} onPress={reload} />
 			</Screen>
 		);
 	}
@@ -175,14 +177,21 @@ function Tasks({
 	reload: () => void;
 }) {
 	const list = kind === 'packing' ? data.packing : data.tasks;
+	const toast = useToast();
 	const toggle = useMutation(
-		(taskId: string, userId: string | undefined, done: boolean) =>
-			api(`/trips/${tripId}/pretrip/tasks/${taskId}/toggle`, {
-				method: 'POST',
-				body: userId ? { userId, done } : { done }
-			}),
+		async (steps: { taskId: string; userId?: string; done: boolean }[]) => {
+			for (const step of steps) {
+				await api(`/trips/${tripId}/pretrip/tasks/${step.taskId}/toggle`, {
+					method: 'POST',
+					body: step.userId ? { userId: step.userId, done: step.done } : { done: step.done }
+				});
+			}
+		},
 		{ fallback: copy.preparation.saveFallback, onSuccess: reload }
 	);
+	useEffect(() => {
+		if (toggle.error) toast.error(toggle.error);
+	}, [toggle.error, toast]);
 
 	const mine =
 		kind === 'tasks' ? list.filter((task) => task.people.some((p) => p.id === data.me)) : [];
@@ -190,28 +199,30 @@ function Tasks({
 
 	return (
 		<>
-			<FormError message={toggle.error} />
 			{mine.length > 0 ? (
 				<TaskCard
 					title={copy.preparation.myTasks.title}
 					items={mine}
 					me={data.me}
 					kind="tasks"
-					onToggle={(taskId, userId, done) => void toggle.run(taskId, userId, done)}
+					onAdd={others.length === 0 ? onAdd : undefined}
+					onToggle={(steps) => void toggle.run(steps)}
 					onEdit={onEdit}
 				/>
 			) : null}
-			<TaskCard
-				title={
-					mine.length > 0 ? copy.preparation.myTasks.othersTitle : copy.preparation.sections[kind]
-				}
-				items={others}
-				me={data.me}
-				kind={kind}
-				onAdd={onAdd}
-				onToggle={(taskId, userId, done) => void toggle.run(taskId, userId, done)}
-				onEdit={onEdit}
-			/>
+			{others.length > 0 || mine.length === 0 ? (
+				<TaskCard
+					title={
+						mine.length > 0 ? copy.preparation.myTasks.othersTitle : copy.preparation.sections[kind]
+					}
+					items={others}
+					me={data.me}
+					kind={kind}
+					onAdd={onAdd}
+					onToggle={(steps) => void toggle.run(steps)}
+					onEdit={onEdit}
+				/>
+			) : null}
 		</>
 	);
 }
@@ -230,7 +241,7 @@ function TaskCard({
 	me: string;
 	kind: 'tasks' | 'packing';
 	onAdd?: () => void;
-	onToggle: (taskId: string, userId: string | undefined, done: boolean) => void;
+	onToggle: (steps: { taskId: string; userId?: string; done: boolean }[]) => void;
 	onEdit: (task: Task) => void;
 }) {
 	return (
@@ -266,7 +277,7 @@ function TaskRow({
 	task: Task;
 	me: string;
 	kind: 'tasks' | 'packing';
-	onToggle: (taskId: string, userId: string | undefined, done: boolean) => void;
+	onToggle: (steps: { taskId: string; userId?: string; done: boolean }[]) => void;
 	onEdit: () => void;
 }) {
 	const assigned = task.people.length > 0;
@@ -277,16 +288,21 @@ function TaskRow({
 			<View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
 				<CheckBox
 					checked={state === 'on'}
+					state={state === 'on' ? 'checked' : state === 'part' ? 'mixed' : 'unchecked'}
 					label={
 						assigned
 							? copy.preparation.taskList.allBoxLabel(task.done, task.label)
 							: copy.preparation.taskList.sharedBoxLabel(task.done, task.label)
 					}
 					onPress={() => {
+						const want = !task.done;
 						if (assigned) {
-							for (const person of task.people) onToggle(task.id, person.id, !task.done);
+							const steps = task.people
+								.filter((person) => person.done !== want)
+								.map((person) => ({ taskId: task.id, userId: person.id, done: want }));
+							if (steps.length) onToggle(steps);
 						} else {
-							onToggle(task.id, undefined, !task.done);
+							onToggle([{ taskId: task.id, done: want }]);
 						}
 					}}
 				/>
@@ -329,7 +345,14 @@ function TaskRow({
 					}}
 				>
 					{task.people.map((p) => (
-						<Pressable key={p.id} onPress={() => onToggle(task.id, p.id, !p.done)} hitSlop={4}>
+						<Pressable
+							key={p.id}
+							accessibilityRole="checkbox"
+							accessibilityState={{ checked: p.done }}
+							accessibilityLabel={p.name + (p.id === me ? copy.preparation.youSuffix : '')}
+							onPress={() => onToggle([{ taskId: task.id, userId: p.id, done: !p.done }])}
+							hitSlop={4}
+						>
 							<Text
 								style={{
 									...type.faint,
@@ -378,16 +401,24 @@ function Costs({
 		<>
 			<Card>
 				<View style={{ flexDirection: 'row', alignItems: 'center', gap: space.lg }}>
-					<View style={{ flex: 1 }}>
-						<Text style={type.faint}>{copy.preparation.tripTotal}</Text>
-						<Text style={type.head}>{fmt(grand)}</Text>
-					</View>
-					<View style={{ flex: 1 }}>
-						<Text style={type.faint}>
-							{viewAs ? shareLabel(data.members, viewAs, data.me) : copy.preparation.perPerson}
-						</Text>
-						<Text style={type.head}>{fmt(viewAs ? shownTotal : perPerson)}</Text>
-					</View>
+					{data.budget.items.length > 0 ? (
+						<>
+							<View style={{ flex: 1 }}>
+								<Text style={type.faint}>{copy.preparation.tripTotal}</Text>
+								<Text style={type.head}>{fmt(grand)}</Text>
+							</View>
+							<View style={{ flex: 1 }}>
+								<Text style={type.faint}>
+									{viewAs ? shareLabel(data.members, viewAs, data.me) : copy.preparation.perPerson}
+								</Text>
+								<Text style={type.head}>{fmt(viewAs ? shownTotal : perPerson)}</Text>
+							</View>
+						</>
+					) : (
+						<View style={{ flex: 1 }}>
+							<Text style={type.faint}>{copy.common.nothingAdded}</Text>
+						</View>
+					)}
 					<AddText onPress={onAdd} />
 				</View>
 			</Card>

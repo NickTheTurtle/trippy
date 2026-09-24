@@ -46,7 +46,7 @@ export function TaskSheet({
 		setConfirmDelete(false);
 		save.reset();
 		remove.reset();
-	}, [open, task]);
+	}, [open, task?.id]);
 
 	const save = useMutation(
 		async () => {
