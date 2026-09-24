@@ -1,6 +1,7 @@
-import { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { api, ApiError, type User } from './lib/api';
+import { router, usePathname } from 'expo-router';
+import { api, ApiError, onUnauthorized, type User } from './lib/api';
 import { setToken } from './lib/token';
 
 /**
@@ -19,7 +20,7 @@ type AuthValue = {
 	user: User | null;
 	loading: boolean;
 	logIn: (email: string, password: string) => Promise<void>;
-	register: (email: string, name: string, password: string) => Promise<void>;
+	register: (name: string, email: string, password: string) => Promise<'signed-in' | 'pending'>;
 	logOut: () => Promise<void>;
 	refresh: () => Promise<void>;
 };
@@ -29,6 +30,7 @@ const Ctx = createContext<AuthValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
 	const [user, setUser] = useState<User | null>(null);
 	const [loading, setLoading] = useState(true);
+	const pathname = usePathname();
 
 	const refresh = useCallback(async () => {
 		try {
@@ -48,6 +50,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 		void refresh();
 	}, [refresh]);
 
+	const checking = useRef(false);
+	useEffect(() => {
+		onUnauthorized(() => {
+			if (checking.current) return;
+			checking.current = true;
+			api<{ user: User }>('/auth/me')
+				.then(({ user }) => setUser(user))
+				.catch((err) => {
+					if (err instanceof ApiError && err.status === 401) {
+						void setToken(null);
+						setUser(null);
+						router.replace({
+							pathname: '/login',
+							params: pathname && pathname !== '/login' ? { next: pathname } : undefined
+						});
+					}
+				})
+				.finally(() => {
+					checking.current = false;
+				});
+		});
+		return () => onUnauthorized(null);
+	}, [pathname]);
+
 	const adopt = useCallback(async (res: { user: User; token?: string }) => {
 		if (res.token) await setToken(res.token);
 		setUser(res.user);
@@ -66,13 +92,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 	);
 
 	const register = useCallback(
-		async (email: string, name: string, password: string) => {
-			await adopt(
-				await api<{ user: User; token?: string }>('/auth/register', {
+		async (name: string, email: string, password: string) => {
+			const homeTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+			const res = await api<{ user?: User; token?: string; pending?: boolean; email?: string }>(
+				'/auth/register',
+				{
 					method: 'POST',
-					body: { email, name, password }
-				})
+					body: { name, email, password, homeTz }
+				}
 			);
+			if (!res.user) return 'pending' as const;
+			await adopt({ user: res.user, token: res.token });
+			return 'signed-in' as const;
 		},
 		[adopt]
 	);

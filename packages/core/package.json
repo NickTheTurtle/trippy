@@ -15,6 +15,8 @@
 		"./travel": "./src/travel.ts",
 		"./plan": "./src/plan.ts",
 		"./currency": "./src/currency.ts",
+		"./api-types": "./src/api-types.ts",
+		"./currency-names": "./src/currency-names.ts",
 		"./validate": "./src/validate.ts",
 		"./sample": "./src/sample.ts"
 	},

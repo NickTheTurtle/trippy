@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { Sheet } from './Sheet';
-import { color, radius, space, type } from '../theme';
+import { copy } from '@trippy/copy';
+import { color, fieldLabel, radius, space, type } from '../theme';
 
 /**
  * Small controls that several screens need and React Native does not ship.
@@ -168,7 +168,7 @@ export function ListPicker({
 
 	return (
 		<View style={{ gap: space.xs }}>
-			<Text style={type.small}>{label}</Text>
+			<Text style={fieldLabel}>{label}</Text>
 			<Pressable
 				accessibilityRole="button"
 				accessibilityLabel={label}
@@ -189,43 +189,55 @@ export function ListPicker({
 				<Text style={type.body}>{value}</Text>
 			</Pressable>
 
-			<Sheet open={open} title={label} onClose={() => setOpen(false)}>
-				<TextInput
-					value={q}
-					onChangeText={setQ}
-					placeholder="Search"
-					autoCapitalize="none"
-					placeholderTextColor={color.inkFaint}
+			{open ? (
+				<View
 					style={{
-						height: 44,
-						paddingHorizontal: space.md,
-						borderRadius: radius.sm,
+						gap: space.sm,
 						borderWidth: 1,
 						borderColor: color.line,
+						borderRadius: radius.md,
 						backgroundColor: color.surface,
-						color: color.ink
+						padding: space.sm,
+						maxHeight: 260
 					}}
-				/>
-				{shown.map((o) => (
-					<Pressable
-						key={o}
-						onPress={() => {
-							onPick(o);
-							setOpen(false);
-						}}
-						style={({ pressed }) => ({
-							paddingVertical: 10,
-							paddingHorizontal: space.sm,
+				>
+					<TextInput
+						value={q}
+						onChangeText={setQ}
+						placeholder={copy.ui.searchPlaceholder}
+						autoCapitalize="none"
+						placeholderTextColor={color.inkFaint}
+						style={{
+							height: 44,
+							paddingHorizontal: space.md,
 							borderRadius: radius.sm,
-							backgroundColor: pressed ? color.surface2 : 'transparent'
-						})}
-					>
-						<Text style={{ ...type.body, color: o === value ? color.accentInk : color.ink }}>
-							{o}
-						</Text>
-					</Pressable>
-				))}
-			</Sheet>
+							borderWidth: 1,
+							borderColor: color.line,
+							backgroundColor: color.surface,
+							color: color.ink
+						}}
+					/>
+					{shown.map((o) => (
+						<Pressable
+							key={o}
+							onPress={() => {
+								onPick(o);
+								setOpen(false);
+							}}
+							style={({ pressed }) => ({
+								paddingVertical: 10,
+								paddingHorizontal: space.sm,
+								borderRadius: radius.sm,
+								backgroundColor: pressed ? color.surface2 : 'transparent'
+							})}
+						>
+							<Text style={{ ...type.body, color: o === value ? color.accentInk : color.ink }}>
+								{o}
+							</Text>
+						</Pressable>
+					))}
+				</View>
+			) : null}
 		</View>
 	);
 }
@@ -271,5 +283,115 @@ export function Picker({
 				})}
 			</View>
 		</ScrollView>
+	);
+}
+
+export type SearchablePickerOption = { key: string; label: string; detail?: string };
+
+export function SearchablePicker({
+	label,
+	value,
+	options,
+	onPick,
+	noMatches
+}: {
+	label: string;
+	value: string;
+	options: SearchablePickerOption[];
+	onPick: (value: string) => void;
+	noMatches: string;
+}) {
+	const [open, setOpen] = useState(false);
+	const [q, setQ] = useState('');
+	const current = options.find((o) => o.key === value);
+	const needle = q.trim().toLowerCase();
+	const shown = options
+		.filter((o) => {
+			if (!needle) return true;
+			return (
+				o.key.toLowerCase().includes(needle) ||
+				o.label.toLowerCase().includes(needle) ||
+				(o.detail ?? '').toLowerCase().includes(needle)
+			);
+		})
+		.slice(0, 120);
+
+	return (
+		<View style={{ gap: space.xs }}>
+			<Text style={fieldLabel}>{label}</Text>
+			<Pressable
+				accessibilityRole="button"
+				accessibilityLabel={label}
+				onPress={() => {
+					setQ('');
+					setOpen(true);
+				}}
+				style={({ pressed }) => ({
+					minHeight: 44,
+					justifyContent: 'center',
+					paddingHorizontal: space.md,
+					paddingVertical: 6,
+					borderRadius: radius.sm,
+					borderWidth: 1,
+					borderColor: color.line,
+					backgroundColor: pressed ? color.surface2 : color.surface
+				})}
+			>
+				<Text style={type.body}>{current ? current.label : value}</Text>
+				{current?.detail ? <Text style={type.faint}>{current.detail}</Text> : null}
+			</Pressable>
+
+			{open ? (
+				<View
+					style={{
+						gap: space.sm,
+						borderWidth: 1,
+						borderColor: color.line,
+						borderRadius: radius.md,
+						backgroundColor: color.surface,
+						padding: space.sm,
+						maxHeight: 260
+					}}
+				>
+					<TextInput
+						value={q}
+						onChangeText={setQ}
+						placeholder={copy.ui.searchPlaceholder}
+						autoCapitalize="none"
+						placeholderTextColor={color.inkFaint}
+						style={{
+							height: 44,
+							paddingHorizontal: space.md,
+							borderRadius: radius.sm,
+							borderWidth: 1,
+							borderColor: color.line,
+							backgroundColor: color.surface,
+							color: color.ink
+						}}
+					/>
+					{shown.length === 0 ? <Text style={type.faint}>{noMatches}</Text> : null}
+					{shown.map((o) => (
+						<Pressable
+							key={o.key}
+							onPress={() => {
+								onPick(o.key);
+								setOpen(false);
+							}}
+							style={({ pressed }) => ({
+								paddingVertical: 10,
+								paddingHorizontal: space.sm,
+								borderRadius: radius.sm,
+								backgroundColor: pressed ? color.surface2 : 'transparent'
+							})}
+						>
+							<Text style={{ ...type.body, color: o.key === value ? color.accentInk : color.ink }}>
+								{o.label}
+							</Text>
+							{o.detail ? <Text style={type.faint}>{o.detail}</Text> : null}
+						</Pressable>
+					))}
+				</View>
+			) : null}
+		</View>
 	);
 }

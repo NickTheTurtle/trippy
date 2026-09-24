@@ -11,6 +11,7 @@ import { copy } from '@trippy/copy';
 export type Loadable<T> = {
 	data: T | null;
 	error: string | null;
+	errorStatus: number | null;
 	loading: boolean;
 	reload: () => void;
 };
@@ -19,6 +20,7 @@ export function useApi<T>(path: string | null): Loadable<T> {
 	const [data, setData] = useState<T | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [loading, setLoading] = useState(path !== null);
+	const [errorStatus, setErrorStatus] = useState<number | null>(null);
 	const [nonce, setNonce] = useState(0);
 
 	useEffect(() => {
@@ -30,10 +32,12 @@ export function useApi<T>(path: string | null): Loadable<T> {
 			.then((d) => {
 				setData(d);
 				setError(null);
+				setErrorStatus(null);
 			})
 			.catch((err) => {
 				if (ac.signal.aborted || isAbort(err)) return;
 				setError(err instanceof ApiError ? err.message : copy.api.loadFailed);
+				setErrorStatus(err instanceof ApiError ? err.status : null);
 			})
 			.finally(() => {
 				if (!ac.signal.aborted) setLoading(false);
@@ -44,5 +48,5 @@ export function useApi<T>(path: string | null): Loadable<T> {
 
 	const reload = useCallback(() => setNonce((n) => n + 1), []);
 
-	return { data, error, loading, reload };
+	return { data, error, errorStatus, loading, reload };
 }

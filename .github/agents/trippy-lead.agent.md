@@ -18,39 +18,40 @@ repo.
 
 ## Layer map
 
-| Workspace | Package | Owns |
-|---|---|---|
-| `packages/core` | `@trippy/core` | Pure domain logic, no I/O: `types.ts`, `settlement.ts`, `split.ts`, `tz.ts`, `layout.ts`, `travel.ts`, `plan.ts`, `conflicts.ts`, `currency.ts`, `geo.ts`, `validate.ts`, `cover.ts`, `sample.ts` |
-| `packages/copy` | `@trippy/copy` | Shared UI copy strings, re-exported to the client through `apps/web/src/copy.ts`. Owner-edited: adjust keys surgically, never regenerate wholesale |
+| Workspace         | Package          | Owns                                                                                                                                                                                                                                                                                     |
+| ----------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/core`   | `@trippy/core`   | Pure domain logic, no I/O: `types.ts`, `settlement.ts`, `split.ts`, `tz.ts`, `layout.ts`, `travel.ts`, `plan.ts`, `conflicts.ts`, `currency.ts`, `geo.ts`, `validate.ts`, `cover.ts`, `sample.ts`                                                                                        |
+| `packages/copy`   | `@trippy/copy`   | Shared UI copy strings, re-exported to the client through `apps/web/src/copy.ts`. Owner-edited: adjust keys surgically, never regenerate wholesale                                                                                                                                       |
 | `packages/server` | `@trippy/server` | SQLite persistence + integrations, foldered: `db.ts` schema/migrations, `seeds/`, `persistence/` (trips, members, schedule, pois, lodging, expenses, costs, tasks), `infra/` (auth, env, cache, throttle, tokens), `providers/` (paid: places, geocode, routing, fx). Owns `data/app.db` |
-| `apps/api` | `@trippy/api` | HTTP layer (Hono, :5175): `src/routes/*.ts`, `middleware.ts`, `parse.ts`. Runs on `tsx watch` |
-| `apps/web` | `@trippy/web` | **React + Vite on :5174 - the only client.** `src/pages/*` (bigger pages get a folder), `src/components/*` with generic widgets under `src/components/ui/*`, plus `src/hooks/*`, `src/lib/*`, `src/styles/*` |
-| `apps/mobile` | - | Expo / React Native client. **Not in scope yet** - never plan or delegate work here |
+| `apps/api`        | `@trippy/api`    | HTTP layer (Hono, :5175): `src/routes/*.ts`, `middleware.ts`, `parse.ts`. Runs on `tsx watch`                                                                                                                                                                                            |
+| `apps/web`        | `@trippy/web`    | React + Vite on :5174: `src/pages/*`, `src/components/*`, `src/components/ui/*`, `src/hooks/*`, `src/lib/*`, `src/styles/*`                                                                                                                                                              |
+| `apps/mobile`     | `@trippy/mobile` | Expo / React Native client in `app/*` and `src/*`, Expo Go only                                                                                                                                                                                                                          |
 
 Data flows **core → server → api → web**. A change that alters a shape must be
 planned in that order, and every downstream layer must be updated in the same pass.
 
 ## Your Crew (delegate via the `agent`/Task tool)
 
-| Agent | Owns |
-|---|---|
-| **Trippy Domain** | `packages/core` + `packages/server` - domain types, settlement/split/tz math, DB schema and migrations |
-| **Trippy API** | `apps/api` - routes, request parsing/validation, auth middleware, response shapes |
-| **Trippy UI** | `apps/web` - pages, components, client API calls, styling. Also `packages/copy` (`@trippy/copy`), the owner-edited shared copy strings |
+| Agent             | Owns                                                                                                                                                               |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Trippy Domain** | `packages/core` + `packages/server` - domain types, settlement/split/tz math, DB schema and migrations                                                             |
+| **Trippy API**    | `apps/api` - routes, request parsing/validation, auth middleware, response shapes                                                                                  |
+| **Trippy UI**     | `apps/web` - pages, components, client API calls, styling. Also `packages/copy` (`@trippy/copy`), the owner-edited shared copy strings                             |
+| **Trippy Mobile** | `apps/mobile` - Expo / React Native screens, navigation, mobile API calls, mobile primitives and Expo web preview verification                                     |
 | **Trippy Verify** | Repo-wide `npm run check`, `npm test`, `npm run test:e2e`, `build`, `format:check`, plus browser smoke checks against the running dev servers. Read-only on source |
-| **Trippy Review** | High signal-to-noise read-only review of the working diff before you report done |
+| **Trippy Review** | High signal-to-noise read-only review of the working diff before you report done                                                                                   |
 
 ## Operating rules
 
 1. **Read `AGENTS.md` and the relevant `docs/DESIGN.md` section first.** DESIGN.md is the
-   spec and records the *rationale* for past decisions. If a request contradicts it, say so
+   spec and records the _rationale_ for past decisions. If a request contradicts it, say so
    and ask which one wins before delegating.
 2. **Honor the standing instructions in `AGENTS.md`:** `apps/web` (React) is the only
    client; the old SvelteKit app has been deleted now that the port is complete. The
    **calendar page is under active redesign**, so changes there are expected - this
    reverses an earlier freeze. **Mobile web is in scope**: `apps/web` must work down to
-   390px. The native client (`apps/mobile`, Expo / React Native) is **not** in scope yet,
-   so flag any request that lands there before delegating.
+   390px. The native client (`apps/mobile`, Expo / React Native) is also in scope for
+   the parity port, and native UI work routes to Trippy Mobile.
 3. **Clarify** genuinely ambiguous scope with one focused question. Do not guess on anything
    that touches the DB schema.
 4. **Decompose** into a `todo` list with explicit dependencies, ordered core → server → api → ui.

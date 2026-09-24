@@ -3,18 +3,19 @@
 Collaborative, internationally-aware group trip planner.
 Repo: `github.com/NickTheTurtle/trippy` (private). npm workspaces, ESM, TypeScript.
 
-The full spec and the *rationale* behind non-obvious decisions live in **`docs/DESIGN.md`**.
+The full spec and the _rationale_ behind non-obvious decisions live in **`docs/DESIGN.md`**.
 Read the relevant section before changing behavior.
 
 ## Layout
 
-| Workspace | Package | Role |
-|---|---|---|
-| `apps/web` | `@trippy/web` | **React on :5174 - the live app.** All new UI work goes here |
-| `apps/api` | `@trippy/api` | Hono JSON API on :5175 (`tsx watch`) |
-| `packages/server` | `@trippy/server` | SQLite persistence + integrations; owns the schema and `data/app.db` |
-| `packages/core` | `@trippy/core` | Pure domain logic - no I/O, browser-safe |
-| `packages/copy` | `@trippy/copy` | Shared UI copy strings; `apps/web/src/copy.ts` re-exports them. Owner-edited |
+| Workspace         | Package          | Role                                                                         |
+| ----------------- | ---------------- | ---------------------------------------------------------------------------- |
+| `apps/web`        | `@trippy/web`    | **React on :5174 - the live app.**                                           |
+| `apps/mobile`     | `@trippy/mobile` | Expo / React Native client, now in scope for native parity work              |
+| `apps/api`        | `@trippy/api`    | Hono JSON API on :5175 (`tsx watch`)                                         |
+| `packages/server` | `@trippy/server` | SQLite persistence + integrations; owns the schema and `data/app.db`         |
+| `packages/core`   | `@trippy/core`   | Pure domain logic - no I/O, browser-safe                                     |
+| `packages/copy`   | `@trippy/copy`   | Shared UI copy strings; `apps/web/src/copy.ts` re-exports them. Owner-edited |
 
 The SvelteKit -> React port is **complete** and the SvelteKit app has been deleted.
 `apps/web` is the only client.
@@ -24,7 +25,7 @@ The SvelteKit -> React port is **complete** and the SvelteKit app has been delet
 - **The calendar page is under active redesign** - the owner is reworking it, so
   changes there are expected. (This reverses an earlier freeze.)
 - **Mobile web is in scope**: `apps/web` must work down to 390px. The native
-  client (`apps/mobile`, Expo / React Native) is **not** in scope yet.
+  client (`apps/mobile`, Expo / React Native) is also in scope for the parity port.
 
 ## Working method
 
@@ -79,8 +80,8 @@ The SvelteKit -> React port is **complete** and the SvelteKit app has been delet
   None of them applies here. Never load one, and never carry a convention from another
   codebase into this one - notably, do not use a global `git` skill, which may assume a
   build environment this repo does not have. This repo has no git hooks.
-- This repo's agents are the six in `.github/agents/`: Trippy Lead (coordinator and default
-  entry point), Trippy Domain, Trippy API, Trippy UI, Trippy Verify, and Trippy Review.
+- This repo's agents are the seven in `.github/agents/`: Trippy Lead (coordinator and default
+  entry point), Trippy Domain, Trippy API, Trippy UI, Trippy Mobile, Trippy Verify, and Trippy Review.
 
 ## Concurrency
 
@@ -93,12 +94,15 @@ likely to be another session's in-flight work than a mistake.
 ```
 npm run check          # typecheck all workspaces
 npm run check -w @trippy/web
+npm run check -w @trippy/mobile
 npm run build          # build all workspaces
 npm run format:check   # prettier, apps/web sources
 ```
 
+For mobile changes, keep the live dev servers on :5174 and :5175 untouched. Use a throwaway API on an isolated port, for example 5191 with `TRIPPY_DB` pointing at a fresh temporary database and `TRIPPY_OFFLINE_PROVIDERS=1`, then run the Expo web preview from `apps/mobile` on another isolated port such as 8091 with `EXPO_PUBLIC_API_URL` pointing at that throwaway API. Exercise it in a real browser at a phone viewport.
+
 ## Agents
 
 `.github/agents/` defines a delegation crew: **Trippy Lead** (coordinator) routes to
-**Trippy Domain**, **Trippy API**, **Trippy UI**, **Trippy Verify**, and **Trippy Review**.
+**Trippy Domain**, **Trippy API**, **Trippy UI**, **Trippy Mobile**, **Trippy Verify**, and **Trippy Review**.
 Start with `/agent Trippy Lead` for anything spanning more than one workspace.

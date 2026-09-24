@@ -8,6 +8,7 @@ import { api } from '../../../src/lib/api';
 import { useTripId } from '../../../src/trip-id';
 import { useApi } from '../../../src/hooks/useApi';
 import { useMutation } from '../../../src/hooks/useMutation';
+import { useLiveSection } from '../../../src/hooks/useTripEvents';
 import { Card, EmptyState, FormError, Head, Loading, Screen } from '../../../src/ui';
 import { AddPlace } from '../../../src/screens/AddPlace';
 import { color, radius, space, type } from '../../../src/theme';
@@ -33,6 +34,7 @@ type Kind = (typeof KINDS)[number]['key'];
 export default function Discover() {
 	const tripId = useTripId();
 	const { data, error, loading, reload } = useApi<DiscoverData>(`/trips/${tripId}/discover`);
+	useLiveSection(['trip', 'pois', 'lodging', 'schedule'], reload);
 
 	const [cityId, setCityId] = useState<string | null>(null);
 	const [kind, setKind] = useState<Kind>('all');

@@ -2,6 +2,8 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider } from '../src/auth';
+import { ToastProvider } from '../src/ui/Toast';
+import { copy } from '@trippy/copy';
 import { color, font } from '../src/theme';
 
 /**
@@ -15,23 +17,29 @@ export default function RootLayout() {
 	return (
 		<SafeAreaProvider>
 			<AuthProvider>
-				<StatusBar style="dark" />
-				<Stack
-					screenOptions={{
-						headerStyle: { backgroundColor: color.bg },
-						headerShadowVisible: false,
-						headerTintColor: color.ink,
-						headerTitleStyle: { ...font.heading, fontSize: 17 },
-						contentStyle: { backgroundColor: color.bg }
-					}}
-				>
-					<Stack.Screen name="index" options={{ headerShown: false }} />
-					<Stack.Screen name="login" options={{ title: '' }} />
-					<Stack.Screen name="register" options={{ title: '' }} />
-					<Stack.Screen name="trips" options={{ headerShown: false }} />
-					<Stack.Screen name="account" options={{ title: 'Account' }} />
-					<Stack.Screen name="trip/[tripId]" options={{ headerShown: false }} />
-				</Stack>
+				<ToastProvider>
+					<StatusBar style="dark" />
+					<Stack
+						screenOptions={{
+							headerStyle: { backgroundColor: color.bg },
+							headerShadowVisible: false,
+							headerTintColor: color.ink,
+							headerTitleStyle: { ...font.heading, fontSize: 17 },
+							contentStyle: { backgroundColor: color.bg }
+						}}
+					>
+						<Stack.Screen name="index" options={{ headerShown: false }} />
+						<Stack.Screen name="login" options={{ title: '' }} />
+						<Stack.Screen name="register" options={{ title: '' }} />
+						<Stack.Screen name="forgot" options={{ title: '' }} />
+						<Stack.Screen name="verify" options={{ title: '' }} />
+						<Stack.Screen name="reset" options={{ title: '' }} />
+						<Stack.Screen name="verify-email" options={{ title: '' }} />
+						<Stack.Screen name="trips" options={{ headerShown: false }} />
+						<Stack.Screen name="account" options={{ title: copy.account.heading }} />
+						<Stack.Screen name="trip/[tripId]" options={{ headerShown: false }} />
+					</Stack>
+				</ToastProvider>
 			</AuthProvider>
 		</SafeAreaProvider>
 	);

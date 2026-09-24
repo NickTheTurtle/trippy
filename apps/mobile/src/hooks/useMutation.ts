@@ -7,8 +7,8 @@ import { copy } from '@trippy/copy';
  * never throws and answers whether the write happened, so a caller can dismiss
  * a sheet on success and leave it open with the message showing on failure.
  */
-export type MutationOptions = {
-	onSuccess?: () => void;
+export type MutationOptions<R = unknown> = {
+	onSuccess?: (result: R) => void;
 	fallback?: string;
 };
 
@@ -20,9 +20,9 @@ export type Mutation<A extends unknown[]> = {
 	reset: () => void;
 };
 
-export function useMutation<A extends unknown[] = []>(
-	action: (...args: A) => Promise<unknown>,
-	options: MutationOptions = {}
+export function useMutation<A extends unknown[] = [], R = unknown>(
+	action: (...args: A) => Promise<R>,
+	options: MutationOptions<R> = {}
 ): Mutation<A> {
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState('');
@@ -44,14 +44,14 @@ export function useMutation<A extends unknown[] = []>(
 		setBusy(true);
 		setError('');
 		try {
-			await actionRef.current(...args);
-			optionsRef.current.onSuccess?.();
+			const result = await actionRef.current(...args);
+			optionsRef.current.onSuccess?.(result);
 			return true;
 		} catch (err) {
 			if (isAbort(err)) return false;
 			if (alive.current) {
 				setError(
-					err instanceof ApiError
+					err instanceof ApiError || err instanceof Error
 						? err.message
 						: (optionsRef.current.fallback ?? copy.api.saveFallback)
 				);

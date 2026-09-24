@@ -1,9 +1,13 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { View } from 'react-native';
 import { copy } from '@trippy/copy';
+import { nightsBetween } from '@trippy/copy/format';
+import { CURRENCY_CODES } from '@trippy/core/currency';
+import { currencyName } from '@trippy/core/currency-names';
 import { api } from '../lib/api';
 import { useMutation } from '../hooks/useMutation';
 import { Button, Field, FormError } from '../ui';
+import { SearchablePicker } from '../ui/controls';
 import { Sheet } from '../ui/Sheet';
 import { space } from '../theme';
 
@@ -29,9 +33,15 @@ export function NewTrip({
 	const [startDate, setStart] = useState('');
 	const [endDate, setEnd] = useState('');
 	const [homeCurrency, setCurrency] = useState('USD');
+	const currencyOptions = useMemo(
+		() => CURRENCY_CODES.map((code) => ({ key: code, label: code, detail: currencyName(code) })),
+		[]
+	);
 
 	const submit = useMutation(
 		async () => {
+			const span = spanDays(startDate, endDate);
+			if (span !== null && span > 366) throw new Error(copy.tripForm.tooLong);
 			const { trip } = await api<{ trip: { id: string } }>('/trips', {
 				method: 'POST',
 				body: { name, startDate, endDate, homeCurrency }
@@ -64,12 +74,12 @@ export function NewTrip({
 					/>
 				</View>
 			</View>
-			<Field
+			<SearchablePicker
 				label={copy.tripForm.currencyLabel}
 				value={homeCurrency}
-				onChangeText={(v) => setCurrency(v.toUpperCase())}
-				autoCapitalize="characters"
-				maxLength={3}
+				options={currencyOptions}
+				onPick={setCurrency}
+				noMatches={copy.ui.currencyPicker.noMatches}
 			/>
 			<FormError message={submit.error} />
 			<Button
@@ -79,4 +89,11 @@ export function NewTrip({
 			/>
 		</Sheet>
 	);
+}
+
+function spanDays(start: string, end: string): number | null {
+	if (!start || !end) return null;
+	if (start === end) return 1;
+	const nights = nightsBetween(start, end);
+	return nights === null ? null : nights + 1;
 }

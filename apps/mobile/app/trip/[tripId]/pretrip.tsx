@@ -6,6 +6,7 @@ import { api } from '../../../src/lib/api';
 import { useTripId } from '../../../src/trip-id';
 import { useApi } from '../../../src/hooks/useApi';
 import { useMutation } from '../../../src/hooks/useMutation';
+import { useLiveSection } from '../../../src/hooks/useTripEvents';
 import { Card, EmptyState, FormError, Head, Loading, Screen } from '../../../src/ui';
 import { CheckBox, SegmentedControl } from '../../../src/ui/controls';
 import { TaskSheet } from '../../../src/screens/TaskSheet';
@@ -62,6 +63,7 @@ type Section = (typeof SECTIONS)[number];
 export default function Pretrip() {
 	const tripId = useTripId();
 	const { data, error, loading, reload } = useApi<Data>(`/trips/${tripId}/pretrip`);
+	useLiveSection(['tasks', 'costs', 'members'], reload);
 	const [section, setSection] = useState<Section>('tasks');
 
 	if (loading && !data) return <Loading />;
