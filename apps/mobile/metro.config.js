@@ -33,7 +33,19 @@ config.resolver.blockList = [
 // and React Native for the web app, so a hoisted package walking up from the root
 // can pick up a second copy and break hooks. Pin the three singletons explicitly
 // instead, which fixes the duplication without breaking nested resolution.
-const singletons = ['react', 'react-dom', 'react-native'];
+//
+// The native-backed navigation packages are pinned the same way. expo-router's
+// own range lets npm hoist a newer react-native-screens and safe-area-context to
+// the root (4.28 and 5.10) while the app pins Expo Go's (4.26 and 5.7). Resolved
+// from the root, the header ran 4.28 JavaScript against Expo Go's 4.26 native
+// code, one plausible source of the large title misbehaving.
+const singletons = [
+	'react',
+	'react-dom',
+	'react-native',
+	'react-native-screens',
+	'react-native-safe-area-context'
+];
 const isSingleton = (name) => singletons.some((pkg) => name === pkg || name.startsWith(`${pkg}/`));
 
 const appModules = path.resolve(projectRoot, 'node_modules');

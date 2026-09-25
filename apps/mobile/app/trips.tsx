@@ -10,7 +10,7 @@ import { AppSymbol } from '../src/ui/Symbol';
 import { EmptyMark } from '../src/ui/EmptyMark';
 import { AccountMenu } from '../src/ui/AccountMenu';
 import { NewTrip } from '../src/screens/NewTrip';
-import { color, headerEdge, space, type } from '../src/theme';
+import { color, headerEdge, largeTitleHeaderStyle, space, type } from '../src/theme';
 
 type City = { id: string; name: string; photo: string | null };
 type Trip = {
@@ -41,6 +41,7 @@ export default function Trips() {
 				options={{
 					title: Platform.OS === 'web' ? '' : copy.trips.heading,
 					headerLargeTitle: true,
+					headerStyle: largeTitleHeaderStyle,
 					headerRight: () => (
 						<View
 							style={{
@@ -64,6 +65,7 @@ export default function Trips() {
 				}}
 			/>
 			<Screen
+				nativeLargeTitle
 				largeTitle={Platform.OS === 'web' ? copy.trips.heading : undefined}
 				refreshControl={<RefreshControl refreshing={loading && !!data} onRefresh={reload} />}
 			>

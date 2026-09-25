@@ -148,7 +148,7 @@ export const copy = {
 
 	// Trips list, the signed-in home page
 	trips: {
-		heading: 'Your trips',
+		heading: 'Your Trips',
 		cityCount: (cities: number) => `${cities} ${cities === 1 ? 'city' : 'cities'}`,
 		memberCount: (members: number) => `${members} ${members === 1 ? 'person' : 'people'}`,
 		newDialog: {
