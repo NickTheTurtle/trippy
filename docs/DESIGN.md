@@ -3705,6 +3705,19 @@ standing maintenance cost rather than a one-off. Pin by hand when upgrading:
 (57.0.19 wants `expo@~57.0.21` and `expo-router@~57.0.20`, neither of which
 exists), so it fails on a tree that is actually fine.
 
+**Native package versions are Expo Go's, not the newest.** Expo Go ships one
+native build per SDK, and the JavaScript in the bundle must match it exactly.
+A routine Dependabot bump took `react-native` to 0.87.1, React to 19.3 and
+screens, safe-area and webview past SDK 57's versions. Everything type-checked,
+built and passed CI, and the app crashed the moment Expo Go opened it on a
+phone. The pins are now the ones `npx expo install --check` names (React Native
+0.86.3, React 19.2.3, reanimated 4.5.1, worklets 0.10.1, and so on), with the
+reanimated and worklets pins repeated as root `overrides` so the hoisted copies
+cannot drift, and `.github/dependabot.yml` ignores every Expo and React Native
+package plus React. They move only in a deliberate SDK upgrade. When checking,
+the remaining `--check` complaints about unpublished Expo patch versions are the
+known false alarm above.
+
 **Metro keeps hierarchical resolution, with the React packages pinned.** The
 obvious monorepo config sets `resolver.disableHierarchicalLookup = true` to stop
 a root-hoisted copy of React being loaded alongside the app's own. It does stop
