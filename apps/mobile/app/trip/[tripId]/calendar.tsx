@@ -39,16 +39,22 @@ export default function Calendar() {
 	} | null>(null);
 	const [opened, setOpened] = useState<EventRow | null>(null);
 	const [mapFocusId, setMapFocusId] = useState<string | null>(null);
+	const [mapFocusKey, setMapFocusKey] = useState(0);
 	const openedRef = useRef<ScheduleData | null>(null);
 	openedRef.current = data;
 	const memberName = useMemo(
 		() => new Map((data?.members ?? []).map((member) => [member.id, member.name])),
 		[data?.members]
 	);
+	const memberIds = useMemo(() => data?.members.map((member) => member.id) ?? [], [data?.members]);
 
 	useEffect(() => {
 		if (schedule.error) toast.error(schedule.error);
 	}, [schedule.error, toast]);
+	useEffect(() => {
+		setMapFocusId(null);
+		setMapFocusKey((key) => key + 1);
+	}, [data?.day]);
 
 	if (schedule.loading && !data) return <Loading />;
 	if (!data || !schedule.anchor) {
@@ -72,6 +78,7 @@ export default function Calendar() {
 	};
 	const openAndFocus = (id: string) => {
 		setMapFocusId(id);
+		setMapFocusKey((key) => key + 1);
 		openSaved(id);
 	};
 
@@ -167,13 +174,13 @@ export default function Calendar() {
 					</View>
 				</Card>
 
-				<StayBand stays={schedule.anchor.stays} locked={locked} onOpenEvent={openSaved} />
+				<StayBand stays={schedule.anchor.stays} locked={locked} onOpenEvent={openAndFocus} />
 				{schedule.view === 'day' ? (
 					<Card style={{ padding: space.sm }}>
 						<DayBoard
 							base={`/trips/${tripId}/schedule`}
 							entry={schedule.anchor}
-							memberIds={data.members.map((member) => member.id)}
+							memberIds={memberIds}
 							peopleLabel={schedule.peopleLabel}
 							eventById={schedule.eventById}
 							locked={locked}
@@ -197,10 +204,11 @@ export default function Calendar() {
 					entry={schedule.anchor}
 					saved={data.saved}
 					city={schedule.anchor.city}
-					memberIds={data.members.map((member) => member.id)}
+					memberIds={memberIds}
 					peopleLabel={schedule.peopleLabel}
 					locked={locked}
 					focusId={mapFocusId}
+					focusKey={mapFocusKey}
 					onOpenEvent={openAndFocus}
 					onAddPlace={(place) =>
 						setAdding({
@@ -265,6 +273,7 @@ export default function Calendar() {
 					onClose={() => setOpened(null)}
 					onDone={() => {
 						setOpened(null);
+						setMapFocusId(null);
 						schedule.setPreview(null);
 						schedule.reload();
 					}}

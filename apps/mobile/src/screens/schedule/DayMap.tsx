@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, Text, View } from 'react-native';
-import MapView, { Callout, Marker, Polyline, type MapMarker } from 'react-native-maps';
+import MapView, {
+	Callout,
+	CalloutSubview,
+	Marker,
+	Polyline,
+	type MapMarker
+} from 'react-native-maps';
 import { copy } from '@trippy/copy';
 import { Button, Card } from '../../ui';
 import { color, radius, space, type } from '../../theme';
@@ -15,6 +21,7 @@ export function DayMap({
 	peopleLabel,
 	locked,
 	focusId,
+	focusKey,
 	onOpenEvent,
 	onAddPlace,
 	onClearFocus
@@ -26,6 +33,7 @@ export function DayMap({
 	peopleLabel: (ids: string[]) => string;
 	locked: boolean;
 	focusId: string | null;
+	focusKey: number;
 	onOpenEvent: (id: string) => void;
 	onAddPlace: (poi: SavedPoi) => void;
 	onClearFocus: () => void;
@@ -55,20 +63,22 @@ export function DayMap({
 		if (!focusPin) return;
 		const timer = setTimeout(() => markerRefs.current[focusPin.key]?.showCallout(), 150);
 		return () => clearTimeout(timer);
-	}, [focusPin?.key]);
+	}, [focusPin?.key, focusKey]);
 
 	return (
 		<Card style={{ gap: space.sm }}>
 			<View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-				<Text style={type.head}>Map</Text>
+				<Text style={type.head}>{copy.schedule.map.title}</Text>
 				<View style={{ flexDirection: 'row', gap: space.sm }}>
-					{focusId ? (
-						<Button label="Back to day" small tone="ghost" onPress={onClearFocus} />
+					{focusPin ? (
+						<Button label={copy.schedule.map.backToDay} small tone="ghost" onPress={onClearFocus} />
 					) : null}
 					<Button
-						label={expanded ? 'Hide' : 'Show'}
+						label={expanded ? copy.schedule.map.hide : copy.schedule.map.show}
 						small
 						tone="ghost"
+						accessibilityLabel={expanded ? copy.schedule.map.hide : copy.schedule.map.show}
+						accessibilityState={{ expanded }}
 						onPress={() => setExpanded((value) => !value)}
 					/>
 				</View>
@@ -98,9 +108,18 @@ export function DayMap({
 							coordinate={{ latitude: pin.lat, longitude: pin.lng }}
 							pinColor={pin.color}
 							title={pin.title}
+							tracksViewChanges={false}
 						>
 							<Pin pin={pin} />
-							<Callout tooltip onPress={() => pin.eventIds[0] && onOpenEvent(pin.eventIds[0])}>
+							<Callout
+								tooltip
+								onPress={() => {
+									if (pin.addId && pin.eventIds.length === 0) {
+										const place = savedById.get(pin.addId);
+										if (place) onAddPlace(place);
+									} else if (pin.eventIds[0]) onOpenEvent(pin.eventIds[0]);
+								}}
+							>
 								<View
 									style={{
 										backgroundColor: color.surface,
@@ -112,33 +131,35 @@ export function DayMap({
 										gap: space.xs
 									}}
 								>
-									<Text style={type.body}>{pin.title}</Text>
-									{pin.subtitle ? <Text style={type.small}>{pin.subtitle}</Text> : null}
-									{pin.detail.map((line, index) => (
-										<Text key={`${line}-${index}`} style={type.faint}>
-											{line}
-										</Text>
+									{pin.entries.map((entry, index) => (
+										<View key={`${entry.title}-${index}`} style={{ gap: space.xs }}>
+											<Text style={type.body}>{entry.title}</Text>
+											{entry.subtitle ? <Text style={type.small}>{entry.subtitle}</Text> : null}
+											{entry.detail.map((line, detailIndex) => (
+												<Text key={`${line}-${detailIndex}`} style={type.faint}>
+													{line}
+												</Text>
+											))}
+											{entry.warn ? (
+												<Text style={{ ...type.small, color: color.warn }}>{entry.warn}</Text>
+											) : null}
+											{entry.eventId ? (
+												<ActionText onPress={() => onOpenEvent(entry.eventId!)}>
+													{copy.schedule.block.openLabel}
+												</ActionText>
+											) : null}
+											{entry.addId && savedById.has(entry.addId) ? (
+												<ActionText
+													onPress={() => {
+														const place = savedById.get(entry.addId!);
+														if (place) onAddPlace(place);
+													}}
+												>
+													{copy.ui.mapCard.add}
+												</ActionText>
+											) : null}
+										</View>
 									))}
-									{pin.warn ? (
-										<Text style={{ ...type.small, color: color.warn }}>{pin.warn}</Text>
-									) : null}
-									{pin.eventIds[0] ? (
-										<Text style={{ ...type.small, color: color.accent }}>
-											{copy.schedule.block.openLabel}
-										</Text>
-									) : null}
-									{pin.addId && savedById.has(pin.addId) ? (
-										<Pressable
-											onPress={() => {
-												const place = savedById.get(pin.addId!);
-												if (place) onAddPlace(place);
-											}}
-										>
-											<Text style={{ ...type.small, color: color.accent, fontWeight: '700' }}>
-												{copy.ui.mapCard.add}
-											</Text>
-										</Pressable>
-									) : null}
 								</View>
 							</Callout>
 						</Marker>
@@ -166,7 +187,7 @@ function Pin({ pin }: { pin: MobileMapPin }) {
 				}}
 			>
 				<Text style={{ color: '#fff', fontSize: 11, fontWeight: '700' }}>
-					{pin.count > 1 ? pin.count : (pin.number ?? '')}
+					{pin.count > 1 ? '' : (pin.number ?? '')}
 				</Text>
 			</View>
 			<View
@@ -184,6 +205,16 @@ function Pin({ pin }: { pin: MobileMapPin }) {
 			/>
 		</View>
 	);
+}
+
+function ActionText({ children, onPress }: { children: string; onPress: () => void }) {
+	const body = (
+		<Text style={{ ...type.small, color: color.accent, fontWeight: '700' }}>{children}</Text>
+	);
+	if (Platform.OS === 'ios') {
+		return <CalloutSubview onPress={onPress}>{body}</CalloutSubview>;
+	}
+	return <Pressable onPress={onPress}>{body}</Pressable>;
 }
 
 function focusRegion(pin: MobileMapPin) {

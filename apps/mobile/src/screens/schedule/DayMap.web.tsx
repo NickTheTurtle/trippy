@@ -14,6 +14,7 @@ export function DayMap({
 	peopleLabel,
 	locked,
 	focusId,
+	focusKey: _focusKey,
 	onOpenEvent,
 	onAddPlace,
 	onClearFocus
@@ -25,6 +26,7 @@ export function DayMap({
 	peopleLabel: (ids: string[]) => string;
 	locked: boolean;
 	focusId: string | null;
+	focusKey: number;
 	onOpenEvent: (id: string) => void;
 	onAddPlace: (poi: SavedPoi) => void;
 	onClearFocus: () => void;
@@ -48,19 +50,21 @@ export function DayMap({
 	const pins = focusId
 		? model.pins.filter((pin) => pin.eventIds.includes(focusId) || pin.addId === focusId)
 		: model.pins;
+	const hasFocus = focusId != null && pins.length > 0;
 
 	return (
 		<Card style={{ gap: space.sm }}>
 			<View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-				<Text style={type.head}>Map</Text>
+				<Text style={type.head}>{copy.schedule.map.title}</Text>
 				<View style={{ flexDirection: 'row', gap: space.sm }}>
-					{focusId ? (
-						<Button label="Back to day" small tone="ghost" onPress={onClearFocus} />
+					{hasFocus ? (
+						<Button label={copy.schedule.map.backToDay} small tone="ghost" onPress={onClearFocus} />
 					) : null}
 					<Button
-						label={expanded ? 'Hide' : 'Show'}
+						label={expanded ? copy.schedule.map.hide : copy.schedule.map.show}
 						small
 						tone="ghost"
+						accessibilityState={{ expanded }}
 						onPress={() => setExpanded((value) => !value)}
 					/>
 				</View>
@@ -76,25 +80,33 @@ export function DayMap({
 						backgroundColor: color.surface2
 					}}
 				>
-					<Text style={type.faint}>
-						Map preview is available in Expo Go. Pins are listed here for web preview.
-					</Text>
+					<Text style={type.faint}>{copy.schedule.map.webFallback}</Text>
 					{pins.map((pin) => (
 						<View key={pin.key} style={{ gap: space.xs }}>
-							<Pressable
-								disabled={!pin.eventIds[0]}
-								onPress={() => pin.eventIds[0] && onOpenEvent(pin.eventIds[0])}
-							>
-								<Text style={{ ...type.body, color: pin.color }}>{pin.title}</Text>
-								{pin.subtitle ? <Text style={type.small}>{pin.subtitle}</Text> : null}
-							</Pressable>
-							{pin.detail.map((line, index) => (
-								<Text key={`${line}-${index}`} style={type.faint}>
-									{line}
-								</Text>
+							<Text style={{ ...type.body, color: pin.color }}>{pin.title}</Text>
+							{pin.entries.map((entry, index) => (
+								<View key={`${entry.title}-${index}`} style={{ gap: space.xs }}>
+									<Pressable
+										accessibilityRole="button"
+										disabled={!entry.eventId}
+										onPress={() => entry.eventId && onOpenEvent(entry.eventId)}
+									>
+										<Text
+											style={entry.eventId ? { ...type.small, color: color.accent } : type.small}
+										>
+											{entry.subtitle ?? entry.title}
+										</Text>
+									</Pressable>
+									{entry.detail.map((line, detailIndex) => (
+										<Text key={`${line}-${detailIndex}`} style={type.faint}>
+											{line}
+										</Text>
+									))}
+								</View>
 							))}
 							{pin.addId && savedById.has(pin.addId) ? (
 								<Pressable
+									accessibilityRole="button"
 									onPress={() => {
 										const place = savedById.get(pin.addId!);
 										if (place) onAddPlace(place);

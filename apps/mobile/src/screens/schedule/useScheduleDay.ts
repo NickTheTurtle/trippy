@@ -43,6 +43,7 @@ export function useScheduleDay(tripId: string, paused = false) {
 		const roster = new Set(memberIds);
 		return new Set(readAs && roster.has(readAs) ? [readAs] : memberIds);
 	}, [readAs, memberIds]);
+	const visibleMemberIds = useMemo(() => [...selected], [selected]);
 
 	const planned: BoardDay[] = useMemo(() => {
 		const known = new Map(
@@ -150,6 +151,7 @@ export function useScheduleDay(tripId: string, paused = false) {
 		viewAs,
 		setViewAs,
 		readAs,
+		visibleMemberIds,
 		board,
 		planned,
 		anchor,

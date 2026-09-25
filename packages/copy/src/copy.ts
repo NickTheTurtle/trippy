@@ -405,6 +405,13 @@ export const copy = {
 			lastDay: 'Last day',
 			freeDay: 'This day is free.'
 		},
+		map: {
+			title: 'Map',
+			backToDay: 'Back to day',
+			hide: 'Hide',
+			show: 'Show',
+			webFallback: 'Map preview is available in Expo Go. Pins are listed here for web preview.'
+		},
 		/** The event dialog's title: reading a frozen block, editing one, adding one. */
 		dialog: { view: 'Event', edit: 'Edit event', add: 'Add event' },
 		/** A journey card's own fields; the mode reuses `fields.mode`. */

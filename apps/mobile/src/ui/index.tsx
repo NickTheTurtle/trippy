@@ -10,6 +10,7 @@ import {
 	View
 } from 'react-native';
 import type { RefreshControlProps, TextInputProps, ViewStyle } from 'react-native';
+import type { AccessibilityState } from 'react-native';
 import { card, color, controlHeight, fieldLabel, radius, space, type } from '../theme';
 import { LiveOff } from './LiveOff';
 
@@ -43,6 +44,7 @@ type ButtonProps = {
 	label: string;
 	onPress: () => void;
 	accessibilityLabel?: string;
+	accessibilityState?: AccessibilityState;
 	tone?: 'primary' | 'ghost' | 'danger';
 	busy?: boolean;
 	disabled?: boolean;
@@ -53,6 +55,7 @@ export function Button({
 	label,
 	onPress,
 	accessibilityLabel,
+	accessibilityState,
 	tone = 'primary',
 	busy = false,
 	disabled = false,
@@ -66,7 +69,7 @@ export function Button({
 		<Pressable
 			accessibilityRole="button"
 			accessibilityLabel={accessibilityLabel ?? label}
-			accessibilityState={{ disabled: off, busy }}
+			accessibilityState={{ ...accessibilityState, disabled: off, busy }}
 			onPress={off ? undefined : onPress}
 			style={({ pressed }) => [
 				s.button,

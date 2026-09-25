@@ -9,6 +9,7 @@
 	},
 	"dependencies": {
 		"@expo/metro-runtime": "~57.0.15",
+		"@react-native/js-polyfills": "^0.87.1",
 		"@trippy/copy": "*",
 		"@trippy/core": "*",
 		"expo": "~57.0.23",
