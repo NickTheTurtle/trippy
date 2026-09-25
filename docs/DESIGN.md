@@ -3756,19 +3756,31 @@ these are pure wire contracts with no UI copy, no network access and no platform
 keeps a re-export shim so its imports do not change, while native imports the same types
 and cannot drift silently.
 
+**Native visual language is iOS grouped, not nested web cards.** The mobile client
+keeps the Trippy palette from the web and from the first native pass, but the surface
+language is native: large titles, inset grouped sections, 44 point rows, hairline
+separators, one green accent, and SF Symbol leading tiles with Ionicons as the Android and
+web fallback. The reason is that the feature-complete port had started to look assembled
+from bordered cards, chips and buttons. A phone screen needs fewer visual voices, so rows
+carry values and chevrons, groups carry the structure, and destructive work moves into red
+rows plus confirmations. Serif type remains available for auth and expressive owner-edited
+moments, but data screens use the system iOS scale so lists and sheets read like Home,
+Settings and Calendar rather than like a small web page.
+
 **Currency search labels are shared with the domain package.** The supported codes already
 come from `@trippy/core/currency`; the English names used to search those codes now travel
 beside them in `@trippy/core/currency-names`. They are still just data, not presentation
 logic, and sharing them prevents mobile from accepting the same code list while searching
 with different names.
 
-**Native sheet footers use one phone rule.** A sheet is already cancelled by the X and by
-tapping the dimmed backdrop, so adding a second Cancel button in the footer wastes the
-scarce row where the saving action belongs. Mobile sheet footers therefore put a square
-destructive icon button on the left when the sheet has a destructive action, with the full
-accessible label naming the thing, and let the primary action fill the rest of the row.
-Two-button confirmation sheets are the exception because they are the destructive decision
-itself: Cancel and Delete both stay visible there.
+**Native sheets use iOS form-sheet navigation.** The mobile client now follows the
+platform form pattern instead of the web phone footer pattern: Cancel sits on the left of
+the sheet nav bar, the title is centered, and Done, Save or Add sits on the right. That
+keeps the saving action at the place iOS users expect and stops every sheet from growing a
+second footer toolbar. Destructive actions are not primary buttons. They are red rows at
+the bottom of the sheet content, and still open a confirmation sheet before anything is
+removed. The web app keeps its own phone footer rule because it is a browser dialog system,
+not a native form sheet.
 
 **Native People keeps roster-owned edits separate from account-owned identities.** The
 organizer may create stand-ins, attach an invite email to them and remove non-organizers,

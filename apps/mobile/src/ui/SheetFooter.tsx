@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { copy } from '@trippy/copy';
 import { color, radius, space } from '../theme';
 import { Button } from './index';
+import { AppSymbol } from './Symbol';
 
 export function SheetFooter({
 	primaryLabel,
@@ -11,7 +12,6 @@ export function SheetFooter({
 	primaryDisabled = false,
 	onPrimary,
 	destructiveLabel,
-	destructiveIcon = '🗑',
 	onDestructive,
 	children
 }: {
@@ -38,9 +38,7 @@ export function SheetFooter({
 							height: 44,
 							width: primaryLabel ? 44 : undefined,
 							flex: primaryLabel ? undefined : 1,
-							borderRadius: radius.md,
-							borderWidth: 1,
-							borderColor: color.dangerInk,
+							borderRadius: radius.button,
 							backgroundColor: color.dangerInk,
 							alignItems: 'center',
 							justifyContent: 'center',
@@ -49,7 +47,7 @@ export function SheetFooter({
 							opacity: pressed ? 0.82 : 1
 						})}
 					>
-						<Text style={{ color: '#fff', fontSize: 18 }}>{destructiveIcon}</Text>
+						<AppSymbol name="trash" fallback="trash-outline" size={18} color="#fff" />
 						{primaryLabel ? null : (
 							<Text style={{ color: '#fff', fontWeight: '600' }}>{copy.common.delete}</Text>
 						)}

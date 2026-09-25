@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { Tabs, router, useLocalSearchParams } from 'expo-router';
-import type { ColorValue } from 'react-native';
 import type { ComponentProps } from 'react';
 import { copy } from '@trippy/copy';
 import { nightsBetween } from '@trippy/copy/format';
@@ -13,13 +12,22 @@ import { api } from '../../../src/lib/api';
 import { useApi } from '../../../src/hooks/useApi';
 import { useMutation } from '../../../src/hooks/useMutation';
 import { TripEventsProvider, useTripEvents } from '../../../src/hooks/useTripEvents';
-import { Button, Field, FormError, Loading, Screen } from '../../../src/ui';
+import {
+	Button,
+	DestructiveRow,
+	Field,
+	FormError,
+	InsetSection,
+	ListRow,
+	Loading,
+	Screen
+} from '../../../src/ui';
 import { ConfirmSheet } from '../../../src/ui/ConfirmSheet';
 import { Sheet } from '../../../src/ui/Sheet';
-import { SheetFooter } from '../../../src/ui/SheetFooter';
-import { CheckBox, SearchablePicker } from '../../../src/ui/controls';
+import { DateField, SearchablePicker } from '../../../src/ui/controls';
 import { useToast } from '../../../src/ui/Toast';
-import { color, font, space, type } from '../../../src/theme';
+import { AppSymbol, type AppSymbolName } from '../../../src/ui/Symbol';
+import { color, space, type } from '../../../src/theme';
 
 type Trip = {
 	id: string;
@@ -32,23 +40,21 @@ type Trip = {
 	schedule_locked: number;
 	members: string[];
 };
-
-const ICON = {
-	discover: '◍',
-	pretrip: '✓',
-	calendar: '▤',
-	expenses: '$',
-	people: '☺'
-} as const;
-
+type TabIcon = { sf: AppSymbolName; ion: ComponentProps<typeof AppSymbol>['fallback'] };
+const TAB_ICONS: Record<string, TabIcon> = {
+	discover: { sf: 'magnifyingglass', ion: 'search-outline' },
+	pretrip: { sf: 'checklist', ion: 'checkbox-outline' },
+	calendar: { sf: 'calendar', ion: 'calendar-outline' },
+	expenses: { sf: 'creditcard', ion: 'card-outline' },
+	people: { sf: 'person.2', ion: 'people-outline' }
+};
 type TabScreenOptions = NonNullable<ComponentProps<typeof Tabs.Screen>['options']>;
 type TabBarIconProps = Parameters<
 	NonNullable<Extract<TabScreenOptions, { tabBarIcon?: unknown }>['tabBarIcon']>
 >[0];
-
-function icon(glyph: string) {
+function tabIcon(icon: TabIcon) {
 	return ({ color: tint, size }: TabBarIconProps) => (
-		<Text style={{ color: tint as ColorValue, fontSize: size - 2 }}>{glyph}</Text>
+		<AppSymbol name={icon.sf} fallback={icon.ion} size={size} color={tint} />
 	);
 }
 
@@ -63,15 +69,12 @@ export default function TripTabs() {
 	const [editing, setEditing] = useState(false);
 	const [confirming, setConfirming] = useState<'delete' | 'leave' | null>(null);
 	const loadedFor = useRef<string | null>(null);
-
 	const trip = data?.trip.id === id ? data.trip : null;
 	if (trip) loadedFor.current = trip.id;
-
 	useEffect(
 		() => events.control.subscribe(['trip', 'members', 'schedule'], reload),
 		[events.control, reload]
 	);
-
 	useEffect(() => {
 		const gone = errorStatus === 403 || errorStatus === 404;
 		if (!gone || loadedFor.current !== id) return;
@@ -79,7 +82,6 @@ export default function TripTabs() {
 		toast.error(copy.tripShell.gone);
 		router.replace('/trips');
 	}, [errorStatus, id, toast]);
-
 	const destroy = useMutation(
 		async () => {
 			if (!trip || !confirming) return;
@@ -88,17 +90,14 @@ export default function TripTabs() {
 		},
 		{ fallback: copy.ui.confirmDialog.fallback, onSuccess: () => router.replace('/trips') }
 	);
-
 	if (loading && !trip) return <Loading />;
-	if (!trip) {
+	if (!trip)
 		return (
 			<Screen>
 				<FormError message={error ?? copy.tripShell.notFound} />
 				<Button label={copy.common.allTrips} onPress={() => router.replace('/trips')} />
 			</Screen>
 		);
-	}
-
 	const canEdit = trip.role === 'organizer';
 	return (
 		<TripIdContext.Provider value={id}>
@@ -108,29 +107,15 @@ export default function TripTabs() {
 						screenOptions={{
 							headerStyle: { backgroundColor: color.bg },
 							headerShadowVisible: false,
-							headerTintColor: color.ink,
-							headerTitle: () => (
-								<Text
-									numberOfLines={1}
-									ellipsizeMode="tail"
-									style={{
-										...font.heading,
-										color: color.ink,
-										fontSize: 17,
-										maxWidth: 180,
-										flexShrink: 1
-									}}
-								>
-									{trip.name}
-								</Text>
-							),
-							headerTitleStyle: { ...font.heading, fontSize: 17 },
+							headerTintColor: color.accent,
+							headerTitleStyle: type.head,
+							headerTitle: trip.name,
 							headerRight: () => (
 								<View
 									style={{
 										flexDirection: 'row',
 										alignItems: 'center',
-										gap: space.sm,
+										gap: space.md,
 										marginRight: space.sm
 									}}
 								>
@@ -138,7 +123,7 @@ export default function TripTabs() {
 										onPress={() => (canEdit ? setEditing(true) : setConfirming('leave'))}
 										hitSlop={8}
 									>
-										<Text style={{ ...type.small, color: color.accent, fontWeight: '600' }}>
+										<Text style={{ ...type.footnote, color: color.accent, fontWeight: '600' }}>
 											{canEdit ? copy.tripShell.editTrip : copy.tripShell.leaveTrip}
 										</Text>
 									</Pressable>
@@ -148,29 +133,29 @@ export default function TripTabs() {
 							tabBarActiveTintColor: color.accent,
 							tabBarInactiveTintColor: color.inkFaint,
 							tabBarStyle: { backgroundColor: color.surface, borderTopColor: color.line },
-							tabBarLabelStyle: { fontSize: 11 },
+							tabBarLabelStyle: { fontSize: 11, fontWeight: '500' },
 							sceneStyle: { backgroundColor: color.bg }
 						}}
 					>
 						<Tabs.Screen
 							name="discover"
-							options={{ title: copy.nav.discover, tabBarIcon: icon(ICON.discover) }}
+							options={{ title: copy.nav.discover, tabBarIcon: tabIcon(TAB_ICONS.discover) }}
 						/>
 						<Tabs.Screen
 							name="pretrip"
-							options={{ title: copy.nav.preparation, tabBarIcon: icon(ICON.pretrip) }}
+							options={{ title: copy.nav.preparation, tabBarIcon: tabIcon(TAB_ICONS.pretrip) }}
 						/>
 						<Tabs.Screen
 							name="calendar"
-							options={{ title: copy.nav.schedule, tabBarIcon: icon(ICON.calendar) }}
+							options={{ title: copy.nav.schedule, tabBarIcon: tabIcon(TAB_ICONS.calendar) }}
 						/>
 						<Tabs.Screen
 							name="expenses"
-							options={{ title: copy.nav.expenses, tabBarIcon: icon(ICON.expenses) }}
+							options={{ title: copy.nav.expenses, tabBarIcon: tabIcon(TAB_ICONS.expenses) }}
 						/>
 						<Tabs.Screen
 							name="people"
-							options={{ title: copy.nav.people, tabBarIcon: icon(ICON.people) }}
+							options={{ title: copy.nav.people, tabBarIcon: tabIcon(TAB_ICONS.people) }}
 						/>
 						<Tabs.Screen name="index" options={{ href: null }} />
 					</Tabs>
@@ -208,14 +193,12 @@ export default function TripTabs() {
 }
 
 const MAX_DAYS = 366;
-
 function spanDays(start: string, end: string): number | null {
 	if (!start || !end) return null;
 	if (start === end) return 1;
 	const nights = nightsBetween(start, end);
 	return nights === null ? null : nights + 1;
 }
-
 function EditTripSheet({
 	trip,
 	open,
@@ -242,7 +225,6 @@ function EditTripSheet({
 		() => CURRENCY_CODES.map((code) => ({ key: code, label: code, detail: currencyName(code) })),
 		[]
 	);
-
 	useEffect(() => {
 		if (!open) {
 			wasOpen.current = false;
@@ -257,7 +239,6 @@ function EditTripSheet({
 		setLocked(trip.schedule_locked === 1);
 		setInitialSpan(spanDays(trip.start_date ?? '', trip.end_date ?? '') ?? 0);
 	}, [open, trip]);
-
 	const save = useMutation(
 		async () => {
 			const span = spanDays(startDate, endDate);
@@ -270,57 +251,64 @@ function EditTripSheet({
 		},
 		{ fallback: copy.tripShell.editDialog.fallback, onSuccess: onSaved }
 	);
-
 	return (
-		<Sheet open={open} title={copy.tripShell.editDialog.title} onClose={onClose}>
-			<Field label={copy.tripForm.nameLabel} value={name} onChangeText={setName} />
-			<View style={{ flexDirection: 'row', gap: space.md }}>
-				<View style={{ flex: 1 }}>
-					<Field
-						label={copy.tripForm.startLabel}
-						value={startDate}
-						onChangeText={setStartDate}
-						placeholder="2026-04-16"
-						autoCapitalize="none"
+		<Sheet
+			open={open}
+			title={copy.tripShell.editDialog.title}
+			onClose={onClose}
+			onPrimary={() => void save.run()}
+			primaryLabel={copy.common.save}
+			primaryBusyLabel={copy.common.saving}
+			primaryBusy={save.busy}
+		>
+			<InsetSection>
+				<View style={{ gap: space.md, padding: space.md }}>
+					<Field label={copy.tripForm.nameLabel} value={name} onChangeText={setName} />
+					<View style={{ flexDirection: 'row', gap: space.md }}>
+						<View style={{ flex: 1 }}>
+							<DateField
+								label={copy.tripForm.startLabel}
+								value={startDate}
+								onChange={setStartDate}
+								maximum={endDate || undefined}
+							/>
+						</View>
+						<View style={{ flex: 1 }}>
+							<DateField
+								label={copy.tripForm.endLabel}
+								value={endDate}
+								onChange={setEndDate}
+								minimum={startDate || undefined}
+							/>
+						</View>
+					</View>
+					<SearchablePicker
+						label={copy.tripForm.currencyLabel}
+						value={currency}
+						options={options}
+						onPick={setCurrency}
+						noMatches={copy.ui.currencyPicker.noMatches}
 					/>
 				</View>
-				<View style={{ flex: 1 }}>
-					<Field
-						label={copy.tripForm.endLabel}
-						value={endDate}
-						onChangeText={setEndDate}
-						placeholder="2026-04-24"
-						autoCapitalize="none"
-					/>
-				</View>
-			</View>
-			<SearchablePicker
-				label={copy.tripForm.currencyLabel}
-				value={currency}
-				options={options}
-				onPick={setCurrency}
-				noMatches={copy.ui.currencyPicker.noMatches}
-			/>
-			<Pressable
-				onPress={() => setLocked((v) => !v)}
-				style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}
-			>
-				<CheckBox
-					checked={locked}
-					label={copy.tripShell.editDialog.lockLabel}
-					onPress={() => setLocked((v) => !v)}
+			</InsetSection>
+			<InsetSection>
+				<ListRow
+					title={copy.tripShell.editDialog.lockLabel}
+					symbol={{ name: 'lock', fallback: 'lock-closed-outline' }}
+					accessory="switch"
+					switchValue={locked}
+					onSwitch={setLocked}
+					last
 				/>
-				<Text style={type.body}>{copy.tripShell.editDialog.lockLabel}</Text>
-			</Pressable>
+			</InsetSection>
 			<FormError message={save.error} />
-			<SheetFooter
-				primaryLabel={copy.common.save}
-				primaryBusyLabel={copy.common.saving}
-				primaryBusy={save.busy}
-				onPrimary={() => void save.run()}
-				destructiveLabel={copy.common.deleteLabel(trip.name)}
-				onDestructive={onDelete}
-			/>
+			<InsetSection>
+				<DestructiveRow
+					title={copy.common.delete}
+					accessibilityLabel={copy.common.deleteLabel(trip.name)}
+					onPress={onDelete}
+				/>
+			</InsetSection>
 		</Sheet>
 	);
 }

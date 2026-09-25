@@ -1,12 +1,11 @@
+import { Platform } from 'react-native';
+
 /**
- * The web app's design tokens, restated for React Native.
+ * The web app's palette, restated for React Native.
  *
- * The values are copied from apps/web/src/styles/index.css rather than being
- * re-derived, so the two clients are the same product rather than two products
- * that resemble each other. They are copied and not imported because the web
- * side declares them to Tailwind as CSS custom properties, which Native cannot
- * read; if a colour changes there it must change here, which is the cost of
- * having two renderers.
+ * These values intentionally stay tied to apps/web/src/styles/index.css and to
+ * the first native pass, so the redesign changes the iOS surface language
+ * without turning Trippy into a different product.
  */
 export const color = {
 	ink: '#1c2321',
@@ -25,41 +24,76 @@ export const color = {
 	dangerSoft: '#fdecea'
 } as const;
 
-export const radius = { sm: 6, md: 10, lg: 16 } as const;
+export const radius = {
+	icon: 8,
+	section: 12,
+	button: 10,
+	hero: 18,
+	sheet: 22,
+	// Compatibility aliases for older screens during the rollout.
+	sm: 6,
+	md: 10,
+	lg: 16
+} as const;
 
-/** One control height, for the same reason the web app has one. */
 export const controlHeight = 44;
+export const rowHeight = 52;
+export const screenMargin = 16;
+export const hairline = Platform.select({ web: 1, default: 0.5 }) ?? 0.5;
 
-export const space = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 } as const;
+export const space = {
+	xs: 4,
+	sm: 8,
+	md: 12,
+	lg: 16,
+	xl: 24,
+	xxl: 32,
+	sectionGap: 18
+} as const;
 
 /**
- * The web app pairs a serif for headings with a sans for everything else. Until
- * the fonts are bundled, headings take the platform serif so the contrast still
- * reads; on iOS that is New York, which is close enough to Fraunces in weight
- * and warmth to keep the page recognisable.
+ * The serif remains available for auth and owner-approved expressive moments.
+ * Data screens use the system font so rows, sheets and tabs read as native iOS.
  */
 export const font = {
 	heading: { fontFamily: 'Georgia', fontWeight: '600' as const },
 	body: {}
 };
 
+export const iosType = {
+	largeTitle: { fontSize: 34, lineHeight: 41, fontWeight: '700' as const, color: color.ink },
+	title2: { fontSize: 22, lineHeight: 28, fontWeight: '700' as const, color: color.ink },
+	title3: { fontSize: 20, lineHeight: 25, fontWeight: '600' as const, color: color.ink },
+	headline: { fontSize: 17, lineHeight: 22, fontWeight: '600' as const, color: color.ink },
+	body: { fontSize: 17, lineHeight: 22, color: color.ink },
+	callout: { fontSize: 16, lineHeight: 21, color: color.ink },
+	subhead: { fontSize: 15, lineHeight: 20, color: color.inkSoft },
+	footnote: { fontSize: 13, lineHeight: 18, color: color.inkSoft },
+	caption: { fontSize: 12, lineHeight: 16, color: color.inkFaint, fontWeight: '600' as const }
+} as const;
+
 export const type = {
-	title: { fontSize: 26, lineHeight: 31, color: color.ink, ...font.heading },
-	head: { fontSize: 19, lineHeight: 24, color: color.ink, ...font.heading },
-	body: { fontSize: 15, lineHeight: 22, color: color.ink },
-	small: { fontSize: 13, lineHeight: 18, color: color.inkSoft },
-	faint: { fontSize: 13, lineHeight: 18, color: color.inkFaint }
+	largeTitle: iosType.largeTitle,
+	title: iosType.largeTitle,
+	title2: iosType.title2,
+	title3: iosType.title3,
+	head: iosType.headline,
+	body: iosType.body,
+	callout: iosType.callout,
+	subhead: iosType.subhead,
+	small: iosType.subhead,
+	footnote: iosType.footnote,
+	faint: { ...iosType.footnote, color: color.inkFaint },
+	caption: iosType.caption
 } as const;
 
 export const fieldLabel = {
-	...type.small,
-	color: color.inkSoft,
+	...iosType.footnote,
+	color: color.inkFaint,
 	fontWeight: '600' as const
 } as const;
 
 export const card = {
 	backgroundColor: color.surface,
-	borderRadius: radius.lg,
-	borderWidth: 1,
-	borderColor: color.line
+	borderRadius: radius.section
 } as const;
