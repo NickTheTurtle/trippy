@@ -47,3 +47,18 @@ updates:
       - dependency-name: '*'
         update-types:
           - version-update:semver-major
+      # The native app runs inside Expo Go, whose native side is fixed per Expo
+      # SDK. Its JavaScript has to match those native versions exactly, so a
+      # routine bump past them (react-native 0.86.3 -> 0.87.1 did this) builds,
+      # type-checks and passes CI, then crashes on a phone. These move only with
+      # a deliberate Expo SDK upgrade, to the versions `npx expo install --check`
+      # names. React is in the list because React Native requires its exact
+      # React version; the web app's React moves with that upgrade too.
+      - dependency-name: 'expo'
+      - dependency-name: 'expo-*'
+      - dependency-name: '@expo/*'
+      - dependency-name: 'react-native'
+      - dependency-name: 'react-native-*'
+      - dependency-name: '@react-native/*'
+      - dependency-name: 'react'
+      - dependency-name: 'react-dom'
