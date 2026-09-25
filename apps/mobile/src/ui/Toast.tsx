@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
 import { Pressable, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { color, radius, space, type } from '../theme';
 
 type ToastKind = 'success' | 'error';
@@ -14,6 +15,7 @@ const ToastContext = createContext<ToastApi | null>(null);
 
 export function ToastProvider({ children }: { children: ReactNode }) {
 	const [toast, setToast] = useState<ToastState>(null);
+	const insets = useSafeAreaInsets();
 	const show = useCallback((kind: ToastKind, message: string) => {
 		setToast({ kind, message });
 		setTimeout(() => setToast((current) => (current?.message === message ? null : current)), 3500);
@@ -38,24 +40,27 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 						position: 'absolute',
 						left: space.lg,
 						right: space.lg,
-						bottom: space.lg,
+						top: insets.top + space.sm,
 						zIndex: 20
 					}}
 				>
 					<View
 						style={{
-							borderRadius: radius.md,
+							borderRadius: radius.section,
 							paddingHorizontal: space.md,
 							paddingVertical: space.sm,
 							backgroundColor: toast.kind === 'error' ? color.dangerSoft : color.accentSoft,
-							borderWidth: 1,
-							borderColor: toast.kind === 'error' ? color.dangerInk : color.accent
+							shadowColor: '#000',
+							shadowOpacity: 0.1,
+							shadowRadius: 12,
+							shadowOffset: { width: 0, height: 6 }
 						}}
 					>
 						<Text
 							style={{
-								...type.small,
-								color: toast.kind === 'error' ? color.dangerInk : color.accentInk
+								...type.footnote,
+								color: toast.kind === 'error' ? color.dangerInk : color.accentInk,
+								fontWeight: '600'
 							}}
 						>
 							{toast.message}

@@ -1,14 +1,15 @@
 import { useState } from 'react';
-import { Pressable, RefreshControl, Text, View } from 'react-native';
+import { Platform, Pressable, RefreshControl, Text, View } from 'react-native';
 import { Redirect, router, Stack } from 'expo-router';
 import { copy } from '@trippy/copy';
 import { formatDayRangeShort } from '@trippy/copy/format';
 import { useAuth } from '../src/auth';
 import { useApi } from '../src/hooks/useApi';
-import { Card, EmptyState, FormError, Loading, Screen } from '../src/ui';
+import { EmptyState, FormError, InsetGroupedList, ListRow, Loading, Screen } from '../src/ui';
+import { AppSymbol } from '../src/ui/Symbol';
 import { AccountMenu } from '../src/ui/AccountMenu';
 import { NewTrip } from '../src/screens/NewTrip';
-import { color, font, space, type } from '../src/theme';
+import { color, space, type } from '../src/theme';
 
 type City = { id: string; name: string; photo: string | null };
 type Trip = {
@@ -37,40 +38,40 @@ export default function Trips() {
 		<>
 			<Stack.Screen
 				options={{
-					headerShown: true,
-					title: copy.trips.heading,
-					headerRight: () => <AccountMenu />
+					title: Platform.OS === 'web' ? '' : copy.trips.heading,
+					headerLargeTitle: true,
+					headerRight: () => (
+						<View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
+							<Pressable
+								accessibilityRole="button"
+								accessibilityLabel={copy.common.add}
+								onPress={() => setCreating(true)}
+								hitSlop={10}
+							>
+								<AppSymbol name="plus" fallback="add" size={22} color={color.accent} />
+							</Pressable>
+							<AccountMenu />
+						</View>
+					)
 				}}
 			/>
-			<Screen refreshControl={<RefreshControl refreshing={loading && !!data} onRefresh={reload} />}>
+			<Screen
+				largeTitle={Platform.OS === 'web' ? copy.trips.heading : undefined}
+				refreshControl={<RefreshControl refreshing={loading && !!data} onRefresh={reload} />}
+			>
 				{error ? <FormError message={error} /> : null}
-
 				{loading && !data ? (
 					<Loading />
 				) : trips.length === 0 ? (
 					<EmptyState message={copy.common.nothingAdded} />
 				) : (
-					<View style={{ gap: space.md }}>
-						{trips.map((trip) => (
-							<TripCard key={trip.id} trip={trip} />
+					<InsetGroupedList>
+						{trips.map((trip, index) => (
+							<TripRow key={trip.id} trip={trip} last={index === trips.length - 1} />
 						))}
-					</View>
+					</InsetGroupedList>
 				)}
-
-				<Pressable
-					accessibilityRole="button"
-					onPress={() => setCreating(true)}
-					style={({ pressed }) => ({
-						alignSelf: 'flex-start',
-						opacity: pressed ? 0.6 : 1
-					})}
-				>
-					<Text style={{ ...type.body, color: color.accent, fontWeight: '600' }}>
-						+ {copy.common.add}
-					</Text>
-				</Pressable>
 			</Screen>
-
 			<NewTrip
 				open={creating}
 				onClose={() => setCreating(false)}
@@ -83,22 +84,18 @@ export default function Trips() {
 	);
 }
 
-function TripCard({ trip }: { trip: Trip }) {
+function TripRow({ trip, last }: { trip: Trip; last: boolean }) {
 	const dates =
 		trip.startDate && trip.endDate ? formatDayRangeShort(trip.startDate, trip.endDate) : trip.dates;
-
+	const cityNames = trip.cities.map((city) => city.name).join(', ');
 	return (
-		<Pressable
+		<ListRow
+			title={trip.name}
+			subtitle={`${dates}${cityNames ? ` · ${cityNames}` : ''}`}
+			value={copy.trips.memberCount(trip.memberCount)}
+			symbol={{ name: 'airplane', fallback: 'airplane-outline' }}
 			onPress={() => router.push(`/trip/${trip.id}/discover`)}
-			style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
-		>
-			<Card>
-				<Text style={{ ...type.head, ...font.heading }}>{trip.name}</Text>
-				<Text style={{ ...type.small, marginTop: 2 }}>{dates}</Text>
-				<Text style={{ ...type.faint, marginTop: space.sm }}>
-					{copy.trips.cityCount(trip.cities.length)} · {copy.trips.memberCount(trip.memberCount)}
-				</Text>
-			</Card>
-		</Pressable>
+			last={last}
+		/>
 	);
 }

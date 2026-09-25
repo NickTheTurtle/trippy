@@ -4,8 +4,8 @@ import { Redirect, router } from 'expo-router';
 import { copy } from '@trippy/copy';
 import { useAuth } from '../src/auth';
 import { useMutation } from '../src/hooks/useMutation';
-import { Button, Field, FormError, Loading, Screen } from '../src/ui';
-import { color, space, type } from '../src/theme';
+import { Button, Field, InsetSection, Loading, Screen } from '../src/ui';
+import { color, space, type, navBarHeight } from '../src/theme';
 
 export default function Register() {
 	const { user, loading, register } = useAuth();
@@ -26,9 +26,12 @@ export default function Register() {
 	if (user) return <Redirect href="/trips" />;
 	if (pending) {
 		return (
-			<Screen>
-				<Text style={type.title}>{copy.auth.register.sentTitle}</Text>
-				<Text style={type.small}>{copy.auth.register.sentBlurb}</Text>
+			<Screen
+				safeTop
+				topOffset={Platform.OS === 'web' ? 72 : navBarHeight}
+				largeTitle={copy.auth.register.sentTitle}
+			>
+				<Text style={type.subhead}>{copy.auth.register.sentBlurb}</Text>
 				<Button label={copy.auth.login.submitLabel} onPress={() => router.replace('/login')} />
 			</Screen>
 		);
@@ -39,14 +42,15 @@ export default function Register() {
 			style={{ flex: 1 }}
 			behavior={Platform.OS === 'ios' ? 'padding' : undefined}
 		>
-			<Screen>
-				<View style={{ gap: space.xs }}>
-					<Text style={type.title}>{copy.auth.register.title}</Text>
-					<Text style={type.small}>{copy.auth.register.blurb}</Text>
-				</View>
-
-				<View style={{ gap: space.md }}>
+			<Screen
+				safeTop
+				topOffset={Platform.OS === 'web' ? 72 : navBarHeight}
+				largeTitle={copy.auth.register.title}
+			>
+				<Text style={type.subhead}>{copy.auth.register.blurb}</Text>
+				<InsetSection footer={copy.auth.register.passwordHint} error={submit.error}>
 					<Field
+						variant="row"
 						label={copy.auth.register.nameLabel}
 						value={name}
 						onChangeText={setName}
@@ -54,6 +58,7 @@ export default function Register() {
 						textContentType="name"
 					/>
 					<Field
+						variant="row"
 						label={copy.auth.register.emailLabel}
 						value={email}
 						onChangeText={setEmail}
@@ -63,26 +68,25 @@ export default function Register() {
 						textContentType="emailAddress"
 					/>
 					<Field
+						variant="row"
 						label={copy.auth.register.passwordLabel}
+						last
 						value={password}
 						onChangeText={setPassword}
 						secureTextEntry
 						autoComplete="new-password"
 						textContentType="newPassword"
-						placeholder={copy.auth.register.passwordHint}
 					/>
-					<FormError message={submit.error} />
-					<Button
-						label={copy.auth.register.submitLabel}
-						onPress={() => void submit.run()}
-						busy={submit.busy}
-					/>
-				</View>
-
+				</InsetSection>
+				<Button
+					label={copy.auth.register.submitLabel}
+					onPress={() => void submit.run()}
+					busy={submit.busy}
+				/>
 				<View style={{ flexDirection: 'row', gap: space.xs, justifyContent: 'center' }}>
-					<Text style={type.small}>{copy.auth.register.footerPrompt}</Text>
+					<Text style={type.footnote}>{copy.auth.register.footerPrompt}</Text>
 					<Pressable onPress={() => router.replace('/login')}>
-						<Text style={{ ...type.small, color: color.accent, fontWeight: '600' }}>
+						<Text style={{ ...type.footnote, color: color.accent, fontWeight: '600' }}>
 							{copy.auth.register.footerLink}
 						</Text>
 					</Pressable>

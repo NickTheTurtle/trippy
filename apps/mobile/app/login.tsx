@@ -4,7 +4,7 @@ import { Redirect, router, useLocalSearchParams } from 'expo-router';
 import { copy } from '@trippy/copy';
 import { useAuth } from '../src/auth';
 import { useMutation } from '../src/hooks/useMutation';
-import { Button, Field, FormError, Loading, Screen } from '../src/ui';
+import { Button, Field, InsetSection, Loading, Screen } from '../src/ui';
 import { color, space, type } from '../src/theme';
 
 export default function Login() {
@@ -26,14 +26,11 @@ export default function Login() {
 			style={{ flex: 1 }}
 			behavior={Platform.OS === 'ios' ? 'padding' : undefined}
 		>
-			<Screen>
-				<View style={{ gap: space.xs }}>
-					<Text style={type.title}>{copy.auth.login.title}</Text>
-					<Text style={type.small}>{copy.auth.login.blurb}</Text>
-				</View>
-
-				<View style={{ gap: space.md }}>
+			<Screen safeTop largeTitle={copy.auth.login.title}>
+				<Text style={type.subhead}>{copy.auth.login.blurb}</Text>
+				<InsetSection error={submit.error}>
 					<Field
+						variant="row"
 						label={copy.auth.login.emailLabel}
 						value={email}
 						onChangeText={setEmail}
@@ -43,7 +40,9 @@ export default function Login() {
 						textContentType="emailAddress"
 					/>
 					<Field
+						variant="row"
 						label={copy.auth.login.passwordLabel}
+						last
 						value={password}
 						onChangeText={setPassword}
 						secureTextEntry
@@ -51,24 +50,21 @@ export default function Login() {
 						textContentType="password"
 						onSubmitEditing={() => void submit.run()}
 					/>
-					<FormError message={submit.error} />
-					<Button
-						label={copy.auth.login.submitLabel}
-						onPress={() => void submit.run()}
-						busy={submit.busy}
-					/>
-				</View>
-
+				</InsetSection>
+				<Button
+					label={copy.auth.login.submitLabel}
+					onPress={() => void submit.run()}
+					busy={submit.busy}
+				/>
 				<Pressable onPress={() => router.push('/forgot')} style={{ alignSelf: 'center' }}>
-					<Text style={{ ...type.small, color: color.accent, fontWeight: '600' }}>
+					<Text style={{ ...type.footnote, color: color.accent, fontWeight: '600' }}>
 						{copy.auth.forgot.link}
 					</Text>
 				</Pressable>
-
 				<View style={{ flexDirection: 'row', gap: space.xs, justifyContent: 'center' }}>
-					<Text style={type.small}>{copy.auth.login.footerPrompt}</Text>
+					<Text style={type.footnote}>{copy.auth.login.footerPrompt}</Text>
 					<Pressable onPress={() => router.push('/register')}>
-						<Text style={{ ...type.small, color: color.accent, fontWeight: '600' }}>
+						<Text style={{ ...type.footnote, color: color.accent, fontWeight: '600' }}>
 							{copy.auth.login.footerLink}
 						</Text>
 					</Pressable>

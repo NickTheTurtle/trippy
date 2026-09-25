@@ -1,25 +1,14 @@
 import { useMemo, useState } from 'react';
-import { View } from 'react-native';
 import { copy } from '@trippy/copy';
 import { nightsBetween } from '@trippy/copy/format';
 import { CURRENCY_CODES } from '@trippy/core/currency';
 import { currencyName } from '@trippy/core/currency-names';
 import { api } from '../lib/api';
 import { useMutation } from '../hooks/useMutation';
-import { Button, Field, FormError } from '../ui';
-import { SearchablePicker } from '../ui/controls';
+import { DateField, SearchablePicker } from '../ui/controls';
+import { Field, InsetSection } from '../ui';
 import { Sheet } from '../ui/Sheet';
-import { space } from '../theme';
 
-/**
- * Creating a trip.
- *
- * Dates are typed as YYYY-MM-DD rather than picked, because the server takes
- * day strings and a native date picker would hand back an instant in the
- * phone's zone, which is exactly the conversion this app spends its time
- * avoiding. A picker can come later once it is wired to produce a day string
- * directly.
- */
 export function NewTrip({
 	open,
 	onClose,
@@ -52,41 +41,39 @@ export function NewTrip({
 	);
 
 	return (
-		<Sheet open={open} title={copy.trips.newDialog.title} onClose={onClose}>
-			<Field label={copy.tripForm.nameLabel} value={name} onChangeText={setName} />
-			<View style={{ flexDirection: 'row', gap: space.md }}>
-				<View style={{ flex: 1 }}>
-					<Field
-						label={copy.tripForm.startLabel}
-						value={startDate}
-						onChangeText={setStart}
-						placeholder="2026-04-16"
-						autoCapitalize="none"
-					/>
-				</View>
-				<View style={{ flex: 1 }}>
-					<Field
-						label={copy.tripForm.endLabel}
-						value={endDate}
-						onChangeText={setEnd}
-						placeholder="2026-04-24"
-						autoCapitalize="none"
-					/>
-				</View>
-			</View>
-			<SearchablePicker
-				label={copy.tripForm.currencyLabel}
-				value={homeCurrency}
-				options={currencyOptions}
-				onPick={setCurrency}
-				noMatches={copy.ui.currencyPicker.noMatches}
-			/>
-			<FormError message={submit.error} />
-			<Button
-				label={submit.busy ? copy.common.adding : copy.common.add}
-				onPress={() => void submit.run()}
-				busy={submit.busy}
-			/>
+		<Sheet
+			open={open}
+			title={copy.trips.newDialog.title}
+			onClose={onClose}
+			onPrimary={() => void submit.run()}
+			primaryLabel={copy.common.add}
+			primaryBusyLabel={copy.common.adding}
+			primaryBusy={submit.busy}
+		>
+			<InsetSection error={submit.error}>
+				<Field variant="row" label={copy.tripForm.nameLabel} value={name} onChangeText={setName} />
+				<DateField
+					label={copy.tripForm.startLabel}
+					value={startDate}
+					onChange={setStart}
+					maximum={endDate || undefined}
+				/>
+				<DateField
+					label={copy.tripForm.endLabel}
+					value={endDate}
+					onChange={setEnd}
+					minimum={startDate || undefined}
+				/>
+				<SearchablePicker
+					variant="row"
+					label={copy.tripForm.currencyLabel}
+					value={homeCurrency}
+					options={currencyOptions}
+					onPick={setCurrency}
+					noMatches={copy.ui.currencyPicker.noMatches}
+					last
+				/>
+			</InsetSection>
 		</Sheet>
 	);
 }

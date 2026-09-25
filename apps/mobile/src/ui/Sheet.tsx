@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import type { ReactNode } from 'react';
 import {
+	ActivityIndicator,
 	KeyboardAvoidingView,
 	Modal,
 	Platform,
@@ -12,30 +13,34 @@ import {
 	View
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { copy } from '@trippy/copy';
 import { color, radius, space, type } from '../theme';
 import { setInteractionBusy } from './busy';
 
-/**
- * The native answer to the web app's Modal.
- *
- * Dialogs became sheets rather than centred boxes because that is what a phone
- * user expects of a form that appears over the page, and because a sheet
- * anchored to the bottom keeps its fields next to the keyboard instead of
- * behind it.
- */
 export function Sheet({
 	open,
 	title,
 	subtitle,
 	onClose,
-	children
+	onPrimary,
+	primaryLabel,
+	primaryBusyLabel = copy.common.saving,
+	primaryBusy = false,
+	primaryDisabled = false,
+	children,
+	onDismiss
 }: {
 	open: boolean;
 	title: string;
-	/** The context the dialog acts in, as on web: a city name, a trip name. */
 	subtitle?: string | null;
 	onClose: () => void;
+	onPrimary?: () => void;
+	primaryLabel?: string;
+	primaryBusyLabel?: string;
+	primaryBusy?: boolean;
+	primaryDisabled?: boolean;
 	children: ReactNode;
+	onDismiss?: () => void;
 }) {
 	const { height } = useWindowDimensions();
 	const insets = useSafeAreaInsets();
@@ -43,8 +48,15 @@ export function Sheet({
 		if (!open) return;
 		return setInteractionBusy(true);
 	}, [open]);
+	const canPrimary = !!onPrimary && !!primaryLabel && !primaryBusy && !primaryDisabled;
 	return (
-		<Modal visible={open} transparent animationType="slide" onRequestClose={onClose}>
+		<Modal
+			visible={open}
+			transparent
+			animationType="slide"
+			onRequestClose={onClose}
+			onDismiss={onDismiss}
+		>
 			<KeyboardAvoidingView
 				style={{ flex: 1, justifyContent: 'flex-end' }}
 				behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -53,30 +65,51 @@ export function Sheet({
 				<View
 					style={[
 						s.sheet,
-						{ maxHeight: height * 0.92, flexShrink: 1, paddingBottom: space.lg + insets.bottom }
+						{ maxHeight: height * 0.94, flexShrink: 1, paddingBottom: space.lg + insets.bottom }
 					]}
 				>
 					<View style={s.grabber} />
-					<View style={s.head}>
-						<View style={{ flex: 1 }}>
-							<Text style={type.head}>{title}</Text>
-							{subtitle ? <Text style={type.faint}>{subtitle}</Text> : null}
-						</View>
-						<Pressable
-							accessibilityRole="button"
-							accessibilityLabel="Close"
-							onPress={onClose}
-							hitSlop={12}
-						>
-							<Text style={{ ...type.body, color: color.inkFaint, fontSize: 20 }}>×</Text>
+					<View style={s.navBar}>
+						<Pressable accessibilityRole="button" onPress={onClose} hitSlop={12} style={s.navSide}>
+							<Text style={s.navAction}>{copy.common.cancel}</Text>
 						</Pressable>
+						<View style={s.titleBox}>
+							<Text style={s.navTitle} numberOfLines={1}>
+								{title}
+							</Text>
+							{subtitle ? (
+								<Text style={s.navSubtitle} numberOfLines={1}>
+									{subtitle}
+								</Text>
+							) : null}
+						</View>
+						{primaryLabel || primaryBusy ? (
+							<Pressable
+								accessibilityRole="button"
+								accessibilityState={{ disabled: primaryDisabled, busy: primaryBusy }}
+								onPress={canPrimary ? onPrimary : undefined}
+								hitSlop={12}
+								style={[s.navSide, { alignItems: 'flex-end' }]}
+							>
+								{primaryBusy ? (
+									<ActivityIndicator
+										color={color.accent}
+										size="small"
+										accessibilityLabel={primaryBusyLabel}
+									/>
+								) : primaryLabel ? (
+									<Text style={[s.navAction, primaryDisabled && { opacity: 0.35 }]}>
+										{primaryLabel}
+									</Text>
+								) : null}
+							</Pressable>
+						) : (
+							<View style={s.navSide} />
+						)}
 					</View>
-					{/* The tallest form here is the expense split, which grows with the
-					    roster. Capping the body and scrolling it keeps the save button
-					    reachable on a large trip rather than pushed off the screen. */}
 					<ScrollView
-						style={{ maxHeight: height * 0.68, flexShrink: 1 }}
-						contentContainerStyle={{ gap: space.md, paddingBottom: space.sm }}
+						style={{ maxHeight: height * 0.72, flexShrink: 1 }}
+						contentContainerStyle={{ gap: space.lg, paddingBottom: space.sm }}
 						keyboardShouldPersistTaps="handled"
 					>
 						{children}
@@ -94,23 +127,31 @@ const s = StyleSheet.create({
 		right: 0,
 		bottom: 0,
 		left: 0,
-		backgroundColor: 'rgba(28,35,33,0.28)'
+		backgroundColor: 'rgba(28,35,33,0.22)'
 	},
 	sheet: {
 		backgroundColor: color.bg,
-		borderTopLeftRadius: radius.lg,
-		borderTopRightRadius: radius.lg,
+		borderTopLeftRadius: radius.sheet,
+		borderTopRightRadius: radius.sheet,
 		paddingHorizontal: space.lg,
 		paddingTop: space.sm,
-		paddingBottom: space.lg,
-		gap: space.md
+		gap: space.md,
+		shadowColor: '#000',
+		shadowOpacity: 0.16,
+		shadowRadius: 22,
+		shadowOffset: { width: 0, height: -8 }
 	},
 	grabber: {
 		alignSelf: 'center',
-		width: 36,
-		height: 4,
-		borderRadius: 2,
-		backgroundColor: color.line
+		width: 38,
+		height: 5,
+		borderRadius: 999,
+		backgroundColor: '#d1d1d6'
 	},
-	head: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }
+	navBar: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: space.sm },
+	navSide: { width: 78, minHeight: 44, justifyContent: 'center' },
+	navAction: { ...type.body, color: color.accent, fontWeight: '600' },
+	titleBox: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+	navTitle: { ...type.head, textAlign: 'center' },
+	navSubtitle: { ...type.caption, textAlign: 'center' }
 });

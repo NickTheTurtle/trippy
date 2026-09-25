@@ -1,8 +1,8 @@
-import { Text, View } from 'react-native';
+import { Text } from 'react-native';
 import { copy } from '@trippy/copy';
 import { Button, FormError } from './index';
 import { Sheet } from './Sheet';
-import { space, type } from '../theme';
+import { type } from '../theme';
 
 export function ConfirmSheet({
 	open,
@@ -29,19 +29,12 @@ export function ConfirmSheet({
 		<Sheet open={open} title={title} onClose={onCancel}>
 			<Text style={type.small}>{message}</Text>
 			<FormError message={error} />
-			<View style={{ flexDirection: 'row', gap: space.md }}>
-				<View style={{ flex: 1 }}>
-					<Button label={copy.common.cancel} tone="ghost" onPress={onCancel} disabled={busy} />
-				</View>
-				<View style={{ flex: 1 }}>
-					<Button
-						label={busy ? busyLabel : confirmLabel}
-						tone="danger"
-						onPress={onConfirm}
-						busy={busy}
-					/>
-				</View>
-			</View>
+			<Button
+				label={busy ? busyLabel : confirmLabel}
+				tone="danger"
+				onPress={onConfirm}
+				busy={busy}
+			/>
 		</Sheet>
 	);
 }

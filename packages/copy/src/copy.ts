@@ -177,7 +177,8 @@ export const copy = {
 			title: 'Edit trip',
 			fallback: 'Could not save that trip.',
 			/** The schedule lock. The switch says what it does; nothing else needs to. */
-			lockLabel: 'Lock schedule'
+			lockLabel: 'Lock schedule',
+			lockFooter: 'Prevents schedule edits until it is unlocked.'
 		},
 		leaveTrip: 'Leave trip',
 		leaveDialog: {
@@ -563,6 +564,7 @@ export const copy = {
 		},
 		password: {
 			heading: 'Password',
+			change: 'Change password',
 			updated: 'Password updated.',
 			currentLabel: 'Current password',
 			newLabel: 'New password',
@@ -633,6 +635,7 @@ export const copy = {
 		 */
 		delete: 'Delete',
 		leave: 'Leave',
+		more: 'More',
 		/** Every save button says this. The dialog title already names the thing. */
 		save: 'Save',
 		saving: 'Saving...',
