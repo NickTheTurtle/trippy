@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, RefreshControl, Text, View } from 'react-native';
 import { copy } from '@trippy/copy';
 import { useTripId } from '../../../src/trip-id';
@@ -48,6 +48,21 @@ export default function Calendar() {
 	);
 	const memberIds = useMemo(() => data?.members.map((member) => member.id) ?? [], [data?.members]);
 
+	// Stable, so the memoized board blocks and the map do not all re-render on
+	// every gesture start and end. It reads the latest payload through the ref.
+	const openAndFocus = useCallback((id: string) => {
+		setMapFocusId(id);
+		setMapFocusKey((key) => key + 1);
+		for (const entry of openedRef.current?.board ?? []) {
+			for (const event of [...entry.events, ...entry.stays]) {
+				if (event.id === id) {
+					setOpened(event);
+					return;
+				}
+			}
+		}
+	}, []);
+
 	useEffect(() => {
 		if (schedule.error) toast.error(schedule.error);
 	}, [schedule.error, toast]);
@@ -65,22 +80,6 @@ export default function Calendar() {
 			</Screen>
 		);
 	}
-
-	const openSaved = (id: string) => {
-		for (const entry of openedRef.current?.board ?? []) {
-			for (const event of [...entry.events, ...entry.stays]) {
-				if (event.id === id) {
-					setOpened(event);
-					return;
-				}
-			}
-		}
-	};
-	const openAndFocus = (id: string) => {
-		setMapFocusId(id);
-		setMapFocusKey((key) => key + 1);
-		openSaved(id);
-	};
 
 	const refresh = () => {
 		schedule.reload();
@@ -204,7 +203,7 @@ export default function Calendar() {
 					entry={schedule.anchor}
 					saved={data.saved}
 					city={schedule.anchor.city}
-					memberIds={memberIds}
+					memberIds={schedule.visibleMemberIds}
 					peopleLabel={schedule.peopleLabel}
 					locked={locked}
 					focusId={mapFocusId}

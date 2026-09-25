@@ -101,7 +101,10 @@ export function DayMap({
 					))}
 					{model.pins.map((pin) => (
 						<Marker
-							key={pin.key}
+							// Colour, number and count are in the key because Android does
+							// not redraw a custom marker with tracksViewChanges off, so a
+							// changed pin must be a new marker to be drawn again.
+							key={`${pin.key}:${pin.color}:${pin.number ?? ''}:${pin.count}`}
 							ref={(ref) => {
 								markerRefs.current[pin.key] = ref;
 							}}
@@ -113,7 +116,14 @@ export function DayMap({
 							<Pin pin={pin} />
 							<Callout
 								tooltip
-								onPress={() => {
+								onPress={(e) => {
+									// iOS fires a button's own press inside the callout and then
+									// this one, marked callout-inside-press. The button already
+									// did its job; acting again opened the pin's first event over
+									// the one the button chose.
+									// The declared type says only callout-press; iOS also sends
+									// callout-inside-press (AIRMapMarker.m) for a subview tap.
+									if ((e.nativeEvent.action as string) === 'callout-inside-press') return;
 									if (pin.addId && pin.eventIds.length === 0) {
 										const place = savedById.get(pin.addId);
 										if (place) onAddPlace(place);
