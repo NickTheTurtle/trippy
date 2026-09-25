@@ -28,7 +28,8 @@ export function Sheet({
 	primaryBusy = false,
 	primaryDisabled = false,
 	children,
-	onDismiss
+	onDismiss,
+	error
 }: {
 	open: boolean;
 	title: string;
@@ -41,6 +42,15 @@ export function Sheet({
 	primaryDisabled?: boolean;
 	children: ReactNode;
 	onDismiss?: () => void;
+	/**
+	 * A refusal from the primary action, pinned under the title bar.
+	 *
+	 * The save is in the title bar, so its answer has to be next to it: an error
+	 * drawn at the top of a long form is off-screen when the user is at the
+	 * bottom, and a toast cannot help because the app's toast renders under
+	 * this Modal on iOS.
+	 */
+	error?: string | null;
 }) {
 	const { height } = useWindowDimensions();
 	const insets = useSafeAreaInsets();
@@ -107,6 +117,11 @@ export function Sheet({
 							<View style={s.navSide} />
 						)}
 					</View>
+					{error ? (
+						<Text accessibilityRole="alert" accessibilityLiveRegion="polite" style={s.error}>
+							{error}
+						</Text>
+					) : null}
 					<ScrollView
 						style={{ maxHeight: height * 0.72, flexShrink: 1 }}
 						contentContainerStyle={{ gap: space.lg, paddingBottom: space.sm }}
@@ -153,5 +168,14 @@ const s = StyleSheet.create({
 	navAction: { ...type.body, color: color.accent, fontWeight: '600' },
 	titleBox: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 	navTitle: { ...type.head, textAlign: 'center' },
-	navSubtitle: { ...type.caption, textAlign: 'center' }
+	navSubtitle: { ...type.caption, textAlign: 'center' },
+	error: {
+		...type.footnote,
+		color: color.dangerInk,
+		backgroundColor: color.dangerSoft,
+		borderRadius: radius.md,
+		paddingHorizontal: space.md,
+		paddingVertical: space.sm,
+		marginBottom: space.sm
+	}
 });

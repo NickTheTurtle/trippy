@@ -1,17 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { splitByWeight, type SplitMode } from '@trippy/core/split';
 import { currencyName } from '@trippy/core/currency-names';
 import { copy } from '@trippy/copy';
 import { formatMoney } from '@trippy/copy/format';
 import { api, ApiError } from '../lib/api';
 import { useMutation } from '../hooks/useMutation';
-import { Button, Field, FormError } from '../ui';
-import { CheckBox, Picker, SearchablePicker } from '../ui/controls';
+import { DestructiveRow, Field, InsetGroupedList, InsetSection, ListRow } from '../ui';
+import { DateField, SearchablePicker, SegmentedControl } from '../ui/controls';
 import { Sheet } from '../ui/Sheet';
-import { SheetFooter } from '../ui/SheetFooter';
 import { ConfirmSheet } from '../ui/ConfirmSheet';
-import { color, fieldLabel, radius, space, type } from '../theme';
+import { AppSymbol } from '../ui/Symbol';
+import { color, hairline, space, type } from '../theme';
 import { parseAmount } from '../lib/amount';
 
 export type Member = { id: string; name: string };
@@ -59,6 +59,13 @@ const MODES: { key: SplitMode; label: string }[] = [
 	{ key: 'shares', label: copy.expenses.addDialog.modes.shares.label },
 	{ key: 'exact', label: copy.expenses.addDialog.modes.exact.label }
 ];
+const KINDS = [
+	{ key: 'expense', label: copy.expenses.addDialog.kindExpense },
+	{ key: 'income', label: copy.expenses.addDialog.kindIncome }
+] as const;
+type ExpenseKind = (typeof KINDS)[number]['key'];
+
+type Option = { key: string; label: string; detail?: string };
 
 function today(): string {
 	return new Date().toLocaleDateString('en-CA');
@@ -66,6 +73,19 @@ function today(): string {
 
 function currencyOptions(currencies: readonly string[]) {
 	return currencies.map((code) => ({ key: code, label: code, detail: currencyName(code) }));
+}
+
+function payerOptions(members: readonly Member[], expense: Expense | null): Option[] {
+	const options = members.map((m) => ({ key: m.id, label: m.name }));
+	if (!expense || members.some((m) => m.id === expense.payer_id)) return options;
+	return [
+		{
+			key: expense.payer_id,
+			label: expense.payer_name,
+			detail: copy.expenses.formerTag
+		},
+		...options
+	];
 }
 
 export function ExpenseSheet({
@@ -88,6 +108,7 @@ export function ExpenseSheet({
 	const [description, setDescription] = useState('');
 	const [spentOn, setSpentOn] = useState('');
 	const [amount, setAmount] = useState('');
+	const [expenseKind, setExpenseKind] = useState<ExpenseKind>('expense');
 	const [currency, setCurrency] = useState(data.currency);
 	const [payerId, setPayerId] = useState(data.me);
 	const [mode, setMode] = useState<SplitMode>('even');
@@ -95,45 +116,11 @@ export function ExpenseSheet({
 	const [weights, setWeights] = useState<Record<string, string>>({});
 	const [confirmDelete, setConfirmDelete] = useState(false);
 
-	useEffect(() => {
-		if (!open) return;
-		if (expense) {
-			setDescription(expense.description);
-			setSpentOn(expense.spent_on);
-			setAmount((expense.amount_cents / 100).toFixed(2));
-			setCurrency(expense.currency);
-			setPayerId(expense.payer_id);
-			setMode(expense.split_mode);
-			const currentMemberIds = new Set(data.members.map((m) => m.id));
-			const currentParts = expense.parts.filter((p) => currentMemberIds.has(p.userId));
-			setChosen(currentParts.map((p) => p.userId));
-			setWeights(
-				Object.fromEntries(
-					currentParts.map((p) => [
-						p.userId,
-						expense.split_mode === 'exact' ? (p.weight / 100).toFixed(2) : String(p.weight)
-					])
-				)
-			);
-		} else {
-			const now = today();
-			setDescription('');
-			setSpentOn(now >= data.firstDay && now <= data.lastDay ? now : data.firstDay);
-			setAmount('');
-			setCurrency(data.currency);
-			setPayerId(data.me);
-			setMode('even');
-			setChosen(data.members.map((m) => m.id));
-			setWeights({});
-		}
-		setConfirmDelete(false);
-		save.reset();
-		remove.reset();
-	}, [open, expense?.id]);
-
-	const totalCents = Math.round((parseAmount(amount) || 0) * 100);
+	const parsedAmount = parseAmount(amount);
+	const amountMagnitude = Number.isFinite(parsedAmount) ? Math.abs(parsedAmount) : 0;
+	const totalCents = Math.round(amountMagnitude * 100) * (expenseKind === 'income' ? -1 : 1);
 	const absCents = Math.abs(totalCents);
-	const income = totalCents < 0;
+	const income = expenseKind === 'income';
 	const chosenMembers = data.members.filter((m) => chosen.includes(m.id));
 
 	function weightOf(id: string): number {
@@ -200,6 +187,7 @@ export function ExpenseSheet({
 			if (!Number.isFinite(value) || Math.round(value * 100) === 0) {
 				throw new ApiError(400, copy.common.amountMissing);
 			}
+			const signedValue = Math.abs(value) * (expenseKind === 'income' ? -1 : 1);
 			const currentChosen = data.members.filter((m) => chosen.includes(m.id)).map((m) => m.id);
 			try {
 				await api(`/trips/${tripId}/expenses${expense ? `/${expense.id}` : ''}`, {
@@ -207,7 +195,7 @@ export function ExpenseSheet({
 					body: {
 						description,
 						spentOn,
-						amount: value,
+						amount: signedValue,
 						currency,
 						payerId,
 						splitMode: mode,
@@ -240,6 +228,45 @@ export function ExpenseSheet({
 		}
 	);
 
+	useEffect(() => {
+		if (!open) return;
+		if (expense) {
+			const existingIncome = expense.amount_cents < 0;
+			setDescription(expense.description);
+			setSpentOn(expense.spent_on);
+			setAmount((Math.abs(expense.amount_cents) / 100).toFixed(2));
+			setExpenseKind(existingIncome ? 'income' : 'expense');
+			setCurrency(expense.currency);
+			setPayerId(expense.payer_id);
+			setMode(expense.split_mode);
+			const currentMemberIds = new Set(data.members.map((m) => m.id));
+			const currentParts = expense.parts.filter((p) => currentMemberIds.has(p.userId));
+			setChosen(currentParts.map((p) => p.userId));
+			setWeights(
+				Object.fromEntries(
+					currentParts.map((p) => [
+						p.userId,
+						expense.split_mode === 'exact' ? (p.weight / 100).toFixed(2) : String(p.weight)
+					])
+				)
+			);
+		} else {
+			const now = today();
+			setDescription('');
+			setSpentOn(now >= data.firstDay && now <= data.lastDay ? now : data.firstDay);
+			setAmount('');
+			setExpenseKind('expense');
+			setCurrency(data.currency);
+			setPayerId(data.me);
+			setMode('even');
+			setChosen(data.members.map((m) => m.id));
+			setWeights({});
+		}
+		setConfirmDelete(false);
+		save.reset();
+		remove.reset();
+	}, [open, expense?.id]);
+
 	const title = expense
 		? income
 			? copy.expenses.addDialog.editIncomeTitle
@@ -250,130 +277,116 @@ export function ExpenseSheet({
 
 	return (
 		<>
-			<Sheet open={open && !confirmDelete} title={title} onClose={onClose}>
-				<Field
-					label={copy.expenses.addDialog.descriptionLabel}
-					value={description}
-					onChangeText={setDescription}
-				/>
-				<Field
-					label={copy.expenses.addDialog.dateLabel}
-					value={spentOn}
-					onChangeText={setSpentOn}
-					autoCapitalize="none"
-				/>
-				<Field
-					label={copy.expenses.addDialog.amountLabel}
-					value={amount}
-					onChangeText={setAmount}
-					keyboardType="numbers-and-punctuation"
-				/>
-				<SearchablePicker
-					label={copy.expenses.addDialog.currencyLabel}
-					value={currency}
-					options={currencyOptions(data.currencies)}
-					onPick={setCurrency}
-					noMatches={copy.ui.currencyPicker.noMatches}
-				/>
-				<Picker
+			<Sheet
+				open={open && !confirmDelete}
+				title={title}
+				onClose={onClose}
+				onPrimary={() => void save.run()}
+				primaryLabel={expense ? copy.common.save : copy.common.add}
+				primaryBusyLabel={expense ? copy.common.saving : copy.common.adding}
+				primaryBusy={save.busy}
+				primaryDisabled={!description.trim() || chosen.length === 0}
+				error={save.error}
+			>
+				<InsetSection>
+					<Field
+						variant="row"
+						label={copy.expenses.addDialog.descriptionLabel}
+						value={description}
+						onChangeText={setDescription}
+					/>
+					<Field
+						variant="row"
+						label={copy.expenses.addDialog.amountLabel}
+						value={amount}
+						onChangeText={(value) => {
+							if (value.trim().startsWith('-')) {
+								setExpenseKind('income');
+								setAmount(value.replace(/^-+/, ''));
+							} else {
+								setAmount(value);
+							}
+						}}
+						keyboardType="numbers-and-punctuation"
+					/>
+					<SearchablePicker
+						variant="row"
+						label={copy.expenses.addDialog.currencyLabel}
+						value={currency}
+						options={currencyOptions(data.currencies)}
+						onPick={setCurrency}
+						noMatches={copy.ui.currencyPicker.noMatches}
+					/>
+					<DateField
+						label={copy.expenses.addDialog.dateLabel}
+						value={spentOn}
+						onChange={setSpentOn}
+						last
+					/>
+				</InsetSection>
+				<InsetSection>
+					<View style={{ padding: space.md }}>
+						<SegmentedControl
+							items={[...KINDS]}
+							active={expenseKind}
+							onPick={(key) => setExpenseKind(key as ExpenseKind)}
+						/>
+					</View>
+				</InsetSection>
+				<RowPicker
 					label={
 						income ? copy.expenses.addDialog.receivedByLabel : copy.expenses.addDialog.paidByLabel
 					}
-					options={data.members.map((m) => ({ key: m.id, label: m.name }))}
 					value={payerId}
+					options={payerOptions(data.members, expense)}
 					onPick={setPayerId}
 				/>
 				<Text style={{ ...type.faint, color: income ? color.accentInk : color.inkFaint }}>
-					{income ? copy.expenses.addDialog.incomeNote : copy.expenses.addDialog.expenseNote}
+					{income ? copy.expenses.addDialog.incomeNote : copy.expenses.addDialog.mobileExpenseNote}
 				</Text>
-				<Picker
-					label={copy.expenses.addDialog.splitLabel}
-					options={MODES}
-					value={mode}
-					onPick={(key) => pickMode(key as SplitMode)}
+				<InsetSection title={copy.expenses.addDialog.splitLabel}>
+					<View style={{ padding: space.md }}>
+						<SegmentedControl
+							items={MODES}
+							active={mode}
+							onPick={(key) => pickMode(key as SplitMode)}
+						/>
+					</View>
+				</InsetSection>
+				<ParticipantSection
+					members={data.members}
+					chosen={chosen}
+					mode={mode}
+					totalCents={totalCents}
+					currency={currency}
+					weights={weights}
+					preview={preview}
+					exactOff={exactOff}
+					onToggle={toggle}
+					onAll={() => {
+						const ids = data.members.map((m) => m.id);
+						setChosen(ids);
+						if (mode === 'shares') {
+							setWeights((current) => ({
+								...current,
+								...Object.fromEntries(ids.map((id) => [id, current[id] ?? '1']))
+							}));
+						}
+					}}
+					onNone={() => setChosen([])}
+					onSplitRest={splitRest}
+					onChangeWeight={(id, v) => setWeights((w) => ({ ...w, [id]: v }))}
+					onBumpShares={bumpShares}
 				/>
-				<View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
-					<Text style={{ ...type.faint, flex: 1 }}>
-						{copy.expenses.addDialog.selectedCount(chosen.length, data.members.length)}
-						{mode === 'exact' && absCents !== 0
-							? exactOff === 0
-								? copy.expenses.addDialog.fullyAllocated
-								: copy.expenses.addDialog.remainder(
-										formatMoney(Math.abs(exactOff), currency),
-										exactOff > 0
-									)
-							: ''}
-					</Text>
-					{mode === 'exact' ? (
-						<SmallAction label={copy.expenses.addDialog.splitTheRest} onPress={splitRest} />
-					) : null}
-					<SmallAction
-						label={copy.expenses.addDialog.all}
-						onPress={() => {
-							const ids = data.members.map((m) => m.id);
-							setChosen(ids);
-							if (mode === 'shares') {
-								setWeights((current) => ({
-									...Object.fromEntries(ids.map((id) => [id, current[id] ?? '1'])),
-									...current
-								}));
-							}
-						}}
-					/>
-					<SmallAction label={copy.expenses.addDialog.none} onPress={() => setChosen([])} />
-				</View>
-				<View style={{ gap: space.sm }}>
-					{data.members.map((m) => {
-						const on = chosen.includes(m.id);
-						const money =
-							on && totalCents !== 0 && preview.has(m.id)
-								? formatMoney(preview.get(m.id) ?? 0, currency)
-								: null;
-						return (
-							<View
-								key={m.id}
-								style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, minHeight: 44 }}
-							>
-								<CheckBox checked={on} label={m.name} onPress={() => toggle(m.id)} />
-								<Text style={{ ...type.body, flex: 1 }}>{m.name}</Text>
-								{money && mode === 'shares' ? <Text style={type.faint}>{money}</Text> : null}
-								{on && mode === 'shares' ? (
-									<Stepper
-										value={weights[m.id] ?? ''}
-										name={m.name}
-										onMinus={() => bumpShares(m.id, -1)}
-										onPlus={() => bumpShares(m.id, 1)}
-										onChange={(v) => setWeights((w) => ({ ...w, [m.id]: v }))}
-									/>
-								) : null}
-								{on && mode === 'exact' ? (
-									<View style={{ width: 94 }}>
-										<Field
-											variant="bare"
-											label=""
-											value={weights[m.id] ?? ''}
-											onChangeText={(v) => setWeights((w) => ({ ...w, [m.id]: v }))}
-											keyboardType="decimal-pad"
-											accessibilityLabel={copy.expenses.addDialog.weightLabel(true, m.name)}
-											style={{ height: 34, textAlign: 'right' }}
-										/>
-									</View>
-								) : null}
-								{money && mode === 'even' ? <Text style={type.faint}>{money}</Text> : null}
-							</View>
-						);
-					})}
-				</View>
-				<FormError message={save.error} />
-				<SheetFooter
-					primaryLabel={expense ? copy.common.save : copy.common.add}
-					primaryBusyLabel={expense ? copy.common.saving : copy.common.adding}
-					primaryBusy={save.busy}
-					primaryDisabled={!description.trim() || chosen.length === 0}
-					onPrimary={() => void save.run()}
-					destructiveLabel={expense ? copy.common.deleteLabel(expense.description) : undefined}
-					onDestructive={expense ? () => setConfirmDelete(true) : undefined}
-				/>
+				{expense ? (
+					<InsetSection>
+						<DestructiveRow
+							title={copy.common.delete}
+							accessibilityLabel={copy.common.deleteLabel(expense.description)}
+							onPress={() => setConfirmDelete(true)}
+						/>
+					</InsetSection>
+				) : null}
 			</Sheet>
 			<ConfirmSheet
 				open={!!expense && confirmDelete}
@@ -431,26 +444,36 @@ export function PaymentSheet({
 	if (!payment) return null;
 	return (
 		<>
-			<Sheet open={open && !confirmDelete} title={payment.description} onClose={onClose}>
-				<Text style={type.head}>{formatMoney(payment.amount_cents, payment.currency)}</Text>
-				{payment.converted ? (
-					<Text style={type.faint}>≈ {formatMoney(payment.home_cents, home)}</Text>
-				) : null}
-				<Field
-					label={copy.expenses.addDialog.dateLabel}
-					value={spentOn}
-					onChangeText={setSpentOn}
-					autoCapitalize="none"
-				/>
-				<FormError message={save.error} />
-				<SheetFooter
-					primaryLabel={copy.common.save}
-					primaryBusyLabel={copy.common.saving}
-					primaryBusy={save.busy}
-					onPrimary={() => void save.run()}
-					destructiveLabel={copy.common.deleteLabel(payment.description)}
-					onDestructive={() => setConfirmDelete(true)}
-				/>
+			<Sheet
+				open={open && !confirmDelete}
+				title={payment.description}
+				onClose={onClose}
+				onPrimary={() => void save.run()}
+				primaryLabel={copy.common.save}
+				primaryBusyLabel={copy.common.saving}
+				primaryBusy={save.busy}
+				error={save.error}
+			>
+				<InsetSection>
+					<ListRow
+						title={formatMoney(payment.amount_cents, payment.currency)}
+						subtitle={payment.converted ? `≈ ${formatMoney(payment.home_cents, home)}` : undefined}
+						accessory="none"
+					/>
+					<DateField
+						label={copy.expenses.addDialog.dateLabel}
+						value={spentOn}
+						onChange={setSpentOn}
+						last
+					/>
+				</InsetSection>
+				<InsetSection>
+					<DestructiveRow
+						title={copy.common.delete}
+						accessibilityLabel={copy.common.deleteLabel(payment.description)}
+						onPress={() => setConfirmDelete(true)}
+					/>
+				</InsetSection>
 			</Sheet>
 			<ConfirmSheet
 				open={confirmDelete}
@@ -471,6 +494,206 @@ function SmallAction({ label, onPress }: { label: string; onPress: () => void })
 		<Pressable onPress={onPress} hitSlop={8}>
 			<Text style={{ ...type.small, color: color.accent }}>{label}</Text>
 		</Pressable>
+	);
+}
+
+function RowPicker({
+	label,
+	value,
+	options,
+	onPick
+}: {
+	label: string;
+	value: string;
+	options: Option[];
+	onPick: (value: string) => void;
+}) {
+	const [open, setOpen] = useState(false);
+	const current = options.find((option) => option.key === value);
+	return (
+		<InsetSection>
+			<ListRow
+				title={label}
+				value={current?.label ?? value}
+				onPress={() => setOpen((v) => !v)}
+				accessory="chevron"
+				last={!open}
+			/>
+			{open
+				? options.map((option, index) => (
+						<ListRow
+							key={option.key}
+							title={option.label}
+							subtitle={option.detail}
+							accessory={option.key === value ? 'checkmark' : 'none'}
+							accessibilityState={{ selected: option.key === value }}
+							onPress={() => {
+								onPick(option.key);
+								setOpen(false);
+							}}
+							last={index === options.length - 1}
+						/>
+					))
+				: null}
+		</InsetSection>
+	);
+}
+
+function ParticipantSection({
+	members,
+	chosen,
+	mode,
+	totalCents,
+	currency,
+	weights,
+	preview,
+	exactOff,
+	onToggle,
+	onAll,
+	onNone,
+	onSplitRest,
+	onChangeWeight,
+	onBumpShares
+}: {
+	members: Member[];
+	chosen: string[];
+	mode: SplitMode;
+	totalCents: number;
+	currency: string;
+	weights: Record<string, string>;
+	preview: Map<string, number>;
+	exactOff: number;
+	onToggle: (id: string) => void;
+	onAll: () => void;
+	onNone: () => void;
+	onSplitRest: () => void;
+	onChangeWeight: (id: string, value: string) => void;
+	onBumpShares: (id: string, by: number) => void;
+}) {
+	const footer =
+		mode === 'exact' && Math.abs(totalCents) !== 0
+			? exactOff === 0
+				? copy.expenses.addDialog.fullyAllocatedMobile
+				: copy.expenses.addDialog.remainderMobile(
+						formatMoney(Math.abs(exactOff), currency),
+						exactOff > 0
+					)
+			: undefined;
+	return (
+		<View style={{ gap: 7 }}>
+			<View
+				style={{
+					flexDirection: 'row',
+					alignItems: 'center',
+					gap: space.md,
+					marginHorizontal: space.lg
+				}}
+			>
+				<Text
+					style={{
+						...type.caption,
+						textTransform: 'uppercase',
+						letterSpacing: 0.35,
+						flex: 1
+					}}
+				>
+					{copy.expenses.addDialog.selectedCount(chosen.length, members.length)}
+				</Text>
+				{mode === 'exact' ? (
+					<SmallAction label={copy.expenses.addDialog.splitTheRest} onPress={onSplitRest} />
+				) : null}
+				<SmallAction label={copy.expenses.addDialog.all} onPress={onAll} />
+				<SmallAction label={copy.expenses.addDialog.none} onPress={onNone} />
+			</View>
+			<InsetGroupedList>
+				{members.map((member, index) => {
+					const on = chosen.includes(member.id);
+					const money =
+						on && totalCents !== 0 && preview.has(member.id)
+							? formatMoney(preview.get(member.id) ?? 0, currency)
+							: null;
+					return (
+						<View
+							key={member.id}
+							style={{
+								minHeight: 52,
+								flexDirection: 'row',
+								alignItems: 'center',
+								gap: space.md,
+								paddingHorizontal: space.md,
+								borderBottomWidth: index === members.length - 1 ? 0 : hairline,
+								borderBottomColor: color.line
+							}}
+						>
+							{/* Only the tick and name toggle. The stepper and amount input
+							    sit beside it, not inside it: on iOS a pressable row is one
+							    accessibility element, which hid them from VoiceOver. */}
+							<Pressable
+								accessibilityRole="checkbox"
+								accessibilityState={{ checked: on }}
+								accessibilityLabel={member.name}
+								onPress={() => onToggle(member.id)}
+								style={{
+									flex: 1,
+									flexDirection: 'row',
+									alignItems: 'center',
+									gap: space.md,
+									alignSelf: 'stretch'
+								}}
+							>
+								<CheckboxGlyph checked={on} />
+								<Text style={{ ...type.body, flex: 1 }}>{member.name}</Text>
+								{money && mode !== 'exact' ? <Text style={type.faint}>{money}</Text> : null}
+							</Pressable>
+							{on && mode === 'shares' ? (
+								<Stepper
+									value={weights[member.id] ?? ''}
+									name={member.name}
+									onMinus={() => onBumpShares(member.id, -1)}
+									onPlus={() => onBumpShares(member.id, 1)}
+									onChange={(v) => onChangeWeight(member.id, v)}
+								/>
+							) : null}
+							{on && mode === 'exact' ? (
+								<View style={{ width: 94 }}>
+									<Field
+										variant="bare"
+										label=""
+										value={weights[member.id] ?? ''}
+										onChangeText={(v) => onChangeWeight(member.id, v)}
+										keyboardType="decimal-pad"
+										accessibilityLabel={copy.expenses.addDialog.weightLabel(true, member.name)}
+										style={{ height: 34, textAlign: 'right' }}
+									/>
+								</View>
+							) : null}
+						</View>
+					);
+				})}
+			</InsetGroupedList>
+			{footer ? (
+				<Text style={{ ...type.footnote, marginHorizontal: space.lg }}>{footer}</Text>
+			) : null}
+		</View>
+	);
+}
+
+function CheckboxGlyph({ checked }: { checked: boolean }) {
+	return (
+		<View
+			style={{
+				width: 24,
+				height: 24,
+				borderRadius: 12,
+				borderWidth: 1.5,
+				borderColor: checked ? color.accent : color.line,
+				backgroundColor: checked ? color.accent : color.surface,
+				alignItems: 'center',
+				justifyContent: 'center'
+			}}
+		>
+			{checked ? <AppSymbol name="checkmark" fallback="checkmark" size={15} color="#fff" /> : null}
+		</View>
 	);
 }
 

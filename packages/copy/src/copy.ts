@@ -473,6 +473,7 @@ export const copy = {
 				return `split ${people}`;
 			},
 			openLabel: (description: string) => `Open ${description}`,
+			reviewShort: 'Review',
 			reviewTitle: 'Someone on this expense has left the trip. Edit it to reassign their share.'
 		},
 		settleRow: {
@@ -493,6 +494,8 @@ export const copy = {
 			expenseTitle: 'Add expense',
 			editIncomeTitle: 'Edit income',
 			editExpenseTitle: 'Edit expense',
+			kindExpense: 'Expense',
+			kindIncome: 'Income / refund',
 			descriptionLabel: 'Description',
 			dateLabel: 'Date',
 			amountLabel: 'Amount',
@@ -501,11 +504,14 @@ export const copy = {
 			paidByLabel: 'Paid by',
 			incomeNote: 'Saved as income: everyone selected is credited instead of charged.',
 			expenseNote: 'Use a negative amount for a refund or payout.',
+			mobileExpenseNote: 'Saved as an expense: everyone selected is charged.',
 			splitLabel: 'Split',
 			splitAriaLabel: 'Split method',
 			selectedCount: (chosen: number, members: number) => `${chosen} of ${members} selected`,
 			fullyAllocated: ' · fully allocated',
 			remainder: (amount: string, left: boolean) => ` · ${amount} ${left ? 'left' : 'over'}`,
+			fullyAllocatedMobile: 'Fully allocated',
+			remainderMobile: (amount: string, left: boolean) => `${amount} ${left ? 'left' : 'over'}`,
 			splitTheRest: 'Split the rest',
 			all: 'All',
 			none: 'None',

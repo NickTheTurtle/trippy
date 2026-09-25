@@ -7,8 +7,8 @@ import { useAuth } from '../auth';
 import { DestructiveRow, Field, InsetSection } from '../ui';
 import { Sheet } from '../ui/Sheet';
 import { ConfirmSheet } from '../ui/ConfirmSheet';
-import { color, fieldLabel, radius, space, type } from '../theme';
 import { AppSymbol } from '../ui/Symbol';
+import { color, hairline, radius, space, type } from '../theme';
 
 export type Person = {
 	id: string;
@@ -318,42 +318,50 @@ function MemberMultiSelect({
 		onChange([...next]);
 	};
 	return (
-		<View style={{ gap: space.sm }}>
-			<Text style={fieldLabel}>{label}</Text>
-			<View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
-				{people.map((person) => {
-					const on = selectedSet.has(person.id);
-					return (
-						<Pressable
-							key={person.id}
-							accessibilityRole="checkbox"
-							accessibilityLabel={person.name}
-							accessibilityState={{ checked: on }}
-							onPress={() => toggle(person.id)}
-							style={({ pressed }) => ({
-								flexDirection: 'row',
-								alignItems: 'center',
-								gap: space.xs,
-								paddingHorizontal: space.sm,
-								paddingVertical: 6,
-								borderRadius: 999,
-								borderWidth: 1,
-								borderColor: on ? color.accent : color.line,
-								backgroundColor: on ? color.accentSoft : color.surface,
-								opacity: pressed ? 0.7 : 1
-							})}
-						>
-							<AppSymbol
-								name={on ? 'checkmark.circle.fill' : 'circle'}
-								fallback={on ? 'checkmark-circle' : 'ellipse-outline'}
-								size={16}
-								color={on ? color.accentInk : color.inkFaint}
-							/>
-							<Text style={type.small}>{person.name}</Text>
-						</Pressable>
-					);
-				})}
-			</View>
+		<InsetSection title={label}>
+			{people.map((person, index) => {
+				const on = selectedSet.has(person.id);
+				return (
+					<Pressable
+						key={person.id}
+						accessibilityRole="checkbox"
+						accessibilityState={{ checked: on }}
+						accessibilityLabel={person.name}
+						onPress={() => toggle(person.id)}
+						style={{
+							minHeight: 52,
+							flexDirection: 'row',
+							alignItems: 'center',
+							gap: space.md,
+							paddingHorizontal: space.md,
+							borderBottomWidth: index === people.length - 1 ? 0 : hairline,
+							borderBottomColor: color.line
+						}}
+					>
+						<CheckboxGlyph checked={on} />
+						<Text style={type.body}>{person.name}</Text>
+					</Pressable>
+				);
+			})}
+		</InsetSection>
+	);
+}
+
+function CheckboxGlyph({ checked }: { checked: boolean }) {
+	return (
+		<View
+			style={{
+				width: 24,
+				height: 24,
+				borderRadius: 12,
+				borderWidth: 1.5,
+				borderColor: checked ? color.accent : color.line,
+				backgroundColor: checked ? color.accent : color.surface,
+				alignItems: 'center',
+				justifyContent: 'center'
+			}}
+		>
+			{checked ? <AppSymbol name="checkmark" fallback="checkmark" size={15} color="#fff" /> : null}
 		</View>
 	);
 }

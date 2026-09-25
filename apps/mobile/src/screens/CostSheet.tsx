@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { copy } from '@trippy/copy';
 import { cap } from '@trippy/copy/format';
 import { api, ApiError } from '../lib/api';
 import { useMutation } from '../hooks/useMutation';
-import { DestructiveRow, Field, InsetSection } from '../ui';
-import { CheckBox, Picker, SearchablePicker } from '../ui/controls';
+import { DestructiveRow, Field, InsetSection, ListRow } from '../ui';
+import { SearchablePicker, SegmentedControl } from '../ui/controls';
 import { Sheet } from '../ui/Sheet';
 import { ConfirmSheet } from '../ui/ConfirmSheet';
-import { color, fieldLabel, radius, space, type } from '../theme';
+import { AppSymbol } from '../ui/Symbol';
+import { color, hairline, space, type } from '../theme';
 import { currencyName } from '@trippy/core/currency-names';
 import { parseAmount } from '../lib/amount';
 
@@ -129,12 +130,15 @@ export function CostSheet({
 						noMatches={copy.ui.currencyPicker.noMatches}
 					/>
 				</InsetSection>
-				<Picker
-					label={copy.preparation.costDialog.categoryLabel}
-					options={categories.map((c) => ({ key: c, label: cap(c) }))}
-					value={category}
-					onPick={setCategory}
-				/>
+				<InsetSection title={copy.preparation.costDialog.categoryLabel}>
+					<View style={{ padding: space.md }}>
+						<SegmentedControl
+							items={categories.map((c) => ({ key: c, label: cap(c) }))}
+							active={category}
+							onPick={setCategory}
+						/>
+					</View>
+				</InsetSection>
 				<AssigneePicker
 					members={members}
 					crews={crews}
@@ -184,71 +188,83 @@ function AssigneePicker({
 		onChange([...next]);
 	};
 	return (
-		<View style={{ gap: space.sm }}>
-			<Text style={fieldLabel}>
-				{copy.preparation.costDialog.forLabel}
-				{copy.ui.field.optionalSuffix}
-			</Text>
-			{crews.length ? (
-				<ScrollView
-					horizontal
-					showsHorizontalScrollIndicator={false}
-					keyboardShouldPersistTaps="handled"
-				>
-					<View style={{ flexDirection: 'row', gap: space.sm }}>
-						{crews.map((crew) => (
-							<Chip key={crew.id} label={crew.name} onPress={() => setAll(crew.members)} />
-						))}
-					</View>
-				</ScrollView>
-			) : null}
-			<View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
-				{members.map((member) => {
-					const on = selectedSet.has(member.id);
-					return (
-						<Pressable
-							key={member.id}
-							onPress={() => toggle(member.id)}
-							style={({ pressed }) => ({
-								flexDirection: 'row',
-								alignItems: 'center',
-								gap: space.xs,
-								paddingHorizontal: space.sm,
-								paddingVertical: 6,
-								borderRadius: 999,
-								borderWidth: 1,
-								borderColor: on ? color.accent : color.line,
-								backgroundColor: on ? color.accentSoft : color.surface,
-								opacity: pressed ? 0.7 : 1
-							})}
-						>
-							<CheckBox checked={on} label={member.name} onPress={() => toggle(member.id)} />
-							<Text style={type.small}>{member.name}</Text>
-						</Pressable>
-					);
-				})}
-			</View>
-			{selected.length === 0 ? (
-				<Text style={type.faint}>{copy.preparation.costDialog.forEveryone}</Text>
-			) : null}
-		</View>
+		<InsetSection
+			title={`${copy.preparation.costDialog.forLabel}${copy.ui.field.optionalSuffix}`}
+			footer={selected.length === 0 ? copy.preparation.costDialog.forEveryone : undefined}
+		>
+			{crews.map((crew) => (
+				<ListRow
+					key={crew.id}
+					title={crew.name}
+					subtitle={copy.people.crews.memberCount(crew.members.length)}
+					accessory="none"
+					onPress={() => setAll(crew.members)}
+				/>
+			))}
+			{members.map((member, index) => {
+				const on = selectedSet.has(member.id);
+				return (
+					<ChecklistRow
+						key={member.id}
+						label={member.name}
+						checked={on}
+						onPress={() => toggle(member.id)}
+						last={index === members.length - 1}
+					/>
+				);
+			})}
+		</InsetSection>
 	);
 }
 
-function Chip({ label, onPress }: { label: string; onPress: () => void }) {
+function ChecklistRow({
+	label,
+	checked,
+	onPress,
+	last
+}: {
+	label: string;
+	checked: boolean;
+	onPress: () => void;
+	last: boolean;
+}) {
 	return (
 		<Pressable
+			accessibilityRole="checkbox"
+			accessibilityState={{ checked }}
+			accessibilityLabel={label}
 			onPress={onPress}
-			style={({ pressed }) => ({
+			style={{
+				minHeight: 52,
+				flexDirection: 'row',
+				alignItems: 'center',
+				gap: space.md,
 				paddingHorizontal: space.md,
-				paddingVertical: 7,
-				borderRadius: radius.md,
-				borderWidth: 1,
-				borderColor: color.line,
-				backgroundColor: pressed ? color.surface2 : color.surface
-			})}
+				borderBottomWidth: last ? 0 : hairline,
+				borderBottomColor: color.line
+			}}
 		>
-			<Text style={type.small}>{label}</Text>
+			<CheckboxGlyph checked={checked} />
+			<Text style={type.body}>{label}</Text>
 		</Pressable>
+	);
+}
+
+function CheckboxGlyph({ checked }: { checked: boolean }) {
+	return (
+		<View
+			style={{
+				width: 24,
+				height: 24,
+				borderRadius: 12,
+				borderWidth: 1.5,
+				borderColor: checked ? color.accent : color.line,
+				backgroundColor: checked ? color.accent : color.surface,
+				alignItems: 'center',
+				justifyContent: 'center'
+			}}
+		>
+			{checked ? <AppSymbol name="checkmark" fallback="checkmark" size={15} color="#fff" /> : null}
+		</View>
 	);
 }
