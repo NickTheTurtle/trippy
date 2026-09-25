@@ -674,7 +674,9 @@ export const copy = {
 		amountMissing: 'Enter an amount.',
 		/** The way back to the trip list, wherever it is offered. */
 		allTrips: 'All trips',
-		everyone: EVERYONE
+		everyone: EVERYONE,
+		/** A settings-style row whose value is unset, as iOS rows say it. */
+		none: 'None'
 	},
 
 	// Shared by the money lists: estimated costs and the expense ledger

@@ -359,65 +359,57 @@ export function EventSheet({
 						onCheckOut={setCheckOut}
 					/>
 				) : (
-					<>
-						<InsetSection>
-							{locked ? (
+					// Date, Start and End are one section, like Calendar's Starts / Ends.
+					<InsetSection>
+						{locked ? (
+							<>
 								<ListRow
 									title={copy.schedule.fields.date}
 									value={dayLabel(date)}
 									accessory="none"
+								/>
+								<ListRow
+									title={copy.schedule.fields.start}
+									value={timeLabel(start)}
+									accessory="none"
+								/>
+								<ListRow
+									title={copy.schedule.fields.end}
+									value={timeLabel(end)}
+									accessory="none"
 									last
 								/>
-							) : (
+							</>
+						) : (
+							<>
 								<DateField
 									label={copy.schedule.fields.date}
 									value={date}
 									onChange={setDate}
 									minimum={firstDay}
 									maximum={lastDay}
+								/>
+								<TimeRow
+									label={copy.schedule.fields.start}
+									value={start}
+									min={0}
+									max={DAY_END - MIN_EVENT_MINS}
+									onChange={setStartMinute}
+								/>
+								<TimeRow
+									label={copy.schedule.fields.end}
+									value={end}
+									min={start + MIN_EVENT_MINS}
+									max={DAY_END}
+									onChange={(v) => {
+										setTimeChosen(true);
+										setEnd(v);
+									}}
 									last
 								/>
-							)}
-						</InsetSection>
-						<InsetSection>
-							{locked ? (
-								<>
-									<ListRow
-										title={copy.schedule.fields.start}
-										value={timeLabel(start)}
-										accessory="none"
-									/>
-									<ListRow
-										title={copy.schedule.fields.end}
-										value={timeLabel(end)}
-										accessory="none"
-										last
-									/>
-								</>
-							) : (
-								<>
-									<TimeRow
-										label={copy.schedule.fields.start}
-										value={start}
-										min={0}
-										max={DAY_END - MIN_EVENT_MINS}
-										onChange={setStartMinute}
-									/>
-									<TimeRow
-										label={copy.schedule.fields.end}
-										value={end}
-										min={start + MIN_EVENT_MINS}
-										max={DAY_END}
-										onChange={(v) => {
-											setTimeChosen(true);
-											setEnd(v);
-										}}
-										last
-									/>
-								</>
-							)}
-						</InsetSection>
-					</>
+							</>
+						)}
+					</InsetSection>
 				)}
 				{eventType === 'travel' ? (
 					<RowPicker
@@ -703,13 +695,9 @@ function PeopleChooser({
 		<InsetSection
 			title={copy.schedule.fields.participants}
 			footer={
-				readonly
-					? undefined
-					: value === null
-						? copy.schedule.fields.nobody
-						: everyone
-							? copy.common.everyone
-							: undefined
+				// The rows already say who is on it, so the footer only speaks up for
+				// the one state no row shows: nobody.
+				readonly ? undefined : value === null ? copy.schedule.fields.nobody : undefined
 			}
 		>
 			{readonly ? (

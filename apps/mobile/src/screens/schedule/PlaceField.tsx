@@ -248,7 +248,7 @@ export function usePlaceField({
 			>
 				<ListRow
 					title={copy.schedule.fields.place}
-					value={(spot?.name ?? place.trim()) || copy.schedule.placeSearch.noMatch}
+					value={(spot?.name ?? place.trim()) || copy.common.none}
 					accessory={readonly ? 'none' : 'chevron'}
 					onPress={readonly ? undefined : () => setEditing((value) => !value)}
 					last
