@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { copy } from '@trippy/copy';
-import { Button, Card } from '../../ui';
-import { color, radius, space, type } from '../../theme';
+import { InsetSection, ListRow } from '../../ui';
+import { color, space, type } from '../../theme';
 import { buildScheduleMapModel } from './mapModel';
 import type { BoardDay, Cell, SavedPoi } from './types';
 
@@ -53,34 +53,26 @@ export function DayMap({
 	const hasFocus = focusId != null && pins.length > 0;
 
 	return (
-		<Card style={{ gap: space.sm }}>
-			<View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-				<Text style={type.head}>{copy.schedule.map.title}</Text>
-				<View style={{ flexDirection: 'row', gap: space.sm }}>
-					{hasFocus ? (
-						<Button label={copy.schedule.map.backToDay} small tone="ghost" onPress={onClearFocus} />
-					) : null}
-					<Button
-						label={expanded ? copy.schedule.map.hide : copy.schedule.map.show}
-						small
-						tone="ghost"
-						accessibilityState={{ expanded }}
-						onPress={() => setExpanded((value) => !value)}
-					/>
-				</View>
-			</View>
+		<InsetSection>
+			<ListRow
+				title={copy.schedule.map.title}
+				value={expanded ? copy.schedule.map.hide : copy.schedule.map.show}
+				accessory="none"
+				accessibilityState={{ expanded }}
+				onPress={() => setExpanded((value) => !value)}
+				last={!expanded && !hasFocus}
+			/>
+			{hasFocus ? (
+				<ListRow
+					title={copy.schedule.map.backToDay}
+					accessory="none"
+					onPress={onClearFocus}
+					last={!expanded}
+				/>
+			) : null}
 			{expanded ? (
-				<View
-					style={{
-						borderWidth: 1,
-						borderColor: color.line,
-						borderRadius: radius.md,
-						padding: space.md,
-						gap: space.sm,
-						backgroundColor: color.surface2
-					}}
-				>
-					<Text style={type.faint}>{copy.schedule.map.webFallback}</Text>
+				<View style={{ padding: space.md, gap: space.sm }}>
+					<Text style={type.footnote}>{copy.schedule.map.webFallback}</Text>
 					{pins.map((pin) => (
 						<View key={pin.key} style={{ gap: space.xs }}>
 							<Text style={{ ...type.body, color: pin.color }}>{pin.title}</Text>
@@ -121,6 +113,6 @@ export function DayMap({
 					))}
 				</View>
 			) : null}
-		</Card>
+		</InsetSection>
 	);
 }

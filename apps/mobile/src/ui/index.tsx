@@ -120,9 +120,15 @@ export const Field = forwardRef<ElementRef<typeof TextInput>, FieldProps>(
 			);
 		}
 		if (variant === 'row') {
+			const stacked = label.length > 20;
 			return (
-				<View style={[s.formRow, !last && s.rowSeparator]}>
-					<Text style={[type.body, labelWidth ? { width: labelWidth } : s.rowLabel]}>{label}</Text>
+				<View style={[stacked ? s.formRowStacked : s.formRow, !last && s.rowSeparator]}>
+					<Text
+						numberOfLines={stacked ? undefined : 1}
+						style={[type.body, labelWidth ? { width: labelWidth } : s.rowLabel]}
+					>
+						{label}
+					</Text>
 					<TextInput
 						ref={ref}
 						accessibilityLabel={label}
@@ -480,9 +486,19 @@ const s = StyleSheet.create({
 		paddingHorizontal: space.md,
 		gap: space.md
 	},
-	rowLabel: { minWidth: 72, maxWidth: '48%', flexShrink: 1 },
+	formRowStacked: {
+		minHeight: controlHeight,
+		paddingHorizontal: space.md,
+		paddingVertical: space.sm,
+		gap: space.xs
+	},
+	// The label keeps its whole width and never wraps: a two-line label in a
+	// Settings-style row reads as broken. The input takes what is left, down to
+	// a floor, and its own text scrolls within that.
+	rowLabel: { flexShrink: 0, maxWidth: '60%' },
 	formInput: {
 		flex: 1,
+		minWidth: 96,
 		minHeight: controlHeight,
 		fontSize: 17,
 		color: color.ink,

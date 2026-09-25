@@ -7,6 +7,7 @@ import { formatDay } from '@trippy/copy/format';
 import { clock } from '../screens/schedule/shared';
 import { color, fieldLabel, radius, space, type } from '../theme';
 import { AppSymbol } from './Symbol';
+import { normalizeTimePickerMinutes } from './time';
 
 export function CheckBox({
 	checked,
@@ -171,7 +172,9 @@ export function TimeField({
 	onChange,
 	minimum = 0,
 	maximum = 24 * 60,
-	step = 5
+	step = 5,
+	variant = 'stacked',
+	last = false
 }: {
 	label: string;
 	value: number;
@@ -179,6 +182,8 @@ export function TimeField({
 	minimum?: number;
 	maximum?: number;
 	step?: number;
+	variant?: 'stacked' | 'row';
+	last?: boolean;
 }) {
 	const [open, setOpen] = useState(false);
 	const time = minutesToDate(value);
@@ -187,20 +192,10 @@ export function TimeField({
 	function commitWebTime(raw: string) {
 		setWebTime(raw);
 		const next = parseClock(raw);
-		if (next !== null)
-			onChange(Math.min(maximum, Math.max(minimum, Math.round(next / step) * step)));
+		if (next !== null) onChange(normalizeTimePickerMinutes(next, minimum, maximum, step));
 	}
-	return (
-		<View style={{ gap: space.xs }}>
-			<Text style={fieldLabel}>{label}</Text>
-			<Pressable
-				accessibilityRole="button"
-				accessibilityLabel={label}
-				onPress={() => setOpen((v) => !v)}
-				style={s.fieldButton}
-			>
-				<Text style={type.body}>{formatMinutes(value)}</Text>
-			</Pressable>
+	const field = (
+		<>
 			{open && Platform.OS === 'web' ? (
 				<TextInput
 					accessibilityLabel={label}
@@ -222,11 +217,42 @@ export function TimeField({
 						if (event.type === 'dismissed') return;
 						if (!selected) return;
 						const raw = selected.getHours() * 60 + selected.getMinutes();
-						const snapped = Math.round(raw / step) * step;
-						onChange(Math.min(maximum, Math.max(minimum, snapped)));
+						onChange(normalizeTimePickerMinutes(raw, minimum, maximum, step));
 					}}
 				/>
 			) : null}
+		</>
+	);
+	if (variant === 'row') {
+		return (
+			<View>
+				<Pressable
+					accessibilityRole="button"
+					accessibilityLabel={`${label}, ${formatMinutes(value)}`}
+					accessibilityState={{ expanded: open }}
+					onPress={() => setOpen((v) => !v)}
+					style={[s.formRow, !last && !open && s.rowSeparator]}
+				>
+					<Text style={type.body}>{label}</Text>
+					<Text style={[type.body, { flex: 1, textAlign: 'right' }]}>{formatMinutes(value)}</Text>
+				</Pressable>
+				{open ? <View style={!last ? s.rowSeparator : undefined}>{field}</View> : null}
+			</View>
+		);
+	}
+	return (
+		<View style={{ gap: space.xs }}>
+			<Text style={fieldLabel}>{label}</Text>
+			<Pressable
+				accessibilityRole="button"
+				accessibilityLabel={`${label}, ${formatMinutes(value)}`}
+				accessibilityState={{ expanded: open }}
+				onPress={() => setOpen((v) => !v)}
+				style={s.fieldButton}
+			>
+				<Text style={type.body}>{formatMinutes(value)}</Text>
+			</Pressable>
+			{field}
 		</View>
 	);
 }

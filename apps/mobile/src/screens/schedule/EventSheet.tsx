@@ -1,19 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ElementRef } from 'react';
-import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Pressable, Text, TextInput, View } from 'react-native';
 import { copy } from '@trippy/copy';
 import { isLocatedType, STAY_CHECK_IN, type EventType } from '@trippy/core/types';
 import { MAX_NAME_LENGTH, MAX_NOTES_LENGTH } from '@trippy/core/validate';
 import { guessLeg, minsByMode, rekeyLeg } from '@trippy/core/travel';
 import { api } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
-import { Button, Field, FormError } from '../../ui';
+import { DestructiveRow, Field, InsetGroupedList, InsetSection, ListRow } from '../../ui';
 import { Sheet } from '../../ui/Sheet';
-import { SheetFooter } from '../../ui/SheetFooter';
 import { ConfirmSheet } from '../../ui/ConfirmSheet';
-import { Picker } from '../../ui/controls';
+import { DateField, SegmentedControl, TimeField } from '../../ui/controls';
 import { AppSymbol } from '../../ui/Symbol';
-import { color, fieldLabel, radius, space, type } from '../../theme';
+import { color, hairline, radius, space, type } from '../../theme';
 import { usePlaceField } from './PlaceField';
 import {
 	DAY_END,
@@ -319,22 +317,37 @@ export function EventSheet({
 				}
 				subtitle={staying ? rangeLabel(checkIn, checkOut) : dayLabel(onDay)}
 				onClose={onClose}
+				onPrimary={locked ? undefined : () => void save.run()}
+				primaryLabel={locked ? undefined : event ? copy.common.save : copy.common.add}
+				primaryBusyLabel={event ? copy.common.saving : copy.common.adding}
+				primaryBusy={save.busy}
+				primaryDisabled={place.saving}
+				error={save.error}
 			>
-				{place.field}
-				{locked ? (
-					<ReadonlyPill label={copy.schedule.fields.type} value={typeLabel(eventType)} />
-				) : (
-					<Picker
-						label={copy.schedule.fields.type}
-						options={TYPE_OPTIONS}
-						value={eventType}
-						onPick={(next) => {
-							const typed = next as EventType;
-							place.retype(typed);
-							setEventType(typed);
-						}}
+				<InsetSection>
+					<Field
+						variant="row"
+						label={`${copy.schedule.fields.label}${copy.ui.field.optionalSuffix}`}
+						value={label}
+						placeholder={derived}
+						maxLength={MAX_NAME_LENGTH}
+						onChangeText={setLabel}
+						editable={!locked}
+						last
 					/>
-				)}
+				</InsetSection>
+				{place.field}
+				<RowPicker
+					label={copy.schedule.fields.type}
+					value={eventType}
+					options={TYPE_OPTIONS}
+					readonly={locked}
+					onPick={(next) => {
+						const typed = next as EventType;
+						place.retype(typed);
+						setEventType(typed);
+					}}
+				/>
 				{staying ? (
 					<DatePair
 						checkIn={checkIn}
@@ -346,56 +359,66 @@ export function EventSheet({
 						onCheckOut={setCheckOut}
 					/>
 				) : (
-					<>
-						<DayStepper
-							label={copy.schedule.fields.date}
-							value={date}
-							min={firstDay}
-							max={lastDay}
-							readonly={locked}
-							onChange={setDate}
-						/>
-						<View style={{ flexDirection: 'row', gap: space.md }}>
-							<View style={{ flex: 1 }}>
-								<TimeStepper
+					// Date, Start and End are one section, like Calendar's Starts / Ends.
+					<InsetSection>
+						{locked ? (
+							<>
+								<ListRow
+									title={copy.schedule.fields.date}
+									value={dayLabel(date)}
+									accessory="none"
+								/>
+								<ListRow
+									title={copy.schedule.fields.start}
+									value={timeLabel(start)}
+									accessory="none"
+								/>
+								<ListRow
+									title={copy.schedule.fields.end}
+									value={timeLabel(end)}
+									accessory="none"
+									last
+								/>
+							</>
+						) : (
+							<>
+								<DateField
+									label={copy.schedule.fields.date}
+									value={date}
+									onChange={setDate}
+									minimum={firstDay}
+									maximum={lastDay}
+								/>
+								<TimeRow
 									label={copy.schedule.fields.start}
 									value={start}
 									min={0}
 									max={DAY_END - MIN_EVENT_MINS}
-									readonly={locked}
 									onChange={setStartMinute}
 								/>
-							</View>
-							<View style={{ flex: 1 }}>
-								<TimeStepper
+								<TimeRow
 									label={copy.schedule.fields.end}
 									value={end}
 									min={start + MIN_EVENT_MINS}
 									max={DAY_END}
-									readonly={locked}
 									onChange={(v) => {
 										setTimeChosen(true);
 										setEnd(v);
 									}}
+									last
 								/>
-							</View>
-						</View>
-					</>
+							</>
+						)}
+					</InsetSection>
 				)}
 				{eventType === 'travel' ? (
-					locked ? (
-						<ReadonlyPill
-							label={`${copy.schedule.fields.mode}${copy.ui.field.optionalSuffix}`}
-							value={mode ? modeLabel(mode) : copy.schedule.journey.automatic}
-						/>
-					) : (
-						<Picker
-							label={`${copy.schedule.fields.mode}${copy.ui.field.optionalSuffix}`}
-							options={[{ key: '', label: copy.schedule.journey.automatic }, ...MODE_OPTIONS]}
-							value={mode}
-							onPick={setMode}
-						/>
-					)
+					<RowPicker
+						label={`${copy.schedule.fields.mode}${copy.ui.field.optionalSuffix}`}
+						value={mode}
+						options={[{ key: '', label: copy.schedule.journey.automatic }, ...MODE_OPTIONS]}
+						readonly={locked}
+						onPick={setMode}
+					/>
 				) : null}
 				<PeopleChooser
 					people={members}
@@ -404,39 +427,35 @@ export function EventSheet({
 					readonly={locked}
 					onChange={setPeople}
 				/>
-				<Field
-					label={`${copy.schedule.fields.label}${copy.ui.field.optionalSuffix}`}
-					value={label}
-					placeholder={derived}
-					maxLength={MAX_NAME_LENGTH}
-					onChangeText={setLabel}
-					editable={!locked}
-				/>
-				<View style={{ gap: space.xs }}>
-					<Text style={fieldLabel}>
-						{copy.schedule.fields.notes}
-						{copy.ui.field.optionalSuffix}
-					</Text>
-					<TextInput
-						value={notes}
-						onChangeText={setNotes}
-						editable={!locked}
-						multiline
-						maxLength={MAX_NOTES_LENGTH}
-						placeholderTextColor={color.inkFaint}
-						style={{
-							minHeight: 88,
-							textAlignVertical: 'top',
-							borderWidth: 1,
-							borderColor: color.line,
-							borderRadius: radius.md,
-							backgroundColor: color.surface,
-							paddingHorizontal: space.md,
-							paddingVertical: space.sm,
-							color: color.ink
-						}}
-					/>
-				</View>
+				{locked ? (
+					<InsetSection>
+						<ListRow
+							title={`${copy.schedule.fields.notes}${copy.ui.field.optionalSuffix}`}
+							subtitle={notes || undefined}
+							accessory="none"
+							last
+						/>
+					</InsetSection>
+				) : (
+					<InsetSection title={`${copy.schedule.fields.notes}${copy.ui.field.optionalSuffix}`}>
+						<TextInput
+							accessibilityLabel={copy.schedule.fields.notes}
+							value={notes}
+							onChangeText={setNotes}
+							multiline
+							maxLength={MAX_NOTES_LENGTH}
+							placeholderTextColor={color.inkFaint}
+							style={{
+								minHeight: 88,
+								textAlignVertical: 'top',
+								backgroundColor: color.surface,
+								paddingHorizontal: space.md,
+								paddingVertical: space.sm,
+								color: color.ink
+							}}
+						/>
+					</InsetSection>
+				)}
 				<JourneyEditor
 					legs={legs}
 					edits={journeyEdits}
@@ -445,21 +464,33 @@ export function EventSheet({
 					readonly={locked}
 					onSet={setJourney}
 				/>
-				<FormError message={save.error} />
-				<SheetFooter
-					primaryLabel={locked ? undefined : event ? copy.common.save : copy.common.add}
-					primaryBusyLabel={event ? copy.common.saving : copy.common.adding}
-					primaryBusy={save.busy}
-					onPrimary={locked ? undefined : () => void save.run()}
-					destructiveLabel={
-						locked ? undefined : event ? copy.common.deleteLabel(event.title) : undefined
-					}
-					onDestructive={locked || !event ? undefined : () => setConfirmDelete(true)}
-				>
-					{locked ? (
-						<Text style={{ ...type.small, color: color.inkSoft }}>{copy.schedule.lock.tag}</Text>
-					) : null}
-				</SheetFooter>
+				{locked ? (
+					<View
+						style={{
+							flexDirection: 'row',
+							alignItems: 'center',
+							gap: space.xs,
+							marginHorizontal: space.lg
+						}}
+					>
+						<AppSymbol
+							name="lock.fill"
+							fallback="lock-closed-outline"
+							size={13}
+							color={color.warn}
+						/>
+						<Text style={{ ...type.footnote, color: color.warn }}>{copy.schedule.lock.footer}</Text>
+					</View>
+				) : null}
+				{!locked && event ? (
+					<InsetSection>
+						<DestructiveRow
+							title={copy.common.delete}
+							accessibilityLabel={copy.common.deleteLabel(event.title)}
+							onPress={() => setConfirmDelete(true)}
+						/>
+					</InsetSection>
+				) : null}
 			</Sheet>
 			<ConfirmSheet
 				open={confirmDelete}
@@ -494,265 +525,120 @@ function DatePair({
 }) {
 	const lastOut = shiftDay(lastDay, 1);
 	return (
-		<View style={{ flexDirection: 'row', gap: space.md }}>
-			<View style={{ flex: 1 }}>
-				<DayStepper
-					label={copy.schedule.fields.checkIn}
-					value={checkIn}
-					min={firstDay}
-					max={lastDay}
-					readonly={readonly}
-					onChange={(next) => {
-						onCheckIn(next);
-						if (next >= checkOut) onCheckOut(shiftDay(next, 1));
-					}}
-				/>
-			</View>
-			<View style={{ flex: 1 }}>
-				<DayStepper
-					label={copy.schedule.fields.checkOut}
-					value={checkOut}
-					min={shiftDay(checkIn, 1)}
-					max={lastOut}
-					readonly={readonly}
-					onChange={onCheckOut}
-				/>
-			</View>
-		</View>
+		<InsetSection>
+			{readonly ? (
+				<>
+					<ListRow
+						title={copy.schedule.fields.checkIn}
+						value={dayLabel(checkIn)}
+						accessory="none"
+					/>
+					<ListRow
+						title={copy.schedule.fields.checkOut}
+						value={dayLabel(checkOut)}
+						accessory="none"
+						last
+					/>
+				</>
+			) : (
+				<>
+					<DateField
+						label={copy.schedule.fields.checkIn}
+						value={checkIn}
+						minimum={firstDay}
+						maximum={lastDay}
+						onChange={(next) => {
+							onCheckIn(next);
+							if (next >= checkOut) onCheckOut(shiftDay(next, 1));
+						}}
+					/>
+					<DateField
+						label={copy.schedule.fields.checkOut}
+						value={checkOut}
+						minimum={shiftDay(checkIn, 1)}
+						maximum={lastOut}
+						onChange={onCheckOut}
+						last
+					/>
+				</>
+			)}
+		</InsetSection>
 	);
 }
 
-function DayStepper({
+function RowPicker({
 	label,
 	value,
-	min,
-	max,
+	options,
 	readonly,
-	onChange
+	onPick
 }: {
 	label: string;
 	value: string;
-	min: string;
-	max: string;
-	readonly: boolean;
-	onChange: (value: string) => void;
+	options: { key: string; label: string }[];
+	readonly?: boolean;
+	onPick: (value: string) => void;
 }) {
-	const prev = shiftDay(value, -1);
-	const next = shiftDay(value, 1);
+	const [open, setOpen] = useState(false);
+	const current = options.find((option) => option.key === value);
 	return (
-		<View style={{ gap: space.xs }}>
-			<Text style={fieldLabel}>{label}</Text>
-			<View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
-				<Button
-					label="‹"
-					accessibilityLabel={`Previous ${label.toLowerCase()}`}
-					tone="ghost"
-					small
-					disabled={readonly || prev < min}
-					onPress={() => onChange(prev)}
-				/>
-				<View
-					style={{
-						flex: 1,
-						minHeight: 34,
-						justifyContent: 'center',
-						alignItems: 'center',
-						borderWidth: 1,
-						borderColor: color.line,
-						borderRadius: radius.md,
-						backgroundColor: color.surface
-					}}
-				>
-					<Text style={type.small}>{dayLabel(value)}</Text>
-				</View>
-				<Button
-					label="›"
-					accessibilityLabel={`Next ${label.toLowerCase()}`}
-					tone="ghost"
-					small
-					disabled={readonly || next > max}
-					onPress={() => onChange(next)}
-				/>
-			</View>
-		</View>
+		<InsetSection>
+			<ListRow
+				title={label}
+				value={current?.label ?? value}
+				accessory={readonly ? 'none' : 'chevron'}
+				onPress={readonly ? undefined : () => setOpen((v) => !v)}
+				last={!open}
+			/>
+			{open
+				? options.map((option, index) => (
+						<ListRow
+							key={option.key}
+							title={option.label}
+							accessory={option.key === value ? 'checkmark' : 'none'}
+							accessibilityState={{ selected: option.key === value }}
+							onPress={() => {
+								onPick(option.key);
+								setOpen(false);
+							}}
+							last={index === options.length - 1}
+						/>
+					))
+				: null}
+		</InsetSection>
 	);
 }
 
-function TimeStepper({
+function TimeRow({
 	label,
 	value,
 	min,
 	max,
-	readonly,
-	onChange
+	onChange,
+	last
 }: {
 	label: string;
 	value: number;
 	min: number;
 	max: number;
-	readonly: boolean;
 	onChange: (value: number) => void;
+	last?: boolean;
 }) {
-	const [picking, setPicking] = useState(false);
-	const step = (delta: number) => Math.max(min, Math.min(max, value + delta));
 	return (
-		<>
-			<View style={{ gap: space.xs }}>
-				<Text style={fieldLabel}>{label}</Text>
-				<View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
-					<Button
-						label="−"
-						accessibilityLabel={`Earlier ${label.toLowerCase()}`}
-						tone="ghost"
-						small
-						disabled={readonly || value <= min}
-						onPress={() => onChange(step(-5))}
-					/>
-					<Pressable
-						accessibilityRole="button"
-						accessibilityLabel={`Pick ${label.toLowerCase()}`}
-						disabled={readonly}
-						onPress={() => setPicking(true)}
-						style={({ pressed }) => ({
-							flex: 1,
-							minHeight: 34,
-							justifyContent: 'center',
-							alignItems: 'center',
-							borderWidth: 1,
-							borderColor: color.line,
-							borderRadius: radius.md,
-							backgroundColor: pressed ? color.surface2 : color.surface
-						})}
-					>
-						<Text style={type.small}>{timeLabel(value)}</Text>
-					</Pressable>
-					<Button
-						label="+"
-						accessibilityLabel={`Later ${label.toLowerCase()}`}
-						tone="ghost"
-						small
-						disabled={readonly || value >= max}
-						onPress={() => onChange(step(5))}
-					/>
-				</View>
-			</View>
-			<TimePickerSheet
-				open={picking}
-				title={label}
-				value={value}
-				min={min}
-				max={max}
-				onClose={() => setPicking(false)}
-				onPick={(next) => {
-					onChange(next);
-					setPicking(false);
-				}}
-			/>
-		</>
-	);
-}
-
-function TimePickerSheet({
-	open,
-	title,
-	value,
-	min,
-	max,
-	onClose,
-	onPick
-}: {
-	open: boolean;
-	title: string;
-	value: number;
-	min: number;
-	max: number;
-	onClose: () => void;
-	onPick: (value: number) => void;
-}) {
-	const scroll = useRef<ElementRef<typeof ScrollView> | null>(null);
-	const options = useMemo(() => {
-		const values: number[] = [];
-		for (let minute = Math.ceil(min / 5) * 5; minute <= max; minute += 5) values.push(minute);
-		if (!values.includes(value) && value >= min && value <= max) values.push(value);
-		return values.sort((a, b) => a - b);
-	}, [min, max, value]);
-
-	useEffect(() => {
-		if (!open) return;
-		const index = Math.max(
-			0,
-			options.findIndex((option) => option === value)
-		);
-		const timer = setTimeout(
-			() => scroll.current?.scrollTo({ y: Math.max(0, index * 44 - 88), animated: false }),
-			0
-		);
-		return () => clearTimeout(timer);
-	}, [open, options, value]);
-
-	return (
-		<Sheet open={open} title={title} onClose={onClose}>
-			<ScrollView
-				ref={scroll}
-				style={{ maxHeight: 320 }}
-				keyboardShouldPersistTaps="handled"
-				nestedScrollEnabled
-			>
-				{options.map((option) => (
-					<Pressable
-						key={option}
-						accessibilityRole="button"
-						accessibilityState={{ selected: option === value }}
-						onPress={() => onPick(option)}
-						style={({ pressed }) => ({
-							minHeight: 44,
-							justifyContent: 'center',
-							paddingHorizontal: space.md,
-							borderRadius: radius.sm,
-							backgroundColor:
-								option === value ? color.accentSoft : pressed ? color.surface2 : color.surface
-						})}
-					>
-						<Text
-							style={{
-								...type.body,
-								color: option === value ? color.accentInk : color.ink
-							}}
-						>
-							{timeLabel(option)}
-						</Text>
-					</Pressable>
-				))}
-			</ScrollView>
-			<Button label={copy.common.cancel} tone="ghost" onPress={onClose} />
-		</Sheet>
+		<TimeField
+			variant="row"
+			label={label}
+			value={value}
+			minimum={min}
+			maximum={max}
+			onChange={onChange}
+			last={last}
+		/>
 	);
 }
 
 function timeLabel(value: number): string {
 	return value === DAY_END ? '12:00 AM' : clock(value);
-}
-
-function ReadonlyPill({ label, value }: { label: string; value: string }) {
-	return (
-		<View style={{ gap: space.xs }}>
-			<Text style={fieldLabel}>{label}</Text>
-			<Text
-				style={{
-					...type.small,
-					alignSelf: 'flex-start',
-					color: color.accentInk,
-					backgroundColor: color.accentSoft,
-					borderRadius: radius.sm,
-					paddingHorizontal: space.sm,
-					paddingVertical: 4,
-					overflow: 'hidden'
-				}}
-			>
-				{value}
-			</Text>
-		</View>
-	);
 }
 
 function PeopleChooser({
@@ -794,95 +680,105 @@ function PeopleChooser({
 		setKnown([...next].filter((x) => ids.includes(x)));
 	};
 	return (
-		<View style={{ gap: space.sm }}>
-			<Text style={fieldLabel}>{copy.schedule.fields.participants}</Text>
-			<Text style={type.faint}>
-				{value === null ? copy.schedule.fields.nobody : everyone ? copy.common.everyone : ''}
-			</Text>
+		<InsetSection
+			title={copy.schedule.fields.participants}
+			footer={
+				// The rows already say who is on it, so the footer only speaks up for
+				// the one state no row shows: nobody.
+				readonly ? undefined : value === null ? copy.schedule.fields.nobody : undefined
+			}
+		>
 			{readonly ? (
-				<View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
-					{everyone ? (
-						<ReadonlyTag label={copy.common.everyone} />
-					) : (
-						people
-							.filter((person) => selected.has(person.id))
-							.map((person) => <ReadonlyTag key={person.id} label={person.name} />)
-					)}
-				</View>
-			) : crews.length ? (
-				<View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
+				everyone ? (
+					<ListRow title={copy.common.everyone} accessory="none" last />
+				) : (
+					people
+						.filter((person) => selected.has(person.id))
+						.map((person, index, list) => (
+							<ListRow
+								key={person.id}
+								title={person.name}
+								accessory="none"
+								last={index === list.length - 1}
+							/>
+						))
+				)
+			) : (
+				<>
 					{crews.map((crew) => (
-						<Chip
+						<ChecklistRow
 							key={crew.id}
 							label={crew.name}
-							on={crew.members.filter((id) => ids.includes(id)).every((id) => selected.has(id))}
+							checked={crew.members
+								.filter((id) => ids.includes(id))
+								.every((id) => selected.has(id))}
 							onPress={() => toggleCrew(crew)}
 						/>
 					))}
-				</View>
-			) : null}
-			{readonly ? null : (
-				<View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
-					{people.map((person) => (
-						<Chip
+					{people.map((person, index) => (
+						<ChecklistRow
 							key={person.id}
 							label={person.name}
-							on={selected.has(person.id)}
+							checked={selected.has(person.id)}
 							onPress={() => toggle(person.id)}
+							last={index === people.length - 1}
 						/>
 					))}
-				</View>
+				</>
 			)}
-		</View>
+		</InsetSection>
 	);
 }
 
-function Chip({ label, on, onPress }: { label: string; on: boolean; onPress: () => void }) {
+function ChecklistRow({
+	label,
+	checked,
+	onPress,
+	last = false
+}: {
+	label: string;
+	checked: boolean;
+	onPress: () => void;
+	last?: boolean;
+}) {
 	return (
 		<Pressable
 			accessibilityRole="checkbox"
-			accessibilityState={{ checked: on }}
+			accessibilityState={{ checked }}
+			accessibilityLabel={label}
 			onPress={onPress}
-			style={({ pressed }) => ({
+			style={{
+				minHeight: 52,
 				flexDirection: 'row',
 				alignItems: 'center',
-				gap: space.xs,
-				paddingHorizontal: space.sm,
-				paddingVertical: 6,
-				borderRadius: 999,
-				borderWidth: 1,
-				borderColor: on ? color.accent : color.line,
-				backgroundColor: on ? color.accentSoft : color.surface,
-				opacity: pressed ? 0.7 : 1
-			})}
+				gap: space.md,
+				paddingHorizontal: space.md,
+				borderBottomWidth: last ? 0 : hairline,
+				borderBottomColor: color.line
+			}}
 		>
-			<AppSymbol
-				name={on ? 'checkmark.circle.fill' : 'circle'}
-				fallback={on ? 'checkmark-circle' : 'ellipse-outline'}
-				size={16}
-				color={on ? color.accentInk : color.inkFaint}
-			/>
-			<Text style={type.small}>{label}</Text>
+			<CheckboxGlyph checked={checked} />
+			<Text style={type.body}>{label}</Text>
 		</Pressable>
 	);
 }
 
-function ReadonlyTag({ label }: { label: string }) {
+function CheckboxGlyph({ checked }: { checked: boolean }) {
 	return (
-		<Text
+		<View
 			style={{
-				...type.small,
-				alignSelf: 'flex-start',
-				color: color.accentInk,
-				backgroundColor: color.accentSoft,
-				borderRadius: 999,
-				paddingHorizontal: space.sm,
-				paddingVertical: 6,
-				overflow: 'hidden'
+				width: 24,
+				height: 24,
+				borderRadius: 12,
+				borderWidth: 1.5,
+				borderColor: checked ? color.accent : color.line,
+				backgroundColor: checked ? color.accent : color.surface,
+				alignItems: 'center',
+				justifyContent: 'center'
 			}}
 		>
-			{label}
-		</Text>
+			{checked ? <AppSymbol name="checkmark" fallback="checkmark" size={15} color="#fff" /> : null}
+		</View>
 	);
 }
 
@@ -904,49 +800,54 @@ function JourneyEditor({
 	if (!legs.length) return null;
 	return (
 		<View style={{ gap: space.sm }}>
-			<Text style={type.head}>{copy.schedule.journey.heading}</Text>
 			{legs.map((leg) => {
 				const edit = edits[leg.key] ?? legEdit(leg);
 				const from = eventOf(leg.fromEventId)?.title ?? null;
 				return (
-					<View
+					<InsetSection
 						key={leg.key}
-						style={{
-							borderWidth: 1,
-							borderColor: color.line,
-							borderRadius: radius.md,
-							padding: space.md,
-							gap: space.sm
-						}}
+						title={copy.schedule.journey.heading}
+						footer={peopleLabel(leg.people)}
 					>
-						<Text style={type.small}>{peopleLabel(leg.people)}</Text>
 						{leg.tight ? (
-							<Text style={{ ...type.small, color: color.warn }}>{copy.viewAs.travelWarning}</Text>
+							<View style={{ paddingHorizontal: space.md, paddingTop: space.sm }}>
+								<Text style={{ ...type.footnote, color: color.warn }}>
+									{copy.viewAs.travelWarning}
+								</Text>
+							</View>
 						) : null}
 						{readonly ? (
 							<>
-								<ReadonlyPill
-									label={`${copy.schedule.journey.name}${copy.ui.field.optionalSuffix}`}
+								<ListRow
+									title={`${copy.schedule.journey.name}${copy.ui.field.optionalSuffix}`}
 									value={
 										edit.title ||
 										(from ? `${modeLabel(edit.mode)} from ${from}` : modeLabel(edit.mode))
 									}
+									accessory="none"
 								/>
-								<ReadonlyPill label={copy.schedule.fields.mode} value={modeLabel(edit.mode)} />
-								<ReadonlyPill
-									label={copy.schedule.journey.minutes}
+								<ListRow
+									title={copy.schedule.fields.mode}
+									value={modeLabel(edit.mode)}
+									accessory="none"
+								/>
+								<ListRow
+									title={copy.schedule.journey.minutes}
 									value={`${edit.mins} ${copy.schedule.journey.minutesUnit}`}
+									accessory="none"
+									last
 								/>
 							</>
 						) : (
 							<>
 								<Field
+									variant="row"
 									label={`${copy.schedule.journey.name}${copy.ui.field.optionalSuffix}`}
 									value={edit.title}
 									placeholder={from ? `${modeLabel(edit.mode)} from ${from}` : modeLabel(edit.mode)}
 									onChangeText={(v) => onSet(leg, { title: v })}
 								/>
-								<Picker
+								<JourneyModeRow
 									label={copy.schedule.fields.mode}
 									options={MODE_OPTIONS.map((o) => ({
 										...o,
@@ -958,17 +859,58 @@ function JourneyEditor({
 									}
 								/>
 								<Field
+									variant="row"
 									label={copy.schedule.journey.minutes}
 									value={edit.mins}
 									keyboardType="number-pad"
 									onChangeText={(v) => onSet(leg, { mins: v })}
+									last
 								/>
 							</>
 						)}
-					</View>
+					</InsetSection>
 				);
 			})}
 		</View>
+	);
+}
+
+function JourneyModeRow({
+	label,
+	value,
+	options,
+	onPick
+}: {
+	label: string;
+	value: string;
+	options: { key: string; label: string }[];
+	onPick: (value: string) => void;
+}) {
+	const [open, setOpen] = useState(false);
+	const current = options.find((option) => option.key === value);
+	return (
+		<>
+			<ListRow
+				title={label}
+				value={current?.label ?? value}
+				onPress={() => setOpen((v) => !v)}
+				last={!open}
+			/>
+			{open
+				? options.map((option, index) => (
+						<ListRow
+							key={option.key}
+							title={option.label}
+							accessory={option.key === value ? 'checkmark' : 'none'}
+							onPress={() => {
+								onPick(option.key);
+								setOpen(false);
+							}}
+							last={index === options.length - 1}
+						/>
+					))
+				: null}
+		</>
 	);
 }
 

@@ -388,7 +388,8 @@ export const copy = {
 		 */
 		lock: {
 			tag: 'Locked',
-			hint: 'Locked by the organizer, who can unlock it from Edit trip'
+			hint: 'Locked by the organizer, who can unlock it from Edit trip',
+			footer: 'The schedule is locked.'
 		},
 		/** The two event dialogs share every field, so they share one set of labels. */
 		fields: {
@@ -400,6 +401,7 @@ export const copy = {
 			date: 'Date',
 			checkIn: 'Check in',
 			checkOut: 'Check out',
+			place: 'Place',
 			label: 'Label',
 			notes: 'Notes',
 			participants: 'Participants',
@@ -672,7 +674,9 @@ export const copy = {
 		amountMissing: 'Enter an amount.',
 		/** The way back to the trip list, wherever it is offered. */
 		allTrips: 'All trips',
-		everyone: EVERYONE
+		everyone: EVERYONE,
+		/** A settings-style row whose value is unset, as iOS rows say it. */
+		none: 'None'
 	},
 
 	// Shared by the money lists: estimated costs and the expense ledger

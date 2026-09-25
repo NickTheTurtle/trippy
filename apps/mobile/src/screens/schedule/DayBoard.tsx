@@ -14,6 +14,7 @@ import { api, ApiError } from '../../lib/api';
 import { color, radius, space, type } from '../../theme';
 import { useToast } from '../../ui/Toast';
 import { setInteractionBusy } from '../../ui/busy';
+import { AppSymbol } from '../../ui/Symbol';
 import {
 	DAY_END,
 	DEFAULT_START,
@@ -155,7 +156,6 @@ export function DayBoard({
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [entry.day]);
 
-	const legTargets = new Set(bars.map((bar) => bar.leg.toEventId));
 	const trims = new Map<string, number>();
 	for (const bar of bars) {
 		const bottom = topPx(bar.leg.endMin, boardStart);
@@ -296,7 +296,6 @@ export function DayBoard({
 									drawnEnd={drawnEnd}
 									peopleLabel={peopleLabel}
 									locked={locked}
-									legTarget={legTargets.has(event.id)}
 									onOpen={openBlock}
 									onBeginGesture={beginGesture}
 									onEndGesture={endGesture}
@@ -350,7 +349,6 @@ const EventBlock = memo(function EventBlock({
 	height,
 	peopleLabel,
 	locked,
-	legTarget,
 	onOpen,
 	onBeginGesture,
 	onEndGesture,
@@ -367,7 +365,6 @@ const EventBlock = memo(function EventBlock({
 	height: number;
 	peopleLabel: (ids: string[]) => string;
 	locked: boolean;
-	legTarget: boolean;
 	onOpen: (id: string) => void;
 	onBeginGesture: () => void;
 	onEndGesture: () => void;
@@ -549,9 +546,9 @@ const EventBlock = memo(function EventBlock({
 							height,
 							minHeight: MIN_LEG_H,
 							borderRadius: radius.md,
-							borderTopLeftRadius: legTarget ? 3 : radius.md,
-							backgroundColor: EVENT_COLORS[event.type],
-							paddingHorizontal: 7,
+							backgroundColor: color.accentSoft,
+							paddingLeft: 10,
+							paddingRight: 7,
 							paddingVertical: 4,
 							overflow: 'hidden'
 						},
@@ -560,16 +557,26 @@ const EventBlock = memo(function EventBlock({
 				>
 					<Text
 						numberOfLines={2}
-						style={{ color: '#fff', fontWeight: '700', fontSize: 12, lineHeight: 15 }}
+						style={{ color: color.ink, fontWeight: '700', fontSize: 12, lineHeight: 15 }}
 					>
 						{event.title}
 					</Text>
-					<Text style={{ color: '#fff', fontSize: 10, lineHeight: 12 }}>
+					<Text style={{ color: color.inkSoft, fontSize: 10, lineHeight: 12 }}>
 						{clockRange(event.start_min, event.end_min)}
 					</Text>
-					<Text numberOfLines={1} style={{ color: '#fff', fontSize: 10, lineHeight: 12 }}>
+					<Text numberOfLines={1} style={{ color: color.inkSoft, fontSize: 10, lineHeight: 12 }}>
 						{peopleLabel(event.people)}
 					</Text>
+					<View
+						style={{
+							position: 'absolute',
+							left: 0,
+							top: 0,
+							bottom: 0,
+							width: 3,
+							backgroundColor: EVENT_COLORS[event.type]
+						}}
+					/>
 				</Animated.View>
 			</GestureDetector>
 			{locked ? null : (
@@ -592,13 +599,18 @@ const EventBlock = memo(function EventBlock({
 							right: 0,
 							bottom: 0,
 							height: gripHeight,
-							justifyContent: 'center'
+							alignItems: 'center',
+							justifyContent: 'flex-end',
+							paddingBottom: 3
 						}}
 					>
 						<View
 							style={{
-								height: Math.min(12, gripHeight),
-								backgroundColor: 'rgba(255,255,255,0.28)'
+								width: 24,
+								height: 3,
+								borderRadius: 2,
+								backgroundColor: EVENT_COLORS[event.type],
+								opacity: 0.4
 							}}
 						/>
 					</Animated.View>
@@ -647,21 +659,33 @@ function LegBar({
 				width,
 				height: h,
 				minHeight: MIN_LEG_H,
-				borderRadius: radius.sm,
-				backgroundColor: color.accentSoft,
-				borderWidth: 1,
-				borderColor: leg.tight ? color.warn : color.accent,
 				paddingHorizontal: width < 64 ? 2 : 5,
 				justifyContent: 'center',
 				overflow: 'hidden'
 			}}
 		>
-			<Text
-				numberOfLines={1}
-				style={{ fontSize: 10, lineHeight: 12, color: color.accentInk, fontWeight: '700' }}
-			>
-				{name} · {leg.resolvedMins}m
-			</Text>
+			<View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+				<AppSymbol
+					name={symbolForMode(leg.resolvedMode)}
+					fallback="navigate-outline"
+					size={10}
+					color={leg.tight ? color.warn : color.inkFaint}
+				/>
+				<Text
+					numberOfLines={1}
+					style={{ fontSize: 10, lineHeight: 12, color: color.inkSoft, fontWeight: '700', flex: 1 }}
+				>
+					{name} · {leg.resolvedMins}m
+				</Text>
+				{leg.tight ? (
+					<AppSymbol
+						name="exclamationmark.triangle.fill"
+						fallback="warning-outline"
+						size={10}
+						color={color.warn}
+					/>
+				) : null}
+			</View>
 			{h > 36 ? (
 				<Text numberOfLines={1} style={{ fontSize: 10, lineHeight: 12, color: color.inkSoft }}>
 					{leg.tight ? copy.viewAs.travelWarning : peopleLabel(leg.people)}
@@ -669,4 +693,11 @@ function LegBar({
 			) : null}
 		</View>
 	);
+}
+
+function symbolForMode(mode: string): string {
+	if (mode === 'walk') return 'figure.walk';
+	if (mode === 'drive') return 'car.fill';
+	if (mode === 'transit') return 'tram.fill';
+	return 'location.fill';
 }
