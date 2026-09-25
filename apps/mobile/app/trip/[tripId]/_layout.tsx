@@ -106,7 +106,10 @@ export default function TripTabs() {
 		setPendingAction(action);
 		setActionsOpen(false);
 		if (Platform.OS !== 'ios') flushPendingAction();
-		else setTimeout(flushPendingAction, 350);
+		// Only a fallback for an onDismiss that never arrives. It has to outlast
+		// the sheet's slide-down, or it would present the next sheet while this
+		// one is still leaving, which is the silent failure it exists to avoid.
+		else setTimeout(flushPendingAction, 700);
 	}
 	const destroy = useMutation(
 		async () => {
