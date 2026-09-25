@@ -312,11 +312,16 @@ function ExpenseLine({
 				borderBottomWidth: last ? 0 : hairline,
 				borderBottomColor: color.line
 			}}
-			accessibilityLabel={
+			accessibilityLabel={[
 				settled
 					? copy.expenses.row.openLabel(expense.description)
-					: copy.common.editLabel(expense.description)
-			}
+					: copy.common.editLabel(expense.description),
+				// The chip is folded into the row on iOS, so its meaning has to be in
+				// the row's own label to be heard at all.
+				expense.needsReview ? copy.expenses.row.reviewTitle : null
+			]
+				.filter(Boolean)
+				.join('. ')}
 		>
 			<View style={styles.symbolTile}>
 				<AppSymbol

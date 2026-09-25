@@ -11,7 +11,6 @@ import { DateField, SearchablePicker, SegmentedControl } from '../ui/controls';
 import { Sheet } from '../ui/Sheet';
 import { ConfirmSheet } from '../ui/ConfirmSheet';
 import { AppSymbol } from '../ui/Symbol';
-import { useToast } from '../ui/Toast';
 import { color, hairline, space, type } from '../theme';
 import { parseAmount } from '../lib/amount';
 
@@ -116,7 +115,6 @@ export function ExpenseSheet({
 	const [chosen, setChosen] = useState<string[]>([]);
 	const [weights, setWeights] = useState<Record<string, string>>({});
 	const [confirmDelete, setConfirmDelete] = useState(false);
-	const toast = useToast();
 
 	const parsedAmount = parseAmount(amount);
 	const amountMagnitude = Number.isFinite(parsedAmount) ? Math.abs(parsedAmount) : 0;
@@ -269,10 +267,6 @@ export function ExpenseSheet({
 		remove.reset();
 	}, [open, expense?.id]);
 
-	useEffect(() => {
-		if (save.error) toast.error(save.error);
-	}, [save.error, toast]);
-
 	const title = expense
 		? income
 			? copy.expenses.addDialog.editIncomeTitle
@@ -292,8 +286,9 @@ export function ExpenseSheet({
 				primaryBusyLabel={expense ? copy.common.saving : copy.common.adding}
 				primaryBusy={save.busy}
 				primaryDisabled={!description.trim() || chosen.length === 0}
+				error={save.error}
 			>
-				<InsetSection error={save.error}>
+				<InsetSection>
 					<Field
 						variant="row"
 						label={copy.expenses.addDialog.descriptionLabel}
@@ -424,7 +419,6 @@ export function PaymentSheet({
 }) {
 	const [spentOn, setSpentOn] = useState('');
 	const [confirmDelete, setConfirmDelete] = useState(false);
-	const toast = useToast();
 	useEffect(() => {
 		if (!open || !payment) return;
 		setSpentOn(payment.spent_on);
@@ -437,9 +431,6 @@ export function PaymentSheet({
 			api(`/trips/${tripId}/expenses/${payment?.id}/date`, { method: 'PUT', body: { spentOn } }),
 		{ fallback: copy.expenses.addDialog.fallback, onSuccess: onSaved }
 	);
-	useEffect(() => {
-		if (save.error) toast.error(save.error);
-	}, [save.error, toast]);
 	const remove = useMutation(
 		() => api(`/trips/${tripId}/expenses/${payment?.id}`, { method: 'DELETE' }),
 		{
@@ -461,8 +452,9 @@ export function PaymentSheet({
 				primaryLabel={copy.common.save}
 				primaryBusyLabel={copy.common.saving}
 				primaryBusy={save.busy}
+				error={save.error}
 			>
-				<InsetSection error={save.error}>
+				<InsetSection>
 					<ListRow
 						title={formatMoney(payment.amount_cents, payment.currency)}
 						subtitle={payment.converted ? `≈ ${formatMoney(payment.home_cents, home)}` : undefined}
@@ -621,12 +613,8 @@ function ParticipantSection({
 							? formatMoney(preview.get(member.id) ?? 0, currency)
 							: null;
 					return (
-						<Pressable
+						<View
 							key={member.id}
-							accessibilityRole="checkbox"
-							accessibilityState={{ checked: on }}
-							accessibilityLabel={member.name}
-							onPress={() => onToggle(member.id)}
 							style={{
 								minHeight: 52,
 								flexDirection: 'row',
@@ -637,9 +625,26 @@ function ParticipantSection({
 								borderBottomColor: color.line
 							}}
 						>
-							<CheckboxGlyph checked={on} />
-							<Text style={{ ...type.body, flex: 1 }}>{member.name}</Text>
-							{money && mode !== 'exact' ? <Text style={type.faint}>{money}</Text> : null}
+							{/* Only the tick and name toggle. The stepper and amount input
+							    sit beside it, not inside it: on iOS a pressable row is one
+							    accessibility element, which hid them from VoiceOver. */}
+							<Pressable
+								accessibilityRole="checkbox"
+								accessibilityState={{ checked: on }}
+								accessibilityLabel={member.name}
+								onPress={() => onToggle(member.id)}
+								style={{
+									flex: 1,
+									flexDirection: 'row',
+									alignItems: 'center',
+									gap: space.md,
+									alignSelf: 'stretch'
+								}}
+							>
+								<CheckboxGlyph checked={on} />
+								<Text style={{ ...type.body, flex: 1 }}>{member.name}</Text>
+								{money && mode !== 'exact' ? <Text style={type.faint}>{money}</Text> : null}
+							</Pressable>
 							{on && mode === 'shares' ? (
 								<Stepper
 									value={weights[member.id] ?? ''}
@@ -662,7 +667,7 @@ function ParticipantSection({
 									/>
 								</View>
 							) : null}
-						</Pressable>
+						</View>
 					);
 				})}
 			</InsetGroupedList>
