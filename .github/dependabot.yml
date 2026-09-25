@@ -60,5 +60,9 @@ updates:
       - dependency-name: 'react-native'
       - dependency-name: 'react-native-*'
       - dependency-name: '@react-native/*'
+      # Community native modules used by the app, pinned to Expo Go's versions
+      # the same way (datetimepicker, segmented control).
+      - dependency-name: '@react-native-community/*'
+      - dependency-name: '@react-native-segmented-control/*'
       - dependency-name: 'react'
       - dependency-name: 'react-dom'
