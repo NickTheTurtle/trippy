@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import NativeSegmentedControl from '@react-native-segmented-control/segmented-control';
@@ -116,10 +116,10 @@ export function DateField({
 	minimum?: string;
 	maximum?: string;
 	last?: boolean;
-	variant?: 'stacked' | 'row';
 }) {
 	const [open, setOpen] = useState(false);
-	const date = dayToDate(value) ?? new Date();
+	const pickerDay = clampDay(value || dateToDay(new Date()), minimum, maximum);
+	const date = dayToDate(pickerDay) ?? new Date();
 	const shown = value ? formatDay(value, { year: true }) : label;
 	return (
 		<View>
@@ -127,7 +127,7 @@ export function DateField({
 				accessibilityRole="button"
 				accessibilityLabel={label}
 				onPress={() => {
-					if (!open && !value) onChange(dateToDay(date));
+					if (!open && !value) onChange(pickerDay);
 					setOpen((v) => !v);
 				}}
 				style={[s.formRow, !last && s.rowSeparator]}
@@ -155,6 +155,7 @@ export function DateField({
 					maximumDate={maximum ? (dayToDate(maximum) ?? undefined) : undefined}
 					onChange={(event, selected) => {
 						if (Platform.OS !== 'ios') setOpen(false);
+						if (Platform.OS !== 'ios' && event.type !== 'set') return;
 						if (event.type === 'dismissed') return;
 						if (selected) onChange(dateToDay(selected));
 					}}
@@ -181,6 +182,14 @@ export function TimeField({
 }) {
 	const [open, setOpen] = useState(false);
 	const time = minutesToDate(value);
+	const [webTime, setWebTime] = useState(formatMinutes(value));
+	useEffect(() => setWebTime(formatMinutes(value)), [value]);
+	function commitWebTime(raw: string) {
+		setWebTime(raw);
+		const next = parseClock(raw);
+		if (next !== null)
+			onChange(Math.min(maximum, Math.max(minimum, Math.round(next / step) * step)));
+	}
 	return (
 		<View style={{ gap: space.xs }}>
 			<Text style={fieldLabel}>{label}</Text>
@@ -195,12 +204,10 @@ export function TimeField({
 			{open && Platform.OS === 'web' ? (
 				<TextInput
 					accessibilityLabel={label}
-					value={String(value)}
-					onChangeText={(raw) => {
-						const next = Number(raw);
-						if (Number.isFinite(next)) onChange(Math.min(maximum, Math.max(minimum, next)));
-					}}
-					keyboardType="number-pad"
+					value={webTime}
+					onChangeText={commitWebTime}
+					placeholder="9:00 AM"
+					autoCapitalize="characters"
 					style={s.searchInput}
 				/>
 			) : open ? (
@@ -211,6 +218,7 @@ export function TimeField({
 					minuteInterval={step as never}
 					onChange={(event, selected) => {
 						if (Platform.OS !== 'ios') setOpen(false);
+						if (Platform.OS !== 'ios' && event.type !== 'set') return;
 						if (event.type === 'dismissed') return;
 						if (!selected) return;
 						const raw = selected.getHours() * 60 + selected.getMinutes();
@@ -469,6 +477,28 @@ function OptionBox({
 			</ScrollView>
 		</View>
 	);
+}
+
+function clampDay(value: string, minimum?: string, maximum?: string): string {
+	let day = value;
+	if (minimum && (!day || day < minimum)) day = minimum;
+	if (maximum && (!day || day > maximum)) day = maximum;
+	return day || dateToDay(new Date());
+}
+
+function parseClock(raw: string): number | null {
+	const match = raw.trim().match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?$/i);
+	if (!match) return null;
+	let hour = Number(match[1]);
+	const minute = Number(match[2] ?? '0');
+	if (!Number.isFinite(hour) || !Number.isFinite(minute) || minute < 0 || minute > 59) return null;
+	const meridiem = match[3]?.toUpperCase();
+	if (meridiem) {
+		if (hour < 1 || hour > 12) return null;
+		if (meridiem === 'AM') hour = hour === 12 ? 0 : hour;
+		else hour = hour === 12 ? 12 : hour + 12;
+	} else if (hour > 23) return null;
+	return hour * 60 + minute;
 }
 
 function dayToDate(value: string): Date | null {

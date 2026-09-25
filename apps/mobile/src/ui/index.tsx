@@ -112,7 +112,7 @@ export const Field = forwardRef<ElementRef<typeof TextInput>, FieldProps>(
 				<TextInput
 					ref={ref}
 					accessibilityLabel={label}
-					placeholder={placeholder}
+					placeholder={placeholder ?? (variant === 'bare' ? '0' : undefined)}
 					placeholderTextColor={color.inkFaint}
 					style={[s.bareInput, style]}
 					{...props}
@@ -477,9 +477,13 @@ const s = StyleSheet.create({
 	},
 	bareInput: {
 		minHeight: 34,
+		borderWidth: hairline,
+		borderColor: color.line,
+		borderRadius: radius.sm,
+		backgroundColor: color.surface,
 		fontSize: 17,
 		color: color.ink,
-		paddingHorizontal: 0,
+		paddingHorizontal: space.sm,
 		paddingVertical: 0
 	},
 	empty: {

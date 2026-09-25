@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { InteractionManager, Platform, Pressable, Text, View } from 'react-native';
+import { Platform, Pressable, Text, View } from 'react-native';
 import { Tabs, router, useLocalSearchParams } from 'expo-router';
 import type { ComponentProps } from 'react';
 import { copy } from '@trippy/copy';
@@ -70,6 +70,7 @@ export default function TripTabs() {
 	const [confirming, setConfirming] = useState<'delete' | 'leave' | null>(null);
 	const [actionsOpen, setActionsOpen] = useState(false);
 	const [pendingAction, setPendingAction] = useState<'edit' | 'leave' | 'delete' | null>(null);
+	const pendingActionRef = useRef<'edit' | 'leave' | 'delete' | null>(null);
 	const loadedFor = useRef<string | null>(null);
 	const trip = data?.trip.id === id ? data.trip : null;
 	if (trip) loadedFor.current = trip.id;
@@ -86,24 +87,26 @@ export default function TripTabs() {
 	}, [errorStatus, id, toast]);
 
 	function runPendingAction(action: 'edit' | 'leave' | 'delete') {
-		InteractionManager.runAfterInteractions(() => {
-			if (action === 'edit') setEditing(true);
-			else setConfirming(action);
+		requestAnimationFrame(() => {
+			setTimeout(() => {
+				if (action === 'edit') setEditing(true);
+				else setConfirming(action);
+			}, 0);
 		});
 	}
-	function queueAction(action: 'edit' | 'leave' | 'delete') {
-		setPendingAction(action);
-		setActionsOpen(false);
-		if (Platform.OS !== 'ios') {
-			setPendingAction(null);
-			runPendingAction(action);
-		}
-	}
-	function finishPendingAction() {
-		if (!pendingAction) return;
-		const action = pendingAction;
+	function flushPendingAction() {
+		const action = pendingActionRef.current;
+		if (!action) return;
+		pendingActionRef.current = null;
 		setPendingAction(null);
 		runPendingAction(action);
+	}
+	function queueAction(action: 'edit' | 'leave' | 'delete') {
+		pendingActionRef.current = action;
+		setPendingAction(action);
+		setActionsOpen(false);
+		if (Platform.OS !== 'ios') flushPendingAction();
+		else setTimeout(flushPendingAction, 350);
 	}
 	const destroy = useMutation(
 		async () => {
@@ -196,7 +199,7 @@ export default function TripTabs() {
 					onEdit={() => queueAction('edit')}
 					onLeave={() => queueAction('leave')}
 					onDelete={() => queueAction('delete')}
-					onDismiss={finishPendingAction}
+					onDismiss={flushPendingAction}
 				/>
 				<EditTripSheet
 					trip={trip}
