@@ -147,7 +147,7 @@ export default function Calendar() {
 						label={copy.viewAs.label}
 						options={schedule.viewAsOptions.map((o) => ({
 							key: o.key,
-							label: o.warn ? `${o.label} ⚠` : o.label
+							label: o.warn ? `${o.label} (!)` : o.label
 						}))}
 						value={schedule.readAs}
 						onPick={schedule.setViewAs}

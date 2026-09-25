@@ -1,18 +1,26 @@
-import { useEffect, useState } from 'react';
-import { Pressable, RefreshControl, Text, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { RefreshControl, Text, View } from 'react-native';
 import { copy } from '@trippy/copy';
 import { useTripId } from '../../../src/trip-id';
 import { useApi } from '../../../src/hooks/useApi';
 import { useLiveSection } from '../../../src/hooks/useTripEvents';
 import { useToast } from '../../../src/ui/Toast';
-import { Button, Card, EmptyState, FormError, Head, Loading, Screen } from '../../../src/ui';
+import { useTripHeaderAction } from '../../../src/ui/TripHeaderAction';
+import {
+	Button,
+	EmptyState,
+	FormError,
+	InsetSection,
+	ListRow,
+	Loading,
+	Screen
+} from '../../../src/ui';
 import { SegmentedControl } from '../../../src/ui/controls';
 import { color, space, type } from '../../../src/theme';
 import {
 	AddPersonSheet,
 	CrewSheet,
 	MemberSheet,
-	Tag,
 	type Crew,
 	type Person
 } from '../../../src/screens/PeopleSheets';
@@ -30,6 +38,12 @@ export default function People() {
 	const [adding, setAdding] = useState(false);
 	const [editing, setEditing] = useState<Person | null>(null);
 	const [crewDraft, setCrewDraft] = useState<Crew | null | false>(false);
+	const canAdd = section === 'crews' || !!data?.organizer;
+	const headerAction = useCallback(() => {
+		if (section === 'crews') setCrewDraft(null);
+		else if (data?.organizer) setAdding(true);
+	}, [data?.organizer, section]);
+	useTripHeaderAction(canAdd ? headerAction : null);
 
 	useEffect(() => {
 		if (error) toast.error(error);
@@ -48,7 +62,6 @@ export default function People() {
 	const knownNames = Object.fromEntries(data.people.map((person) => [person.id, person.name]));
 	const memberRows = data.people;
 	const crews = data.crews;
-	const canAdd = section === 'crews' || data.organizer;
 
 	return (
 		<>
@@ -61,58 +74,58 @@ export default function People() {
 					active={section}
 					onPick={(key) => setSection(key as Section)}
 				/>
-				{canAdd ? (
-					<Card>
-						<AddRow onPress={() => (section === 'crews' ? setCrewDraft(null) : setAdding(true))} />
-					</Card>
-				) : null}
 				{section === 'members' ? (
-					<Card>
-						<Head>{copy.people.membersHeading}</Head>
+					<InsetSection title={copy.people.membersHeading}>
 						{memberRows.length ? (
-							<View style={{ marginTop: space.sm }}>
-								{memberRows.map((person) => (
-									<MemberRow
-										key={person.id}
-										person={person}
-										me={data.me}
-										canOpen={
-											person.id === data.me ||
-											(data.organizer &&
-												(person.placeholder || person.seeded || person.role !== 'organizer'))
-										}
-										onOpen={() => setEditing(person)}
-									/>
-								))}
-							</View>
+							memberRows.map((person, index) => (
+								<MemberRow
+									key={person.id}
+									person={person}
+									me={data.me}
+									last={index === memberRows.length - 1}
+									canOpen={
+										person.id === data.me ||
+										(data.organizer &&
+											(person.placeholder || person.seeded || person.role !== 'organizer'))
+									}
+									onOpen={() => setEditing(person)}
+								/>
+							))
 						) : (
 							<EmptyState message={copy.common.nothingAdded} />
 						)}
-					</Card>
+					</InsetSection>
 				) : (
-					<Card>
-						<Head>{copy.people.crews.heading}</Head>
-						<View style={{ marginTop: space.sm }}>
-							{crews.map((crew) => {
+					<InsetSection title={copy.people.crews.heading}>
+						{crews.length ? (
+							crews.map((crew, index) => {
 								const names = crew.members
 									.filter((id) => knownNames[id])
 									.map((id) => knownNames[id]);
 								const subtitle = names.length ? names.join(', ') : copy.people.crews.nobody;
+								const count = copy.people.crews.memberCount(names.length);
 								return (
-									<Pressable
+									<ListRow
 										key={crew.id}
-										disabled={crew.locked}
-										onPress={() => setCrewDraft(crew)}
-										style={{ paddingVertical: space.sm, opacity: crew.locked ? 0.75 : 1 }}
-										accessibilityLabel={crew.locked ? crew.name : copy.common.editLabel(crew.name)}
-									>
-										<Text style={type.body}>{crew.name}</Text>
-										<Text style={type.faint}>{subtitle}</Text>
-									</Pressable>
+										title={crew.name}
+										subtitle={count}
+										detail={subtitle}
+										leading={<Avatar name={crew.name} />}
+										accessory={crew.locked ? 'none' : 'chevron'}
+										onPress={crew.locked ? undefined : () => setCrewDraft(crew)}
+										accessibilityLabel={
+											crew.locked
+												? [crew.name, count, subtitle, copy.people.crews.locked].join(', ')
+												: undefined
+										}
+										last={index === crews.length - 1}
+									/>
 								);
-							})}
-						</View>
-					</Card>
+							})
+						) : (
+							<EmptyState message={copy.common.nothingAdded} />
+						)}
+					</InsetSection>
 				)}
 			</Screen>
 
@@ -160,13 +173,26 @@ export default function People() {
 	);
 }
 
-function AddRow({ onPress }: { onPress: () => void }) {
+function initials(name: string): string {
+	return name.trim().slice(0, 1).toUpperCase();
+}
+
+function Avatar({ name }: { name: string }) {
 	return (
-		<Pressable accessibilityRole="button" onPress={onPress} hitSlop={8}>
-			<Text style={{ ...type.body, color: color.accent, fontWeight: '600' }}>
-				+ {copy.common.add}
+		<View
+			style={{
+				width: 32,
+				height: 32,
+				borderRadius: 16,
+				backgroundColor: color.accentSoft,
+				alignItems: 'center',
+				justifyContent: 'center'
+			}}
+		>
+			<Text style={{ ...type.footnote, color: color.accentInk, fontWeight: '700' }}>
+				{initials(name)}
 			</Text>
-		</Pressable>
+		</View>
 	);
 }
 
@@ -174,42 +200,44 @@ function MemberRow({
 	person,
 	me,
 	canOpen,
-	onOpen
+	onOpen,
+	last
 }: {
 	person: Person;
 	me: string;
 	canOpen: boolean;
 	onOpen: () => void;
+	last: boolean;
 }) {
 	const tags = [
 		person.id === me ? copy.people.row.youTag : null,
 		person.role === 'organizer' ? copy.people.row.organizerTag : null,
 		person.placeholder && person.invitedEmail ? copy.people.row.invitedTag : null,
-		person.seeded ? copy.people.row.sampleTag : null
+		!person.placeholder && person.seeded ? copy.people.row.sampleTag : null
 	].filter(Boolean) as string[];
-	const subtitle = person.seeded ? copy.people.row.sampleCompanion : person.email;
-	const body = (
-		<View style={{ paddingVertical: space.sm, gap: space.xs }}>
-			<View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, flexWrap: 'wrap' }}>
-				<Text style={type.body}>{person.name}</Text>
-				{tags.map((tag) => (
-					<Tag key={tag} label={tag} />
-				))}
-			</View>
-			{subtitle ? <Text style={type.small}>{subtitle}</Text> : null}
-		</View>
-	);
-	if (!canOpen) return body;
+	const status = tags.join(' · ');
 	const editable = person.placeholder || person.seeded || person.id === me;
+	const detail = person.seeded
+		? copy.people.row.sampleCompanion
+		: person.placeholder
+			? (person.invitedEmail ?? person.email)
+			: person.email;
 	return (
-		<Pressable
-			accessibilityRole="button"
-			onPress={onOpen}
+		<ListRow
+			title={person.name}
+			subtitle={status || null}
+			detail={detail || null}
+			leading={<Avatar name={person.name} />}
+			accessory={canOpen ? 'chevron' : 'none'}
+			onPress={canOpen ? onOpen : undefined}
 			accessibilityLabel={
-				editable ? copy.common.editLabel(person.name) : copy.common.deleteLabel(person.name)
+				canOpen
+					? editable
+						? copy.common.editLabel(person.name)
+						: copy.common.deleteLabel(person.name)
+					: undefined
 			}
-		>
-			{body}
-		</Pressable>
+			last={last}
+		/>
 	);
 }

@@ -1,13 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ScrollView, View } from 'react-native';
 import { copy } from '@trippy/copy';
 import { api, ApiError, isAbort } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
-import { FormError } from '../../ui';
+import { Field, InsetSection, ListRow } from '../../ui';
 import { Sheet } from '../../ui/Sheet';
-import { SheetFooter } from '../../ui/SheetFooter';
 import { ConfirmSheet } from '../../ui/ConfirmSheet';
-import { color, fieldLabel, radius, space, type } from '../../theme';
+import { space } from '../../theme';
 
 const MIN_QUERY = 2;
 
@@ -37,11 +36,13 @@ function cityKey(c: { name: string; country: string; region?: string | null }): 
 function CitySearch({
 	picked,
 	onPick,
-	onTrip
+	onTrip,
+	formError
 }: {
 	picked: Suggestion | null;
 	onPick: (city: Suggestion) => void;
 	onTrip: Set<string>;
+	formError?: string;
 }) {
 	const [query, setQuery] = useState('');
 	const [hits, setHits] = useState<Suggestion[]>([]);
@@ -107,71 +108,49 @@ function CitySearch({
 
 	return (
 		<View style={{ gap: space.sm }}>
-			<Text style={fieldLabel}>{copy.addCity.searchLabel}</Text>
-			<TextInput
-				accessibilityLabel={copy.addCity.searchLabel}
-				value={query}
-				onChangeText={onChange}
-				placeholder={copy.addCity.searchPlaceholder}
-				autoCapitalize="words"
-				style={{
-					height: 44,
-					paddingHorizontal: space.md,
-					borderRadius: radius.md,
-					borderWidth: 1,
-					borderColor: color.line,
-					backgroundColor: color.surface,
-					color: color.ink
-				}}
-			/>
-			{message ? (
-				<Text style={searchError ? { ...type.small, color: color.dangerInk } : type.faint}>
-					{message}
-				</Text>
-			) : null}
+			<InsetSection
+				error={formError || searchError}
+				footer={formError || searchError ? undefined : message}
+			>
+				<Field
+					variant="row"
+					label={copy.addCity.searchLabel}
+					value={query}
+					onChangeText={onChange}
+					placeholder={copy.addCity.searchPlaceholder}
+					autoCapitalize="words"
+					last
+				/>
+			</InsetSection>
 			{hits.length ? (
-				<View
-					style={{
-						borderWidth: 1,
-						borderColor: color.line,
-						borderRadius: radius.md,
-						maxHeight: 240
-					}}
-				>
+				<InsetSection>
 					<ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
 						{hits.map((hit, index) => {
 							const disabled = onTrip.has(cityKey(hit));
 							return (
-								<Pressable
+								<ListRow
 									key={`${hit.name}-${hit.country}-${hit.lat}-${index}`}
-									disabled={disabled}
-									onPress={() => onPick(hit)}
-									style={({ pressed }) => ({
-										padding: space.md,
-										borderTopWidth: index === 0 ? 0 : 1,
-										borderTopColor: color.line,
-										backgroundColor: pressed ? color.surface2 : color.surface,
-										opacity: disabled ? 0.45 : 1
-									})}
-								>
-									<Text style={type.body}>{hit.name}</Text>
-									<Text style={type.faint}>{detail(hit.region, hit.country)}</Text>
-									{disabled ? <Text style={type.faint}>{copy.addCity.alreadyAdded}</Text> : null}
-								</Pressable>
+									title={hit.name}
+									subtitle={detail(hit.region, hit.country)}
+									value={disabled ? copy.addCity.alreadyAdded : undefined}
+									accessory={disabled ? 'none' : 'chevron'}
+									onPress={disabled ? undefined : () => onPick(hit)}
+									last={index === hits.length - 1}
+								/>
 							);
 						})}
 					</ScrollView>
-				</View>
+				</InsetSection>
 			) : null}
 			{picked ? (
-				<View
-					style={{ backgroundColor: color.accentSoft, borderRadius: radius.md, padding: space.md }}
-				>
-					<Text style={type.body}>{picked.name}</Text>
-					<Text style={type.faint}>
-						{detail(picked.region, picked.country, picked.tz.replace(/_/g, ' '))}
-					</Text>
-				</View>
+				<InsetSection>
+					<ListRow
+						title={picked.name}
+						subtitle={detail(picked.region, picked.country, picked.tz.replace(/_/g, ' '))}
+						accessory="checkmark"
+						last
+					/>
+				</InsetSection>
 			) : null}
 		</View>
 	);
@@ -224,16 +203,13 @@ export function CitySheet({
 			title={city ? copy.mobileDiscover.editCityTitle : copy.addCity.title}
 			subtitle={tripName}
 			onClose={onClose}
+			onPrimary={() => void save.run()}
+			primaryLabel={copy.common.save}
+			primaryBusyLabel={copy.common.saving}
+			primaryBusy={save.busy}
+			primaryDisabled={!picked}
 		>
-			<CitySearch picked={picked} onPick={setPicked} onTrip={onTrip} />
-			<FormError message={save.error} />
-			<SheetFooter
-				primaryLabel={copy.common.save}
-				primaryBusyLabel={copy.common.saving}
-				primaryBusy={save.busy}
-				primaryDisabled={!picked}
-				onPrimary={() => void save.run()}
-			/>
+			<CitySearch picked={picked} onPick={setPicked} onTrip={onTrip} formError={save.error} />
 		</Sheet>
 	);
 }

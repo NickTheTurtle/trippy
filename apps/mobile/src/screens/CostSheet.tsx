@@ -4,10 +4,9 @@ import { copy } from '@trippy/copy';
 import { cap } from '@trippy/copy/format';
 import { api, ApiError } from '../lib/api';
 import { useMutation } from '../hooks/useMutation';
-import { Field, FormError } from '../ui';
+import { DestructiveRow, Field, InsetSection } from '../ui';
 import { CheckBox, Picker, SearchablePicker } from '../ui/controls';
 import { Sheet } from '../ui/Sheet';
-import { SheetFooter } from '../ui/SheetFooter';
 import { ConfirmSheet } from '../ui/ConfirmSheet';
 import { color, fieldLabel, radius, space, type } from '../theme';
 import { currencyName } from '@trippy/core/currency-names';
@@ -101,25 +100,35 @@ export function CostSheet({
 				open={open && !confirmDelete}
 				title={item ? copy.preparation.costDialog.editTitle : copy.preparation.costDialog.addTitle}
 				onClose={onClose}
+				onPrimary={() => void save.run()}
+				primaryLabel={item ? copy.common.save : copy.common.add}
+				primaryBusyLabel={item ? copy.common.saving : copy.common.adding}
+				primaryBusy={save.busy}
+				primaryDisabled={!label.trim()}
 			>
-				<Field
-					label={copy.preparation.costDialog.labelField}
-					value={label}
-					onChangeText={setLabel}
-				/>
-				<Field
-					label={copy.preparation.costDialog.amountLabel}
-					value={amount}
-					onChangeText={setAmount}
-					keyboardType="decimal-pad"
-				/>
-				<SearchablePicker
-					label={copy.preparation.costDialog.currencyLabel}
-					value={cur}
-					options={currencyOptions(currencies)}
-					onPick={setCur}
-					noMatches={copy.ui.currencyPicker.noMatches}
-				/>
+				<InsetSection error={save.error}>
+					<Field
+						variant="row"
+						label={copy.preparation.costDialog.labelField}
+						value={label}
+						onChangeText={setLabel}
+					/>
+					<Field
+						variant="row"
+						label={copy.preparation.costDialog.amountLabel}
+						value={amount}
+						onChangeText={setAmount}
+						keyboardType="decimal-pad"
+					/>
+					<SearchablePicker
+						variant="row"
+						label={copy.preparation.costDialog.currencyLabel}
+						value={cur}
+						options={currencyOptions(currencies)}
+						onPick={setCur}
+						noMatches={copy.ui.currencyPicker.noMatches}
+					/>
+				</InsetSection>
 				<Picker
 					label={copy.preparation.costDialog.categoryLabel}
 					options={categories.map((c) => ({ key: c, label: cap(c) }))}
@@ -132,16 +141,15 @@ export function CostSheet({
 					selected={assignees}
 					onChange={setAssignees}
 				/>
-				<FormError message={save.error} />
-				<SheetFooter
-					primaryLabel={item ? copy.common.save : copy.common.add}
-					primaryBusyLabel={item ? copy.common.saving : copy.common.adding}
-					primaryBusy={save.busy}
-					primaryDisabled={!label.trim()}
-					onPrimary={() => void save.run()}
-					destructiveLabel={item ? copy.common.deleteLabel(item.label) : undefined}
-					onDestructive={item ? () => setConfirmDelete(true) : undefined}
-				/>
+				{item ? (
+					<InsetSection>
+						<DestructiveRow
+							title={copy.common.delete}
+							accessibilityLabel={copy.common.deleteLabel(item.label)}
+							onPress={() => setConfirmDelete(true)}
+						/>
+					</InsetSection>
+				) : null}
 			</Sheet>
 			<ConfirmSheet
 				open={!!item && confirmDelete}

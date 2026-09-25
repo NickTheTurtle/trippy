@@ -9,13 +9,12 @@ import { MAX_NOTES_LENGTH } from '@trippy/core/validate';
 import type { PlaceHit, PlaceHitDetails, Poi, Stay } from '../../lib/api-types';
 import { api, ApiError, isAbort } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
-import { Field, FormError } from '../../ui';
+import { DestructiveRow, Field, InsetSection, ListRow } from '../../ui';
 import { Sheet } from '../../ui/Sheet';
-import { SheetFooter } from '../../ui/SheetFooter';
 import { ConfirmSheet } from '../../ui/ConfirmSheet';
-import { Picker, SearchablePicker } from '../../ui/controls';
+import { SearchablePicker, SegmentedControl } from '../../ui/controls';
 import { CoverImage } from './CoverImage';
-import { color, fieldLabel, radius, space, type } from '../../theme';
+import { color, space, type } from '../../theme';
 
 const MIN_QUERY = 3;
 const SEARCH_DEBOUNCE_MS = 600;
@@ -25,13 +24,15 @@ type AddType = PoiKind | typeof STAY_VIEW;
 const TYPE_OPTIONS = [
 	...POI_KINDS.map((k) => ({
 		key: k,
-		label: k === 'food' ? copy.discover.types.food : copy.discover.types.attraction
+		label:
+			k === 'food' ? copy.mobileDiscover.shortTypes.food : copy.mobileDiscover.shortTypes.attraction
 	})),
 	{ key: STAY_VIEW, label: copy.discover.types.stay }
 ];
 const POI_TYPE_OPTIONS = POI_KINDS.map((k) => ({
 	key: k,
-	label: k === 'food' ? copy.discover.types.food : copy.discover.types.attraction
+	label:
+		k === 'food' ? copy.mobileDiscover.shortTypes.food : copy.mobileDiscover.shortTypes.attraction
 }));
 
 function newSessionToken(): string {
@@ -72,15 +73,16 @@ function currencyOptions(currencies: readonly string[]) {
 function TextArea({
 	label,
 	value,
-	onChangeText
+	onChangeText,
+	footer
 }: {
 	label: string;
 	value: string;
 	onChangeText: (v: string) => void;
+	footer?: string;
 }) {
 	return (
-		<View style={{ gap: space.xs }}>
-			<Text style={fieldLabel}>{label}</Text>
+		<InsetSection title={label} footer={footer}>
 			<TextInput
 				accessibilityLabel={label}
 				value={value}
@@ -90,37 +92,68 @@ function TextArea({
 				style={{
 					minHeight: 88,
 					textAlignVertical: 'top',
-					padding: space.md,
-					borderRadius: radius.md,
-					borderWidth: 1,
-					borderColor: color.line,
+					paddingHorizontal: space.md,
+					paddingVertical: space.sm,
 					backgroundColor: color.surface,
 					color: color.ink
 				}}
 			/>
-		</View>
+		</InsetSection>
 	);
 }
 
-function LinkField({ value, onChangeText }: { value: string; onChangeText: (v: string) => void }) {
+function LinkField({
+	value,
+	onChangeText,
+	last = true
+}: {
+	value: string;
+	onChangeText: (v: string) => void;
+	last?: boolean;
+}) {
 	return (
 		<Field
+			variant="row"
 			label={`${copy.discover.placeFields.linkLabel}${copy.ui.field.optionalSuffix}`}
 			value={value}
 			onChangeText={onChangeText}
 			placeholder={copy.discover.placeFields.linkPlaceholder}
 			autoCapitalize="none"
 			keyboardType="url"
+			last={last}
 		/>
+	);
+}
+
+function TypeSegmentSection({
+	value,
+	options,
+	onChange
+}: {
+	value: string;
+	options: { key: string; label: string }[];
+	onChange: (value: string) => void;
+}) {
+	return (
+		<InsetSection>
+			<View
+				style={{
+					minHeight: 52,
+					padding: space.md,
+					gap: space.md
+				}}
+			>
+				<Text style={type.body}>{copy.discover.placeFields.typeLabel}</Text>
+				<SegmentedControl items={options} active={value} onPick={onChange} />
+			</View>
+		</InsetSection>
 	);
 }
 
 function SearchResults({ hits, onPick }: { hits: PlaceHit[]; onPick: (hit: PlaceHit) => void }) {
 	if (hits.length === 0) return null;
 	return (
-		<View
-			style={{ borderWidth: 1, borderColor: color.line, borderRadius: radius.md, maxHeight: 250 }}
-		>
+		<InsetSection>
 			<ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
 				{hits.map((hit, index) => (
 					<Pressable
@@ -138,7 +171,7 @@ function SearchResults({ hits, onPick }: { hits: PlaceHit[]; onPick: (hit: Place
 					</Pressable>
 				))}
 			</ScrollView>
-		</View>
+		</InsetSection>
 	);
 }
 
@@ -397,80 +430,90 @@ export function AddDiscoverSheet({
 					(searched && hits.length === 0 ? copy.discover.addDialog.noMatches(name.trim()) : '');
 
 	return (
-		<Sheet open={open} title={copy.discover.addDialog.title} subtitle={city.name} onClose={onClose}>
-			<Field
-				label={copy.discover.addDialog.nameLabel}
-				value={name}
-				onChangeText={onNameChange}
-				autoCorrect={false}
-			/>
-			{message ? (
-				<Text style={searchError ? { ...type.small, color: color.dangerInk } : type.faint}>
-					{message}
-				</Text>
-			) : null}
+		<Sheet
+			open={open}
+			title={copy.discover.addDialog.title}
+			subtitle={city.name}
+			onClose={onClose}
+			onPrimary={submit}
+			primaryLabel={copy.common.add}
+			primaryBusyLabel={copy.common.adding}
+			primaryBusy={add.busy}
+			primaryDisabled={detailLoading}
+		>
+			<InsetSection error={add.error || searchError} footer={searchError ? undefined : message}>
+				<Field
+					variant="row"
+					label={copy.discover.addDialog.nameLabel}
+					value={name}
+					onChangeText={onNameChange}
+					autoCorrect={false}
+					last
+				/>
+			</InsetSection>
 			<SearchResults hits={hits.slice(0, 6)} onPick={pick} />
 			<Text style={{ ...type.faint, textAlign: 'right' }}>
 				{copy.discover.addDialog.attribution(providerLabel)}
 			</Text>
 			{hit ? (
-				<View style={{ flexDirection: 'row', gap: space.md, alignItems: 'center' }}>
-					<View style={{ width: 72 }}>
-						<CoverImage photo={hit.photo} seed={hit.name} category={hit.category} height={52} />
-					</View>
-					<View style={{ flex: 1 }}>
-						<Text style={type.body}>{hit.name}</Text>
-						{hit.address ? <Text style={type.faint}>{hit.address}</Text> : null}
-					</View>
-					<Pressable onPress={unpick} hitSlop={8}>
-						<Text style={{ ...type.small, color: color.accent }}>
-							{copy.discover.addDialog.notThisOne}
-						</Text>
-					</Pressable>
-				</View>
+				<InsetSection>
+					<ListRow
+						title={hit.name}
+						subtitle={hit.address ?? null}
+						leading={
+							<View style={{ width: 52 }}>
+								<CoverImage photo={hit.photo} seed={hit.name} category={hit.category} height={40} />
+							</View>
+						}
+						accessory="none"
+					/>
+					<ListRow
+						title={copy.discover.addDialog.notThisOne}
+						accessory="none"
+						onPress={unpick}
+						accessibilityLabel={copy.discover.addDialog.notThisOne}
+						last
+					/>
+				</InsetSection>
 			) : null}
-			<Picker
-				label={copy.discover.placeFields.typeLabel}
-				options={TYPE_OPTIONS}
-				value={view}
-				onPick={changeType}
-			/>
-			{stay ? (
-				<View style={{ gap: space.md }}>
+			<TypeSegmentSection value={view} options={TYPE_OPTIONS} onChange={changeType} />
+			<InsetSection>
+				{stay ? (
+					<>
+						<Field
+							variant="row"
+							label={`${copy.discover.addDialog.priceLabel}${copy.ui.field.optionalSuffix}`}
+							value={price}
+							onChangeText={setPrice}
+							keyboardType="decimal-pad"
+						/>
+						<SearchablePicker
+							variant="row"
+							label={copy.discover.addDialog.currencyLabel}
+							value={cur}
+							options={currencyOptions(currencies)}
+							onPick={setCur}
+							noMatches={copy.ui.currencyPicker.noMatches}
+							last
+						/>
+					</>
+				) : (
 					<Field
-						label={`${copy.discover.addDialog.priceLabel}${copy.ui.field.optionalSuffix}`}
-						value={price}
-						onChangeText={setPrice}
-						keyboardType="decimal-pad"
+						variant="row"
+						label={`${copy.discover.addDialog.activityLabel}${copy.ui.field.optionalSuffix}`}
+						value={activity}
+						onChangeText={setActivity}
+						last
 					/>
-					<SearchablePicker
-						label={copy.discover.addDialog.currencyLabel}
-						value={cur}
-						options={currencyOptions(currencies)}
-						onPick={setCur}
-						noMatches={copy.ui.currencyPicker.noMatches}
-					/>
-				</View>
-			) : (
-				<Field
-					label={`${copy.discover.addDialog.activityLabel}${copy.ui.field.optionalSuffix}`}
-					value={activity}
-					onChangeText={setActivity}
-				/>
-			)}
-			<LinkField value={url} onChangeText={setUrl} />
+				)}
+			</InsetSection>
+			<InsetSection>
+				<LinkField value={url} onChangeText={setUrl} />
+			</InsetSection>
 			<TextArea
 				label={`${copy.discover.placeFields.notesLabel}${copy.ui.field.optionalSuffix}`}
 				value={notes}
 				onChangeText={setNotes}
-			/>
-			<FormError message={add.error} />
-			<SheetFooter
-				primaryLabel={copy.common.add}
-				primaryBusyLabel={copy.common.adding}
-				primaryBusy={add.busy}
-				primaryDisabled={detailLoading}
-				onPrimary={submit}
 			/>
 		</Sheet>
 	);
@@ -524,35 +567,51 @@ export function EditPlaceSheet({
 
 	return (
 		<>
-			<Sheet open={open && !confirm} title={copy.discover.editPlace.title} onClose={onClose}>
-				<Field label={copy.discover.editPlace.nameLabel} value={name} onChangeText={setName} />
-				<Picker
-					label={copy.discover.placeFields.typeLabel}
-					options={POI_TYPE_OPTIONS}
+			<Sheet
+				open={open && !confirm}
+				title={copy.discover.editPlace.title}
+				onClose={onClose}
+				onPrimary={() => void save.run()}
+				primaryLabel={copy.common.save}
+				primaryBusyLabel={copy.common.saving}
+				primaryBusy={save.busy}
+			>
+				<InsetSection error={save.error}>
+					<Field
+						variant="row"
+						label={copy.discover.editPlace.nameLabel}
+						value={name}
+						onChangeText={setName}
+						last
+					/>
+				</InsetSection>
+				<TypeSegmentSection
 					value={kind}
-					onPick={(v) => setKind(v as PoiKind)}
+					options={POI_TYPE_OPTIONS}
+					onChange={(v) => setKind(v as PoiKind)}
 				/>
-				<LinkField value={url} onChangeText={setUrl} />
+				<InsetSection>
+					<LinkField value={url} onChangeText={setUrl} />
+				</InsetSection>
 				<TextArea
 					label={`${copy.discover.placeFields.notesLabel}${copy.ui.field.optionalSuffix}`}
 					value={notes}
 					onChangeText={setNotes}
+					footer={
+						poi
+							? `${copy.discover.editPlace.votes(poi.votes)}${copy.discover.editPlace.voters(
+									poi.voters
+								)}`
+							: undefined
+					}
 				/>
-				{poi ? (
-					<Text style={type.faint}>
-						{copy.discover.editPlace.votes(poi.votes)}
-						{copy.discover.editPlace.voters(poi.voters)}
-					</Text>
-				) : null}
-				<FormError message={save.error} />
-				<SheetFooter
-					primaryLabel={copy.common.save}
-					primaryBusyLabel={copy.common.saving}
-					primaryBusy={save.busy}
-					onPrimary={() => void save.run()}
-					destructiveLabel={poi ? copy.common.deleteLabel(poi.name) : copy.common.delete}
-					onDestructive={() => setConfirm(true)}
-				/>
+				<InsetSection>
+					<DestructiveRow
+						title={copy.common.delete}
+						accessibilityLabel={poi ? copy.common.deleteLabel(poi.name) : copy.common.delete}
+						onPress={() => setConfirm(true)}
+					/>
+				</InsetSection>
 			</Sheet>
 			<ConfirmSheet
 				open={!!poi && confirm}
@@ -640,36 +699,54 @@ export function EditStaySheet({
 
 	return (
 		<>
-			<Sheet open={open && !confirm} title={copy.discover.editStay.title} onClose={onClose}>
-				<Field label={copy.discover.editStay.nameLabel} value={name} onChangeText={setName} />
-				<Field
-					label={`${copy.discover.editStay.priceLabel}${copy.ui.field.optionalSuffix}`}
-					value={price}
-					onChangeText={setPrice}
-					keyboardType="decimal-pad"
-				/>
-				<SearchablePicker
-					label={copy.discover.editStay.currencyLabel}
-					value={cur}
-					options={currencyOptions(currencies)}
-					onPick={setCur}
-					noMatches={copy.ui.currencyPicker.noMatches}
-				/>
-				<LinkField value={url} onChangeText={setUrl} />
+			<Sheet
+				open={open && !confirm}
+				title={copy.discover.editStay.title}
+				onClose={onClose}
+				onPrimary={submit}
+				primaryLabel={copy.common.save}
+				primaryBusyLabel={copy.common.saving}
+				primaryBusy={save.busy}
+			>
+				<InsetSection error={save.error}>
+					<Field
+						variant="row"
+						label={copy.discover.editStay.nameLabel}
+						value={name}
+						onChangeText={setName}
+					/>
+					<Field
+						variant="row"
+						label={`${copy.discover.editStay.priceLabel}${copy.ui.field.optionalSuffix}`}
+						value={price}
+						onChangeText={setPrice}
+						keyboardType="decimal-pad"
+					/>
+					<SearchablePicker
+						variant="row"
+						label={copy.discover.editStay.currencyLabel}
+						value={cur}
+						options={currencyOptions(currencies)}
+						onPick={setCur}
+						noMatches={copy.ui.currencyPicker.noMatches}
+						last
+					/>
+				</InsetSection>
+				<InsetSection>
+					<LinkField value={url} onChangeText={setUrl} />
+				</InsetSection>
 				<TextArea
 					label={`${copy.discover.placeFields.notesLabel}${copy.ui.field.optionalSuffix}`}
 					value={notes}
 					onChangeText={setNotes}
 				/>
-				<FormError message={save.error} />
-				<SheetFooter
-					primaryLabel={copy.common.save}
-					primaryBusyLabel={copy.common.saving}
-					primaryBusy={save.busy}
-					onPrimary={submit}
-					destructiveLabel={stay ? copy.common.deleteLabel(stay.name) : copy.common.delete}
-					onDestructive={() => setConfirm(true)}
-				/>
+				<InsetSection>
+					<DestructiveRow
+						title={copy.common.delete}
+						accessibilityLabel={stay ? copy.common.deleteLabel(stay.name) : copy.common.delete}
+						onPress={() => setConfirm(true)}
+					/>
+				</InsetSection>
 			</Sheet>
 			<ConfirmSheet
 				open={!!stay && confirm}

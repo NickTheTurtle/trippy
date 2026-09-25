@@ -27,6 +27,11 @@ import { Sheet } from '../../../src/ui/Sheet';
 import { DateField, SearchablePicker } from '../../../src/ui/controls';
 import { useToast } from '../../../src/ui/Toast';
 import { AppSymbol, type AppSymbolName } from '../../../src/ui/Symbol';
+import {
+	TripHeaderActionProvider,
+	useCurrentTripHeaderAction
+} from '../../../src/ui/TripHeaderAction';
+import { useSheetHandoff } from '../../../src/ui/useSheetHandoff';
 import { color, space, type } from '../../../src/theme';
 
 type Trip = {
@@ -69,8 +74,6 @@ export default function TripTabs() {
 	const [editing, setEditing] = useState(false);
 	const [confirming, setConfirming] = useState<'delete' | 'leave' | null>(null);
 	const [actionsOpen, setActionsOpen] = useState(false);
-	const [pendingAction, setPendingAction] = useState<'edit' | 'leave' | 'delete' | null>(null);
-	const pendingActionRef = useRef<'edit' | 'leave' | 'delete' | null>(null);
 	const loadedFor = useRef<string | null>(null);
 	const trip = data?.trip.id === id ? data.trip : null;
 	if (trip) loadedFor.current = trip.id;
@@ -86,31 +89,13 @@ export default function TripTabs() {
 		router.replace('/trips');
 	}, [errorStatus, id, toast]);
 
-	function runPendingAction(action: 'edit' | 'leave' | 'delete') {
-		requestAnimationFrame(() => {
-			setTimeout(() => {
-				if (action === 'edit') setEditing(true);
-				else setConfirming(action);
-			}, 0);
-		});
-	}
-	function flushPendingAction() {
-		const action = pendingActionRef.current;
-		if (!action) return;
-		pendingActionRef.current = null;
-		setPendingAction(null);
-		runPendingAction(action);
-	}
-	function queueAction(action: 'edit' | 'leave' | 'delete') {
-		pendingActionRef.current = action;
-		setPendingAction(action);
-		setActionsOpen(false);
-		if (Platform.OS !== 'ios') flushPendingAction();
-		// Only a fallback for an onDismiss that never arrives. It has to outlast
-		// the sheet's slide-down, or it would present the next sheet while this
-		// one is still leaving, which is the silent failure it exists to avoid.
-		else setTimeout(flushPendingAction, 700);
-	}
+	const actionHandoff = useSheetHandoff({
+		edit: () => setEditing(true),
+		leave: () => setConfirming('leave'),
+		delete: () => setConfirming('delete')
+	});
+	const queueAction = (action: 'edit' | 'leave' | 'delete') =>
+		actionHandoff.queue(action, () => setActionsOpen(false));
 	const destroy = useMutation(
 		async () => {
 			if (!trip || !confirming) return;
@@ -128,6 +113,60 @@ export default function TripTabs() {
 			</Screen>
 		);
 	const canEdit = trip.role === 'organizer';
+	return (
+		<TripHeaderActionProvider>
+			<TripTabsInner
+				id={id}
+				trip={trip}
+				events={events}
+				canEdit={canEdit}
+				editing={editing}
+				setEditing={setEditing}
+				confirming={confirming}
+				setConfirming={setConfirming}
+				actionsOpen={actionsOpen}
+				setActionsOpen={setActionsOpen}
+				queueAction={queueAction}
+				flushPendingAction={actionHandoff.flush}
+				destroy={destroy}
+				reload={reload}
+			/>
+		</TripHeaderActionProvider>
+	);
+}
+
+function TripTabsInner({
+	id,
+	trip,
+	events,
+	canEdit,
+	editing,
+	setEditing,
+	confirming,
+	setConfirming,
+	actionsOpen,
+	setActionsOpen,
+	queueAction,
+	flushPendingAction,
+	destroy,
+	reload
+}: {
+	id: string;
+	trip: Trip;
+	events: ReturnType<typeof useTripEvents>;
+	canEdit: boolean;
+	editing: boolean;
+	setEditing: (value: boolean) => void;
+	confirming: 'delete' | 'leave' | null;
+	setConfirming: (value: 'delete' | 'leave' | null) => void;
+	actionsOpen: boolean;
+	setActionsOpen: (value: boolean) => void;
+	queueAction: (action: 'edit' | 'leave' | 'delete') => void;
+	flushPendingAction: () => void;
+	destroy: ReturnType<typeof useMutation>;
+	reload: () => void;
+}) {
+	const headerAdd = useCurrentTripHeaderAction();
 	return (
 		<TripIdContext.Provider value={id}>
 			<TripEventsProvider value={events}>
@@ -148,6 +187,16 @@ export default function TripTabs() {
 										marginRight: space.sm
 									}}
 								>
+									{headerAdd ? (
+										<Pressable
+											accessibilityRole="button"
+											accessibilityLabel={copy.common.add}
+											onPress={headerAdd}
+											hitSlop={8}
+										>
+											<AppSymbol name="plus" fallback="add" size={24} color={color.accent} />
+										</Pressable>
+									) : null}
 									<Pressable
 										accessibilityRole="button"
 										accessibilityLabel={copy.common.more}

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Linking, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Linking, Pressable, RefreshControl, Text, View } from 'react-native';
 import { copy } from '@trippy/copy';
 import { formatPerNight } from '@trippy/copy/format';
 import { localDayMinutes } from '@trippy/core/tz';
@@ -11,9 +11,22 @@ import { useApi } from '../../../src/hooks/useApi';
 import { useMutation } from '../../../src/hooks/useMutation';
 import { useLiveSection } from '../../../src/hooks/useTripEvents';
 import { useToast } from '../../../src/ui/Toast';
-import { Button, Card, EmptyState, FormError, Head, Loading, Screen } from '../../../src/ui';
-import { Picker } from '../../../src/ui/controls';
+import {
+	Button,
+	Card,
+	EmptyState,
+	FormError,
+	InsetSection,
+	ListRow,
+	Loading,
+	Screen
+} from '../../../src/ui';
+import { SegmentedControl } from '../../../src/ui/controls';
 import { color, radius, space, type } from '../../../src/theme';
+import { AppSymbol } from '../../../src/ui/Symbol';
+import { Sheet } from '../../../src/ui/Sheet';
+import { useTripHeaderAction } from '../../../src/ui/TripHeaderAction';
+import { useSheetHandoff } from '../../../src/ui/useSheetHandoff';
 import { CoverImage } from '../../../src/screens/discover/CoverImage';
 import {
 	CitySheet,
@@ -99,6 +112,12 @@ export default function Discover() {
 		if (!cities.length) return null;
 		return cities.find((c) => c.id === cityId) ?? cities[0];
 	}, [cities, cityId]);
+	const canAddDiscover = !!data && !!current;
+	const addDiscoverAction = useCallback(() => setAdding(true), []);
+	useTripHeaderAction(canAddDiscover ? addDiscoverAction : null);
+	useEffect(() => {
+		if (!canAddDiscover && adding) setAdding(false);
+	}, [adding, canAddDiscover]);
 
 	const ambiguous = useMemo(
 		() =>
@@ -140,15 +159,16 @@ export default function Discover() {
 			<>
 				<Screen>
 					<FormError message={error ?? ''} />
-					<Card style={{ gap: space.md }}>
-						<Head>{copy.discover.noCities.heading}</Head>
-						<Text style={type.small}>{copy.discover.noCities.body}</Text>
-						{isOrganizer ? (
-							<Button label={copy.discover.noCities.cta} onPress={() => setCitySheet('add')} />
-						) : (
-							<Text style={type.faint}>{copy.discover.noCities.memberNote}</Text>
-						)}
-					</Card>
+					<InsetSection title={copy.discover.noCities.heading}>
+						<View style={{ padding: space.md, gap: space.md }}>
+							<Text style={type.small}>{copy.discover.noCities.body}</Text>
+							{isOrganizer ? (
+								<Button label={copy.discover.noCities.cta} onPress={() => setCitySheet('add')} />
+							) : (
+								<Text style={type.faint}>{copy.discover.noCities.memberNote}</Text>
+							)}
+						</View>
+					</InsetSection>
 				</Screen>
 				{trip && citySheet === 'add' ? (
 					<CitySheet
@@ -218,32 +238,35 @@ export default function Discover() {
 					onDelete={() => setDeleteCity(current)}
 				/>
 
-				<Picker
-					label={copy.discover.header.typeAriaLabel}
-					options={FILTERS.map((f) => ({ key: f.key, label: f.label }))}
-					value={filter}
+				<SegmentedControl
+					items={FILTERS.map((f) => ({
+						key: f.key,
+						label: f.key === 'food' ? copy.mobileDiscover.shortTypes.food : f.label
+					}))}
+					active={filter}
 					onPick={(key) => setFilter(key as Filter)}
 				/>
 
-				<Card>
-					<Head
-						action={
-							<Pressable onPress={() => setAdding(true)} hitSlop={8}>
-								<Text style={{ ...type.body, color: color.accent, fontWeight: '600' }}>
-									+ {copy.discover.header.add}
-								</Text>
-							</Pressable>
-						}
+				<View style={{ gap: space.sm }}>
+					<Text
+						style={{
+							...type.caption,
+							marginLeft: space.lg,
+							textTransform: 'uppercase',
+							letterSpacing: 0.35
+						}}
 					>
 						{copy.discover.cityList.cityLabel(
 							current.name,
 							ambiguous.has(current.id) ? current.region : null
 						)}
-					</Head>
+					</Text>
 					{items.length === 0 ? (
-						<EmptyState message={copy.common.nothingAdded} />
+						<InsetSection>
+							<EmptyState message={copy.common.nothingAdded} />
+						</InsetSection>
 					) : (
-						<View style={{ gap: space.md, marginTop: space.md }}>
+						<View style={{ gap: space.md }}>
 							{items.map((item) =>
 								'stay' in item ? (
 									<StayCard
@@ -267,7 +290,7 @@ export default function Discover() {
 							)}
 						</View>
 					)}
-				</Card>
+				</View>
 			</Screen>
 
 			{trip && citySheet !== null ? (
@@ -369,61 +392,74 @@ function CityStrip({
 	onEdit: () => void;
 	onDelete: () => void;
 }) {
+	const [open, setOpen] = useState(false);
+	const current = rows.find((row) => row.id === active) ?? rows[0];
+	const handoff = useSheetHandoff({
+		add: onAdd,
+		edit: onEdit,
+		delete: onDelete
+	});
 	return (
-		<View style={{ gap: space.sm }}>
-			<ScrollView
-				horizontal
-				showsHorizontalScrollIndicator={false}
-				keyboardShouldPersistTaps="handled"
+		<>
+			<InsetSection>
+				<ListRow
+					title={current?.name ?? copy.discover.cityList.navLabel}
+					subtitle={current?.region ?? null}
+					value={current?.badge ? String(current.badge) : undefined}
+					symbol={{ name: 'mappin.and.ellipse', fallback: 'location-outline' }}
+					onPress={() => setOpen(true)}
+					last
+				/>
+			</InsetSection>
+			<Sheet
+				open={open}
+				title={copy.discover.cityList.navLabel}
+				onClose={() => setOpen(false)}
+				onDismiss={handoff.flush}
 			>
-				<View style={{ flexDirection: 'row', gap: space.sm }}>
-					{rows.map((row) => {
-						const on = row.id === active;
-						return (
-							<Pressable
-								key={row.id}
-								onPress={() => onPick(row.id)}
-								style={({ pressed }) => ({
-									minWidth: 88,
-									paddingHorizontal: space.md,
-									paddingVertical: space.sm,
-									borderRadius: radius.md,
-									borderWidth: 1,
-									borderColor: on ? color.accent : color.line,
-									backgroundColor: on ? color.accentSoft : color.surface,
-									opacity: pressed ? 0.7 : 1
-								})}
-							>
-								<Text
-									style={{
-										...type.small,
-										color: on ? color.accentInk : color.inkSoft,
-										fontWeight: on ? '600' : '400'
-									}}
-								>
-									{row.name}
-									{row.badge ? `  ${row.badge}` : ''}
-								</Text>
-								{row.region ? <Text style={type.faint}>{row.region}</Text> : null}
-							</Pressable>
-						);
-					})}
-				</View>
-			</ScrollView>
-			{isOrganizer ? (
-				<View style={{ flexDirection: 'row', gap: space.sm }}>
-					<Button label={copy.discover.cityList.addCity} small onPress={onAdd} />
-					<Button label={copy.mobileDiscover.editCityButton} small tone="ghost" onPress={onEdit} />
-					<Button
-						label={copy.common.delete}
-						small
-						tone="danger"
-						onPress={onDelete}
-						disabled={!canDelete}
-					/>
-				</View>
-			) : null}
-		</View>
+				<InsetSection>
+					{rows.map((row, index) => (
+						<ListRow
+							key={row.id}
+							title={row.name}
+							subtitle={row.region ?? null}
+							value={row.badge ? String(row.badge) : undefined}
+							accessory={row.id === active ? 'checkmark' : 'none'}
+							accessibilityState={{ selected: row.id === active }}
+							onPress={() => {
+								onPick(row.id);
+								setOpen(false);
+							}}
+							last={index === rows.length - 1 && !isOrganizer}
+						/>
+					))}
+					{isOrganizer ? (
+						<>
+							<ListRow
+								title={copy.discover.cityList.addCity}
+								symbol={{ name: 'plus', fallback: 'add' }}
+								onPress={() => handoff.queue('add', () => setOpen(false))}
+							/>
+							<ListRow
+								title={copy.mobileDiscover.editCityButton}
+								symbol={{ name: 'pencil', fallback: 'create-outline' }}
+								onPress={() => handoff.queue('edit', () => setOpen(false))}
+							/>
+							{canDelete ? (
+								<ListRow
+									title={copy.common.delete}
+									tone="destructive"
+									symbol={{ name: 'trash', fallback: 'trash-outline' }}
+									accessory="none"
+									onPress={() => handoff.queue('delete', () => setOpen(false))}
+									last
+								/>
+							) : null}
+						</>
+					) : null}
+				</InsetSection>
+			</Sheet>
+		</>
 	);
 }
 
@@ -442,28 +478,43 @@ function PlaceCard({
 }) {
 	const href = poi.url ? safeExternalUrl(poi.url) : null;
 	const hrs = todayHours(parseHours(poi.hours), tz);
+	const rating = poi.rating
+		? copy.mobileDiscover.ratingLabel(poi.rating.toFixed(1), poi.rating_count)
+		: null;
+	const meta = placeMeta(poi, hrs);
 	return (
-		<Card style={{ padding: space.md, gap: space.sm }}>
-			<Pressable onPress={onEdit} style={{ gap: space.sm }}>
-				<CoverImage photo={poi.photo} seed={poi.name} category={poi.category} />
-				<Text style={{ ...type.body, fontWeight: '600' }}>{poi.name}</Text>
-				<View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
-					{poi.rating ? (
-						<Text style={{ ...type.small, color: color.warn }}>
-							★ {poi.rating.toFixed(1)}
-							{poi.rating_count ? ` (${poi.rating_count})` : ''}
-						</Text>
+		<Card style={{ padding: 0, overflow: 'hidden', borderRadius: radius.section }}>
+			<Pressable
+				accessibilityRole="button"
+				onPress={onEdit}
+				accessibilityLabel={copy.common.editLabel(poi.name)}
+			>
+				<CoverImage photo={poi.photo} seed={poi.name} category={poi.category} flush />
+				<View style={{ padding: space.md, gap: space.sm }}>
+					<Text style={{ ...type.body, fontWeight: '600' }}>{poi.name}</Text>
+					{rating || meta ? (
+						<View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
+							{rating ? (
+								<View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+									<AppSymbol name="star.fill" fallback="star" size={13} color={color.warn} />
+									<Text style={type.subhead}>{rating}</Text>
+								</View>
+							) : null}
+							{meta ? <Text style={type.subhead}>{meta}</Text> : null}
+						</View>
 					) : null}
-					{poi.price_level != null ? (
-						<Text style={{ ...type.small, color: color.accentInk }}>
-							{'$'.repeat(Math.max(1, poi.price_level))}
-						</Text>
-					) : null}
-					{hrs ? <Text style={type.small}>{hrs}</Text> : null}
 				</View>
-				{poi.notes ? <Text style={type.faint}>{poi.notes}</Text> : null}
 			</Pressable>
-			<View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+			<View
+				style={{
+					flexDirection: 'row',
+					alignItems: 'center',
+					justifyContent: 'space-between',
+					gap: space.sm,
+					paddingHorizontal: space.md,
+					paddingBottom: space.md
+				}}
+			>
 				<VoteButton
 					count={poi.votes}
 					mine={poi.you_voted === 1}
@@ -472,22 +523,12 @@ function PlaceCard({
 					onPress={onVote}
 				/>
 				{href ? (
-					<Pressable onPress={() => void Linking.openURL(href)}>
+					<Pressable accessibilityRole="button" onPress={() => void Linking.openURL(href)}>
 						<Text style={{ ...type.small, color: color.accent }}>
 							{copy.mobileDiscover.openLink}
 						</Text>
 					</Pressable>
 				) : null}
-				<Pressable
-					accessibilityRole="button"
-					accessibilityLabel={copy.common.editLabel(poi.name)}
-					onPress={onEdit}
-					style={{ marginLeft: 'auto', flexShrink: 1 }}
-				>
-					<Text style={{ ...type.small, color: color.accent }}>
-						{copy.common.editLabel(poi.name)}
-					</Text>
-				</Pressable>
 			</View>
 			<VoteRule pct={pct} />
 		</Card>
@@ -509,23 +550,31 @@ function StayCard({
 }) {
 	const href = stay.url ? safeExternalUrl(stay.url) : null;
 	return (
-		<Card
-			style={{
-				padding: space.md,
-				gap: space.sm,
-				borderWidth: 1,
-				borderColor: stay.you_voted ? color.accent : color.line
-			}}
-		>
-			<Pressable onPress={onEdit} style={{ gap: space.sm }}>
-				<CoverImage photo={stay.photo} seed={stay.name} category="stay" />
-				<Text style={{ ...type.body, fontWeight: '600' }}>{stay.name}</Text>
-				<Text style={type.faint}>
-					{stay.tag ? `${stay.tag} · ` : ''}
-					{formatPerNight(stay.price_cents, stay.currency || currency)}
-				</Text>
+		<Card style={{ padding: 0, overflow: 'hidden', borderRadius: radius.section }}>
+			<Pressable
+				accessibilityRole="button"
+				onPress={onEdit}
+				accessibilityLabel={copy.common.editLabel(stay.name)}
+			>
+				<CoverImage photo={stay.photo} seed={stay.name} category="stay" flush />
+				<View style={{ padding: space.md, gap: space.sm }}>
+					<Text style={{ ...type.body, fontWeight: '600' }}>{stay.name}</Text>
+					<Text style={type.faint}>
+						{stay.tag ? `${stay.tag} · ` : ''}
+						{formatPerNight(stay.price_cents, stay.currency || currency)}
+					</Text>
+				</View>
 			</Pressable>
-			<View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+			<View
+				style={{
+					flexDirection: 'row',
+					alignItems: 'center',
+					justifyContent: 'space-between',
+					gap: space.sm,
+					paddingHorizontal: space.md,
+					paddingBottom: space.md
+				}}
+			>
 				<VoteButton
 					count={stay.votes}
 					mine={stay.you_voted === 1}
@@ -534,22 +583,12 @@ function StayCard({
 					onPress={onVote}
 				/>
 				{href ? (
-					<Pressable onPress={() => void Linking.openURL(href)}>
+					<Pressable accessibilityRole="button" onPress={() => void Linking.openURL(href)}>
 						<Text style={{ ...type.small, color: color.accent }}>
 							{copy.mobileDiscover.openLink}
 						</Text>
 					</Pressable>
 				) : null}
-				<Pressable
-					accessibilityRole="button"
-					accessibilityLabel={copy.common.editLabel(stay.name)}
-					onPress={onEdit}
-					style={{ marginLeft: 'auto', flexShrink: 1 }}
-				>
-					<Text style={{ ...type.small, color: color.accent }}>
-						{copy.common.editLabel(stay.name)}
-					</Text>
-				</Pressable>
 			</View>
 			<VoteRule pct={pct} />
 		</Card>
@@ -588,7 +627,12 @@ function VoteButton({
 				opacity: busy ? 0.45 : pressed ? 0.7 : 1
 			})}
 		>
-			<Text style={{ fontSize: 13, color: mine ? color.accentInk : color.inkFaint }}>♥</Text>
+			<AppSymbol
+				name={mine ? 'heart.fill' : 'heart'}
+				fallback={mine ? 'heart' : 'heart-outline'}
+				size={13}
+				color={mine ? color.accentInk : color.inkFaint}
+			/>
 			<Text style={{ ...type.small, color: mine ? color.accentInk : color.inkSoft }}>{count}</Text>
 		</Pressable>
 	);
@@ -596,15 +640,25 @@ function VoteButton({
 
 function VoteRule({ pct }: { pct: number }) {
 	return (
-		<View
-			style={{
-				height: 3,
-				width: `${Math.min(100, Math.max(0, pct))}%`,
-				backgroundColor: color.accent,
-				borderRadius: 2
-			}}
-		/>
+		<View style={{ height: 3, backgroundColor: color.surface2 }}>
+			<View
+				style={{
+					height: 3,
+					width: `${Math.min(100, Math.max(0, pct))}%`,
+					backgroundColor: color.accent
+				}}
+			/>
+		</View>
 	);
+}
+
+function placeMeta(poi: VotedPoi, hours: string | null): string {
+	const parts = [
+		poi.price_level != null ? '$'.repeat(Math.max(1, poi.price_level)) : null,
+		hours,
+		poi.notes
+	].filter(Boolean);
+	return parts.join(' · ');
 }
 
 function linkedForCity(data: DiscoverData, cityId: string): number {

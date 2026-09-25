@@ -12,6 +12,7 @@ import { Sheet } from '../../ui/Sheet';
 import { SheetFooter } from '../../ui/SheetFooter';
 import { ConfirmSheet } from '../../ui/ConfirmSheet';
 import { Picker } from '../../ui/controls';
+import { AppSymbol } from '../../ui/Symbol';
 import { color, fieldLabel, radius, space, type } from '../../theme';
 import { usePlaceField } from './PlaceField';
 import {
@@ -855,7 +856,12 @@ function Chip({ label, on, onPress }: { label: string; on: boolean; onPress: () 
 				opacity: pressed ? 0.7 : 1
 			})}
 		>
-			<Text style={{ color: on ? color.accentInk : color.inkFaint }}>{on ? '✓' : '□'}</Text>
+			<AppSymbol
+				name={on ? 'checkmark.circle.fill' : 'circle'}
+				fallback={on ? 'checkmark-circle' : 'ellipse-outline'}
+				size={16}
+				color={on ? color.accentInk : color.inkFaint}
+			/>
 			<Text style={type.small}>{label}</Text>
 		</Pressable>
 	);

@@ -3,10 +3,9 @@ import { Pressable, ScrollView, Text, View } from 'react-native';
 import { copy } from '@trippy/copy';
 import { api, ApiError } from '../lib/api';
 import { useMutation } from '../hooks/useMutation';
-import { Field, FormError } from '../ui';
+import { DestructiveRow, Field, FormError, InsetSection } from '../ui';
 import { CheckBox } from '../ui/controls';
 import { Sheet } from '../ui/Sheet';
-import { SheetFooter } from '../ui/SheetFooter';
 import { ConfirmSheet } from '../ui/ConfirmSheet';
 import { color, fieldLabel, radius, space, type } from '../theme';
 
@@ -87,12 +86,21 @@ export function TaskSheet({
 				open={open && !confirmDelete}
 				title={copy.preparation.taskDialog.title(kind, !!task)}
 				onClose={onClose}
+				onPrimary={() => void save.run()}
+				primaryLabel={task ? copy.common.save : copy.common.add}
+				primaryBusyLabel={task ? copy.common.saving : copy.common.adding}
+				primaryBusy={save.busy}
+				primaryDisabled={!label.trim()}
 			>
-				<Field
-					label={copy.preparation.taskDialog.labelField}
-					value={label}
-					onChangeText={setLabel}
-				/>
+				<InsetSection error={save.error}>
+					<Field
+						variant="row"
+						label={copy.preparation.taskDialog.labelField}
+						value={label}
+						onChangeText={setLabel}
+						last
+					/>
+				</InsetSection>
 				{kind === 'task' ? (
 					<AssigneePicker
 						members={members}
@@ -101,16 +109,15 @@ export function TaskSheet({
 						onChange={setAssignees}
 					/>
 				) : null}
-				<FormError message={save.error} />
-				<SheetFooter
-					primaryLabel={task ? copy.common.save : copy.common.add}
-					primaryBusyLabel={task ? copy.common.saving : copy.common.adding}
-					primaryBusy={save.busy}
-					primaryDisabled={!label.trim()}
-					onPrimary={() => void save.run()}
-					destructiveLabel={task ? copy.common.deleteLabel(task.label) : undefined}
-					onDestructive={task ? () => setConfirmDelete(true) : undefined}
-				/>
+				{task ? (
+					<InsetSection>
+						<DestructiveRow
+							title={copy.common.delete}
+							accessibilityLabel={copy.common.deleteLabel(task.label)}
+							onPress={() => setConfirmDelete(true)}
+						/>
+					</InsetSection>
+				) : null}
 			</Sheet>
 			<ConfirmSheet
 				open={!!task && confirmDelete}

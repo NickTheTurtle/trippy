@@ -298,20 +298,25 @@ export function InsetSection({
 export function ListRow({
 	title,
 	subtitle,
+	detail,
 	value,
 	symbol,
+	leading,
 	accessory = 'chevron',
 	onPress,
 	onSwitch,
 	switchValue,
 	last = false,
 	tone = 'normal',
-	accessibilityLabel
+	accessibilityLabel,
+	accessibilityState
 }: {
 	title: string;
 	subtitle?: string | null;
+	detail?: string | null;
 	value?: string | ReactNode;
 	symbol?: SymbolSpec;
+	leading?: ReactNode;
 	accessory?: 'chevron' | 'checkmark' | 'switch' | 'none';
 	onPress?: () => void;
 	onSwitch?: (value: boolean) => void;
@@ -319,15 +324,20 @@ export function ListRow({
 	last?: boolean;
 	tone?: 'normal' | 'destructive';
 	accessibilityLabel?: string;
+	accessibilityState?: AccessibilityState;
 }) {
 	const destructive = tone === 'destructive';
 	const content = (
 		<View
 			accessible={!onPress && accessory !== 'switch'}
-			accessibilityLabel={accessibilityLabel ?? rowAccessibilityLabel(title, subtitle, value)}
+			accessibilityLabel={
+				accessibilityLabel ?? rowAccessibilityLabel(title, subtitle, detail, value)
+			}
+			accessibilityState={accessibilityState}
 			style={[s.row, !last && s.rowSeparator]}
 		>
-			{symbol ? (
+			{leading ?? null}
+			{!leading && symbol ? (
 				<View style={[s.symbolTile, destructive && { backgroundColor: color.dangerSoft }]}>
 					<AppSymbol
 						name={symbol.name}
@@ -340,6 +350,11 @@ export function ListRow({
 			<View style={{ flex: 1, gap: 2 }}>
 				<Text style={[type.body, destructive && { color: color.dangerInk }]}>{title}</Text>
 				{subtitle ? <Text style={type.subhead}>{subtitle}</Text> : null}
+				{detail ? (
+					<Text style={type.subhead} numberOfLines={1}>
+						{detail}
+					</Text>
+				) : null}
 			</View>
 			{typeof value === 'string' ? <Text style={type.subhead}>{value}</Text> : value}
 			{accessory === 'chevron' ? (
@@ -348,7 +363,9 @@ export function ListRow({
 				<AppSymbol name="checkmark" fallback="checkmark" size={18} color={color.accent} />
 			) : accessory === 'switch' ? (
 				<Switch
-					accessibilityLabel={accessibilityLabel ?? rowAccessibilityLabel(title, subtitle, value)}
+					accessibilityLabel={
+						accessibilityLabel ?? rowAccessibilityLabel(title, subtitle, detail, value)
+					}
 					value={!!switchValue}
 					onValueChange={onSwitch}
 					trackColor={{ false: color.line, true: color.accentSoft }}
@@ -361,7 +378,10 @@ export function ListRow({
 	return (
 		<Pressable
 			accessibilityRole="button"
-			accessibilityLabel={accessibilityLabel ?? rowAccessibilityLabel(title, subtitle, value)}
+			accessibilityLabel={
+				accessibilityLabel ?? rowAccessibilityLabel(title, subtitle, detail, value)
+			}
+			accessibilityState={accessibilityState}
 			onPress={onPress}
 			style={({ pressed }) => ({ opacity: pressed ? 0.62 : 1 })}
 		>
@@ -373,9 +393,12 @@ export function ListRow({
 function rowAccessibilityLabel(
 	title: string,
 	subtitle?: string | null,
+	detail?: string | null,
 	value?: string | ReactNode
 ): string {
-	return [title, subtitle, typeof value === 'string' ? value : null].filter(Boolean).join(', ');
+	return [title, subtitle, detail, typeof value === 'string' ? value : null]
+		.filter(Boolean)
+		.join(', ');
 }
 
 export function DestructiveRow({
@@ -457,7 +480,7 @@ const s = StyleSheet.create({
 		paddingHorizontal: space.md,
 		gap: space.md
 	},
-	rowLabel: { minWidth: 72, maxWidth: '45%', flexShrink: 1 },
+	rowLabel: { minWidth: 72, maxWidth: '48%', flexShrink: 1 },
 	formInput: {
 		flex: 1,
 		minHeight: controlHeight,

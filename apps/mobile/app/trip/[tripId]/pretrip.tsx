@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, RefreshControl, Text, View } from 'react-native';
 import { copy } from '@trippy/copy';
 import { cap, formatMoney } from '@trippy/copy/format';
@@ -8,12 +8,22 @@ import { useTripId } from '../../../src/trip-id';
 import { useApi } from '../../../src/hooks/useApi';
 import { useMutation } from '../../../src/hooks/useMutation';
 import { useLiveSection } from '../../../src/hooks/useTripEvents';
-import { Button, Card, EmptyState, FormError, Head, Loading, Screen } from '../../../src/ui';
+import {
+	Button,
+	EmptyState,
+	FormError,
+	InsetSection,
+	ListRow,
+	Loading,
+	Screen
+} from '../../../src/ui';
 import { CheckBox, Picker, SegmentedControl } from '../../../src/ui/controls';
 import { TaskSheet } from '../../../src/screens/TaskSheet';
 import { CostSheet } from '../../../src/screens/CostSheet';
 import { useToast } from '../../../src/ui/Toast';
+import { useTripHeaderAction } from '../../../src/ui/TripHeaderAction';
 import { color, space, type } from '../../../src/theme';
+import { AppSymbol } from '../../../src/ui/Symbol';
 
 type Member = { id: string; name: string };
 type Crew = { id: string; name: string; members: string[]; locked?: boolean };
@@ -66,6 +76,12 @@ export default function Pretrip() {
 	const [editingCost, setEditingCost] = useState<CostItem | null>(null);
 	const [addingCost, setAddingCost] = useState(false);
 	const [viewAs, setViewAs] = useState('');
+	useTripHeaderAction(
+		useCallback(() => {
+			if (section === 'costs') setAddingCost(true);
+			else setAddingTask(true);
+		}, [section])
+	);
 
 	if (loading && !data) return <Loading />;
 	if (!data) {
@@ -252,25 +268,25 @@ function TaskCard({
 	onEdit: (task: Task) => void;
 }) {
 	return (
-		<Card>
-			<Head action={onAdd ? <AddText onPress={onAdd} /> : undefined}>{title}</Head>
+		<InsetSection title={title}>
 			{items.length === 0 ? (
 				<EmptyState message={copy.common.nothingAdded} />
 			) : (
-				<View style={{ marginTop: space.sm }}>
-					{items.map((task) => (
+				<>
+					{items.map((task, index) => (
 						<TaskRow
 							key={task.id}
 							task={task}
+							last={index === items.length - 1}
 							me={me}
 							kind={kind}
 							onToggle={onToggle}
 							onEdit={() => onEdit(task)}
 						/>
 					))}
-				</View>
+				</>
 			)}
-		</Card>
+		</InsetSection>
 	);
 }
 
@@ -279,17 +295,22 @@ function TaskRow({
 	me,
 	kind,
 	onToggle,
-	onEdit
+	onEdit,
+	last
 }: {
 	task: Task;
 	me: string;
 	kind: 'tasks' | 'packing';
 	onToggle: (steps: { taskId: string; userId?: string; done: boolean }[]) => void;
 	onEdit: () => void;
+	last: boolean;
 }) {
 	const assigned = task.people.length > 0;
 	const mine = task.people.find((p) => p.id === me);
 	const state = task.done ? 'on' : task.doneCount > 0 ? 'part' : 'off';
+	const summary = assigned
+		? copy.preparation.taskList.doneSummary(task.doneCount, task.people.length)
+		: null;
 	return (
 		<View style={{ paddingVertical: space.sm, borderTopWidth: 1, borderTopColor: color.line }}>
 			<View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
@@ -331,12 +352,8 @@ function TaskRow({
 					>
 						{task.label}
 					</Text>
+					{summary ? <Text style={type.faint}>{summary}</Text> : null}
 				</Pressable>
-				{assigned ? (
-					<Text style={type.faint}>
-						{copy.preparation.taskList.doneSummary(task.doneCount, task.people.length)}
-					</Text>
-				) : null}
 			</View>
 			{task.flag ? (
 				<Text style={{ ...type.faint, color: color.warn, marginLeft: 34 }}>{task.flag}</Text>
@@ -406,8 +423,10 @@ function Costs({
 		: data.budget.items;
 	return (
 		<>
-			<Card>
-				<View style={{ flexDirection: 'row', alignItems: 'center', gap: space.lg }}>
+			<InsetSection title={copy.preparation.sections.costs}>
+				<View
+					style={{ flexDirection: 'row', alignItems: 'center', gap: space.lg, padding: space.md }}
+				>
 					{data.budget.items.length > 0 ? (
 						<>
 							<View style={{ flex: 1 }}>
@@ -426,11 +445,11 @@ function Costs({
 					)}
 					<AddText onPress={onAdd} />
 				</View>
-			</Card>
+			</InsetSection>
 			{data.budget.items.length > 0 ? (
 				<ViewAs members={data.members} me={data.me} value={viewAs} onChange={onViewAs} />
 			) : null}
-			<Card>
+			<InsetSection>
 				{data.budget.items.length === 0 ? (
 					<EmptyState message={copy.common.nothingAdded} />
 				) : (
@@ -455,9 +474,16 @@ function Costs({
 										onPress={() => rows.length && setOpen((o) => ({ ...o, [category]: !expanded }))}
 										style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}
 									>
-										<Text style={{ ...type.faint, width: 14 }}>
-											{rows.length ? (expanded ? '▾' : '▸') : ''}
-										</Text>
+										<View style={{ width: 14 }}>
+											{rows.length ? (
+												<AppSymbol
+													name={expanded ? 'chevron.down' : 'chevron.right'}
+													fallback={expanded ? 'chevron-down' : 'chevron-forward'}
+													size={13}
+													color={color.inkFaint}
+												/>
+											) : null}
+										</View>
 										<Text style={{ ...type.body, fontWeight: '600', flex: 1 }}>
 											{cap(category)}
 										</Text>
@@ -489,7 +515,7 @@ function Costs({
 						</View>
 					</View>
 				)}
-			</Card>
+			</InsetSection>
 		</>
 	);
 }
@@ -513,7 +539,12 @@ function CostRow({
 	return (
 		<Pressable
 			onPress={onPress}
-			style={{ flexDirection: 'row', gap: space.md, paddingVertical: space.sm }}
+			style={{
+				flexDirection: 'row',
+				alignItems: 'center',
+				gap: space.md,
+				paddingVertical: space.sm
+			}}
 			accessibilityLabel={copy.common.editLabel(item.label)}
 		>
 			<View style={{ flex: 1 }}>
@@ -522,7 +553,7 @@ function CostRow({
 					{item.people.length ? item.people.map((p) => p.name).join(', ') : copy.viewAs.everyone}
 				</Text>
 			</View>
-			<View style={{ alignItems: 'flex-end' }}>
+			<View style={{ alignItems: 'flex-end', justifyContent: 'center' }}>
 				{viewAs ? (
 					<>
 						<Text style={type.small}>{fmt(amountFor(item, viewAs, memberCount))}</Text>
@@ -556,8 +587,7 @@ function ViewAs({
 }) {
 	if (members.length < 2) return null;
 	return (
-		<Card style={{ gap: space.sm }}>
-			<Text style={type.faint}>{copy.viewAs.label}</Text>
+		<InsetSection title={copy.viewAs.label}>
 			<Picker
 				options={[
 					{ key: '', label: copy.viewAs.everyone },
@@ -569,7 +599,7 @@ function ViewAs({
 				value={value}
 				onPick={onChange}
 			/>
-		</Card>
+		</InsetSection>
 	);
 }
 
