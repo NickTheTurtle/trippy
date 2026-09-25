@@ -1,20 +1,31 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { copy } from '@trippy/copy';
 import { suggestStart } from '@trippy/core/plan';
 import { useApi } from '../../hooks/useApi';
 import { useLiveSection } from '../../hooks/useTripEvents';
 import { applyDraft, replanLegs } from './replan';
 import { DRAFT_ID } from './shared';
-import type { BoardDay, EventDraft, EventRow, LegRow, ScheduleData } from './types';
+import type { BoardDay, EventDraft, EventRow, LegRow, ScheduleData, ViewMode } from './types';
 
-export function useScheduleDay(tripId: string) {
+export function useScheduleDay(tripId: string, paused = false) {
 	const [day, setDay] = useState<string | null>(null);
+	const [view, setView] = useState<ViewMode>('day');
 	const [viewAs, setViewAs] = useState('');
 	const [preview, setPreview] = useState<EventDraft | null>(null);
-	const qs = new URLSearchParams({ view: 'agenda' });
+	const [reloadDue, setReloadDue] = useState(false);
+	const qs = new URLSearchParams({ view });
 	if (day) qs.set('day', day);
 	const apiState = useApi<ScheduleData>(`/trips/${tripId}/schedule?${qs}`);
-	useLiveSection(['schedule', 'lodging', 'members', 'trip'], apiState.reload);
+	const reload = useCallback(() => {
+		if (paused) setReloadDue(true);
+		else apiState.reload();
+	}, [apiState.reload, paused]);
+	useLiveSection(['schedule', 'lodging', 'members', 'trip'], reload);
+	useEffect(() => {
+		if (paused || !reloadDue) return;
+		setReloadDue(false);
+		apiState.reload();
+	}, [apiState.reload, paused, reloadDue]);
 
 	const data = apiState.data;
 	const effectiveDay = day ?? data?.day ?? null;
@@ -22,10 +33,11 @@ export function useScheduleDay(tripId: string) {
 	const memberIds = useMemo(() => members.map((m) => m.id), [members]);
 
 	const readAs = useMemo(() => {
+		if (view !== 'agenda') return viewAs;
 		if (viewAs) return viewAs;
 		const roster = new Set(memberIds);
 		return data?.me && roster.has(data.me) ? data.me : (memberIds[0] ?? '');
-	}, [data?.me, memberIds, viewAs]);
+	}, [data?.me, memberIds, view, viewAs]);
 
 	const selected = useMemo(() => {
 		const roster = new Set(memberIds);
@@ -85,13 +97,23 @@ export function useScheduleDay(tripId: string) {
 	}, [planned]);
 
 	const viewAsOptions = useMemo(
-		() =>
-			members.map((m) => ({
+		() => [
+			...(view === 'agenda'
+				? []
+				: [
+						{
+							key: '',
+							label: copy.viewAs.everyone,
+							warn: tightPeople.size > 0
+						}
+					]),
+			...members.map((m) => ({
 				key: m.id,
 				label: m.name + (m.id === data?.me ? copy.preparation.youSuffix : ''),
 				warn: tightPeople.has(m.id)
-			})),
-		[members, data?.me, tightPeople]
+			}))
+		],
+		[members, data?.me, tightPeople, view]
 	);
 
 	const memberName = useMemo(() => new Map(members.map((m) => [m.id, m.name])), [members]);
@@ -123,6 +145,8 @@ export function useScheduleDay(tripId: string) {
 		data,
 		day: effectiveDay,
 		setDay,
+		view,
+		setView,
 		viewAs,
 		setViewAs,
 		readAs,

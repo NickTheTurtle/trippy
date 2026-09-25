@@ -133,11 +133,13 @@ export function EmptyState({ message, hint }: { message: string; hint?: string }
 export function Screen({
 	children,
 	scroll = true,
-	refreshControl
+	refreshControl,
+	scrollEnabled = true
 }: {
 	children: ReactNode;
 	scroll?: boolean;
 	refreshControl?: React.ReactElement<RefreshControlProps>;
+	scrollEnabled?: boolean;
 }) {
 	if (!scroll)
 		return (
@@ -152,6 +154,7 @@ export function Screen({
 			contentContainerStyle={s.screenContent}
 			keyboardShouldPersistTaps="handled"
 			refreshControl={refreshControl}
+			scrollEnabled={scrollEnabled}
 		>
 			<LiveOff />
 			{children}

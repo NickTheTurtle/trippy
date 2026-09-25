@@ -12,6 +12,8 @@ import type { Cell, SavedPoi } from './types';
 export const DAY_END = DAY_END_MIN;
 export { MIN_EVENT_MINS };
 export const DRAFT_ID = 'draft';
+export const DEFAULT_START = 6 * 60;
+export const PX_PER_MIN = 1.15;
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -48,6 +50,32 @@ export function clockRange(from: number, to: number): string {
 	const b = clock(to);
 	const meridiem = a.slice(-2);
 	return meridiem === b.slice(-2) ? `${a.slice(0, -3)} - ${b}` : `${a} - ${b}`;
+}
+
+export function hourLabel(hour: number): string {
+	return clock(hour * 60).replace(':00', '');
+}
+
+export function hoursFrom(start: number): number[] {
+	const first = Math.ceil(start / 60);
+	return Array.from({ length: DAY_END / 60 - first + 1 }, (_, i) => first + i);
+}
+
+export function windowStart(mins: readonly number[]): number {
+	const earliest = mins.reduce((a, b) => Math.min(a, b), DEFAULT_START);
+	return Math.min(DEFAULT_START, Math.max(0, Math.floor(earliest / 60) * 60));
+}
+
+export function clampMin(value: number, start: number): number {
+	return Math.max(start, Math.min(value, DAY_END));
+}
+
+export function topPx(min: number, start: number): number {
+	return (clampMin(min, start) - start) * PX_PER_MIN;
+}
+
+export function heightPx(from: number, to: number, start: number): number {
+	return Math.max(3, (clampMin(to, start) - clampMin(from, start)) * PX_PER_MIN);
 }
 
 export function shiftDay(iso: string, delta: number): string {

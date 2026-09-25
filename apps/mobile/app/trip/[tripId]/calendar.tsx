@@ -8,6 +8,7 @@ import { useToast } from '../../../src/ui/Toast';
 import { Button, Card, EmptyState, FormError, Loading, Screen } from '../../../src/ui';
 import { Picker } from '../../../src/ui/controls';
 import { color, radius, space, type } from '../../../src/theme';
+import { DayBoard } from '../../../src/screens/schedule/DayBoard';
 import { EventSheet } from '../../../src/screens/schedule/EventSheet';
 import { useScheduleDay } from '../../../src/screens/schedule/useScheduleDay';
 import {
@@ -24,8 +25,9 @@ type TripData = { trip: { schedule_locked: number } };
 export default function Calendar() {
 	const tripId = useTripId();
 	const toast = useToast();
+	const [gestureActive, setGestureActive] = useState(false);
 	const tripState = useApi<TripData>(`/trips/${tripId}`);
-	const schedule = useScheduleDay(tripId);
+	const schedule = useScheduleDay(tripId, gestureActive);
 	useLiveSection(['trip'], tripState.reload);
 	const data = schedule.data;
 	const locked = tripState.data?.trip.schedule_locked === 1;
@@ -71,6 +73,7 @@ export default function Calendar() {
 	return (
 		<>
 			<Screen
+				scrollEnabled={!gestureActive}
 				refreshControl={
 					<RefreshControl refreshing={schedule.loading && !!data} onRefresh={refresh} />
 				}
@@ -110,6 +113,15 @@ export default function Calendar() {
 						/>
 					</View>
 					<Picker
+						label={copy.schedule.viewAriaLabel}
+						options={[
+							{ key: 'day', label: copy.schedule.views.day },
+							{ key: 'agenda', label: copy.schedule.views.agenda }
+						]}
+						value={schedule.view}
+						onPick={(view) => schedule.setView(view as 'day' | 'agenda')}
+					/>
+					<Picker
 						label={copy.schedule.nav.jumpToDate}
 						options={data.days.map((d) => ({ key: d, label: dayLabel(d) }))}
 						value={data.day}
@@ -146,15 +158,31 @@ export default function Calendar() {
 				</Card>
 
 				<StayBand stays={schedule.anchor.stays} locked={locked} onOpenEvent={openSaved} />
-				<Agenda
-					entry={schedule.anchor}
-					eventById={schedule.eventById}
-					peopleLabel={schedule.peopleLabel}
-					memberName={memberName}
-					locked={locked}
-					onOpenEvent={openSaved}
-					onOpenLeg={(leg) => openSaved(leg.toEventId)}
-				/>
+				{schedule.view === 'day' ? (
+					<Card style={{ padding: space.sm }}>
+						<DayBoard
+							base={`/trips/${tripId}/schedule`}
+							entry={schedule.anchor}
+							memberIds={data.members.map((member) => member.id)}
+							peopleLabel={schedule.peopleLabel}
+							eventById={schedule.eventById}
+							locked={locked}
+							onOpen={openSaved}
+							onGestureChange={setGestureActive}
+							onReload={schedule.reload}
+						/>
+					</Card>
+				) : (
+					<Agenda
+						entry={schedule.anchor}
+						eventById={schedule.eventById}
+						peopleLabel={schedule.peopleLabel}
+						memberName={memberName}
+						locked={locked}
+						onOpenEvent={openSaved}
+						onOpenLeg={(leg) => openSaved(leg.toEventId)}
+					/>
+				)}
 			</Screen>
 
 			{adding ? (
