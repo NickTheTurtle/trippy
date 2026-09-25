@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, Text, View } from 'react-native';
-import { Tabs, router, useLocalSearchParams } from 'expo-router';
+import { Stack, Tabs, router, useLocalSearchParams, useNavigation, usePathname } from 'expo-router';
+import { NativeTabs } from 'expo-router/unstable-native-tabs';
+import { NativeTabsContext } from '../../../src/ui/nativeTabs';
 import type { ComponentProps } from 'react';
 import { copy } from '@trippy/copy';
 import { nightsBetween } from '@trippy/copy/format';
@@ -53,6 +55,14 @@ const TAB_ICONS: Record<string, TabIcon> = {
 	calendar: { sf: 'calendar', ion: 'calendar-outline' },
 	expenses: { sf: 'creditcard', ion: 'card-outline' },
 	people: { sf: 'person.2', ion: 'people-outline' }
+};
+const TAB_ORDER = ['discover', 'pretrip', 'calendar', 'expenses', 'people'] as const;
+const TAB_LABELS: Record<(typeof TAB_ORDER)[number], () => string> = {
+	discover: () => copy.nav.discover,
+	pretrip: () => copy.nav.preparation,
+	calendar: () => copy.nav.schedule,
+	expenses: () => copy.nav.expenses,
+	people: () => copy.nav.people
 };
 type TabScreenOptions = NonNullable<ComponentProps<typeof Tabs.Screen>['options']>;
 type TabBarIconProps = Parameters<
@@ -168,116 +178,173 @@ function TripTabsInner({
 	reload: () => void;
 }) {
 	const headerAdd = useCurrentTripHeaderAction();
+	const pathname = usePathname();
+	const bareTripPath = Platform.OS === 'ios' && /^\/trip\/[^/]+\/?$/.test(pathname);
+	const stack = useNavigation();
+	useEffect(() => {
+		// A router.replace would be resolved against the trip's half-built
+		// state and target a 'discover' screen the root stack does not have, so
+		// the root stack is told directly to replace the trip with its tab.
+		if (bareTripPath)
+			stack.dispatch({
+				type: 'REPLACE',
+				payload: { name: 'trip/[tripId]', params: { tripId: id, screen: 'discover' } }
+			});
+	}, [bareTripPath, id, stack]);
+	// On a cold-start link the trip is the only screen, so there is no back
+	// button to Your trips; the account menu stays as the way out. Asked of the
+	// root stack: the router's own answer comes from the tabs, which can always
+	// go back to Discover.
+	const canGoBack = stack.canGoBack();
+	const renderActions = () => (
+		<View
+			style={{
+				flexDirection: 'row',
+				alignItems: 'center',
+				gap: space.lg
+			}}
+		>
+			{headerAdd ? (
+				<Pressable
+					accessibilityRole="button"
+					accessibilityLabel={copy.common.add}
+					onPress={headerAdd}
+					hitSlop={8}
+				>
+					<AppSymbol name="plus" fallback="add" size={24} color={color.accent} />
+				</Pressable>
+			) : null}
+			<Pressable
+				accessibilityRole="button"
+				accessibilityLabel={copy.common.more}
+				onPress={() => {
+					if (destroy.busy) return;
+					const shown = showActionMenu(
+						trip.name,
+						canEdit
+							? [
+									{ label: copy.tripShell.editTrip, onPress: () => setEditing(true) },
+									{
+										label: copy.common.delete,
+										destructive: true,
+										onPress: () => setConfirming('delete')
+									}
+								]
+							: [
+									{
+										label: copy.tripShell.leaveTrip,
+										destructive: true,
+										onPress: () => setConfirming('leave')
+									}
+								]
+					);
+					if (!shown) setActionsOpen(true);
+				}}
+				hitSlop={8}
+			>
+				<AppSymbol
+					name="ellipsis.circle"
+					fallback="ellipsis-horizontal-circle-outline"
+					size={24}
+					color={color.accent}
+				/>
+			</Pressable>
+			{/* On iOS the trip has a back button to Your trips, where the account
+			    menu lives; dropping it here leaves the centred system title room
+			    for most trip names. */}
+			{Platform.OS === 'ios' && canGoBack ? null : <AccountMenu />}
+		</View>
+	);
+	const tabs =
+		Platform.OS === 'ios' ? (
+			<>
+				{/* On iOS the trip gets the stack's own navigation bar, with a back
+				    button to Your trips, and the system tab bar under Liquid Glass.
+				    Native tabs draw no header of their own, so the bar is the parent
+				    stack's, configured from here. */}
+				<Stack.Screen options={{ title: trip.name, headerRight: renderActions }} />
+				{bareTripPath ? (
+					// The trip itself, with no tab: native tabs cannot show the hidden
+					// index route (the dev build throws trying). System links are
+					// rewritten in app/+native-intent.tsx; anything else waits here for
+					// the replace below.
+					<View style={{ flex: 1, backgroundColor: color.bg }} />
+				) : (
+					<NativeTabsContext.Provider value>
+						<NativeTabs tintColor={color.accent} minimizeBehavior="onScrollDown">
+							{TAB_ORDER.map((name) => (
+								<NativeTabs.Trigger
+									key={name}
+									name={name}
+									contentStyle={{ backgroundColor: color.bg }}
+								>
+									<NativeTabs.Trigger.Label>{TAB_LABELS[name]()}</NativeTabs.Trigger.Label>
+									<NativeTabs.Trigger.Icon sf={TAB_ICONS[name].sf as never} />
+								</NativeTabs.Trigger>
+							))}
+							<NativeTabs.Trigger name="index" hidden />
+						</NativeTabs>
+					</NativeTabsContext.Provider>
+				)}
+			</>
+		) : null;
 	return (
 		<TripIdContext.Provider value={id}>
 			<TripEventsProvider value={events}>
 				<View style={{ flex: 1 }}>
-					<Tabs
-						screenOptions={{
-							headerStyle: { backgroundColor: color.bg },
-							headerShadowVisible: false,
-							headerTintColor: color.accent,
-							headerTitleStyle: type.head,
-							headerTitle: trip.name,
-							// Three header buttons leave a centred title about a third of
-							// the bar, which cut most trip names off. Leading-aligned, the
-							// name gets everything the buttons do not use, as on web.
-							headerTitleAlign: 'left',
-							// The title may shrink, and the buttons keep their natural
-							// width. The header's own flex rules do the reverse (the right
-							// side takes only what the title leaves), which let a long name
-							// run under the three buttons.
-							headerTitleContainerStyle: { flexGrow: 1, flexShrink: 1 },
-							headerRightContainerStyle: {
-								paddingRight: screenMargin,
-								flexGrow: 0,
-								flexBasis: 'auto'
-							},
-							headerRight: () => (
-								<View
-									style={{
-										flexDirection: 'row',
-										alignItems: 'center',
-										gap: space.lg
-									}}
-								>
-									{headerAdd ? (
-										<Pressable
-											accessibilityRole="button"
-											accessibilityLabel={copy.common.add}
-											onPress={headerAdd}
-											hitSlop={8}
-										>
-											<AppSymbol name="plus" fallback="add" size={24} color={color.accent} />
-										</Pressable>
-									) : null}
-									<Pressable
-										accessibilityRole="button"
-										accessibilityLabel={copy.common.more}
-										onPress={() => {
-											if (destroy.busy) return;
-											const shown = showActionMenu(
-												trip.name,
-												canEdit
-													? [
-															{ label: copy.tripShell.editTrip, onPress: () => setEditing(true) },
-															{
-																label: copy.common.delete,
-																destructive: true,
-																onPress: () => setConfirming('delete')
-															}
-														]
-													: [
-															{
-																label: copy.tripShell.leaveTrip,
-																destructive: true,
-																onPress: () => setConfirming('leave')
-															}
-														]
-											);
-											if (!shown) setActionsOpen(true);
-										}}
-										hitSlop={8}
-									>
-										<AppSymbol
-											name="ellipsis.circle"
-											fallback="ellipsis-horizontal-circle-outline"
-											size={24}
-											color={color.accent}
-										/>
-									</Pressable>
-									<AccountMenu />
-								</View>
-							),
-							tabBarActiveTintColor: color.accent,
-							tabBarInactiveTintColor: color.inkFaint,
-							tabBarStyle: { backgroundColor: color.surface, borderTopColor: color.line },
-							tabBarLabelStyle: { fontSize: 11, fontWeight: '500' },
-							sceneStyle: { backgroundColor: color.bg }
-						}}
-					>
-						<Tabs.Screen
-							name="discover"
-							options={{ title: copy.nav.discover, tabBarIcon: tabIcon(TAB_ICONS.discover) }}
-						/>
-						<Tabs.Screen
-							name="pretrip"
-							options={{ title: copy.nav.preparation, tabBarIcon: tabIcon(TAB_ICONS.pretrip) }}
-						/>
-						<Tabs.Screen
-							name="calendar"
-							options={{ title: copy.nav.schedule, tabBarIcon: tabIcon(TAB_ICONS.calendar) }}
-						/>
-						<Tabs.Screen
-							name="expenses"
-							options={{ title: copy.nav.expenses, tabBarIcon: tabIcon(TAB_ICONS.expenses) }}
-						/>
-						<Tabs.Screen
-							name="people"
-							options={{ title: copy.nav.people, tabBarIcon: tabIcon(TAB_ICONS.people) }}
-						/>
-						<Tabs.Screen name="index" options={{ href: null }} />
-					</Tabs>
+					{tabs ?? (
+						<Tabs
+							screenOptions={{
+								headerStyle: { backgroundColor: color.bg },
+								headerShadowVisible: false,
+								headerTintColor: color.accent,
+								headerTitleStyle: type.head,
+								headerTitle: trip.name,
+								// Three header buttons leave a centred title about a third of
+								// the bar, which cut most trip names off. Leading-aligned, the
+								// name gets everything the buttons do not use, as on web.
+								headerTitleAlign: 'left',
+								// The title may shrink, and the buttons keep their natural
+								// width. The header's own flex rules do the reverse (the right
+								// side takes only what the title leaves), which let a long name
+								// run under the three buttons.
+								headerTitleContainerStyle: { flexGrow: 1, flexShrink: 1 },
+								headerRightContainerStyle: {
+									paddingRight: screenMargin,
+									flexGrow: 0,
+									flexBasis: 'auto'
+								},
+								headerRight: renderActions,
+								tabBarActiveTintColor: color.accent,
+								tabBarInactiveTintColor: color.inkFaint,
+								tabBarStyle: { backgroundColor: color.surface, borderTopColor: color.line },
+								tabBarLabelStyle: { fontSize: 11, fontWeight: '500' },
+								sceneStyle: { backgroundColor: color.bg }
+							}}
+						>
+							<Tabs.Screen
+								name="discover"
+								options={{ title: copy.nav.discover, tabBarIcon: tabIcon(TAB_ICONS.discover) }}
+							/>
+							<Tabs.Screen
+								name="pretrip"
+								options={{ title: copy.nav.preparation, tabBarIcon: tabIcon(TAB_ICONS.pretrip) }}
+							/>
+							<Tabs.Screen
+								name="calendar"
+								options={{ title: copy.nav.schedule, tabBarIcon: tabIcon(TAB_ICONS.calendar) }}
+							/>
+							<Tabs.Screen
+								name="expenses"
+								options={{ title: copy.nav.expenses, tabBarIcon: tabIcon(TAB_ICONS.expenses) }}
+							/>
+							<Tabs.Screen
+								name="people"
+								options={{ title: copy.nav.people, tabBarIcon: tabIcon(TAB_ICONS.people) }}
+							/>
+							<Tabs.Screen name="index" options={{ href: null }} />
+						</Tabs>
+					)}
 				</View>
 				<TripActionSheet
 					open={actionsOpen}

@@ -25,6 +25,7 @@ import { useToast } from '../../../src/ui/Toast';
 import { useTripHeaderAction } from '../../../src/ui/TripHeaderAction';
 import { color, rowInset, space, type } from '../../../src/theme';
 import { AppSymbol } from '../../../src/ui/Symbol';
+import { lazyTab } from '../../../src/ui/nativeTabs';
 
 type Member = { id: string; name: string };
 type Crew = { id: string; name: string; members: string[]; locked?: boolean };
@@ -67,7 +68,9 @@ type Data = {
 const SECTIONS = ['tasks', 'packing', 'costs'] as const;
 type Section = (typeof SECTIONS)[number];
 
-export default function Pretrip() {
+export default lazyTab(Pretrip);
+
+function Pretrip() {
 	const tripId = useTripId();
 	const { data, error, loading, reload } = useApi<Data>(`/trips/${tripId}/pretrip`);
 	useLiveSection(['tasks', 'costs', 'members', 'trip'], reload);

@@ -12,10 +12,12 @@ import {
 	useWindowDimensions,
 	View
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { initialWindowMetrics, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { copy } from '@trippy/copy';
 import { color, radius, space, type } from '../theme';
 import { setInteractionBusy } from './busy';
+
+const windowBottom = initialWindowMetrics?.insets.bottom ?? 0;
 
 export function Sheet({
 	open,
@@ -145,7 +147,11 @@ export function Sheet({
 					{bar}
 					<ScrollView
 						style={{ flex: 1 }}
-						contentContainerStyle={{ gap: space.lg, paddingBottom: space.xl + insets.bottom }}
+						// The window's own home-indicator inset, not the React context's:
+						// inside a native tab the context reports the presenting screen,
+						// tab bar included, which the sheet covers. (The automatic scroll
+						// inset would add the same 34pt again above the keyboard.)
+						contentContainerStyle={{ gap: space.lg, paddingBottom: space.xl + windowBottom }}
 						keyboardShouldPersistTaps="handled"
 						keyboardDismissMode="interactive"
 						// The sheet sits below the top of the screen, so a
