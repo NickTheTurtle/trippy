@@ -42,6 +42,7 @@ export function Muted({ children }: { children: ReactNode }) {
 type ButtonProps = {
 	label: string;
 	onPress: () => void;
+	accessibilityLabel?: string;
 	tone?: 'primary' | 'ghost' | 'danger';
 	busy?: boolean;
 	disabled?: boolean;
@@ -51,6 +52,7 @@ type ButtonProps = {
 export function Button({
 	label,
 	onPress,
+	accessibilityLabel,
 	tone = 'primary',
 	busy = false,
 	disabled = false,
@@ -63,6 +65,7 @@ export function Button({
 	return (
 		<Pressable
 			accessibilityRole="button"
+			accessibilityLabel={accessibilityLabel ?? label}
 			accessibilityState={{ disabled: off, busy }}
 			onPress={off ? undefined : onPress}
 			style={({ pressed }) => [
