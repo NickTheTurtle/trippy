@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ElementRef } from 'react';
 import { Text, View, useWindowDimensions } from 'react-native';
 import {
@@ -6,12 +6,7 @@ import {
 	GestureDetector,
 	ScrollView as GestureScrollView
 } from 'react-native-gesture-handler';
-import Animated, {
-	runOnJS,
-	useAnimatedStyle,
-	useSharedValue,
-	withTiming
-} from 'react-native-reanimated';
+import Animated, { runOnJS, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import { copy } from '@trippy/copy';
 import { layoutBoard, legLaneId } from '@trippy/core/travel';
 import type { EventType } from '@trippy/core/types';
@@ -22,6 +17,7 @@ import { setInteractionBusy } from '../../ui/busy';
 import {
 	DAY_END,
 	DEFAULT_START,
+	MIN_EVENT_MINS,
 	PX_PER_MIN,
 	clock,
 	clockRange,
@@ -99,6 +95,15 @@ export function DayBoard({
 		};
 	}, [gestureActive, onGestureChange]);
 
+	useEffect(
+		() => () => {
+			releaseBusy.current?.();
+			releaseBusy.current = null;
+			onGestureChange(false);
+		},
+		[onGestureChange]
+	);
+
 	const baseStartFor = (event: EventRow) =>
 		pending?.id === event.id && pending.start != null ? pending.start : event.start_min;
 	const baseEndFor = (event: EventRow) =>
@@ -132,11 +137,11 @@ export function DayBoard({
 	const contentH = (DAY_END - boardStart) * PX_PER_MIN + 24;
 
 	useEffect(() => {
-		const first = Math.min(
+		const starts = [
 			...entry.events.map((event) => baseStartFor(event)),
-			...entry.legs.map((leg) => leg.startMin),
-			DEFAULT_START
-		);
+			...entry.legs.map((leg) => leg.startMin)
+		];
+		const first = starts.length ? Math.min(...starts) : DEFAULT_START;
 		const timer = setTimeout(
 			() =>
 				scrollRef.current?.scrollTo({
@@ -319,7 +324,7 @@ function shiftLeg(leg: LegRow, by: number): LegRow {
 	return by ? { ...leg, startMin: leg.startMin + by, endMin: leg.endMin + by } : leg;
 }
 
-function EventBlock({
+const EventBlock = memo(function EventBlock({
 	event,
 	left,
 	width,
@@ -353,92 +358,165 @@ function EventBlock({
 	const translateY = useSharedValue(0);
 	const extraH = useSharedValue(0);
 	const moved = useSharedValue(false);
+	const panStarted = useSharedValue(false);
 	const lastMoveMinute = useSharedValue(event.start_min);
 	const lastEndMinute = useSharedValue(event.end_min);
 
 	useEffect(() => {
-		translateY.value = withTiming(0, { duration: 120 });
-		extraH.value = withTiming(0, { duration: 120 });
+		translateY.value = 0;
+		extraH.value = 0;
 		lastMoveMinute.value = event.start_min;
 		lastEndMinute.value = event.end_min;
 		moved.value = false;
-	}, [event.start_min, event.end_min, extraH, lastEndMinute, lastMoveMinute, moved, translateY]);
+		panStarted.value = false;
+	}, [
+		event.start_min,
+		event.end_min,
+		extraH,
+		lastEndMinute,
+		lastMoveMinute,
+		moved,
+		panStarted,
+		translateY
+	]);
 
-	const moveGesture = Gesture.Pan()
-		.enabled(!locked)
-		.activateAfterLongPress(GESTURE_MS)
-		.onBegin(() => {
-			moved.value = false;
-			lastMoveMinute.value = event.start_min;
-			translateY.value = 0;
-			runOnJS(onBeginGesture)();
-		})
-		.onUpdate((gesture) => {
-			if (!moved.value && !passedGestureSlop(gesture.translationY, WRITE_SLOP)) return;
-			moved.value = true;
-			const next = snapMoveStart(
-				event.start_min,
-				gesture.translationY,
-				event.end_min - event.start_min
-			);
-			translateY.value = next - event.start_min;
-			translateY.value *= PX_PER_MIN;
-			if (next !== lastMoveMinute.value) {
-				lastMoveMinute.value = next;
-				runOnJS(onReportMinute)({ id: event.id, kind: 'move', minute: next });
-			}
-		})
-		.onEnd(() => {
-			const next = lastMoveMinute.value;
-			if (moved.value && next !== event.start_min) runOnJS(onCommitMove)(next);
-		})
-		.onFinalize(() => {
-			translateY.value = withTiming(0, { duration: 120 });
-			runOnJS(onEndGesture)();
-		});
+	const tapGesture = useMemo(
+		() =>
+			Gesture.Tap()
+				.maxDuration(GESTURE_MS - 10)
+				.onEnd((_event, success) => {
+					if (success) runOnJS(onOpen)();
+				}),
+		[onOpen]
+	);
 
-	const tapGesture = Gesture.Tap()
-		.maxDuration(250)
-		.onEnd((_event, success) => {
-			if (success) runOnJS(onOpen)();
-		});
-	const blockGesture = locked ? tapGesture : Gesture.Exclusive(moveGesture, tapGesture);
+	const moveGesture = useMemo(
+		() =>
+			Gesture.Pan()
+				.enabled(!locked)
+				.activateAfterLongPress(GESTURE_MS)
+				.onBegin(() => {
+					panStarted.value = false;
+					moved.value = false;
+					lastMoveMinute.value = event.start_min;
+					translateY.value = 0;
+				})
+				.onStart(() => {
+					panStarted.value = true;
+					runOnJS(onBeginGesture)();
+				})
+				.onUpdate((gesture) => {
+					if (!moved.value && !passedGestureSlop(gesture.translationY, WRITE_SLOP)) return;
+					moved.value = true;
+					const next = snapMoveStart(
+						event.start_min,
+						gesture.translationY,
+						event.end_min - event.start_min
+					);
+					translateY.value = (next - event.start_min) * PX_PER_MIN;
+					if (next !== lastMoveMinute.value) {
+						lastMoveMinute.value = next;
+						runOnJS(onReportMinute)({ id: event.id, kind: 'move', minute: next });
+					}
+				})
+				.onEnd((_event, success) => {
+					const next = lastMoveMinute.value;
+					if (success && moved.value && next !== event.start_min) runOnJS(onCommitMove)(next);
+				})
+				.onFinalize(() => {
+					translateY.value = 0;
+					if (panStarted.value) runOnJS(onEndGesture)();
+					panStarted.value = false;
+				}),
+		[
+			event.end_min,
+			event.id,
+			event.start_min,
+			lastMoveMinute,
+			locked,
+			moved,
+			onBeginGesture,
+			onCommitMove,
+			onEndGesture,
+			onReportMinute,
+			panStarted,
+			translateY
+		]
+	);
 
-	const resizeGesture = Gesture.Pan()
-		.enabled(!locked)
-		.activateAfterLongPress(GESTURE_MS)
-		.hitSlop({ top: 18, bottom: 18, left: 0, right: 0 })
-		.onBegin(() => {
-			moved.value = false;
-			lastEndMinute.value = event.end_min;
-			extraH.value = 0;
-			runOnJS(onBeginGesture)();
-		})
-		.onUpdate((gesture) => {
-			if (!moved.value && !passedGestureSlop(gesture.translationY, WRITE_SLOP)) return;
-			moved.value = true;
-			const next = snapResizeEnd(event.end_min, gesture.translationY, event.start_min);
-			extraH.value = (next - event.end_min) * PX_PER_MIN;
-			if (next !== lastEndMinute.value) {
-				lastEndMinute.value = next;
-				runOnJS(onReportMinute)({ id: event.id, kind: 'resize', minute: next });
-			}
-		})
-		.onEnd(() => {
-			const next = lastEndMinute.value;
-			if (moved.value && next !== event.end_min) runOnJS(onCommitResize)(next);
-		})
-		.onFinalize(() => {
-			extraH.value = withTiming(0, { duration: 120 });
-			runOnJS(onEndGesture)();
-		});
+	const blockGesture = useMemo(
+		() => (locked ? tapGesture : Gesture.Exclusive(moveGesture, tapGesture)),
+		[locked, moveGesture, tapGesture]
+	);
+
+	const resizePan = useMemo(
+		() =>
+			Gesture.Pan()
+				.enabled(!locked)
+				.activateAfterLongPress(GESTURE_MS)
+				.onBegin(() => {
+					panStarted.value = false;
+					moved.value = false;
+					lastEndMinute.value = event.end_min;
+					extraH.value = 0;
+				})
+				.onStart(() => {
+					panStarted.value = true;
+					runOnJS(onBeginGesture)();
+				})
+				.onUpdate((gesture) => {
+					if (!moved.value && !passedGestureSlop(gesture.translationY, WRITE_SLOP)) return;
+					moved.value = true;
+					const next = snapResizeEnd(event.end_min, gesture.translationY, event.start_min);
+					extraH.value = (next - event.end_min) * PX_PER_MIN;
+					if (next !== lastEndMinute.value) {
+						lastEndMinute.value = next;
+						runOnJS(onReportMinute)({ id: event.id, kind: 'resize', minute: next });
+					}
+				})
+				.onEnd((_event, success) => {
+					const next = lastEndMinute.value;
+					if (success && moved.value && next !== event.end_min) runOnJS(onCommitResize)(next);
+				})
+				.onFinalize(() => {
+					extraH.value = 0;
+					if (panStarted.value) runOnJS(onEndGesture)();
+					panStarted.value = false;
+				}),
+		[
+			event.end_min,
+			event.id,
+			event.start_min,
+			extraH,
+			lastEndMinute,
+			locked,
+			moved,
+			onBeginGesture,
+			onCommitResize,
+			onEndGesture,
+			onReportMinute,
+			panStarted
+		]
+	);
+
+	const gripTap = useMemo(
+		() =>
+			Gesture.Tap()
+				.maxDuration(GESTURE_MS - 10)
+				.onEnd((_event, success) => {
+					if (success) runOnJS(onOpen)();
+				}),
+		[onOpen]
+	);
+
+	const resizeGesture = useMemo(() => Gesture.Exclusive(resizePan, gripTap), [gripTap, resizePan]);
 
 	const blockStyle = useAnimatedStyle(() => ({
 		transform: [{ translateY: translateY.value }],
 		height: Math.max(MIN_LEG_H, height + extraH.value)
 	}));
 
-	const accessibilityLabel = `${event.title}, ${clockRange(event.start_min, event.end_min)}. ${locked ? copy.schedule.block.openLabel : copy.schedule.block.moveLabel}`;
+	const accessibilityLabel = `${event.title}, ${clockRange(event.start_min, event.end_min)}. ${locked ? copy.schedule.block.openLabel : copy.schedule.block.mobileOpenLabel}`;
 
 	return (
 		<View style={{ position: 'absolute', left, top, width, height }}>
@@ -487,14 +565,14 @@ function EventBlock({
 							const next =
 								action.nativeEvent.actionName === 'increment'
 									? Math.min(DAY_END, event.end_min + 5)
-									: Math.max(event.start_min + 15, event.end_min - 5);
+									: Math.max(event.start_min + MIN_EVENT_MINS, event.end_min - 5);
 							onCommitResize(next);
 						}}
 						style={{
 							position: 'absolute',
 							left: 0,
 							right: 0,
-							bottom: -17,
+							bottom: -38,
 							height: 44,
 							justifyContent: 'center'
 						}}
@@ -505,7 +583,8 @@ function EventBlock({
 			)}
 		</View>
 	);
-}
+});
+EventBlock.displayName = 'EventBlock';
 
 function TimeBadge({ left, top, minute }: { left: number; top: number; minute: number }) {
 	return (

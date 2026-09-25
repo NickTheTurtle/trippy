@@ -368,6 +368,7 @@ export const copy = {
 			resizeLabel: 'Drag to change the end time',
 			/** What pressing a block does, which depends on whether it can be moved. */
 			moveLabel: 'Show on the map, or drag to reschedule.',
+			mobileOpenLabel: 'Open event details, or long press to reschedule.',
 			openLabel: 'Show the details.'
 		},
 		addStay: '+ Add stay',
