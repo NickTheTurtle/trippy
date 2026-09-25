@@ -3792,7 +3792,9 @@ is even"), the same split the web component makes. The drawing is the web's own 
 the same on the phone and on the phone-sized web page. Discover's first-run page keeps its
 own pin mark, heading and single Add city button, centred the same way. The estimated
 costs card no longer carries its own Add link, since the header plus already adds a cost
-on that tab as it does on every other.
+on that tab as it does on every other. Your trips also shows the fly, without a caption,
+in the space under a list of fewer than four trips: one trip left most of the phone bare
+under a single row, which read as unfinished rather than as a short list.
 
 **The trip's name leads the header.** Three buttons on the right left a centred iOS title
 about a third of the bar, which truncated most trip names. The trip tabs align the title to
