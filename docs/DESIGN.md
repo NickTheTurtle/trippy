@@ -3813,6 +3813,15 @@ edits in that order and carries forward each returned event version, so the
 sheet's own sequential writes do not conflict while a stale write from another
 member still gets the server's 409.
 
+**Native Schedule draws the same board, with native gestures.** The mobile Day
+view feeds `@trippy/core/travel.layoutBoard` the same events and journeys the
+web board does, so splits, rejoins and adjacent journey trims are not a second
+layout rule. Drag and resize are native long-press gestures layered on those
+computed boxes. A normal swipe over a block is still scrolling intent; only a
+press held still becomes a schedule edit. The displayed position is kept until
+the reload lands, matching the web board's pending override, so a successful
+write does not flash back to the old time while the API settles the day.
+
 **Auth is the same session row presented two ways.** A browser gets an httpOnly
 cookie, which is the right answer there and the one thing script cannot read. A
 native app has no cookie jar worth relying on, so it gets a bearer token. The
