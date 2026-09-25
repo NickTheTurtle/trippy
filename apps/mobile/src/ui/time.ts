@@ -15,7 +15,9 @@ export function normalizeTimePickerMinutes(
 	step: number
 ): number {
 	const dayEnd = 24 * 60;
-	if (rawMinutes === 0 && maximum === dayEnd && minimum > 0) return dayEnd;
 	const snapped = Math.round(rawMinutes / step) * step;
+	// Checked after snapping: Android's picker ignores the step, so 12:01 AM
+	// arrives as 1 and has to count as midnight too.
+	if (snapped === 0 && maximum === dayEnd && minimum > 0) return dayEnd;
 	return Math.min(maximum, Math.max(minimum, snapped));
 }

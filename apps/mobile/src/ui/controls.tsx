@@ -228,7 +228,8 @@ export function TimeField({
 			<View>
 				<Pressable
 					accessibilityRole="button"
-					accessibilityLabel={label}
+					accessibilityLabel={`${label}, ${formatMinutes(value)}`}
+					accessibilityState={{ expanded: open }}
 					onPress={() => setOpen((v) => !v)}
 					style={[s.formRow, !last && !open && s.rowSeparator]}
 				>
@@ -244,7 +245,8 @@ export function TimeField({
 			<Text style={fieldLabel}>{label}</Text>
 			<Pressable
 				accessibilityRole="button"
-				accessibilityLabel={label}
+				accessibilityLabel={`${label}, ${formatMinutes(value)}`}
+				accessibilityState={{ expanded: open }}
 				onPress={() => setOpen((v) => !v)}
 				style={s.fieldButton}
 			>

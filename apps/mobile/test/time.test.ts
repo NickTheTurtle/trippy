@@ -6,6 +6,8 @@ const DAY_END = 24 * 60;
 describe('normalizeTimePickerMinutes', () => {
 	it('reads 12:00 AM as the end of the day when the field can reach midnight', () => {
 		expect(normalizeTimePickerMinutes(0, 9 * 60 + 15, DAY_END, 5)).toBe(DAY_END);
+		// Android does not enforce the step, so a minute past midnight counts too.
+		expect(normalizeTimePickerMinutes(2, 9 * 60 + 15, DAY_END, 5)).toBe(DAY_END);
 	});
 
 	it('keeps 12:00 AM as the start of the day when midnight is in range', () => {

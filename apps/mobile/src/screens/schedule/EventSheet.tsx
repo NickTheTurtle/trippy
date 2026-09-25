@@ -807,7 +807,7 @@ function JourneyEditor({
 					<InsetSection
 						key={leg.key}
 						title={copy.schedule.journey.heading}
-						footer={leg.tight ? copy.viewAs.travelWarning : peopleLabel(leg.people)}
+						footer={peopleLabel(leg.people)}
 					>
 						{leg.tight ? (
 							<View style={{ paddingHorizontal: space.md, paddingTop: space.sm }}>

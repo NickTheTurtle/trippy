@@ -422,14 +422,11 @@ function JumpSheet({
 			open={open}
 			title={copy.schedule.nav.jumpToDate}
 			onClose={onClose}
-			onPrimary={() => {
-				if (days.includes(draft)) onPick(draft);
-				else {
-					setDraft(value);
-					onClose();
-				}
-			}}
+			onPrimary={() => onPick(draft)}
 			primaryLabel={copy.common.save}
+			// Only a day the trip offers can be jumped to, and Save says so by
+			// being unavailable rather than by closing without a word.
+			primaryDisabled={!days.includes(draft)}
 		>
 			<InsetSection>
 				<DateField
