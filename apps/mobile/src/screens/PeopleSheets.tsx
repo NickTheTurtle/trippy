@@ -4,11 +4,11 @@ import { copy } from '@trippy/copy';
 import { api } from '../lib/api';
 import { useMutation } from '../hooks/useMutation';
 import { useAuth } from '../auth';
-import { Button, Field, FormError } from '../ui';
+import { DestructiveRow, Field, InsetSection } from '../ui';
 import { Sheet } from '../ui/Sheet';
-import { SheetFooter } from '../ui/SheetFooter';
 import { ConfirmSheet } from '../ui/ConfirmSheet';
 import { color, fieldLabel, radius, space, type } from '../theme';
+import { AppSymbol } from '../ui/Symbol';
 
 export type Person = {
 	id: string;
@@ -51,28 +51,34 @@ export function AddPersonSheet({
 		{ fallback: copy.people.add.fallback }
 	);
 	return (
-		<Sheet open={open} title={copy.people.add.title} onClose={onClose}>
-			<Field
-				label={copy.people.add.nameLabel}
-				value={name}
-				onChangeText={setName}
-				autoCapitalize="words"
-			/>
-			<Field
-				label={`${copy.people.add.emailLabel}${copy.ui.field.optionalSuffix}`}
-				value={email}
-				onChangeText={setEmail}
-				autoCapitalize="none"
-				keyboardType="email-address"
-			/>
-			<FormError message={add.error} />
-			<SheetFooter
-				primaryLabel={copy.common.add}
-				primaryBusyLabel={copy.common.adding}
-				primaryBusy={add.busy}
-				primaryDisabled={!name.trim()}
-				onPrimary={() => void add.run()}
-			/>
+		<Sheet
+			open={open}
+			title={copy.people.add.title}
+			onClose={onClose}
+			onPrimary={() => void add.run()}
+			primaryLabel={copy.common.add}
+			primaryBusyLabel={copy.common.adding}
+			primaryBusy={add.busy}
+			primaryDisabled={!name.trim()}
+		>
+			<InsetSection error={add.error}>
+				<Field
+					variant="row"
+					label={copy.people.add.nameLabel}
+					value={name}
+					onChangeText={setName}
+					autoCapitalize="words"
+				/>
+				<Field
+					variant="row"
+					label={`${copy.people.add.emailLabel}${copy.ui.field.optionalSuffix}`}
+					value={email}
+					onChangeText={setEmail}
+					autoCapitalize="none"
+					keyboardType="email-address"
+					last
+				/>
+			</InsetSection>
 		</Sheet>
 	);
 }
@@ -148,33 +154,47 @@ export function MemberSheet({
 				open={open && !confirmDelete}
 				title={editable ? copy.people.edit.title : person.name}
 				onClose={onClose}
+				onPrimary={editable ? () => void save.run() : undefined}
+				primaryLabel={editable ? copy.common.save : undefined}
+				primaryBusyLabel={copy.common.saving}
+				primaryBusy={save.busy}
+				primaryDisabled={editable && !name.trim()}
 			>
 				{editable ? (
-					<>
-						<Field label={copy.people.edit.nameLabel} value={name} onChangeText={setName} />
+					<InsetSection error={save.error}>
+						<Field
+							variant="row"
+							label={copy.people.edit.nameLabel}
+							value={name}
+							onChangeText={setName}
+							last={!editableEmail}
+						/>
 						{editableEmail ? (
 							<Field
+								variant="row"
 								label={`${copy.people.edit.emailLabel}${copy.ui.field.optionalSuffix}`}
 								value={email}
 								onChangeText={setEmail}
 								autoCapitalize="none"
 								keyboardType="email-address"
+								last
 							/>
 						) : null}
-					</>
+					</InsetSection>
 				) : (
-					<Text style={type.small}>{person.email}</Text>
+					<InsetSection>
+						<Text style={{ ...type.small, padding: space.md }}>{person.email}</Text>
+					</InsetSection>
 				)}
-				<FormError message={save.error} />
-				<SheetFooter
-					primaryLabel={editable ? copy.common.save : undefined}
-					primaryBusyLabel={copy.common.saving}
-					primaryBusy={save.busy}
-					primaryDisabled={editable && !name.trim()}
-					onPrimary={editable ? () => void save.run() : undefined}
-					destructiveLabel={canRemove ? copy.common.deleteLabel(person.name) : undefined}
-					onDestructive={canRemove ? () => setConfirmDelete(true) : undefined}
-				/>
+				{canRemove ? (
+					<InsetSection>
+						<DestructiveRow
+							title={copy.common.delete}
+							accessibilityLabel={copy.common.deleteLabel(person.name)}
+							onPress={() => setConfirmDelete(true)}
+						/>
+					</InsetSection>
+				) : null}
 			</Sheet>
 			<ConfirmSheet
 				open={confirmDelete}
@@ -235,24 +255,36 @@ export function CrewSheet({
 				open={open && !confirmDelete}
 				title={crew ? copy.people.crews.editTitle : copy.people.crews.addTitle}
 				onClose={onClose}
+				onPrimary={() => void save.run()}
+				primaryLabel={crew ? copy.common.save : copy.common.add}
+				primaryBusyLabel={crew ? copy.common.saving : copy.common.adding}
+				primaryBusy={save.busy}
+				primaryDisabled={!name.trim()}
 			>
-				<Field label={copy.people.crews.nameLabel} value={name} onChangeText={setName} />
+				<InsetSection error={save.error}>
+					<Field
+						variant="row"
+						label={copy.people.crews.nameLabel}
+						value={name}
+						onChangeText={setName}
+						last
+					/>
+				</InsetSection>
 				<MemberMultiSelect
 					label={copy.people.crews.peopleLabel}
 					people={people}
 					selected={members}
 					onChange={setMembers}
 				/>
-				<FormError message={save.error} />
-				<SheetFooter
-					primaryLabel={crew ? copy.common.save : copy.common.add}
-					primaryBusyLabel={crew ? copy.common.saving : copy.common.adding}
-					primaryBusy={save.busy}
-					primaryDisabled={!name.trim()}
-					onPrimary={() => void save.run()}
-					destructiveLabel={crew && !crew.locked ? copy.common.deleteLabel(crew.name) : undefined}
-					onDestructive={crew && !crew.locked ? () => setConfirmDelete(true) : undefined}
-				/>
+				{crew && !crew.locked ? (
+					<InsetSection>
+						<DestructiveRow
+							title={copy.common.delete}
+							accessibilityLabel={copy.common.deleteLabel(crew.name)}
+							onPress={() => setConfirmDelete(true)}
+						/>
+					</InsetSection>
+				) : null}
 			</Sheet>
 			<ConfirmSheet
 				open={confirmDelete}

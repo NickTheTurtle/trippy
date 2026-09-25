@@ -9,9 +9,8 @@ import { MAX_NOTES_LENGTH } from '@trippy/core/validate';
 import type { PlaceHit, PlaceHitDetails, Poi, Stay } from '../../lib/api-types';
 import { api, ApiError, isAbort } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
-import { Field, FormError } from '../../ui';
+import { DestructiveRow, Field, FormError, InsetSection } from '../../ui';
 import { Sheet } from '../../ui/Sheet';
-import { SheetFooter } from '../../ui/SheetFooter';
 import { ConfirmSheet } from '../../ui/ConfirmSheet';
 import { Picker, SearchablePicker } from '../../ui/controls';
 import { CoverImage } from './CoverImage';
@@ -397,13 +396,27 @@ export function AddDiscoverSheet({
 					(searched && hits.length === 0 ? copy.discover.addDialog.noMatches(name.trim()) : '');
 
 	return (
-		<Sheet open={open} title={copy.discover.addDialog.title} subtitle={city.name} onClose={onClose}>
-			<Field
-				label={copy.discover.addDialog.nameLabel}
-				value={name}
-				onChangeText={onNameChange}
-				autoCorrect={false}
-			/>
+		<Sheet
+			open={open}
+			title={copy.discover.addDialog.title}
+			subtitle={city.name}
+			onClose={onClose}
+			onPrimary={submit}
+			primaryLabel={copy.common.add}
+			primaryBusyLabel={copy.common.adding}
+			primaryBusy={add.busy}
+			primaryDisabled={detailLoading}
+		>
+			<InsetSection error={add.error}>
+				<Field
+					variant="row"
+					label={copy.discover.addDialog.nameLabel}
+					value={name}
+					onChangeText={onNameChange}
+					autoCorrect={false}
+					last
+				/>
+			</InsetSection>
 			{message ? (
 				<Text style={searchError ? { ...type.small, color: color.dangerInk } : type.faint}>
 					{message}
@@ -435,42 +448,43 @@ export function AddDiscoverSheet({
 				value={view}
 				onPick={changeType}
 			/>
-			{stay ? (
-				<View style={{ gap: space.md }}>
+			<InsetSection>
+				{stay ? (
+					<>
+						<Field
+							variant="row"
+							label={`${copy.discover.addDialog.priceLabel}${copy.ui.field.optionalSuffix}`}
+							value={price}
+							onChangeText={setPrice}
+							keyboardType="decimal-pad"
+						/>
+						<SearchablePicker
+							variant="row"
+							label={copy.discover.addDialog.currencyLabel}
+							value={cur}
+							options={currencyOptions(currencies)}
+							onPick={setCur}
+							noMatches={copy.ui.currencyPicker.noMatches}
+							last
+						/>
+					</>
+				) : (
 					<Field
-						label={`${copy.discover.addDialog.priceLabel}${copy.ui.field.optionalSuffix}`}
-						value={price}
-						onChangeText={setPrice}
-						keyboardType="decimal-pad"
+						variant="row"
+						label={`${copy.discover.addDialog.activityLabel}${copy.ui.field.optionalSuffix}`}
+						value={activity}
+						onChangeText={setActivity}
+						last
 					/>
-					<SearchablePicker
-						label={copy.discover.addDialog.currencyLabel}
-						value={cur}
-						options={currencyOptions(currencies)}
-						onPick={setCur}
-						noMatches={copy.ui.currencyPicker.noMatches}
-					/>
-				</View>
-			) : (
-				<Field
-					label={`${copy.discover.addDialog.activityLabel}${copy.ui.field.optionalSuffix}`}
-					value={activity}
-					onChangeText={setActivity}
-				/>
-			)}
-			<LinkField value={url} onChangeText={setUrl} />
+				)}
+			</InsetSection>
+			<InsetSection>
+				<LinkField value={url} onChangeText={setUrl} />
+			</InsetSection>
 			<TextArea
 				label={`${copy.discover.placeFields.notesLabel}${copy.ui.field.optionalSuffix}`}
 				value={notes}
 				onChangeText={setNotes}
-			/>
-			<FormError message={add.error} />
-			<SheetFooter
-				primaryLabel={copy.common.add}
-				primaryBusyLabel={copy.common.adding}
-				primaryBusy={add.busy}
-				primaryDisabled={detailLoading}
-				onPrimary={submit}
 			/>
 		</Sheet>
 	);
@@ -524,15 +538,33 @@ export function EditPlaceSheet({
 
 	return (
 		<>
-			<Sheet open={open && !confirm} title={copy.discover.editPlace.title} onClose={onClose}>
-				<Field label={copy.discover.editPlace.nameLabel} value={name} onChangeText={setName} />
+			<Sheet
+				open={open && !confirm}
+				title={copy.discover.editPlace.title}
+				onClose={onClose}
+				onPrimary={() => void save.run()}
+				primaryLabel={copy.common.save}
+				primaryBusyLabel={copy.common.saving}
+				primaryBusy={save.busy}
+			>
+				<InsetSection error={save.error}>
+					<Field
+						variant="row"
+						label={copy.discover.editPlace.nameLabel}
+						value={name}
+						onChangeText={setName}
+						last
+					/>
+				</InsetSection>
 				<Picker
 					label={copy.discover.placeFields.typeLabel}
 					options={POI_TYPE_OPTIONS}
 					value={kind}
 					onPick={(v) => setKind(v as PoiKind)}
 				/>
-				<LinkField value={url} onChangeText={setUrl} />
+				<InsetSection>
+					<LinkField value={url} onChangeText={setUrl} />
+				</InsetSection>
 				<TextArea
 					label={`${copy.discover.placeFields.notesLabel}${copy.ui.field.optionalSuffix}`}
 					value={notes}
@@ -544,15 +576,13 @@ export function EditPlaceSheet({
 						{copy.discover.editPlace.voters(poi.voters)}
 					</Text>
 				) : null}
-				<FormError message={save.error} />
-				<SheetFooter
-					primaryLabel={copy.common.save}
-					primaryBusyLabel={copy.common.saving}
-					primaryBusy={save.busy}
-					onPrimary={() => void save.run()}
-					destructiveLabel={poi ? copy.common.deleteLabel(poi.name) : copy.common.delete}
-					onDestructive={() => setConfirm(true)}
-				/>
+				<InsetSection>
+					<DestructiveRow
+						title={copy.common.delete}
+						accessibilityLabel={poi ? copy.common.deleteLabel(poi.name) : copy.common.delete}
+						onPress={() => setConfirm(true)}
+					/>
+				</InsetSection>
 			</Sheet>
 			<ConfirmSheet
 				open={!!poi && confirm}
@@ -640,36 +670,54 @@ export function EditStaySheet({
 
 	return (
 		<>
-			<Sheet open={open && !confirm} title={copy.discover.editStay.title} onClose={onClose}>
-				<Field label={copy.discover.editStay.nameLabel} value={name} onChangeText={setName} />
-				<Field
-					label={`${copy.discover.editStay.priceLabel}${copy.ui.field.optionalSuffix}`}
-					value={price}
-					onChangeText={setPrice}
-					keyboardType="decimal-pad"
-				/>
-				<SearchablePicker
-					label={copy.discover.editStay.currencyLabel}
-					value={cur}
-					options={currencyOptions(currencies)}
-					onPick={setCur}
-					noMatches={copy.ui.currencyPicker.noMatches}
-				/>
-				<LinkField value={url} onChangeText={setUrl} />
+			<Sheet
+				open={open && !confirm}
+				title={copy.discover.editStay.title}
+				onClose={onClose}
+				onPrimary={submit}
+				primaryLabel={copy.common.save}
+				primaryBusyLabel={copy.common.saving}
+				primaryBusy={save.busy}
+			>
+				<InsetSection error={save.error}>
+					<Field
+						variant="row"
+						label={copy.discover.editStay.nameLabel}
+						value={name}
+						onChangeText={setName}
+					/>
+					<Field
+						variant="row"
+						label={`${copy.discover.editStay.priceLabel}${copy.ui.field.optionalSuffix}`}
+						value={price}
+						onChangeText={setPrice}
+						keyboardType="decimal-pad"
+					/>
+					<SearchablePicker
+						variant="row"
+						label={copy.discover.editStay.currencyLabel}
+						value={cur}
+						options={currencyOptions(currencies)}
+						onPick={setCur}
+						noMatches={copy.ui.currencyPicker.noMatches}
+						last
+					/>
+				</InsetSection>
+				<InsetSection>
+					<LinkField value={url} onChangeText={setUrl} />
+				</InsetSection>
 				<TextArea
 					label={`${copy.discover.placeFields.notesLabel}${copy.ui.field.optionalSuffix}`}
 					value={notes}
 					onChangeText={setNotes}
 				/>
-				<FormError message={save.error} />
-				<SheetFooter
-					primaryLabel={copy.common.save}
-					primaryBusyLabel={copy.common.saving}
-					primaryBusy={save.busy}
-					onPrimary={submit}
-					destructiveLabel={stay ? copy.common.deleteLabel(stay.name) : copy.common.delete}
-					onDestructive={() => setConfirm(true)}
-				/>
+				<InsetSection>
+					<DestructiveRow
+						title={copy.common.delete}
+						accessibilityLabel={stay ? copy.common.deleteLabel(stay.name) : copy.common.delete}
+						onPress={() => setConfirm(true)}
+					/>
+				</InsetSection>
 			</Sheet>
 			<ConfirmSheet
 				open={!!stay && confirm}

@@ -3782,6 +3782,17 @@ the bottom of the sheet content, and still open a confirmation sheet before anyt
 removed. The web app keeps its own phone footer rule because it is a browser dialog system,
 not a native form sheet.
 
+**Native planning lists are grouped lists before they are cards.** Discover, Preparation
+and People use the same inset-section row system as Trips and Account rather than each
+feature inventing its own card stack. Discover keeps the existing city, type and vote model,
+but type is a segmented control and votes are trailing tinted pills so the place name and
+photo stay primary. Preparation keeps the same Tasks / Packing / Costs sections and budget
+math, but rows are grouped like Reminders and Settings so assignee progress reads as row
+metadata rather than as a cluster of badges. People keeps roster and crew behavior unchanged,
+with avatar initials and role/status metadata in the row instead of separate chips. This is
+not a new feature layer. It is the same data flow and live-update behavior drawn with one
+native hierarchy.
+
 **Native People keeps roster-owned edits separate from account-owned identities.** The
 organizer may create stand-ins, attach an invite email to them and remove non-organizers,
 but a registered member still owns their own name and address. Opening a registered

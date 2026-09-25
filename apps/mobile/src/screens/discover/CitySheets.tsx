@@ -3,9 +3,8 @@ import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { copy } from '@trippy/copy';
 import { api, ApiError, isAbort } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
-import { FormError } from '../../ui';
+import { InsetSection } from '../../ui';
 import { Sheet } from '../../ui/Sheet';
-import { SheetFooter } from '../../ui/SheetFooter';
 import { ConfirmSheet } from '../../ui/ConfirmSheet';
 import { color, fieldLabel, radius, space, type } from '../../theme';
 
@@ -224,16 +223,17 @@ export function CitySheet({
 			title={city ? copy.mobileDiscover.editCityTitle : copy.addCity.title}
 			subtitle={tripName}
 			onClose={onClose}
+			onPrimary={() => void save.run()}
+			primaryLabel={copy.common.save}
+			primaryBusyLabel={copy.common.saving}
+			primaryBusy={save.busy}
+			primaryDisabled={!picked}
 		>
-			<CitySearch picked={picked} onPick={setPicked} onTrip={onTrip} />
-			<FormError message={save.error} />
-			<SheetFooter
-				primaryLabel={copy.common.save}
-				primaryBusyLabel={copy.common.saving}
-				primaryBusy={save.busy}
-				primaryDisabled={!picked}
-				onPrimary={() => void save.run()}
-			/>
+			<InsetSection error={save.error}>
+				<View style={{ padding: space.md }}>
+					<CitySearch picked={picked} onPick={setPicked} onTrip={onTrip} />
+				</View>
+			</InsetSection>
 		</Sheet>
 	);
 }

@@ -11,9 +11,20 @@ import { useApi } from '../../../src/hooks/useApi';
 import { useMutation } from '../../../src/hooks/useMutation';
 import { useLiveSection } from '../../../src/hooks/useTripEvents';
 import { useToast } from '../../../src/ui/Toast';
-import { Button, Card, EmptyState, FormError, Head, Loading, Screen } from '../../../src/ui';
-import { Picker } from '../../../src/ui/controls';
+import {
+	Button,
+	Card,
+	EmptyState,
+	FormError,
+	InsetGroupedList,
+	InsetSection,
+	ListRow,
+	Loading,
+	Screen
+} from '../../../src/ui';
+import { SegmentedControl } from '../../../src/ui/controls';
 import { color, radius, space, type } from '../../../src/theme';
+import { AppSymbol } from '../../../src/ui/Symbol';
 import { CoverImage } from '../../../src/screens/discover/CoverImage';
 import {
 	CitySheet,
@@ -140,15 +151,16 @@ export default function Discover() {
 			<>
 				<Screen>
 					<FormError message={error ?? ''} />
-					<Card style={{ gap: space.md }}>
-						<Head>{copy.discover.noCities.heading}</Head>
-						<Text style={type.small}>{copy.discover.noCities.body}</Text>
-						{isOrganizer ? (
-							<Button label={copy.discover.noCities.cta} onPress={() => setCitySheet('add')} />
-						) : (
-							<Text style={type.faint}>{copy.discover.noCities.memberNote}</Text>
-						)}
-					</Card>
+					<InsetSection title={copy.discover.noCities.heading}>
+						<View style={{ padding: space.md, gap: space.md }}>
+							<Text style={type.small}>{copy.discover.noCities.body}</Text>
+							{isOrganizer ? (
+								<Button label={copy.discover.noCities.cta} onPress={() => setCitySheet('add')} />
+							) : (
+								<Text style={type.faint}>{copy.discover.noCities.memberNote}</Text>
+							)}
+						</View>
+					</InsetSection>
 				</Screen>
 				{trip && citySheet === 'add' ? (
 					<CitySheet
@@ -218,32 +230,23 @@ export default function Discover() {
 					onDelete={() => setDeleteCity(current)}
 				/>
 
-				<Picker
-					label={copy.discover.header.typeAriaLabel}
-					options={FILTERS.map((f) => ({ key: f.key, label: f.label }))}
-					value={filter}
+				<SegmentedControl
+					items={FILTERS.map((f) => ({ key: f.key, label: f.label }))}
+					active={filter}
 					onPick={(key) => setFilter(key as Filter)}
 				/>
 
-				<Card>
-					<Head
-						action={
-							<Pressable onPress={() => setAdding(true)} hitSlop={8}>
-								<Text style={{ ...type.body, color: color.accent, fontWeight: '600' }}>
-									+ {copy.discover.header.add}
-								</Text>
-							</Pressable>
-						}
-					>
-						{copy.discover.cityList.cityLabel(
-							current.name,
-							ambiguous.has(current.id) ? current.region : null
-						)}
-					</Head>
+				<Button tone="plain" label={copy.discover.header.add} onPress={() => setAdding(true)} />
+				<InsetSection
+					title={copy.discover.cityList.cityLabel(
+						current.name,
+						ambiguous.has(current.id) ? current.region : null
+					)}
+				>
 					{items.length === 0 ? (
 						<EmptyState message={copy.common.nothingAdded} />
 					) : (
-						<View style={{ gap: space.md, marginTop: space.md }}>
+						<View style={{ gap: space.md, padding: space.md }}>
 							{items.map((item) =>
 								'stay' in item ? (
 									<StayCard
@@ -267,7 +270,7 @@ export default function Discover() {
 							)}
 						</View>
 					)}
-				</Card>
+				</InsetSection>
 			</Screen>
 
 			{trip && citySheet !== null ? (
@@ -411,17 +414,11 @@ function CityStrip({
 				</View>
 			</ScrollView>
 			{isOrganizer ? (
-				<View style={{ flexDirection: 'row', gap: space.sm }}>
-					<Button label={copy.discover.cityList.addCity} small onPress={onAdd} />
-					<Button label={copy.mobileDiscover.editCityButton} small tone="ghost" onPress={onEdit} />
-					<Button
-						label={copy.common.delete}
-						small
-						tone="danger"
-						onPress={onDelete}
-						disabled={!canDelete}
-					/>
-				</View>
+				<Pressable onPress={onAdd} hitSlop={8}>
+					<Text style={{ ...type.footnote, color: color.accent, fontWeight: '600' }}>
+						{copy.discover.cityList.addCity}
+					</Text>
+				</Pressable>
 			) : null}
 		</View>
 	);

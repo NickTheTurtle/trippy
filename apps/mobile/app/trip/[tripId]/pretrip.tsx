@@ -8,12 +8,21 @@ import { useTripId } from '../../../src/trip-id';
 import { useApi } from '../../../src/hooks/useApi';
 import { useMutation } from '../../../src/hooks/useMutation';
 import { useLiveSection } from '../../../src/hooks/useTripEvents';
-import { Button, Card, EmptyState, FormError, Head, Loading, Screen } from '../../../src/ui';
+import {
+	Button,
+	EmptyState,
+	FormError,
+	InsetSection,
+	ListRow,
+	Loading,
+	Screen
+} from '../../../src/ui';
 import { CheckBox, Picker, SegmentedControl } from '../../../src/ui/controls';
 import { TaskSheet } from '../../../src/screens/TaskSheet';
 import { CostSheet } from '../../../src/screens/CostSheet';
 import { useToast } from '../../../src/ui/Toast';
 import { color, space, type } from '../../../src/theme';
+import { AppSymbol } from '../../../src/ui/Symbol';
 
 type Member = { id: string; name: string };
 type Crew = { id: string; name: string; members: string[]; locked?: boolean };
@@ -230,6 +239,7 @@ function Tasks({
 					onEdit={onEdit}
 				/>
 			) : null}
+			<Button tone="plain" label={copy.preparation.add} onPress={onAdd} />
 		</>
 	);
 }
@@ -252,25 +262,25 @@ function TaskCard({
 	onEdit: (task: Task) => void;
 }) {
 	return (
-		<Card>
-			<Head action={onAdd ? <AddText onPress={onAdd} /> : undefined}>{title}</Head>
+		<InsetSection title={title}>
 			{items.length === 0 ? (
 				<EmptyState message={copy.common.nothingAdded} />
 			) : (
-				<View style={{ marginTop: space.sm }}>
-					{items.map((task) => (
+				<>
+					{items.map((task, index) => (
 						<TaskRow
 							key={task.id}
 							task={task}
+							last={index === items.length - 1}
 							me={me}
 							kind={kind}
 							onToggle={onToggle}
 							onEdit={() => onEdit(task)}
 						/>
 					))}
-				</View>
+				</>
 			)}
-		</Card>
+		</InsetSection>
 	);
 }
 
@@ -279,13 +289,15 @@ function TaskRow({
 	me,
 	kind,
 	onToggle,
-	onEdit
+	onEdit,
+	last
 }: {
 	task: Task;
 	me: string;
 	kind: 'tasks' | 'packing';
 	onToggle: (steps: { taskId: string; userId?: string; done: boolean }[]) => void;
 	onEdit: () => void;
+	last: boolean;
 }) {
 	const assigned = task.people.length > 0;
 	const mine = task.people.find((p) => p.id === me);
@@ -406,8 +418,10 @@ function Costs({
 		: data.budget.items;
 	return (
 		<>
-			<Card>
-				<View style={{ flexDirection: 'row', alignItems: 'center', gap: space.lg }}>
+			<InsetSection title={copy.preparation.sections.costs}>
+				<View
+					style={{ flexDirection: 'row', alignItems: 'center', gap: space.lg, padding: space.md }}
+				>
 					{data.budget.items.length > 0 ? (
 						<>
 							<View style={{ flex: 1 }}>
@@ -426,11 +440,11 @@ function Costs({
 					)}
 					<AddText onPress={onAdd} />
 				</View>
-			</Card>
+			</InsetSection>
 			{data.budget.items.length > 0 ? (
 				<ViewAs members={data.members} me={data.me} value={viewAs} onChange={onViewAs} />
 			) : null}
-			<Card>
+			<InsetSection>
 				{data.budget.items.length === 0 ? (
 					<EmptyState message={copy.common.nothingAdded} />
 				) : (
@@ -489,7 +503,7 @@ function Costs({
 						</View>
 					</View>
 				)}
-			</Card>
+			</InsetSection>
 		</>
 	);
 }
@@ -556,8 +570,7 @@ function ViewAs({
 }) {
 	if (members.length < 2) return null;
 	return (
-		<Card style={{ gap: space.sm }}>
-			<Text style={type.faint}>{copy.viewAs.label}</Text>
+		<InsetSection title={copy.viewAs.label}>
 			<Picker
 				options={[
 					{ key: '', label: copy.viewAs.everyone },
@@ -569,7 +582,7 @@ function ViewAs({
 				value={value}
 				onPick={onChange}
 			/>
-		</Card>
+		</InsetSection>
 	);
 }
 
