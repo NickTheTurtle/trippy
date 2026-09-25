@@ -16,6 +16,7 @@ export type PlaceDraft = {
 	place: string;
 	spot: SavedPoi | null;
 	placeable: boolean;
+	saving: boolean;
 	field: React.ReactNode;
 	retype: (next: EventType) => void;
 };
@@ -145,8 +146,8 @@ export function usePlaceField({
 		}, SEARCH_DEBOUNCE_MS);
 	}
 
-	async function adopt(hit: PlaceHit) {
-		if (!city || savingHit) return;
+	async function adopt(hit: PlaceHit): Promise<boolean> {
+		if (!city || savingHit) return false;
 		setPlace(hit.name);
 		setPoi('');
 		setSavingHit(true);
@@ -212,8 +213,10 @@ export function usePlaceField({
 			);
 			setPoi(made.id);
 			clearSearch();
+			return true;
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : copy.discover.addDialog.fallback);
+			return false;
 		} finally {
 			setSavingHit(false);
 		}
@@ -290,8 +293,9 @@ export function usePlaceField({
 									accessory="none"
 									onPress={() => {
 										if (!savingHit) {
-											void adopt(hit);
-											setEditing(false);
+											void adopt(hit).then((ok) => {
+												if (ok) setEditing(false);
+											});
 										}
 									}}
 									last={index === list.length - 1}
@@ -303,5 +307,5 @@ export function usePlaceField({
 		</>
 	);
 
-	return { poi, place, spot, placeable, field, retype };
+	return { poi, place, spot, placeable, saving: savingHit, field, retype };
 }

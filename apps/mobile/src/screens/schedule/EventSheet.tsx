@@ -24,7 +24,6 @@ import {
 	dayLabel,
 	deriveTitle,
 	modeLabel,
-	placeLabel,
 	rangeLabel,
 	shiftDay,
 	typeLabel
@@ -322,12 +321,13 @@ export function EventSheet({
 				primaryLabel={locked ? undefined : event ? copy.common.save : copy.common.add}
 				primaryBusyLabel={event ? copy.common.saving : copy.common.adding}
 				primaryBusy={save.busy}
+				primaryDisabled={place.saving}
 				error={save.error}
 			>
 				<InsetSection>
 					<Field
 						variant="row"
-						label={`${placeLabel(eventType)}${copy.ui.field.optionalSuffix}`}
+						label={`${copy.schedule.fields.label}${copy.ui.field.optionalSuffix}`}
 						value={label}
 						placeholder={derived}
 						maxLength={MAX_NAME_LENGTH}
@@ -624,28 +624,16 @@ function TimeRow({
 	onChange: (value: number) => void;
 	last?: boolean;
 }) {
-	const [open, setOpen] = useState(false);
 	return (
-		<View>
-			<ListRow
-				title={label}
-				value={timeLabel(value)}
-				onPress={() => setOpen((shown) => !shown)}
-				last={last && !open}
-			/>
-			{open ? (
-				<View
-					style={{
-						paddingHorizontal: space.md,
-						paddingBottom: space.sm,
-						borderBottomWidth: last ? 0 : hairline,
-						borderBottomColor: color.line
-					}}
-				>
-					<TimeField label={label} value={value} minimum={min} maximum={max} onChange={onChange} />
-				</View>
-			) : null}
-		</View>
+		<TimeField
+			variant="row"
+			label={label}
+			value={value}
+			minimum={min}
+			maximum={max}
+			onChange={onChange}
+			last={last}
+		/>
 	);
 }
 

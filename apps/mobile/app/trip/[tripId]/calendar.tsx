@@ -17,6 +17,7 @@ import {
 import { DateField, SegmentedControl } from '../../../src/ui/controls';
 import { Sheet } from '../../../src/ui/Sheet';
 import { useTripHeaderAction } from '../../../src/ui/TripHeaderAction';
+import { useSheetHandoff } from '../../../src/ui/useSheetHandoff';
 import { AppSymbol } from '../../../src/ui/Symbol';
 import { color, hairline, radius, space, type } from '../../../src/theme';
 import { DayBoard } from '../../../src/screens/schedule/DayBoard';
@@ -88,6 +89,10 @@ export default function Calendar() {
 		if (!locked && data) setAddMenuOpen(true);
 	}, [data, locked]);
 	useTripHeaderAction(!locked && data ? headerAdd : null);
+	const addHandoff = useSheetHandoff({
+		event: () => data && setAdding({ day: data.day }),
+		stay: () => data && setAdding({ day: data.day, type: 'stay' })
+	});
 
 	if (schedule.loading && !data) return <Loading />;
 	if (!data || !schedule.anchor) {
@@ -286,18 +291,14 @@ export default function Calendar() {
 			<AddMenuSheet
 				open={addMenuOpen}
 				onClose={() => setAddMenuOpen(false)}
-				onEvent={() => {
-					setAddMenuOpen(false);
-					setAdding({ day: data.day });
-				}}
-				onStay={() => {
-					setAddMenuOpen(false);
-					setAdding({ day: data.day, type: 'stay' });
-				}}
+				onDismiss={addHandoff.flush}
+				onEvent={() => addHandoff.queue('event', () => setAddMenuOpen(false))}
+				onStay={() => addHandoff.queue('stay', () => setAddMenuOpen(false))}
 			/>
 			<JumpSheet
 				open={jumpOpen}
 				value={data.day}
+				days={data.days}
 				firstDay={data.firstDay}
 				lastDay={data.lastDay}
 				onClose={() => setJumpOpen(false)}
@@ -361,16 +362,23 @@ function IconButton({
 function AddMenuSheet({
 	open,
 	onClose,
+	onDismiss,
 	onEvent,
 	onStay
 }: {
 	open: boolean;
 	onClose: () => void;
+	onDismiss: () => void;
 	onEvent: () => void;
 	onStay: () => void;
 }) {
 	return (
-		<Sheet open={open} title={copy.schedule.add.replace(/^\+\s*/, '')} onClose={onClose}>
+		<Sheet
+			open={open}
+			title={copy.schedule.add.replace(/^\+\s*/, '')}
+			onClose={onClose}
+			onDismiss={onDismiss}
+		>
 			<InsetSection>
 				<ListRow
 					title={copy.schedule.dialog.add}
@@ -391,6 +399,7 @@ function AddMenuSheet({
 function JumpSheet({
 	open,
 	value,
+	days,
 	firstDay,
 	lastDay,
 	onClose,
@@ -398,6 +407,7 @@ function JumpSheet({
 }: {
 	open: boolean;
 	value: string;
+	days: string[];
 	firstDay: string;
 	lastDay: string;
 	onClose: () => void;
@@ -412,7 +422,13 @@ function JumpSheet({
 			open={open}
 			title={copy.schedule.nav.jumpToDate}
 			onClose={onClose}
-			onPrimary={() => onPick(draft)}
+			onPrimary={() => {
+				if (days.includes(draft)) onPick(draft);
+				else {
+					setDraft(value);
+					onClose();
+				}
+			}}
 			primaryLabel={copy.common.save}
 		>
 			<InsetSection>
@@ -638,9 +654,11 @@ function JourneyCard({
 	const mode = modeLabel(leg.resolvedMode);
 	const name =
 		leg.title ?? (from ? `${mode} from ${from.title}` : to ? `${mode} to ${to.title}` : mode);
+	const detail = `${clockRange(leg.startMin, leg.endMin)}. ${mode}, ${leg.resolvedMins} min, ${peopleLabel(leg.people)}${leg.tight ? `. ${copy.viewAs.travelWarning}` : ''}`;
 	return (
 		<Pressable
 			accessibilityRole="button"
+			accessibilityLabel={`${name}. ${detail}`}
 			onPress={onPress}
 			style={({ pressed }) => ({ opacity: pressed ? 0.75 : 1 })}
 		>
@@ -650,11 +668,14 @@ function JourneyCard({
 					flexDirection: 'row',
 					alignItems: 'center',
 					gap: space.md,
-					paddingLeft: 92,
+					paddingLeft: space.md,
 					paddingRight: space.md,
 					paddingVertical: space.sm
 				}}
 			>
+				<Text style={{ ...type.footnote, color: color.inkSoft, width: 76 }}>
+					{clockRange(leg.startMin, leg.endMin)}
+				</Text>
 				<AppSymbol
 					name={symbolForMode(leg.resolvedMode)}
 					fallback="navigate-outline"

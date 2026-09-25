@@ -156,7 +156,6 @@ export function DayBoard({
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [entry.day]);
 
-	const legTargets = new Set(bars.map((bar) => bar.leg.toEventId));
 	const trims = new Map<string, number>();
 	for (const bar of bars) {
 		const bottom = topPx(bar.leg.endMin, boardStart);
@@ -297,7 +296,6 @@ export function DayBoard({
 									drawnEnd={drawnEnd}
 									peopleLabel={peopleLabel}
 									locked={locked}
-									legTarget={legTargets.has(event.id)}
 									onOpen={openBlock}
 									onBeginGesture={beginGesture}
 									onEndGesture={endGesture}
@@ -351,7 +349,6 @@ const EventBlock = memo(function EventBlock({
 	height,
 	peopleLabel,
 	locked,
-	legTarget,
 	onOpen,
 	onBeginGesture,
 	onEndGesture,
@@ -368,7 +365,6 @@ const EventBlock = memo(function EventBlock({
 	height: number;
 	peopleLabel: (ids: string[]) => string;
 	locked: boolean;
-	legTarget: boolean;
 	onOpen: (id: string) => void;
 	onBeginGesture: () => void;
 	onEndGesture: () => void;
@@ -603,13 +599,18 @@ const EventBlock = memo(function EventBlock({
 							right: 0,
 							bottom: 0,
 							height: gripHeight,
-							justifyContent: 'center'
+							alignItems: 'center',
+							justifyContent: 'flex-end',
+							paddingBottom: 3
 						}}
 					>
 						<View
 							style={{
-								height: Math.min(12, gripHeight),
-								backgroundColor: 'rgba(255,255,255,0.28)'
+								width: 24,
+								height: 3,
+								borderRadius: 2,
+								backgroundColor: EVENT_COLORS[event.type],
+								opacity: 0.4
 							}}
 						/>
 					</Animated.View>
