@@ -5,7 +5,7 @@ import { copy } from '@trippy/copy';
 import { useAuth } from '../src/auth';
 import { useMutation } from '../src/hooks/useMutation';
 import { Button, Field, InsetSection, Loading, Screen } from '../src/ui';
-import { color, space, type } from '../src/theme';
+import { color, space, type, navBarHeight } from '../src/theme';
 
 export default function Register() {
 	const { user, loading, register } = useAuth();
@@ -26,7 +26,11 @@ export default function Register() {
 	if (user) return <Redirect href="/trips" />;
 	if (pending) {
 		return (
-			<Screen topOffset={Platform.OS === 'web' ? 72 : 0} largeTitle={copy.auth.register.sentTitle}>
+			<Screen
+				safeTop
+				topOffset={Platform.OS === 'web' ? 72 : navBarHeight}
+				largeTitle={copy.auth.register.sentTitle}
+			>
 				<Text style={type.subhead}>{copy.auth.register.sentBlurb}</Text>
 				<Button label={copy.auth.login.submitLabel} onPress={() => router.replace('/login')} />
 			</Screen>
@@ -38,7 +42,11 @@ export default function Register() {
 			style={{ flex: 1 }}
 			behavior={Platform.OS === 'ios' ? 'padding' : undefined}
 		>
-			<Screen topOffset={Platform.OS === 'web' ? 72 : 0} largeTitle={copy.auth.register.title}>
+			<Screen
+				safeTop
+				topOffset={Platform.OS === 'web' ? 72 : navBarHeight}
+				largeTitle={copy.auth.register.title}
+			>
 				<Text style={type.subhead}>{copy.auth.register.blurb}</Text>
 				<InsetSection footer={copy.auth.register.passwordHint} error={submit.error}>
 					<Field

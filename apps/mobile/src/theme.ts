@@ -37,6 +37,12 @@ export const radius = {
 } as const;
 
 export const controlHeight = 44;
+/**
+ * The native navigation bar's height below the status bar. Screens drawn under a
+ * transparent header (Register, Forgot) start their content this far down, plus
+ * the safe-area top, because iOS does not inset their ScrollView on its own.
+ */
+export const navBarHeight = Platform.OS === 'android' ? 56 : 44;
 export const rowHeight = 52;
 export const screenMargin = 16;
 export const hairline = Platform.select({ web: 1, default: 0.5 }) ?? 0.5;

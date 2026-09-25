@@ -6,7 +6,7 @@ import { useAuth } from '../src/auth';
 import { api } from '../src/lib/api';
 import { useMutation } from '../src/hooks/useMutation';
 import { Button, Field, InsetSection, Loading, Screen } from '../src/ui';
-import { color, space, type } from '../src/theme';
+import { color, space, type, navBarHeight } from '../src/theme';
 
 export default function Forgot() {
 	const { user, loading } = useAuth();
@@ -21,7 +21,11 @@ export default function Forgot() {
 	if (user) return <Redirect href="/trips" />;
 	if (sent) {
 		return (
-			<Screen topOffset={Platform.OS === 'web' ? 72 : 0} largeTitle={copy.auth.forgot.sentTitle}>
+			<Screen
+				safeTop
+				topOffset={Platform.OS === 'web' ? 72 : navBarHeight}
+				largeTitle={copy.auth.forgot.sentTitle}
+			>
 				<Text style={type.subhead}>{copy.auth.forgot.sentBlurb}</Text>
 				<Button label={copy.auth.forgot.footerLink} onPress={() => router.replace('/login')} />
 			</Screen>
@@ -33,7 +37,11 @@ export default function Forgot() {
 			style={{ flex: 1 }}
 			behavior={Platform.OS === 'ios' ? 'padding' : undefined}
 		>
-			<Screen topOffset={Platform.OS === 'web' ? 72 : 0} largeTitle={copy.auth.forgot.title}>
+			<Screen
+				safeTop
+				topOffset={Platform.OS === 'web' ? 72 : navBarHeight}
+				largeTitle={copy.auth.forgot.title}
+			>
 				<Text style={type.subhead}>{copy.auth.forgot.blurb}</Text>
 				<InsetSection error={submit.error}>
 					<Field
