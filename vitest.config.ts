@@ -37,7 +37,9 @@ export default defineConfig({
 		include: [
 			'packages/core/test/**/*.test.ts',
 			'packages/server/test/**/*.test.ts',
-			'apps/api/test/**/*.test.ts'
+			'apps/api/test/**/*.test.ts',
+			// Pure helpers only: nothing here may import react-native.
+			'apps/mobile/test/**/*.test.ts'
 		],
 		environment: 'node',
 		coverage: {
