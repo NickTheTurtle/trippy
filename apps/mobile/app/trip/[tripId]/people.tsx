@@ -24,12 +24,15 @@ import {
 	type Crew,
 	type Person
 } from '../../../src/screens/PeopleSheets';
+import { lazyTab } from '../../../src/ui/nativeTabs';
 
 type Data = { me: string; organizer: boolean; people: Person[]; crews: Crew[] };
 const SECTIONS = ['members', 'crews'] as const;
 type Section = (typeof SECTIONS)[number];
 
-export default function People() {
+export default lazyTab(People);
+
+function People() {
 	const tripId = useTripId();
 	const toast = useToast();
 	const { data, error, loading, reload } = useApi<Data>(`/trips/${tripId}/people`);

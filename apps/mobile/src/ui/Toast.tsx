@@ -1,7 +1,8 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, Text } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { color, radius, space, type } from '../theme';
+import { GlassSurface } from './GlassSurface';
 
 type ToastKind = 'success' | 'error';
 type ToastState = { kind: ToastKind; message: string } | null;
@@ -44,11 +45,14 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 						zIndex: 20
 					}}
 				>
-					<View
+					<GlassSurface
+						tint={toast.kind === 'error' ? color.dangerSoft : color.accentSoft}
 						style={{
 							borderRadius: radius.section,
 							paddingHorizontal: space.md,
-							paddingVertical: space.sm,
+							paddingVertical: space.sm
+						}}
+						fallback={{
 							backgroundColor: toast.kind === 'error' ? color.dangerSoft : color.accentSoft,
 							shadowColor: '#000',
 							shadowOpacity: 0.1,
@@ -65,7 +69,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 						>
 							{toast.message}
 						</Text>
-					</View>
+					</GlassSurface>
 				</Pressable>
 			) : null}
 		</ToastContext.Provider>

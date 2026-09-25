@@ -3818,6 +3818,32 @@ the bottom of the sheet content, and still open a confirmation sheet before anyt
 removed. The web app keeps its own phone footer rule because it is a browser dialog system,
 not a native form sheet.
 
+**On iOS the trip uses the system bars, so it gets Liquid Glass.** Liquid Glass (iOS 26)
+belongs to UIKit's own navigation and tab bars, and the trip had neither: its tab bar and
+header were JavaScript views drawn by the bottom-tabs navigator. On iOS the trip now uses
+`expo-router/unstable-native-tabs`, the system `UITabBar`, which is glass, floats over the
+content, and minimizes when the list scrolls down. Native tabs draw no header, so the trip's
+bar is the parent stack's native navigation bar, configured from the trip layout, which
+also gives the trip a real back button to Your trips; its buttons get the system's glass
+capsule. Floating surfaces that are the app's own, the account menu and the toast, use
+`expo-glass-effect` (Expo Go ships it, pinned to its bundled 57.0.3) where
+`isLiquidGlassAvailable()` says so, and keep their solid look elsewhere. Lists, cards and
+forms stay solid, as Apple's own apps keep them. Android and web keep the JavaScript tabs.
+
+Native tabs brought four consequences, each handled where it arises. They mount every tab
+as soon as the trip opens, which was five fetches, five live subscriptions and the Schedule
+tab's paid routing lookups on every visit, so each tab's content mounts on first focus
+(`lazyTab`), as the JavaScript tabs already did. They inset only the scroll view present
+when a tab first mounts, which is the loading state, so `Screen` asks for the automatic
+inset itself inside them (`NativeTabsContext`) and nowhere else. They cannot show the
+trip's hidden index route, so a system link to a bare `/trip/{id}` is rewritten to its
+Discover tab in `app/+native-intent.tsx` and any other arrival there is replaced on the
+root stack. And the system title is centred, so the trip header on iOS drops the account
+menu while the back button to Your trips (which has it) exists, leaving the name room. Page
+sheets pad for the window's home indicator from `initialWindowMetrics`: inside a native
+tab the React safe-area context reports the presenting screen's inset, tab bar included,
+and the scroll view's automatic inset would add the same space again above the keyboard.
+
 **On iOS a sheet is the system page sheet, and short choices are action sheets.** The
 first native sheets were a transparent Modal with a view sliding up over a dimmed,
 shadowed backdrop. It moved like no iOS app does. `Sheet` now presents with

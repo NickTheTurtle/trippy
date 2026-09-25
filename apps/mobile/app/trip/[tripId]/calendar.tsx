@@ -34,10 +34,13 @@ import {
 	typeLabel
 } from '../../../src/screens/schedule/shared';
 import type { BoardDay, EventRow, LegRow, ScheduleData } from '../../../src/screens/schedule/types';
+import { lazyTab } from '../../../src/ui/nativeTabs';
 
 type TripData = { trip: { schedule_locked: number } };
 
-export default function Calendar() {
+export default lazyTab(Calendar);
+
+function Calendar() {
 	const tripId = useTripId();
 	const toast = useToast();
 	const [gestureActive, setGestureActive] = useState(false);

@@ -25,6 +25,7 @@ import { useTripHeaderAction } from '../../../src/ui/TripHeaderAction';
 import { AppSymbol } from '../../../src/ui/Symbol';
 import { Sheet } from '../../../src/ui/Sheet';
 import { color, radius, rowInset, space, type } from '../../../src/theme';
+import { lazyTab } from '../../../src/ui/nativeTabs';
 
 const SECTIONS = ['expenses', 'balances', 'settle'] as const;
 type Section = (typeof SECTIONS)[number];
@@ -38,7 +39,9 @@ function netFor(expense: Expense, userId: string): number {
 	return (expense.payer_id === userId ? expense.home_cents : 0) - (expense.shares[userId] ?? 0);
 }
 
-export default function Expenses() {
+export default lazyTab(Expenses);
+
+function Expenses() {
 	const tripId = useTripId();
 	const toast = useToast();
 	const { data, error, loading, reload } = useApi<ExpensesData>(`/trips/${tripId}/expenses`);

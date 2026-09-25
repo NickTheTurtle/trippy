@@ -36,6 +36,7 @@ import {
 } from '../theme';
 import { EmptyMark } from './EmptyMark';
 import { LiveOff } from './LiveOff';
+import { useInNativeTabs } from './nativeTabs';
 import { AppSymbol, type AppSymbolName } from './Symbol';
 
 type SymbolSpec = {
@@ -249,6 +250,7 @@ export function Screen({
 	topOffset?: number;
 }) {
 	const insets = useSafeAreaInsets();
+	const inTabs = useInNativeTabs();
 	const content = (
 		<>
 			<LiveOff />
@@ -269,6 +271,7 @@ export function Screen({
 			keyboardShouldPersistTaps="handled"
 			refreshControl={refreshControl}
 			scrollEnabled={scrollEnabled}
+			contentInsetAdjustmentBehavior={inTabs ? 'automatic' : undefined}
 		>
 			{content}
 		</ScrollView>

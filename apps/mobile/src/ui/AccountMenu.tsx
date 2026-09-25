@@ -4,6 +4,7 @@ import { router } from 'expo-router';
 import { copy } from '@trippy/copy';
 import { useAuth } from '../auth';
 import { color, radius, space, type } from '../theme';
+import { GlassSurface } from './GlassSurface';
 
 /**
  * The avatar in the top right, and the menu behind it.
@@ -40,19 +41,24 @@ export function AccountMenu() {
 				<Pressable style={s.backdrop} onPress={() => setOpen(false)}>
 					{/* Stops a tap inside the menu from reaching the backdrop and
 					    dismissing it before the item's own press lands. */}
-					<Pressable style={s.menu} onPress={() => {}}>
-						<Text style={[type.faint, { paddingHorizontal: space.md, paddingBottom: space.xs }]}>
-							{user.email}
-						</Text>
-						<Item label={copy.trips.heading} onPress={go(() => router.replace('/trips'))} />
-						<Item label={copy.shell.accountSettings} onPress={go(() => router.push('/account'))} />
-						<Item
-							label={copy.shell.logOut}
-							danger
-							onPress={go(() => {
-								void logOut().then(() => router.replace('/login'));
-							})}
-						/>
+					<Pressable style={s.menuFrame} onPress={() => {}}>
+						<GlassSurface style={s.menu} fallback={s.menuSolid}>
+							<Text style={[type.faint, { paddingHorizontal: space.md, paddingBottom: space.xs }]}>
+								{user.email}
+							</Text>
+							<Item label={copy.trips.heading} onPress={go(() => router.replace('/trips'))} />
+							<Item
+								label={copy.shell.accountSettings}
+								onPress={go(() => router.push('/account'))}
+							/>
+							<Item
+								label={copy.shell.logOut}
+								danger
+								onPress={go(() => {
+									void logOut().then(() => router.replace('/login'));
+								})}
+							/>
+						</GlassSurface>
 					</Pressable>
 				</Pressable>
 			</Modal>
@@ -91,16 +97,8 @@ const s = StyleSheet.create({
 	},
 	initial: { color: '#fff', fontWeight: '700', fontSize: 13 },
 	backdrop: { flex: 1, backgroundColor: 'rgba(28,35,33,0.18)' },
-	menu: {
-		position: 'absolute',
-		top: 96,
-		right: space.lg,
-		minWidth: 200,
-		backgroundColor: color.surface,
-		borderRadius: radius.md,
-		borderWidth: 1,
-		borderColor: color.line,
-		paddingVertical: space.sm
-	},
+	menuFrame: { position: 'absolute', top: 96, right: space.lg, minWidth: 200 },
+	menu: { borderRadius: radius.lg, paddingVertical: space.sm, overflow: 'hidden' },
+	menuSolid: { backgroundColor: color.surface, borderWidth: 1, borderColor: color.line },
 	item: { paddingHorizontal: space.md, paddingVertical: 10, borderRadius: radius.sm }
 });

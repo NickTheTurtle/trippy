@@ -40,6 +40,7 @@ import {
 	EditStaySheet
 } from '../../../src/screens/discover/PlaceSheets';
 import { useDiscoverVotes } from '../../../src/screens/discover/useDiscoverVotes';
+import { lazyTab } from '../../../src/ui/nativeTabs';
 
 type TripData = {
 	trip: {
@@ -67,7 +68,9 @@ type VotedStay = Stay & { voteBusy?: boolean };
 type GridItem =
 	{ key: string; votes: number; stay: VotedStay } | { key: string; votes: number; poi: VotedPoi };
 
-export default function Discover() {
+export default lazyTab(Discover);
+
+function Discover() {
 	const tripId = useTripId();
 	const toast = useToast();
 	const { data, error, loading, reload } = useApi<DiscoverData>(`/trips/${tripId}/discover`);
