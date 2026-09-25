@@ -7,6 +7,7 @@ import { useAuth } from '../src/auth';
 import { useApi } from '../src/hooks/useApi';
 import { EmptyState, FormError, InsetGroupedList, ListRow, Loading, Screen } from '../src/ui';
 import { AppSymbol } from '../src/ui/Symbol';
+import { EmptyMark } from '../src/ui/EmptyMark';
 import { AccountMenu } from '../src/ui/AccountMenu';
 import { NewTrip } from '../src/screens/NewTrip';
 import { color, headerEdge, space, type } from '../src/theme';
@@ -72,11 +73,22 @@ export default function Trips() {
 				) : trips.length === 0 ? (
 					<EmptyState graphic message={copy.common.nothingAdded} />
 				) : (
-					<InsetGroupedList>
-						{trips.map((trip, index) => (
-							<TripRow key={trip.id} trip={trip} last={index === trips.length - 1} />
-						))}
-					</InsetGroupedList>
+					<>
+						<InsetGroupedList>
+							{trips.map((trip, index) => (
+								<TripRow key={trip.id} trip={trip} last={index === trips.length - 1} />
+							))}
+						</InsetGroupedList>
+						{/* A short list leaves most of the phone bare under it, which read
+						    as unfinished. The fly fills that space, with no caption since
+						    the list is not empty; a list long enough to fill the screen
+						    does not need it. */}
+						{trips.length < SPARSE_TRIPS ? (
+							<View style={styles.sparse}>
+								<EmptyMark />
+							</View>
+						) : null}
+					</>
 				)}
 			</Screen>
 			<NewTrip
@@ -106,3 +118,14 @@ function TripRow({ trip, last }: { trip: Trip; last: boolean }) {
 		/>
 	);
 }
+
+const SPARSE_TRIPS = 4;
+
+const styles = {
+	sparse: {
+		flexGrow: 1,
+		alignItems: 'center' as const,
+		justifyContent: 'center' as const,
+		paddingVertical: space.xxl
+	}
+};
