@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ElementRef } from 'react';
 import { Text, View, useWindowDimensions } from 'react-native';
 import {
@@ -28,7 +28,7 @@ import {
 	topPx,
 	windowStart
 } from './shared';
-import { passedGestureSlop, snapMoveStart, snapResizeEnd } from './gesture';
+import { gripHeightForBlock, passedGestureSlop, snapMoveStart, snapResizeEnd } from './gesture';
 import type { BoardDay, EventRow, LegRow } from './types';
 
 const GUTTER = 58;
@@ -280,17 +280,20 @@ export function DayBoard({
 						{entry.events.map((event) => {
 							const placed = layout.placed.get(event.id);
 							if (!placed) return null;
+							const drawnStart = baseStartFor(event);
+							const drawnEnd = baseEndFor(event);
 							const trimmedHeight =
-								heightPx(baseStartFor(event), baseEndFor(event), boardStart) -
-								(trims.get(event.id) ?? 0);
+								heightPx(drawnStart, drawnEnd, boardStart) - (trims.get(event.id) ?? 0);
 							return (
 								<EventBlock
 									key={event.id}
 									event={event}
 									left={GUTTER + placed.left * laneW}
 									width={Math.max(44, placed.width * laneW - GAP)}
-									top={topPx(baseStartFor(event), boardStart)}
+									top={topPx(drawnStart, boardStart)}
 									height={Math.max(MIN_LEG_H, trimmedHeight)}
+									drawnStart={drawnStart}
+									drawnEnd={drawnEnd}
 									peopleLabel={peopleLabel}
 									locked={locked}
 									legTarget={legTargets.has(event.id)}
@@ -353,7 +356,9 @@ const EventBlock = memo(function EventBlock({
 	onEndGesture,
 	onReportMinute,
 	onCommitMove,
-	onCommitResize
+	onCommitResize,
+	drawnStart,
+	drawnEnd
 }: {
 	event: EventRow;
 	left: number;
@@ -369,6 +374,8 @@ const EventBlock = memo(function EventBlock({
 	onReportMinute: (label: ActiveLabel) => void;
 	onCommitMove: (id: string, minute: number) => void;
 	onCommitResize: (id: string, minute: number) => void;
+	drawnStart: number;
+	drawnEnd: number;
 }) {
 	const translateY = useSharedValue(0);
 	const extraH = useSharedValue(0);
@@ -377,25 +384,15 @@ const EventBlock = memo(function EventBlock({
 	const lastMoveMinute = useSharedValue(event.start_min);
 	const lastEndMinute = useSharedValue(event.end_min);
 
-	useEffect(() => {
+	useLayoutEffect(() => {
 		translateY.value = 0;
 		extraH.value = 0;
-		lastMoveMinute.value = event.start_min;
-		lastEndMinute.value = event.end_min;
+		lastMoveMinute.value = drawnStart;
+		lastEndMinute.value = drawnEnd;
 		moved.value = false;
 		panStarted.value = false;
-	}, [
-		event.start_min,
-		event.end_min,
-		extraH,
-		height,
-		lastEndMinute,
-		lastMoveMinute,
-		moved,
-		panStarted,
-		top,
-		translateY
-	]);
+	}, [drawnStart, drawnEnd, extraH, lastEndMinute, lastMoveMinute, moved, panStarted, translateY]);
+	const gripHeight = gripHeightForBlock(height);
 
 	const tapGesture = useMemo(
 		() =>
@@ -594,12 +591,15 @@ const EventBlock = memo(function EventBlock({
 							left: 0,
 							right: 0,
 							bottom: 0,
-							height: Math.min(22, height),
+							height: gripHeight,
 							justifyContent: 'center'
 						}}
 					>
 						<View
-							style={{ height: Math.min(12, height), backgroundColor: 'rgba(255,255,255,0.28)' }}
+							style={{
+								height: Math.min(12, gripHeight),
+								backgroundColor: 'rgba(255,255,255,0.28)'
+							}}
 						/>
 					</Animated.View>
 				</GestureDetector>
