@@ -9,3 +9,7 @@ export function snapResizeEnd(origEnd: number, pointerDeltaY: number, startMin: 
 	const raw = origEnd + pointerDeltaY / PX_PER_MIN;
 	return Math.max(startMin + MIN_EVENT_MINS, Math.min(DAY_END, Math.round(raw / 5) * 5));
 }
+
+export function passedGestureSlop(pointerDeltaY: number, slop = 3): boolean {
+	return Math.abs(pointerDeltaY) >= slop;
+}

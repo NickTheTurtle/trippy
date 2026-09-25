@@ -1,14 +1,27 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ElementRef } from 'react';
-import { Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
+import { Text, View, useWindowDimensions } from 'react-native';
+import {
+	Gesture,
+	GestureDetector,
+	ScrollView as GestureScrollView
+} from 'react-native-gesture-handler';
+import Animated, {
+	runOnJS,
+	useAnimatedStyle,
+	useSharedValue,
+	withTiming
+} from 'react-native-reanimated';
 import { copy } from '@trippy/copy';
 import { layoutBoard, legLaneId } from '@trippy/core/travel';
 import type { EventType } from '@trippy/core/types';
 import { api, ApiError } from '../../lib/api';
 import { color, radius, space, type } from '../../theme';
 import { useToast } from '../../ui/Toast';
+import { setInteractionBusy } from '../../ui/busy';
 import {
 	DAY_END,
+	DEFAULT_START,
 	PX_PER_MIN,
 	clock,
 	clockRange,
@@ -17,29 +30,17 @@ import {
 	hoursFrom,
 	modeLabel,
 	topPx,
-	typeLabel,
 	windowStart
 } from './shared';
-import { snapMoveStart, snapResizeEnd } from './gesture';
+import { passedGestureSlop, snapMoveStart, snapResizeEnd } from './gesture';
 import type { BoardDay, EventRow, LegRow } from './types';
-
-type Gesture =
-	| { kind: 'move'; id: string; startY: number; origStart: number; liveStart: number; mins: number }
-	| {
-			kind: 'resize';
-			id: string;
-			startY: number;
-			startMin: number;
-			origEnd: number;
-			liveEnd: number;
-	  };
 
 const GUTTER = 58;
 const LANE_MIN = 104;
 const GAP = 6;
-const LONG_PRESS_MS = 400;
-const HOLD_SLOP = 8;
 const MIN_LEG_H = 15;
+const GESTURE_MS = 400;
+const WRITE_SLOP = 3;
 
 const EVENT_COLORS: Record<EventType, string> = {
 	activity: '#2f7a4f',
@@ -48,6 +49,8 @@ const EVENT_COLORS: Record<EventType, string> = {
 	travel: '#2f6d9e',
 	freetime: '#8a8578'
 };
+
+type ActiveLabel = { id: string; kind: 'move' | 'resize'; minute: number } | null;
 
 export function DayBoard({
 	base,
@@ -72,66 +75,68 @@ export function DayBoard({
 }) {
 	const toast = useToast();
 	const { width } = useWindowDimensions();
-	const [laneW, setLaneW] = useState(Math.max(width - GUTTER - space.lg * 2, LANE_MIN));
-	const [gesture, setGesture] = useState<Gesture | null>(null);
+	const [boardOuterW, setBoardOuterW] = useState(Math.max(width - space.lg * 2, 1));
+	const [activeLabel, setActiveLabel] = useState<ActiveLabel>(null);
 	const [pending, setPending] = useState<{ id: string; start?: number; end?: number } | null>(null);
-	const [scrollEnabled, setScrollEnabled] = useState(true);
-	const scrollRef = useRef<ElementRef<typeof ScrollView> | null>(null);
-	const hold = useRef<ReturnType<typeof setTimeout> | null>(null);
-	const down = useRef<{ id: string; y: number; x: number; resize: boolean } | null>(null);
+	const [gestureActive, setGestureActive] = useState(false);
+	const releaseBusy = useRef<(() => void) | null>(null);
+	const scrollRef = useRef<ElementRef<typeof GestureScrollView> | null>(null);
 
 	useEffect(() => {
 		setPending(null);
 	}, [entry]);
 
 	useEffect(() => {
-		onGestureChange(gesture !== null);
-		setScrollEnabled(gesture === null);
-	}, [gesture, onGestureChange]);
+		onGestureChange(gestureActive);
+		if (gestureActive && !releaseBusy.current) releaseBusy.current = setInteractionBusy(true);
+		if (!gestureActive) {
+			releaseBusy.current?.();
+			releaseBusy.current = null;
+		}
+		return () => {
+			releaseBusy.current?.();
+			releaseBusy.current = null;
+		};
+	}, [gestureActive, onGestureChange]);
 
-	const startFor = (event: EventRow) =>
-		gesture?.kind === 'move' && gesture.id === event.id
-			? gesture.liveStart
-			: pending?.id === event.id && pending.start != null
-				? pending.start
-				: event.start_min;
-	const endFor = (event: EventRow) =>
-		gesture?.kind === 'resize' && gesture.id === event.id
-			? gesture.liveEnd
-			: pending?.id === event.id && pending.end != null
-				? pending.end
-				: event.end_min;
+	const baseStartFor = (event: EventRow) =>
+		pending?.id === event.id && pending.start != null ? pending.start : event.start_min;
+	const baseEndFor = (event: EventRow) =>
+		pending?.id === event.id && pending.end != null ? pending.end : event.end_min;
 
 	const boardStart = useMemo(() => {
 		const mins = [
-			...entry.events.flatMap((event) => [startFor(event), endFor(event)]),
+			...entry.events.flatMap((event) => [baseStartFor(event), baseEndFor(event)]),
 			...entry.legs.flatMap((leg) => [leg.startMin, leg.endMin])
 		];
-		return windowStart(mins.length ? mins : [9 * 60]);
-	}, [entry, gesture, pending]);
+		return windowStart(mins.length ? mins : [DEFAULT_START]);
+	}, [entry, pending]);
 
-	const eventsForLayout = entry.events.map((event) => ({
-		id: event.id,
-		start: event.start_min,
-		end: event.end_min,
-		people: event.people.length ? event.people : memberIds
-	}));
-	const shiftedLegs = entry.legs.map((leg) => {
-		const to = entry.events.find((event) => event.id === leg.toEventId);
-		return to ? shiftLeg(leg, startFor(to) - to.start_min) : leg;
-	});
-	const { layout, bars } = layoutBoard(eventsForLayout, shiftedLegs);
+	const { layout, bars } = useMemo(() => {
+		const eventsForLayout = entry.events.map((event) => ({
+			id: event.id,
+			start: event.start_min,
+			end: event.end_min,
+			people: event.people.length ? event.people : memberIds
+		}));
+		const shiftedLegs = entry.legs.map((leg) => {
+			const to = entry.events.find((event) => event.id === leg.toEventId);
+			return to ? shiftLeg(leg, baseStartFor(to) - to.start_min) : leg;
+		});
+		return layoutBoard(eventsForLayout, shiftedLegs);
+	}, [entry, memberIds, pending]);
+
 	const maxCols = Math.max(1, ...[...layout.placed.values()].map((placed) => placed.cols));
-	const boardW = Math.max(width - space.lg * 2, GUTTER + maxCols * LANE_MIN);
-	const computedLaneW = boardW - GUTTER;
+	const boardW = Math.max(boardOuterW, GUTTER + maxCols * LANE_MIN);
+	const laneW = boardW - GUTTER;
 	const contentH = (DAY_END - boardStart) * PX_PER_MIN + 24;
 
 	useEffect(() => {
-		setLaneW(computedLaneW);
-	}, [computedLaneW]);
-
-	useEffect(() => {
-		const first = Math.min(...entry.events.map((event) => startFor(event)), 9 * 60);
+		const first = Math.min(
+			...entry.events.map((event) => baseStartFor(event)),
+			...entry.legs.map((leg) => leg.startMin),
+			DEFAULT_START
+		);
 		const timer = setTimeout(
 			() =>
 				scrollRef.current?.scrollTo({
@@ -141,7 +146,7 @@ export function DayBoard({
 			0
 		);
 		return () => clearTimeout(timer);
-		// Run only when the served day changes, not on every drag frame.
+		// Only seat when the served day changes.
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [entry.day]);
 
@@ -156,207 +161,157 @@ export function DayBoard({
 			if (!placed || placed.left >= bar.left + bar.width || bar.left >= placed.left + placed.width)
 				continue;
 			const over =
-				Math.min(topPx(endFor(event), boardStart), bottom) -
-				Math.max(topPx(startFor(event), boardStart), top);
+				Math.min(topPx(baseEndFor(event), boardStart), bottom) -
+				Math.max(topPx(baseStartFor(event), boardStart), top);
 			if (over > 0) trims.set(event.id, Math.max(trims.get(event.id) ?? 0, over));
 		}
 	}
 
-	const writeMove = async (event: EventRow, startMin: number) => {
-		if (startMin === event.start_min) return;
-		setPending({ id: event.id, start: startMin });
-		try {
-			await api(`${base}/events/${event.id}/op`, {
-				method: 'POST',
-				body: { op: 'move', startMin, day: entry.day }
-			});
-			onReload();
-		} catch (err) {
-			setPending(null);
-			toast.error(err instanceof ApiError ? err.message : copy.api.saveFallback);
-		}
-	};
+	const beginGesture = useCallback(() => setGestureActive(true), []);
+	const endGesture = useCallback(() => {
+		setGestureActive(false);
+		setActiveLabel(null);
+	}, []);
+	const reportMinute = useCallback((label: ActiveLabel) => setActiveLabel(label), []);
 
-	const writeResize = async (event: EventRow, endMin: number) => {
-		if (endMin === event.end_min) return;
-		setPending({ id: event.id, end: endMin });
-		try {
-			await api(`${base}/events/${event.id}/op`, {
-				method: 'POST',
-				body: { op: 'resize', endMin }
-			});
-			onReload();
-		} catch (err) {
-			setPending(null);
-			toast.error(err instanceof ApiError ? err.message : copy.api.saveFallback);
-		}
-	};
-
-	const clearHold = () => {
-		if (hold.current) clearTimeout(hold.current);
-		hold.current = null;
-	};
-
-	const startHold = (event: EventRow, y: number, x: number, resize: boolean) => {
-		if (locked) return;
-		if (!resize && down.current?.id === event.id && down.current.resize) return;
-		down.current = { id: event.id, y, x, resize };
-		clearHold();
-		hold.current = setTimeout(() => {
-			hold.current = null;
-			setGesture(
-				resize
-					? {
-							kind: 'resize',
-							id: event.id,
-							startY: y,
-							startMin: event.start_min,
-							origEnd: event.end_min,
-							liveEnd: event.end_min
-						}
-					: {
-							kind: 'move',
-							id: event.id,
-							startY: y,
-							origStart: event.start_min,
-							liveStart: event.start_min,
-							mins: event.end_min - event.start_min
-						}
-			);
-		}, LONG_PRESS_MS);
-	};
-
-	const moveHold = (y: number, x: number) => {
-		if (hold.current && down.current) {
-			if (Math.hypot(y - down.current.y, x - down.current.x) > HOLD_SLOP) {
-				clearHold();
-				down.current = null;
+	const writeMove = useCallback(
+		async (event: EventRow, startMin: number) => {
+			if (startMin === event.start_min) return;
+			setPending({ id: event.id, start: startMin });
+			try {
+				await api(`${base}/events/${event.id}/op`, {
+					method: 'POST',
+					body: { op: 'move', startMin, day: entry.day }
+				});
+				onReload();
+			} catch (err) {
+				setPending(null);
+				toast.error(err instanceof ApiError ? err.message : copy.api.saveFallback);
 			}
-		}
-		if (!gesture) return;
-		if (gesture.kind === 'move') {
-			const liveStart = snapMoveStart(gesture.origStart, y - gesture.startY, gesture.mins);
-			setGesture({ ...gesture, liveStart });
-		} else {
-			const liveEnd = snapResizeEnd(gesture.origEnd, y - gesture.startY, gesture.startMin);
-			setGesture({ ...gesture, liveEnd });
-		}
-	};
+		},
+		[base, entry.day, onReload, toast]
+	);
 
-	const endHold = () => {
-		clearHold();
-		const start = down.current;
-		down.current = null;
-		const current = gesture;
-		setGesture(null);
-		if (!current) {
-			if (start) onOpen(start.id);
-			return;
-		}
-		const event = entry.events.find((row) => row.id === current.id);
-		if (!event) return;
-		if (current.kind === 'move') void writeMove(event, current.liveStart);
-		else void writeResize(event, current.liveEnd);
-	};
-
-	const cancelHold = () => {
-		clearHold();
-		down.current = null;
-		setGesture(null);
-	};
+	const writeResize = useCallback(
+		async (event: EventRow, endMin: number) => {
+			if (endMin === event.end_min) return;
+			setPending({ id: event.id, end: endMin });
+			try {
+				await api(`${base}/events/${event.id}/op`, {
+					method: 'POST',
+					body: { op: 'resize', endMin }
+				});
+				onReload();
+			} catch (err) {
+				setPending(null);
+				toast.error(err instanceof ApiError ? err.message : copy.api.saveFallback);
+			}
+		},
+		[base, onReload, toast]
+	);
 
 	return (
-		<ScrollView
-			ref={scrollRef}
-			scrollEnabled={scrollEnabled}
-			nestedScrollEnabled
-			horizontal={false}
-			style={{ maxHeight: 620 }}
-			contentContainerStyle={{ paddingBottom: space.md }}
-		>
-			<ScrollView
-				horizontal
+		<View onLayout={(event) => setBoardOuterW(Math.max(1, event.nativeEvent.layout.width))}>
+			<GestureScrollView
+				ref={scrollRef}
+				scrollEnabled={!gestureActive}
 				nestedScrollEnabled
-				showsHorizontalScrollIndicator={boardW > width - space.lg * 2}
+				style={{ maxHeight: 620 }}
+				contentContainerStyle={{ paddingBottom: space.md }}
 			>
-				<View style={{ width: boardW, height: contentH }}>
-					{hoursFrom(boardStart).map((hour) => {
-						const top = topPx(hour * 60, boardStart);
-						return (
-							<View key={hour} style={{ position: 'absolute', left: 0, right: 0, top }}>
-								<Text style={{ ...type.faint, position: 'absolute', width: GUTTER - 8 }}>
-									{hourLabel(hour)}
-								</Text>
-								<View
-									style={{
-										position: 'absolute',
-										left: GUTTER,
-										right: 0,
-										top: 8,
-										borderTopWidth: 1,
-										borderTopColor: color.line
-									}}
-								/>
-							</View>
-						);
-					})}
-					{bars.map((bar) => (
-						<LegBar
-							key={legLaneId(bar.leg)}
-							leg={bar.leg}
-							from={eventById.get(bar.leg.fromEventId)}
-							left={GUTTER + bar.left * laneW}
-							width={Math.max(32, bar.width * laneW - GAP)}
-							boardStart={boardStart}
-							peopleLabel={peopleLabel}
-						/>
-					))}
-					{entry.events.map((event) => {
-						const placed = layout.placed.get(event.id);
-						if (!placed) return null;
-						return (
-							<EventBlock
-								key={event.id}
-								event={event}
-								left={GUTTER + placed.left * laneW}
-								width={Math.max(44, placed.width * laneW - GAP)}
-								top={topPx(startFor(event), boardStart)}
-								height={Math.max(
-									18,
-									heightPx(startFor(event), endFor(event), boardStart) - (trims.get(event.id) ?? 0)
-								)}
+				<GestureScrollView
+					horizontal
+					scrollEnabled={!gestureActive}
+					nestedScrollEnabled
+					showsHorizontalScrollIndicator={boardW > boardOuterW}
+				>
+					<View style={{ width: boardW, height: contentH }}>
+						{hoursFrom(boardStart).map((hour) => {
+							const top = topPx(hour * 60, boardStart);
+							return (
+								<View key={hour} style={{ position: 'absolute', left: 0, right: 0, top }}>
+									<Text style={{ ...type.faint, position: 'absolute', width: GUTTER - 8 }}>
+										{hourLabel(hour)}
+									</Text>
+									<View
+										style={{
+											position: 'absolute',
+											left: GUTTER,
+											right: 0,
+											top: 8,
+											borderTopWidth: 1,
+											borderTopColor: color.line
+										}}
+									/>
+								</View>
+							);
+						})}
+						{bars.map((bar) => (
+							<LegBar
+								key={legLaneId(bar.leg)}
+								leg={bar.leg}
+								from={eventById.get(bar.leg.fromEventId)}
+								left={GUTTER + bar.left * laneW}
+								width={Math.max(32, bar.width * laneW - GAP)}
+								boardStart={boardStart}
 								peopleLabel={peopleLabel}
-								locked={locked}
-								legTarget={legTargets.has(event.id)}
-								active={gesture?.id === event.id}
-								onPressIn={(y, x, resize) => startHold(event, y, x, resize)}
-								onMove={moveHold}
-								onEnd={endHold}
-								onCancel={cancelHold}
-								onOpen={() => onOpen(event.id)}
 							/>
-						);
-					})}
-					{gesture ? (
-						<View
-							style={{
-								position: 'absolute',
-								left: GUTTER,
-								right: 0,
-								top:
-									gesture.kind === 'move'
-										? topPx(gesture.liveStart, boardStart) - 22
-										: topPx(gesture.liveEnd, boardStart) + 4
-							}}
-						>
-							<Text style={{ ...type.small, color: color.accentInk, fontWeight: '700' }}>
-								{gesture.kind === 'move' ? clock(gesture.liveStart) : clock(gesture.liveEnd)}
-							</Text>
-						</View>
-					) : null}
-				</View>
-			</ScrollView>
-		</ScrollView>
+						))}
+						{entry.events.map((event) => {
+							const placed = layout.placed.get(event.id);
+							if (!placed) return null;
+							const trimmedHeight =
+								heightPx(baseStartFor(event), baseEndFor(event), boardStart) -
+								(trims.get(event.id) ?? 0);
+							return (
+								<EventBlock
+									key={event.id}
+									event={event}
+									left={GUTTER + placed.left * laneW}
+									width={Math.max(44, placed.width * laneW - GAP)}
+									top={topPx(baseStartFor(event), boardStart)}
+									height={Math.max(MIN_LEG_H, trimmedHeight)}
+									peopleLabel={peopleLabel}
+									locked={locked}
+									legTarget={legTargets.has(event.id)}
+									onOpen={() => onOpen(event.id)}
+									onBeginGesture={beginGesture}
+									onEndGesture={endGesture}
+									onReportMinute={reportMinute}
+									onCommitMove={(minute) => void writeMove(event, minute)}
+									onCommitResize={(minute) => void writeResize(event, minute)}
+								/>
+							);
+						})}
+						{activeLabel ? (
+							<TimeBadge
+								left={GUTTER}
+								top={
+									activeLabel.kind === 'move'
+										? topPx(activeLabel.minute, boardStart) - 22
+										: topPx(activeLabel.minute, boardStart) + 4
+								}
+								minute={activeLabel.minute}
+							/>
+						) : null}
+						{pending?.start != null ? (
+							<TimeBadge
+								left={GUTTER}
+								top={topPx(pending.start, boardStart) - 22}
+								minute={pending.start}
+							/>
+						) : null}
+						{pending?.end != null ? (
+							<TimeBadge
+								left={GUTTER}
+								top={topPx(pending.end, boardStart) + 4}
+								minute={pending.end}
+							/>
+						) : null}
+					</View>
+				</GestureScrollView>
+			</GestureScrollView>
+		</View>
 	);
 }
 
@@ -373,12 +328,12 @@ function EventBlock({
 	peopleLabel,
 	locked,
 	legTarget,
-	active,
-	onPressIn,
-	onMove,
-	onEnd,
-	onCancel,
-	onOpen
+	onOpen,
+	onBeginGesture,
+	onEndGesture,
+	onReportMinute,
+	onCommitMove,
+	onCommitResize
 }: {
 	event: EventRow;
 	left: number;
@@ -388,100 +343,177 @@ function EventBlock({
 	peopleLabel: (ids: string[]) => string;
 	locked: boolean;
 	legTarget: boolean;
-	active: boolean;
-	onPressIn: (y: number, x: number, resize: boolean) => void;
-	onMove: (y: number, x: number) => void;
-	onEnd: () => void;
-	onCancel: () => void;
 	onOpen: () => void;
+	onBeginGesture: () => void;
+	onEndGesture: () => void;
+	onReportMinute: (label: ActiveLabel) => void;
+	onCommitMove: (minute: number) => void;
+	onCommitResize: (minute: number) => void;
 }) {
+	const translateY = useSharedValue(0);
+	const extraH = useSharedValue(0);
+	const moved = useSharedValue(false);
+	const lastMoveMinute = useSharedValue(event.start_min);
+	const lastEndMinute = useSharedValue(event.end_min);
+
+	useEffect(() => {
+		translateY.value = withTiming(0, { duration: 120 });
+		extraH.value = withTiming(0, { duration: 120 });
+		lastMoveMinute.value = event.start_min;
+		lastEndMinute.value = event.end_min;
+		moved.value = false;
+	}, [event.start_min, event.end_min, extraH, lastEndMinute, lastMoveMinute, moved, translateY]);
+
+	const moveGesture = Gesture.Pan()
+		.enabled(!locked)
+		.activateAfterLongPress(GESTURE_MS)
+		.onBegin(() => {
+			moved.value = false;
+			lastMoveMinute.value = event.start_min;
+			translateY.value = 0;
+			runOnJS(onBeginGesture)();
+		})
+		.onUpdate((gesture) => {
+			if (!moved.value && !passedGestureSlop(gesture.translationY, WRITE_SLOP)) return;
+			moved.value = true;
+			const next = snapMoveStart(
+				event.start_min,
+				gesture.translationY,
+				event.end_min - event.start_min
+			);
+			translateY.value = next - event.start_min;
+			translateY.value *= PX_PER_MIN;
+			if (next !== lastMoveMinute.value) {
+				lastMoveMinute.value = next;
+				runOnJS(onReportMinute)({ id: event.id, kind: 'move', minute: next });
+			}
+		})
+		.onEnd(() => {
+			const next = lastMoveMinute.value;
+			if (moved.value && next !== event.start_min) runOnJS(onCommitMove)(next);
+		})
+		.onFinalize(() => {
+			translateY.value = withTiming(0, { duration: 120 });
+			runOnJS(onEndGesture)();
+		});
+
+	const tapGesture = Gesture.Tap()
+		.maxDuration(250)
+		.onEnd((_event, success) => {
+			if (success) runOnJS(onOpen)();
+		});
+	const blockGesture = locked ? tapGesture : Gesture.Exclusive(moveGesture, tapGesture);
+
+	const resizeGesture = Gesture.Pan()
+		.enabled(!locked)
+		.activateAfterLongPress(GESTURE_MS)
+		.hitSlop({ top: 18, bottom: 18, left: 0, right: 0 })
+		.onBegin(() => {
+			moved.value = false;
+			lastEndMinute.value = event.end_min;
+			extraH.value = 0;
+			runOnJS(onBeginGesture)();
+		})
+		.onUpdate((gesture) => {
+			if (!moved.value && !passedGestureSlop(gesture.translationY, WRITE_SLOP)) return;
+			moved.value = true;
+			const next = snapResizeEnd(event.end_min, gesture.translationY, event.start_min);
+			extraH.value = (next - event.end_min) * PX_PER_MIN;
+			if (next !== lastEndMinute.value) {
+				lastEndMinute.value = next;
+				runOnJS(onReportMinute)({ id: event.id, kind: 'resize', minute: next });
+			}
+		})
+		.onEnd(() => {
+			const next = lastEndMinute.value;
+			if (moved.value && next !== event.end_min) runOnJS(onCommitResize)(next);
+		})
+		.onFinalize(() => {
+			extraH.value = withTiming(0, { duration: 120 });
+			runOnJS(onEndGesture)();
+		});
+
+	const blockStyle = useAnimatedStyle(() => ({
+		transform: [{ translateY: translateY.value }],
+		height: Math.max(MIN_LEG_H, height + extraH.value)
+	}));
+
+	const accessibilityLabel = `${event.title}, ${clockRange(event.start_min, event.end_min)}. ${locked ? copy.schedule.block.openLabel : copy.schedule.block.moveLabel}`;
+
 	return (
-		<Pressable
-			accessibilityRole="button"
-			onPress={onOpen}
-			onTouchStart={(eventTouch) =>
-				onPressIn(
-					eventTouch.nativeEvent.pageY,
-					eventTouch.nativeEvent.pageX,
-					eventTouch.nativeEvent.locationY > height - 14
-				)
-			}
-			onTouchMove={(eventTouch) =>
-				onMove(eventTouch.nativeEvent.pageY, eventTouch.nativeEvent.pageX)
-			}
-			onTouchEnd={onEnd}
-			onTouchCancel={onCancel}
-			onPointerDown={(eventPointer) =>
-				onPressIn(
-					eventPointer.nativeEvent.pageY,
-					eventPointer.nativeEvent.pageX,
-					((eventPointer.nativeEvent as { locationY?: number }).locationY ?? 0) > height - 14
-				)
-			}
-			onPointerMove={(eventPointer) =>
-				onMove(eventPointer.nativeEvent.pageY, eventPointer.nativeEvent.pageX)
-			}
-			onPointerUp={onEnd}
-			onPointerCancel={onCancel}
-			style={({ pressed }) => ({
-				position: 'absolute',
-				left,
-				top,
-				width,
-				height,
-				minHeight: 24,
-				borderRadius: radius.md,
-				borderTopLeftRadius: legTarget ? 3 : radius.md,
-				backgroundColor: EVENT_COLORS[event.type],
-				paddingHorizontal: 7,
-				paddingVertical: 4,
-				opacity: active ? 0.72 : pressed ? 0.86 : 1,
-				overflow: 'hidden'
-			})}
-		>
-			<Text
-				numberOfLines={2}
-				style={{ color: '#fff', fontWeight: '700', fontSize: 12, lineHeight: 15 }}
-			>
-				{event.title}
-			</Text>
-			<Text style={{ color: '#fff', fontSize: 10, lineHeight: 12 }}>
-				{clockRange(event.start_min, event.end_min)}
-			</Text>
-			<Text numberOfLines={1} style={{ color: '#fff', fontSize: 10, lineHeight: 12 }}>
-				{peopleLabel(event.people)}
-			</Text>
+		<View style={{ position: 'absolute', left, top, width, height }}>
+			<GestureDetector gesture={blockGesture}>
+				<Animated.View
+					accessible
+					accessibilityRole="button"
+					accessibilityLabel={accessibilityLabel}
+					style={[
+						{
+							width,
+							height,
+							minHeight: MIN_LEG_H,
+							borderRadius: radius.md,
+							borderTopLeftRadius: legTarget ? 3 : radius.md,
+							backgroundColor: EVENT_COLORS[event.type],
+							paddingHorizontal: 7,
+							paddingVertical: 4,
+							overflow: 'hidden'
+						},
+						blockStyle
+					]}
+				>
+					<Text
+						numberOfLines={2}
+						style={{ color: '#fff', fontWeight: '700', fontSize: 12, lineHeight: 15 }}
+					>
+						{event.title}
+					</Text>
+					<Text style={{ color: '#fff', fontSize: 10, lineHeight: 12 }}>
+						{clockRange(event.start_min, event.end_min)}
+					</Text>
+					<Text numberOfLines={1} style={{ color: '#fff', fontSize: 10, lineHeight: 12 }}>
+						{peopleLabel(event.people)}
+					</Text>
+				</Animated.View>
+			</GestureDetector>
 			{locked ? null : (
-				<Pressable
-					accessibilityRole="adjustable"
-					accessibilityLabel={copy.schedule.block.resizeLabel}
-					onTouchStart={(eventTouch) =>
-						onPressIn(eventTouch.nativeEvent.pageY, eventTouch.nativeEvent.pageX, true)
-					}
-					onTouchMove={(eventTouch) =>
-						onMove(eventTouch.nativeEvent.pageY, eventTouch.nativeEvent.pageX)
-					}
-					onTouchEnd={onEnd}
-					onTouchCancel={onCancel}
-					onPointerDown={(eventPointer) =>
-						onPressIn(eventPointer.nativeEvent.pageY, eventPointer.nativeEvent.pageX, true)
-					}
-					onPointerMove={(eventPointer) =>
-						onMove(eventPointer.nativeEvent.pageY, eventPointer.nativeEvent.pageX)
-					}
-					onPointerUp={onEnd}
-					onPointerCancel={onCancel}
-					style={{
-						position: 'absolute',
-						left: 0,
-						right: 0,
-						bottom: 0,
-						height: 10,
-						backgroundColor: 'rgba(255,255,255,0.28)'
-					}}
-				/>
+				<GestureDetector gesture={resizeGesture}>
+					<Animated.View
+						accessible
+						accessibilityRole="adjustable"
+						accessibilityLabel={copy.schedule.block.resizeLabel}
+						accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
+						onAccessibilityAction={(action) => {
+							const next =
+								action.nativeEvent.actionName === 'increment'
+									? Math.min(DAY_END, event.end_min + 5)
+									: Math.max(event.start_min + 15, event.end_min - 5);
+							onCommitResize(next);
+						}}
+						style={{
+							position: 'absolute',
+							left: 0,
+							right: 0,
+							bottom: -17,
+							height: 44,
+							justifyContent: 'center'
+						}}
+					>
+						<View style={{ height: 10, backgroundColor: 'rgba(255,255,255,0.28)' }} />
+					</Animated.View>
+				</GestureDetector>
 			)}
-		</Pressable>
+		</View>
+	);
+}
+
+function TimeBadge({ left, top, minute }: { left: number; top: number; minute: number }) {
+	return (
+		<View style={{ position: 'absolute', left, right: 0, top }}>
+			<Text style={{ ...type.small, color: color.accentInk, fontWeight: '700' }}>
+				{clock(minute)}
+			</Text>
+		</View>
 	);
 }
 

@@ -73,6 +73,7 @@ export default function Calendar() {
 	return (
 		<>
 			<Screen
+				scrollEnabled={!gestureActive}
 				refreshControl={
 					<RefreshControl refreshing={schedule.loading && !!data} onRefresh={refresh} />
 				}

@@ -1,11 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import { PX_PER_MIN } from '../../../apps/mobile/src/screens/schedule/shared';
-import { snapMoveStart, snapResizeEnd } from '../../../apps/mobile/src/screens/schedule/gesture';
+import {
+	passedGestureSlop,
+	snapMoveStart,
+	snapResizeEnd
+} from '../../../apps/mobile/src/screens/schedule/gesture';
 
 describe('mobile schedule gesture math', () => {
 	it('moves in snapped five minute increments', () => {
 		expect(snapMoveStart(660, 60 * PX_PER_MIN, 60)).toBe(720);
-		expect(snapMoveStart(547, 0, 60)).toBe(545);
+	});
+
+	it('does not commit a still long press', () => {
+		expect(passedGestureSlop(0)).toBe(false);
+		expect(passedGestureSlop(2.5)).toBe(false);
+		expect(passedGestureSlop(3)).toBe(true);
 	});
 
 	it('clamps resize to midnight', () => {
