@@ -5,9 +5,56 @@ import NativeSegmentedControl from '@react-native-segmented-control/segmented-co
 import { copy } from '@trippy/copy';
 import { formatDay } from '@trippy/copy/format';
 import { clock } from '../screens/schedule/shared';
-import { color, fieldLabel, radius, space, type } from '../theme';
+import { color, fieldLabel, radius, rowInset, screenMargin, space, type } from '../theme';
+import { GroupedRow } from './index';
 import { AppSymbol } from './Symbol';
 import { normalizeTimePickerMinutes } from './time';
+
+/** The round tick drawn inside a checklist row. The row, not the glyph, is the control. */
+export function CheckboxGlyph({ checked }: { checked: boolean }) {
+	return (
+		<View
+			style={{
+				width: 24,
+				height: 24,
+				borderRadius: 12,
+				borderWidth: 1.5,
+				borderColor: checked ? color.accent : color.line,
+				backgroundColor: checked ? color.accent : color.surface,
+				alignItems: 'center',
+				justifyContent: 'center'
+			}}
+		>
+			{checked ? <AppSymbol name="checkmark" fallback="checkmark" size={15} color="#fff" /> : null}
+		</View>
+	);
+}
+
+/** A whole-row checkbox: tick, then label, the row itself the pressable target. */
+export function ChecklistRow({
+	label,
+	checked,
+	onPress,
+	last = false
+}: {
+	label: string;
+	checked: boolean;
+	onPress: () => void;
+	last?: boolean;
+}) {
+	return (
+		<GroupedRow
+			leading={<CheckboxGlyph checked={checked} />}
+			accessibilityRole="checkbox"
+			accessibilityState={{ checked }}
+			accessibilityLabel={label}
+			onPress={onPress}
+			last={last}
+		>
+			<Text style={type.body}>{label}</Text>
+		</GroupedRow>
+	);
+}
 
 export function CheckBox({
 	checked,
@@ -346,12 +393,19 @@ export function Picker({
 	label,
 	options,
 	value,
-	onPick
+	onPick,
+	bleed = false
 }: {
 	label?: string;
 	options: { key: string; label: string }[];
 	value: string;
 	onPick: (key: string) => void;
+	/**
+	 * Scroll edge to edge of the screen rather than stopping at its margin. The
+	 * first chip still lines up with everything else; the rest slide under the
+	 * screen's edge instead of being cut off inside it.
+	 */
+	bleed?: boolean;
 }) {
 	return (
 		<View style={{ gap: space.xs }}>
@@ -360,6 +414,8 @@ export function Picker({
 				horizontal
 				showsHorizontalScrollIndicator={false}
 				keyboardShouldPersistTaps="handled"
+				style={bleed ? { marginHorizontal: -screenMargin } : undefined}
+				contentContainerStyle={bleed ? { paddingHorizontal: screenMargin } : undefined}
 			>
 				<View style={{ flexDirection: 'row', gap: space.sm }}>
 					{options.map((o) => {
@@ -552,7 +608,8 @@ const s = StyleSheet.create({
 		minHeight: 44,
 		flexDirection: 'row',
 		alignItems: 'center',
-		paddingHorizontal: space.md,
+		marginLeft: rowInset,
+		paddingRight: rowInset,
 		gap: space.md
 	},
 	rowSeparator: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: color.line },

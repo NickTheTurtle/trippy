@@ -75,9 +75,11 @@ export default function People() {
 					onPick={(key) => setSection(key as Section)}
 				/>
 				{section === 'members' ? (
-					<InsetSection title={copy.people.membersHeading}>
-						{memberRows.length ? (
-							memberRows.map((person, index) => (
+					memberRows.length === 0 ? (
+						<EmptyState graphic message={copy.common.nothingAdded} />
+					) : (
+						<InsetSection title={copy.people.membersHeading}>
+							{memberRows.map((person, index) => (
 								<MemberRow
 									key={person.id}
 									person={person}
@@ -90,41 +92,35 @@ export default function People() {
 									}
 									onOpen={() => setEditing(person)}
 								/>
-							))
-						) : (
-							<EmptyState message={copy.common.nothingAdded} />
-						)}
-					</InsetSection>
+							))}
+						</InsetSection>
+					)
+				) : crews.length === 0 ? (
+					<EmptyState graphic message={copy.common.nothingAdded} />
 				) : (
 					<InsetSection title={copy.people.crews.heading}>
-						{crews.length ? (
-							crews.map((crew, index) => {
-								const names = crew.members
-									.filter((id) => knownNames[id])
-									.map((id) => knownNames[id]);
-								const subtitle = names.length ? names.join(', ') : copy.people.crews.nobody;
-								const count = copy.people.crews.memberCount(names.length);
-								return (
-									<ListRow
-										key={crew.id}
-										title={crew.name}
-										subtitle={count}
-										detail={subtitle}
-										leading={<Avatar name={crew.name} />}
-										accessory={crew.locked ? 'none' : 'chevron'}
-										onPress={crew.locked ? undefined : () => setCrewDraft(crew)}
-										accessibilityLabel={
-											crew.locked
-												? [crew.name, count, subtitle, copy.people.crews.locked].join(', ')
-												: undefined
-										}
-										last={index === crews.length - 1}
-									/>
-								);
-							})
-						) : (
-							<EmptyState message={copy.common.nothingAdded} />
-						)}
+						{crews.map((crew, index) => {
+							const names = crew.members.filter((id) => knownNames[id]).map((id) => knownNames[id]);
+							const subtitle = names.length ? names.join(', ') : copy.people.crews.nobody;
+							const count = copy.people.crews.memberCount(names.length);
+							return (
+								<ListRow
+									key={crew.id}
+									title={crew.name}
+									subtitle={count}
+									detail={subtitle}
+									leading={<Avatar name={crew.name} />}
+									accessory={crew.locked ? 'none' : 'chevron'}
+									onPress={crew.locked ? undefined : () => setCrewDraft(crew)}
+									accessibilityLabel={
+										crew.locked
+											? [crew.name, count, subtitle, copy.people.crews.locked].join(', ')
+											: undefined
+									}
+									last={index === crews.length - 1}
+								/>
+							);
+						})}
 					</InsetSection>
 				)}
 			</Screen>

@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Text } from 'react-native';
 import { copy } from '@trippy/copy';
 import { api } from '../lib/api';
 import { useMutation } from '../hooks/useMutation';
 import { useAuth } from '../auth';
-import { DestructiveRow, Field, InsetSection } from '../ui';
+import { DestructiveRow, Field, InsetSection, ListRow } from '../ui';
+import { ChecklistRow } from '../ui/controls';
 import { Sheet } from '../ui/Sheet';
 import { ConfirmSheet } from '../ui/ConfirmSheet';
-import { AppSymbol } from '../ui/Symbol';
-import { color, hairline, radius, space, type } from '../theme';
+import { color, radius, type } from '../theme';
 
 export type Person = {
 	id: string;
@@ -183,7 +183,7 @@ export function MemberSheet({
 					</InsetSection>
 				) : (
 					<InsetSection>
-						<Text style={{ ...type.small, padding: space.md }}>{person.email}</Text>
+						<ListRow title={person.email} accessory="none" last />
 					</InsetSection>
 				)}
 				{canRemove ? (
@@ -319,50 +319,16 @@ function MemberMultiSelect({
 	};
 	return (
 		<InsetSection title={label}>
-			{people.map((person, index) => {
-				const on = selectedSet.has(person.id);
-				return (
-					<Pressable
-						key={person.id}
-						accessibilityRole="checkbox"
-						accessibilityState={{ checked: on }}
-						accessibilityLabel={person.name}
-						onPress={() => toggle(person.id)}
-						style={{
-							minHeight: 52,
-							flexDirection: 'row',
-							alignItems: 'center',
-							gap: space.md,
-							paddingHorizontal: space.md,
-							borderBottomWidth: index === people.length - 1 ? 0 : hairline,
-							borderBottomColor: color.line
-						}}
-					>
-						<CheckboxGlyph checked={on} />
-						<Text style={type.body}>{person.name}</Text>
-					</Pressable>
-				);
-			})}
+			{people.map((person, index) => (
+				<ChecklistRow
+					key={person.id}
+					label={person.name}
+					checked={selectedSet.has(person.id)}
+					onPress={() => toggle(person.id)}
+					last={index === people.length - 1}
+				/>
+			))}
 		</InsetSection>
-	);
-}
-
-function CheckboxGlyph({ checked }: { checked: boolean }) {
-	return (
-		<View
-			style={{
-				width: 24,
-				height: 24,
-				borderRadius: 12,
-				borderWidth: 1.5,
-				borderColor: checked ? color.accent : color.line,
-				backgroundColor: checked ? color.accent : color.surface,
-				alignItems: 'center',
-				justifyContent: 'center'
-			}}
-		>
-			{checked ? <AppSymbol name="checkmark" fallback="checkmark" size={15} color="#fff" /> : null}
-		</View>
 	);
 }
 

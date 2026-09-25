@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, Text, TextInput, View } from 'react-native';
+import { Text, TextInput, View } from 'react-native';
 import { copy } from '@trippy/copy';
 import { isLocatedType, STAY_CHECK_IN, type EventType } from '@trippy/core/types';
 import { MAX_NAME_LENGTH, MAX_NOTES_LENGTH } from '@trippy/core/validate';
@@ -9,9 +9,9 @@ import { useMutation } from '../../hooks/useMutation';
 import { DestructiveRow, Field, InsetGroupedList, InsetSection, ListRow } from '../../ui';
 import { Sheet } from '../../ui/Sheet';
 import { ConfirmSheet } from '../../ui/ConfirmSheet';
-import { DateField, SegmentedControl, TimeField } from '../../ui/controls';
+import { ChecklistRow, DateField, SegmentedControl, TimeField } from '../../ui/controls';
 import { AppSymbol } from '../../ui/Symbol';
-import { color, hairline, radius, space, type } from '../../theme';
+import { color, radius, rowInset, space, type } from '../../theme';
 import { usePlaceField } from './PlaceField';
 import {
 	DAY_END,
@@ -449,8 +449,9 @@ export function EventSheet({
 								minHeight: 88,
 								textAlignVertical: 'top',
 								backgroundColor: color.surface,
-								paddingHorizontal: space.md,
-								paddingVertical: space.sm,
+								paddingHorizontal: rowInset,
+								paddingVertical: space.md,
+								fontSize: 17,
 								color: color.ink
 							}}
 						/>
@@ -730,58 +731,6 @@ function PeopleChooser({
 	);
 }
 
-function ChecklistRow({
-	label,
-	checked,
-	onPress,
-	last = false
-}: {
-	label: string;
-	checked: boolean;
-	onPress: () => void;
-	last?: boolean;
-}) {
-	return (
-		<Pressable
-			accessibilityRole="checkbox"
-			accessibilityState={{ checked }}
-			accessibilityLabel={label}
-			onPress={onPress}
-			style={{
-				minHeight: 52,
-				flexDirection: 'row',
-				alignItems: 'center',
-				gap: space.md,
-				paddingHorizontal: space.md,
-				borderBottomWidth: last ? 0 : hairline,
-				borderBottomColor: color.line
-			}}
-		>
-			<CheckboxGlyph checked={checked} />
-			<Text style={type.body}>{label}</Text>
-		</Pressable>
-	);
-}
-
-function CheckboxGlyph({ checked }: { checked: boolean }) {
-	return (
-		<View
-			style={{
-				width: 24,
-				height: 24,
-				borderRadius: 12,
-				borderWidth: 1.5,
-				borderColor: checked ? color.accent : color.line,
-				backgroundColor: checked ? color.accent : color.surface,
-				alignItems: 'center',
-				justifyContent: 'center'
-			}}
-		>
-			{checked ? <AppSymbol name="checkmark" fallback="checkmark" size={15} color="#fff" /> : null}
-		</View>
-	);
-}
-
 function JourneyEditor({
 	legs,
 	edits,
@@ -810,7 +759,7 @@ function JourneyEditor({
 						footer={peopleLabel(leg.people)}
 					>
 						{leg.tight ? (
-							<View style={{ paddingHorizontal: space.md, paddingTop: space.sm }}>
+							<View style={{ paddingHorizontal: rowInset, paddingTop: space.md }}>
 								<Text style={{ ...type.footnote, color: color.warn }}>
 									{copy.viewAs.travelWarning}
 								</Text>

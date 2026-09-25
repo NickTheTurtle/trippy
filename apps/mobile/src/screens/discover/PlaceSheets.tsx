@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ScrollView, Text, TextInput, View } from 'react-native';
 import { copy } from '@trippy/copy';
 import { parseMoneyToCents } from '@trippy/copy/format';
 import { CURRENCY_CODES } from '@trippy/core/currency';
@@ -9,12 +9,12 @@ import { MAX_NOTES_LENGTH } from '@trippy/core/validate';
 import type { PlaceHit, PlaceHitDetails, Poi, Stay } from '../../lib/api-types';
 import { api, ApiError, isAbort } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
-import { DestructiveRow, Field, InsetSection, ListRow } from '../../ui';
+import { DestructiveRow, Field, InsetSection, ListRow, SectionHeader } from '../../ui';
 import { Sheet } from '../../ui/Sheet';
 import { ConfirmSheet } from '../../ui/ConfirmSheet';
 import { SearchablePicker, SegmentedControl } from '../../ui/controls';
 import { CoverImage } from './CoverImage';
-import { color, space, type } from '../../theme';
+import { color, rowInset, space, type } from '../../theme';
 
 const MIN_QUERY = 3;
 const SEARCH_DEBOUNCE_MS = 600;
@@ -92,8 +92,9 @@ function TextArea({
 				style={{
 					minHeight: 88,
 					textAlignVertical: 'top',
-					paddingHorizontal: space.md,
-					paddingVertical: space.sm,
+					paddingHorizontal: rowInset,
+					paddingVertical: space.md,
+					fontSize: 17,
 					backgroundColor: color.surface,
 					color: color.ink
 				}}
@@ -135,18 +136,10 @@ function TypeSegmentSection({
 	onChange: (value: string) => void;
 }) {
 	return (
-		<InsetSection>
-			<View
-				style={{
-					minHeight: 52,
-					padding: space.md,
-					gap: space.md
-				}}
-			>
-				<Text style={type.body}>{copy.discover.placeFields.typeLabel}</Text>
-				<SegmentedControl items={options} active={value} onPick={onChange} />
-			</View>
-		</InsetSection>
+		<View style={{ gap: 7 }}>
+			<SectionHeader>{copy.discover.placeFields.typeLabel}</SectionHeader>
+			<SegmentedControl items={options} active={value} onPick={onChange} />
+		</View>
 	);
 }
 
@@ -156,19 +149,14 @@ function SearchResults({ hits, onPick }: { hits: PlaceHit[]; onPick: (hit: Place
 		<InsetSection>
 			<ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
 				{hits.map((hit, index) => (
-					<Pressable
+					<ListRow
 						key={`${hitKey(hit)}-${index}`}
+						title={hit.name}
+						subtitle={hit.address || null}
+						accessory="none"
 						onPress={() => onPick(hit)}
-						style={({ pressed }) => ({
-							padding: space.md,
-							borderTopWidth: index === 0 ? 0 : 1,
-							borderTopColor: color.line,
-							backgroundColor: pressed ? color.surface2 : color.surface
-						})}
-					>
-						<Text style={type.body}>{hit.name}</Text>
-						{hit.address ? <Text style={type.faint}>{hit.address}</Text> : null}
-					</Pressable>
+						last={index === hits.length - 1}
+					/>
 				))}
 			</ScrollView>
 		</InsetSection>

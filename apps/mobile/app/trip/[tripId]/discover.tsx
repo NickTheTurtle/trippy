@@ -19,7 +19,8 @@ import {
 	InsetSection,
 	ListRow,
 	Loading,
-	Screen
+	Screen,
+	SectionHeader
 } from '../../../src/ui';
 import { SegmentedControl } from '../../../src/ui/controls';
 import { color, radius, space, type } from '../../../src/theme';
@@ -159,16 +160,17 @@ export default function Discover() {
 			<>
 				<Screen>
 					<FormError message={error ?? ''} />
-					<InsetSection title={copy.discover.noCities.heading}>
-						<View style={{ padding: space.md, gap: space.md }}>
-							<Text style={type.small}>{copy.discover.noCities.body}</Text>
-							{isOrganizer ? (
+					<EmptyState
+						symbol={{ name: 'mappin.and.ellipse', fallback: 'location-outline' }}
+						title={copy.discover.noCities.heading}
+						message={copy.discover.noCities.body}
+						hint={isOrganizer ? undefined : copy.discover.noCities.memberNote}
+						action={
+							isOrganizer ? (
 								<Button label={copy.discover.noCities.cta} onPress={() => setCitySheet('add')} />
-							) : (
-								<Text style={type.faint}>{copy.discover.noCities.memberNote}</Text>
-							)}
-						</View>
-					</InsetSection>
+							) : undefined
+						}
+					/>
 				</Screen>
 				{trip && citySheet === 'add' ? (
 					<CitySheet
@@ -247,25 +249,16 @@ export default function Discover() {
 					onPick={(key) => setFilter(key as Filter)}
 				/>
 
-				<View style={{ gap: space.sm }}>
-					<Text
-						style={{
-							...type.caption,
-							marginLeft: space.lg,
-							textTransform: 'uppercase',
-							letterSpacing: 0.35
-						}}
-					>
-						{copy.discover.cityList.cityLabel(
-							current.name,
-							ambiguous.has(current.id) ? current.region : null
-						)}
-					</Text>
-					{items.length === 0 ? (
-						<InsetSection>
-							<EmptyState message={copy.common.nothingAdded} />
-						</InsetSection>
-					) : (
+				{items.length === 0 ? (
+					<EmptyState graphic message={copy.common.nothingAdded} />
+				) : (
+					<View style={{ gap: 7 }}>
+						<SectionHeader>
+							{copy.discover.cityList.cityLabel(
+								current.name,
+								ambiguous.has(current.id) ? current.region : null
+							)}
+						</SectionHeader>
 						<View style={{ gap: space.md }}>
 							{items.map((item) =>
 								'stay' in item ? (
@@ -289,8 +282,8 @@ export default function Discover() {
 								)
 							)}
 						</View>
-					)}
-				</View>
+					</View>
+				)}
 			</Screen>
 
 			{trip && citySheet !== null ? (
@@ -490,7 +483,7 @@ function PlaceCard({
 				accessibilityLabel={copy.common.editLabel(poi.name)}
 			>
 				<CoverImage photo={poi.photo} seed={poi.name} category={poi.category} flush />
-				<View style={{ padding: space.md, gap: space.sm }}>
+				<View style={{ padding: space.lg, paddingBottom: space.md, gap: space.sm }}>
 					<Text style={{ ...type.body, fontWeight: '600' }}>{poi.name}</Text>
 					{rating || meta ? (
 						<View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
@@ -511,8 +504,8 @@ function PlaceCard({
 					alignItems: 'center',
 					justifyContent: 'space-between',
 					gap: space.sm,
-					paddingHorizontal: space.md,
-					paddingBottom: space.md
+					paddingHorizontal: space.lg,
+					paddingBottom: space.lg
 				}}
 			>
 				<VoteButton
@@ -557,7 +550,7 @@ function StayCard({
 				accessibilityLabel={copy.common.editLabel(stay.name)}
 			>
 				<CoverImage photo={stay.photo} seed={stay.name} category="stay" flush />
-				<View style={{ padding: space.md, gap: space.sm }}>
+				<View style={{ padding: space.lg, paddingBottom: space.md, gap: space.sm }}>
 					<Text style={{ ...type.body, fontWeight: '600' }}>{stay.name}</Text>
 					<Text style={type.faint}>
 						{stay.tag ? `${stay.tag} · ` : ''}
@@ -571,8 +564,8 @@ function StayCard({
 					alignItems: 'center',
 					justifyContent: 'space-between',
 					gap: space.sm,
-					paddingHorizontal: space.md,
-					paddingBottom: space.md
+					paddingHorizontal: space.lg,
+					paddingBottom: space.lg
 				}}
 			>
 				<VoteButton
