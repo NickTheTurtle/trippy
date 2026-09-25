@@ -238,16 +238,26 @@ export default function Discover() {
 					onPick={(key) => setFilter(key as Filter)}
 				/>
 
-				<InsetSection
-					title={copy.discover.cityList.cityLabel(
-						current.name,
-						ambiguous.has(current.id) ? current.region : null
-					)}
-				>
+				<View style={{ gap: space.sm }}>
+					<Text
+						style={{
+							...type.caption,
+							marginLeft: space.lg,
+							textTransform: 'uppercase',
+							letterSpacing: 0.35
+						}}
+					>
+						{copy.discover.cityList.cityLabel(
+							current.name,
+							ambiguous.has(current.id) ? current.region : null
+						)}
+					</Text>
 					{items.length === 0 ? (
-						<EmptyState message={copy.common.nothingAdded} />
+						<InsetSection>
+							<EmptyState message={copy.common.nothingAdded} />
+						</InsetSection>
 					) : (
-						<View style={{ gap: space.md, padding: space.md }}>
+						<View style={{ gap: space.md }}>
 							{items.map((item) =>
 								'stay' in item ? (
 									<StayCard
@@ -271,7 +281,7 @@ export default function Discover() {
 							)}
 						</View>
 					)}
-				</InsetSection>
+				</View>
 			</Screen>
 
 			{trip && citySheet !== null ? (
@@ -457,36 +467,21 @@ function PlaceCard({
 }) {
 	const href = poi.url ? safeExternalUrl(poi.url) : null;
 	const hrs = todayHours(parseHours(poi.hours), tz);
+	const meta = placeMeta(poi, hrs);
 	return (
-		<Card style={{ padding: 0, overflow: 'hidden' }}>
+		<Card style={{ padding: 0, overflow: 'hidden', borderRadius: radius.section }}>
 			<Pressable onPress={onEdit} accessibilityLabel={copy.common.editLabel(poi.name)}>
 				<CoverImage photo={poi.photo} seed={poi.name} category={poi.category} flush />
 				<View style={{ padding: space.md, gap: space.sm }}>
 					<Text style={{ ...type.body, fontWeight: '600' }}>{poi.name}</Text>
-					<View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
-						{poi.rating ? (
-							<View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-								<AppSymbol name="star.fill" fallback="star" size={13} color={color.warn} />
-								<Text style={{ ...type.small, color: color.warn }}>
-									{poi.rating.toFixed(1)}
-									{poi.rating_count ? ` (${poi.rating_count})` : ''}
-								</Text>
-							</View>
-						) : null}
-						{poi.price_level != null ? (
-							<Text style={{ ...type.small, color: color.accentInk }}>
-								{'$'.repeat(Math.max(1, poi.price_level))}
-							</Text>
-						) : null}
-						{hrs ? <Text style={type.small}>{hrs}</Text> : null}
-					</View>
-					{poi.notes ? <Text style={type.faint}>{poi.notes}</Text> : null}
+					{meta ? <Text style={type.subhead}>{meta}</Text> : null}
 				</View>
 			</Pressable>
 			<View
 				style={{
 					flexDirection: 'row',
 					alignItems: 'center',
+					justifyContent: 'space-between',
 					gap: space.sm,
 					paddingHorizontal: space.md,
 					paddingBottom: space.md
@@ -527,7 +522,7 @@ function StayCard({
 }) {
 	const href = stay.url ? safeExternalUrl(stay.url) : null;
 	return (
-		<Card style={{ padding: 0, overflow: 'hidden' }}>
+		<Card style={{ padding: 0, overflow: 'hidden', borderRadius: radius.section }}>
 			<Pressable onPress={onEdit} accessibilityLabel={copy.common.editLabel(stay.name)}>
 				<CoverImage photo={stay.photo} seed={stay.name} category="stay" flush />
 				<View style={{ padding: space.md, gap: space.sm }}>
@@ -542,6 +537,7 @@ function StayCard({
 				style={{
 					flexDirection: 'row',
 					alignItems: 'center',
+					justifyContent: 'space-between',
 					gap: space.sm,
 					paddingHorizontal: space.md,
 					paddingBottom: space.md
@@ -612,15 +608,28 @@ function VoteButton({
 
 function VoteRule({ pct }: { pct: number }) {
 	return (
-		<View
-			style={{
-				height: 3,
-				width: `${Math.min(100, Math.max(0, pct))}%`,
-				backgroundColor: color.accent,
-				borderRadius: 2
-			}}
-		/>
+		<View style={{ height: 3, backgroundColor: color.surface2 }}>
+			<View
+				style={{
+					height: 3,
+					width: `${Math.min(100, Math.max(0, pct))}%`,
+					backgroundColor: color.accent
+				}}
+			/>
+		</View>
 	);
+}
+
+function placeMeta(poi: VotedPoi, hours: string | null): string {
+	const parts = [
+		poi.rating
+			? `${poi.rating.toFixed(1)}${poi.rating_count ? ` (${poi.rating_count})` : ''}`
+			: null,
+		poi.price_level != null ? '$'.repeat(Math.max(1, poi.price_level)) : null,
+		hours,
+		poi.notes
+	].filter(Boolean);
+	return parts.join(' · ');
 }
 
 function linkedForCity(data: DiscoverData, cityId: string): number {

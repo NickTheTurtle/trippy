@@ -9,12 +9,12 @@ import { MAX_NOTES_LENGTH } from '@trippy/core/validate';
 import type { PlaceHit, PlaceHitDetails, Poi, Stay } from '../../lib/api-types';
 import { api, ApiError, isAbort } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
-import { DestructiveRow, Field, FormError, InsetSection } from '../../ui';
+import { DestructiveRow, Field, InsetSection, ListRow } from '../../ui';
 import { Sheet } from '../../ui/Sheet';
 import { ConfirmSheet } from '../../ui/ConfirmSheet';
-import { Picker, SearchablePicker } from '../../ui/controls';
+import { SearchablePicker, SegmentedControl } from '../../ui/controls';
 import { CoverImage } from './CoverImage';
-import { color, fieldLabel, radius, space, type } from '../../theme';
+import { color, space, type } from '../../theme';
 
 const MIN_QUERY = 3;
 const SEARCH_DEBOUNCE_MS = 600;
@@ -24,13 +24,13 @@ type AddType = PoiKind | typeof STAY_VIEW;
 const TYPE_OPTIONS = [
 	...POI_KINDS.map((k) => ({
 		key: k,
-		label: k === 'food' ? copy.discover.types.food : copy.discover.types.attraction
+		label: k === 'food' ? 'Food' : 'Attractions'
 	})),
 	{ key: STAY_VIEW, label: copy.discover.types.stay }
 ];
 const POI_TYPE_OPTIONS = POI_KINDS.map((k) => ({
 	key: k,
-	label: k === 'food' ? copy.discover.types.food : copy.discover.types.attraction
+	label: k === 'food' ? 'Food' : 'Attractions'
 }));
 
 function newSessionToken(): string {
@@ -71,15 +71,16 @@ function currencyOptions(currencies: readonly string[]) {
 function TextArea({
 	label,
 	value,
-	onChangeText
+	onChangeText,
+	footer
 }: {
 	label: string;
 	value: string;
 	onChangeText: (v: string) => void;
+	footer?: string;
 }) {
 	return (
-		<View style={{ gap: space.xs }}>
-			<Text style={fieldLabel}>{label}</Text>
+		<InsetSection title={label} footer={footer}>
 			<TextInput
 				accessibilityLabel={label}
 				value={value}
@@ -89,37 +90,72 @@ function TextArea({
 				style={{
 					minHeight: 88,
 					textAlignVertical: 'top',
-					padding: space.md,
-					borderRadius: radius.md,
-					borderWidth: 1,
-					borderColor: color.line,
+					paddingHorizontal: space.md,
+					paddingVertical: space.sm,
 					backgroundColor: color.surface,
 					color: color.ink
 				}}
 			/>
-		</View>
+		</InsetSection>
 	);
 }
 
-function LinkField({ value, onChangeText }: { value: string; onChangeText: (v: string) => void }) {
+function LinkField({
+	value,
+	onChangeText,
+	last = true
+}: {
+	value: string;
+	onChangeText: (v: string) => void;
+	last?: boolean;
+}) {
 	return (
 		<Field
+			variant="row"
 			label={`${copy.discover.placeFields.linkLabel}${copy.ui.field.optionalSuffix}`}
 			value={value}
 			onChangeText={onChangeText}
 			placeholder={copy.discover.placeFields.linkPlaceholder}
 			autoCapitalize="none"
 			keyboardType="url"
+			last={last}
 		/>
+	);
+}
+
+function TypeSegmentSection({
+	value,
+	options,
+	onChange
+}: {
+	value: string;
+	options: { key: string; label: string }[];
+	onChange: (value: string) => void;
+}) {
+	return (
+		<InsetSection>
+			<View
+				style={{
+					minHeight: 52,
+					padding: space.md,
+					flexDirection: 'row',
+					alignItems: 'center',
+					gap: space.md
+				}}
+			>
+				<Text style={type.body}>{copy.discover.placeFields.typeLabel}</Text>
+				<View style={{ flex: 1 }}>
+					<SegmentedControl items={options} active={value} onPick={onChange} />
+				</View>
+			</View>
+		</InsetSection>
 	);
 }
 
 function SearchResults({ hits, onPick }: { hits: PlaceHit[]; onPick: (hit: PlaceHit) => void }) {
 	if (hits.length === 0) return null;
 	return (
-		<View
-			style={{ borderWidth: 1, borderColor: color.line, borderRadius: radius.md, maxHeight: 250 }}
-		>
+		<InsetSection>
 			<ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
 				{hits.map((hit, index) => (
 					<Pressable
@@ -137,7 +173,7 @@ function SearchResults({ hits, onPick }: { hits: PlaceHit[]; onPick: (hit: Place
 					</Pressable>
 				))}
 			</ScrollView>
-		</View>
+		</InsetSection>
 	);
 }
 
@@ -407,7 +443,7 @@ export function AddDiscoverSheet({
 			primaryBusy={add.busy}
 			primaryDisabled={detailLoading}
 		>
-			<InsetSection error={add.error}>
+			<InsetSection error={add.error || searchError} footer={searchError ? undefined : message}>
 				<Field
 					variant="row"
 					label={copy.discover.addDialog.nameLabel}
@@ -417,37 +453,33 @@ export function AddDiscoverSheet({
 					last
 				/>
 			</InsetSection>
-			{message ? (
-				<Text style={searchError ? { ...type.small, color: color.dangerInk } : type.faint}>
-					{message}
-				</Text>
-			) : null}
 			<SearchResults hits={hits.slice(0, 6)} onPick={pick} />
 			<Text style={{ ...type.faint, textAlign: 'right' }}>
 				{copy.discover.addDialog.attribution(providerLabel)}
 			</Text>
 			{hit ? (
-				<View style={{ flexDirection: 'row', gap: space.md, alignItems: 'center' }}>
-					<View style={{ width: 72 }}>
-						<CoverImage photo={hit.photo} seed={hit.name} category={hit.category} height={52} />
-					</View>
-					<View style={{ flex: 1 }}>
-						<Text style={type.body}>{hit.name}</Text>
-						{hit.address ? <Text style={type.faint}>{hit.address}</Text> : null}
-					</View>
-					<Pressable onPress={unpick} hitSlop={8}>
-						<Text style={{ ...type.small, color: color.accent }}>
-							{copy.discover.addDialog.notThisOne}
-						</Text>
-					</Pressable>
-				</View>
+				<InsetSection>
+					<ListRow
+						title={hit.name}
+						subtitle={hit.address ?? null}
+						leading={
+							<View style={{ width: 52 }}>
+								<CoverImage photo={hit.photo} seed={hit.name} category={hit.category} height={40} />
+							</View>
+						}
+						value={
+							<Pressable onPress={unpick} hitSlop={8}>
+								<Text style={{ ...type.small, color: color.accent }}>
+									{copy.discover.addDialog.notThisOne}
+								</Text>
+							</Pressable>
+						}
+						accessory="none"
+						last
+					/>
+				</InsetSection>
 			) : null}
-			<Picker
-				label={copy.discover.placeFields.typeLabel}
-				options={TYPE_OPTIONS}
-				value={view}
-				onPick={changeType}
-			/>
+			<TypeSegmentSection value={view} options={TYPE_OPTIONS} onChange={changeType} />
 			<InsetSection>
 				{stay ? (
 					<>
@@ -556,11 +588,10 @@ export function EditPlaceSheet({
 						last
 					/>
 				</InsetSection>
-				<Picker
-					label={copy.discover.placeFields.typeLabel}
-					options={POI_TYPE_OPTIONS}
+				<TypeSegmentSection
 					value={kind}
-					onPick={(v) => setKind(v as PoiKind)}
+					options={POI_TYPE_OPTIONS}
+					onChange={(v) => setKind(v as PoiKind)}
 				/>
 				<InsetSection>
 					<LinkField value={url} onChangeText={setUrl} />
@@ -569,13 +600,14 @@ export function EditPlaceSheet({
 					label={`${copy.discover.placeFields.notesLabel}${copy.ui.field.optionalSuffix}`}
 					value={notes}
 					onChangeText={setNotes}
+					footer={
+						poi
+							? `${copy.discover.editPlace.votes(poi.votes)}${copy.discover.editPlace.voters(
+									poi.voters
+								)}`
+							: undefined
+					}
 				/>
-				{poi ? (
-					<Text style={type.faint}>
-						{copy.discover.editPlace.votes(poi.votes)}
-						{copy.discover.editPlace.voters(poi.voters)}
-					</Text>
-				) : null}
 				<InsetSection>
 					<DestructiveRow
 						title={copy.common.delete}

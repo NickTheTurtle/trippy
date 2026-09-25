@@ -308,6 +308,9 @@ function TaskRow({
 	const assigned = task.people.length > 0;
 	const mine = task.people.find((p) => p.id === me);
 	const state = task.done ? 'on' : task.doneCount > 0 ? 'part' : 'off';
+	const summary = assigned
+		? copy.preparation.taskList.doneSummary(task.doneCount, task.people.length)
+		: null;
 	return (
 		<View style={{ paddingVertical: space.sm, borderTopWidth: 1, borderTopColor: color.line }}>
 			<View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
@@ -349,12 +352,8 @@ function TaskRow({
 					>
 						{task.label}
 					</Text>
+					{summary ? <Text style={type.faint}>{summary}</Text> : null}
 				</Pressable>
-				{assigned ? (
-					<Text style={type.faint}>
-						{copy.preparation.taskList.doneSummary(task.doneCount, task.people.length)}
-					</Text>
-				) : null}
 			</View>
 			{task.flag ? (
 				<Text style={{ ...type.faint, color: color.warn, marginLeft: 34 }}>{task.flag}</Text>
@@ -540,7 +539,12 @@ function CostRow({
 	return (
 		<Pressable
 			onPress={onPress}
-			style={{ flexDirection: 'row', gap: space.md, paddingVertical: space.sm }}
+			style={{
+				flexDirection: 'row',
+				alignItems: 'center',
+				gap: space.md,
+				paddingVertical: space.sm
+			}}
 			accessibilityLabel={copy.common.editLabel(item.label)}
 		>
 			<View style={{ flex: 1 }}>
@@ -549,7 +553,7 @@ function CostRow({
 					{item.people.length ? item.people.map((p) => p.name).join(', ') : copy.viewAs.everyone}
 				</Text>
 			</View>
-			<View style={{ alignItems: 'flex-end' }}>
+			<View style={{ alignItems: 'flex-end', justifyContent: 'center' }}>
 				{viewAs ? (
 					<>
 						<Text style={type.small}>{fmt(amountFor(item, viewAs, memberCount))}</Text>

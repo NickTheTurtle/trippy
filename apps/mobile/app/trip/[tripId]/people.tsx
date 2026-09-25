@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Pressable, RefreshControl, Text, View } from 'react-native';
+import { RefreshControl, Text, View } from 'react-native';
 import { copy } from '@trippy/copy';
 import { useTripId } from '../../../src/trip-id';
 import { useApi } from '../../../src/hooks/useApi';
@@ -16,7 +16,7 @@ import {
 	Screen
 } from '../../../src/ui';
 import { SegmentedControl } from '../../../src/ui/controls';
-import { color, radius, space, type } from '../../../src/theme';
+import { color, space, type } from '../../../src/theme';
 import {
 	AddPersonSheet,
 	CrewSheet,
@@ -108,8 +108,11 @@ export default function People() {
 									<ListRow
 										key={crew.id}
 										title={crew.name}
-										subtitle={subtitle}
-										symbol={{ name: 'person.2', fallback: 'people-outline' }}
+										subtitle={`${crew.members.length} ${
+											crew.members.length === 1 ? 'person' : 'people'
+										}`}
+										detail={subtitle}
+										leading={<Avatar name={crew.name} />}
 										onPress={crew.locked ? undefined : () => setCrewDraft(crew)}
 										last={index === crews.length - 1}
 									/>
@@ -206,19 +209,16 @@ function MemberRow({
 		person.id === me ? copy.people.row.youTag : null,
 		person.role === 'organizer' ? copy.people.row.organizerTag : null,
 		person.placeholder && person.invitedEmail ? copy.people.row.invitedTag : null,
-		person.seeded ? copy.people.row.sampleTag : null
+		person.seeded || (person.placeholder && !person.invitedEmail) ? 'stand-in' : null
 	].filter(Boolean) as string[];
-	const subtitle = [
-		person.seeded ? copy.people.row.sampleCompanion : person.email,
-		tags.join(' · ')
-	]
-		.filter(Boolean)
-		.join(' · ');
+	const status = tags.join(' · ');
+	const email = person.placeholder ? (person.invitedEmail ?? person.email) : person.email;
 	return (
 		<ListRow
 			title={person.name}
-			subtitle={subtitle}
-			value={<Avatar name={person.name} />}
+			subtitle={status || null}
+			detail={email || null}
+			leading={<Avatar name={person.name} />}
 			accessory={canOpen ? 'chevron' : 'none'}
 			onPress={canOpen ? onOpen : undefined}
 			last={last}
