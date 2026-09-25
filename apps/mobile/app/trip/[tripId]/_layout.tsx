@@ -109,7 +109,21 @@ export default function TripTabs() {
 							headerStyle: { backgroundColor: color.bg },
 							headerShadowVisible: false,
 							headerTintColor: color.ink,
-							headerTitle: trip.name,
+							headerTitle: () => (
+								<Text
+									numberOfLines={1}
+									ellipsizeMode="tail"
+									style={{
+										...font.heading,
+										color: color.ink,
+										fontSize: 17,
+										maxWidth: 180,
+										flexShrink: 1
+									}}
+								>
+									{trip.name}
+								</Text>
+							),
 							headerTitleStyle: { ...font.heading, fontSize: 17 },
 							headerRight: () => (
 								<View

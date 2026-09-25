@@ -1,5 +1,6 @@
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { Text } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider } from '../src/auth';
 import { ToastProvider } from '../src/ui/Toast';
@@ -25,6 +26,15 @@ export default function RootLayout() {
 							headerShadowVisible: false,
 							headerTintColor: color.ink,
 							headerTitleStyle: { ...font.heading, fontSize: 17 },
+							headerTitle: ({ children }) => (
+								<Text
+									numberOfLines={1}
+									ellipsizeMode="tail"
+									style={{ ...font.heading, color: color.ink, fontSize: 17, maxWidth: 220 }}
+								>
+									{children}
+								</Text>
+							),
 							contentStyle: { backgroundColor: color.bg }
 						}}
 					>

@@ -145,7 +145,7 @@ export default function Calendar() {
 					</View>
 				</Card>
 
-				<StayBand stays={schedule.anchor.stays} onOpenEvent={openSaved} />
+				<StayBand stays={schedule.anchor.stays} locked={locked} onOpenEvent={openSaved} />
 				<Agenda
 					entry={schedule.anchor}
 					eventById={schedule.eventById}
@@ -219,9 +219,11 @@ export default function Calendar() {
 
 function StayBand({
 	stays,
+	locked,
 	onOpenEvent
 }: {
 	stays: EventRow[];
+	locked: boolean;
 	onOpenEvent: (id: string) => void;
 }) {
 	if (!stays.length) return null;
@@ -232,7 +234,7 @@ function StayBand({
 				<Pressable
 					key={stay.id}
 					accessibilityRole="button"
-					accessibilityLabel={copy.common.editLabel(stay.title)}
+					accessibilityLabel={locked ? `View ${stay.title}` : copy.common.editLabel(stay.title)}
 					onPress={() => onOpenEvent(stay.id)}
 					style={({ pressed }) => ({ gap: space.xs, opacity: pressed ? 0.75 : 1 })}
 				>

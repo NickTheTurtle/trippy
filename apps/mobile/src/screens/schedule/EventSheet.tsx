@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, Text, TextInput, View } from 'react-native';
+import type { ElementRef } from 'react';
+import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { copy } from '@trippy/copy';
 import { isLocatedType, STAY_CHECK_IN, type EventType } from '@trippy/core/types';
 import { MAX_NAME_LENGTH, MAX_NOTES_LENGTH } from '@trippy/core/validate';
@@ -357,7 +358,7 @@ export function EventSheet({
 									label={copy.schedule.fields.start}
 									value={start}
 									min={0}
-									max={Math.max(0, end - MIN_EVENT_MINS)}
+									max={DAY_END - MIN_EVENT_MINS}
 									readonly={locked}
 									onChange={setStartMinute}
 								/>
@@ -589,43 +590,139 @@ function TimeStepper({
 	readonly: boolean;
 	onChange: (value: number) => void;
 }) {
+	const [picking, setPicking] = useState(false);
 	const step = (delta: number) => Math.max(min, Math.min(max, value + delta));
 	return (
-		<View style={{ gap: space.xs }}>
-			<Text style={fieldLabel}>{label}</Text>
-			<View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
-				<Button
-					label="−"
-					accessibilityLabel={`Earlier ${label.toLowerCase()}`}
-					tone="ghost"
-					small
-					disabled={readonly || value <= min}
-					onPress={() => onChange(step(-5))}
-				/>
-				<View
-					style={{
-						flex: 1,
-						minHeight: 34,
-						justifyContent: 'center',
-						alignItems: 'center',
-						borderWidth: 1,
-						borderColor: color.line,
-						borderRadius: radius.md,
-						backgroundColor: color.surface
-					}}
-				>
-					<Text style={type.small}>{timeLabel(value)}</Text>
+		<>
+			<View style={{ gap: space.xs }}>
+				<Text style={fieldLabel}>{label}</Text>
+				<View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+					<Button
+						label="−"
+						accessibilityLabel={`Earlier ${label.toLowerCase()}`}
+						tone="ghost"
+						small
+						disabled={readonly || value <= min}
+						onPress={() => onChange(step(-5))}
+					/>
+					<Pressable
+						accessibilityRole="button"
+						accessibilityLabel={`Pick ${label.toLowerCase()}`}
+						disabled={readonly}
+						onPress={() => setPicking(true)}
+						style={({ pressed }) => ({
+							flex: 1,
+							minHeight: 34,
+							justifyContent: 'center',
+							alignItems: 'center',
+							borderWidth: 1,
+							borderColor: color.line,
+							borderRadius: radius.md,
+							backgroundColor: pressed ? color.surface2 : color.surface
+						})}
+					>
+						<Text style={type.small}>{timeLabel(value)}</Text>
+					</Pressable>
+					<Button
+						label="+"
+						accessibilityLabel={`Later ${label.toLowerCase()}`}
+						tone="ghost"
+						small
+						disabled={readonly || value >= max}
+						onPress={() => onChange(step(5))}
+					/>
 				</View>
-				<Button
-					label="+"
-					accessibilityLabel={`Later ${label.toLowerCase()}`}
-					tone="ghost"
-					small
-					disabled={readonly || value >= max}
-					onPress={() => onChange(step(5))}
-				/>
 			</View>
-		</View>
+			<TimePickerSheet
+				open={picking}
+				title={label}
+				value={value}
+				min={min}
+				max={max}
+				onClose={() => setPicking(false)}
+				onPick={(next) => {
+					onChange(next);
+					setPicking(false);
+				}}
+			/>
+		</>
+	);
+}
+
+function TimePickerSheet({
+	open,
+	title,
+	value,
+	min,
+	max,
+	onClose,
+	onPick
+}: {
+	open: boolean;
+	title: string;
+	value: number;
+	min: number;
+	max: number;
+	onClose: () => void;
+	onPick: (value: number) => void;
+}) {
+	const scroll = useRef<ElementRef<typeof ScrollView> | null>(null);
+	const options = useMemo(() => {
+		const values: number[] = [];
+		for (let minute = Math.ceil(min / 5) * 5; minute <= max; minute += 5) values.push(minute);
+		if (!values.includes(value) && value >= min && value <= max) values.push(value);
+		return values.sort((a, b) => a - b);
+	}, [min, max, value]);
+
+	useEffect(() => {
+		if (!open) return;
+		const index = Math.max(
+			0,
+			options.findIndex((option) => option === value)
+		);
+		const timer = setTimeout(
+			() => scroll.current?.scrollTo({ y: Math.max(0, index * 44 - 88), animated: false }),
+			0
+		);
+		return () => clearTimeout(timer);
+	}, [open, options, value]);
+
+	return (
+		<Sheet open={open} title={title} onClose={onClose}>
+			<ScrollView
+				ref={scroll}
+				style={{ maxHeight: 320 }}
+				keyboardShouldPersistTaps="handled"
+				nestedScrollEnabled
+			>
+				{options.map((option) => (
+					<Pressable
+						key={option}
+						accessibilityRole="button"
+						accessibilityState={{ selected: option === value }}
+						onPress={() => onPick(option)}
+						style={({ pressed }) => ({
+							minHeight: 44,
+							justifyContent: 'center',
+							paddingHorizontal: space.md,
+							borderRadius: radius.sm,
+							backgroundColor:
+								option === value ? color.accentSoft : pressed ? color.surface2 : color.surface
+						})}
+					>
+						<Text
+							style={{
+								...type.body,
+								color: option === value ? color.accentInk : color.ink
+							}}
+						>
+							{timeLabel(option)}
+						</Text>
+					</Pressable>
+				))}
+			</ScrollView>
+			<Button label={copy.common.cancel} tone="ghost" onPress={onClose} />
+		</Sheet>
 	);
 }
 
@@ -756,7 +853,7 @@ function Chip({ label, on, onPress }: { label: string; on: boolean; onPress: () 
 				opacity: pressed ? 0.7 : 1
 			})}
 		>
-			<Text style={{ color: on ? '#fff' : color.inkFaint }}>{on ? '✓' : '□'}</Text>
+			<Text style={{ color: on ? color.accentInk : color.inkFaint }}>{on ? '✓' : '□'}</Text>
 			<Text style={type.small}>{label}</Text>
 		</Pressable>
 	);
