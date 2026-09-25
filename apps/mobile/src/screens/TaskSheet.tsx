@@ -5,7 +5,7 @@ import { useMutation } from '../hooks/useMutation';
 import { DestructiveRow, Field, InsetSection, ListRow } from '../ui';
 import { ChecklistRow } from '../ui/controls';
 import { Sheet } from '../ui/Sheet';
-import { ConfirmSheet } from '../ui/ConfirmSheet';
+import { ConfirmSheet, confirmOverlays } from '../ui/ConfirmSheet';
 
 type Member = { id: string; name: string };
 type Crew = { id: string; name: string; members: string[]; locked?: boolean };
@@ -81,7 +81,9 @@ export function TaskSheet({
 	return (
 		<>
 			<Sheet
-				open={open && !confirmDelete}
+				open={open && (confirmOverlays || !confirmDelete)}
+				busy={confirmOverlays && remove.busy}
+				busyLabel={copy.common.deleting}
 				title={copy.preparation.taskDialog.title(kind, !!task)}
 				onClose={onClose}
 				onPrimary={() => void save.run()}

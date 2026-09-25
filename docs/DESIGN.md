@@ -3816,6 +3816,25 @@ the bottom of the sheet content, and still open a confirmation sheet before anyt
 removed. The web app keeps its own phone footer rule because it is a browser dialog system,
 not a native form sheet.
 
+**On iOS a sheet is the system page sheet, and short choices are action sheets.** The
+first native sheets were a transparent Modal with a view sliding up over a dimmed,
+shadowed backdrop. It moved like no iOS app does. `Sheet` now presents with
+`presentationStyle="pageSheet"` on iOS, so the app behind shrinks back and dims, the
+sheet follows a swipe down, and the motion is UIKit's. A swipe counts as Cancel and is
+refused while the primary action is saving. The page sheet sits below the top of the
+screen, which a KeyboardAvoidingView measures wrong, so its scroll view uses the native
+keyboard inset instead. Destructive confirmations and the two-row menus (the trip's
+more menu, the schedule's add menu) are `ActionSheetIOS` on iOS, because a whole sheet
+for "Delete Athens?" or for two choices is heavier than the question. A confirmation now
+rises over the edit sheet that asked for it rather than replacing it, so Cancel lands back
+in the form; a refusal returns as an alert offering the action again, since the action
+sheet has already gone. While a delete confirmed over an edit sheet is running, that
+sheet is held (Cancel, Save and the swipe refused, the spinner in the save slot), since
+the action sheet that asked has gone and nothing else says the delete is in flight. A
+refused swipe still arrives as a close request, so the sheet ignores the request itself
+while anything is running. Android and web keep the drawer sheet, with the confirmation
+replacing the edit sheet as before.
+
 **Native planning lists are grouped lists before they are cards.** Discover, Preparation
 and People use the same inset-section row system as Trips and Account rather than each
 feature inventing its own card stack. Discover keeps the existing city, type and vote model,

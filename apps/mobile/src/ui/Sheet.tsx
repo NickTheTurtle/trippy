@@ -29,7 +29,9 @@ export function Sheet({
 	primaryDisabled = false,
 	children,
 	onDismiss,
-	error
+	error,
+	busy = false,
+	busyLabel = copy.common.working
 }: {
 	open: boolean;
 	title: string;
@@ -51,6 +53,13 @@ export function Sheet({
 	 * this Modal on iOS.
 	 */
 	error?: string | null;
+	/**
+	 * Something started from inside the sheet is running (a delete confirmed
+	 * over it): Cancel, the primary action and a swipe are all held, and the
+	 * primary slot shows the spinner, until it settles.
+	 */
+	busy?: boolean;
+	busyLabel?: string;
 }) {
 	const { height } = useWindowDimensions();
 	const insets = useSafeAreaInsets();
@@ -58,7 +67,100 @@ export function Sheet({
 		if (!open) return;
 		return setInteractionBusy(true);
 	}, [open]);
-	const canPrimary = !!onPrimary && !!primaryLabel && !primaryBusy && !primaryDisabled;
+	const spinning = primaryBusy || busy;
+	const canPrimary = !!onPrimary && !!primaryLabel && !spinning && !primaryDisabled;
+	// A refused swipe on iOS still arrives as a close request, so the request
+	// itself has to be ignored while a save or a delete is running.
+	const requestClose = spinning ? () => {} : onClose;
+	const bar = (
+		<>
+			<View style={s.grabber} />
+			<View style={s.navBar}>
+				<Pressable
+					accessibilityRole="button"
+					accessibilityState={{ disabled: busy }}
+					onPress={busy ? undefined : onClose}
+					hitSlop={12}
+					style={s.navSide}
+				>
+					<Text style={[s.navAction, busy && { opacity: 0.35 }]}>{copy.common.cancel}</Text>
+				</Pressable>
+				<View style={s.titleBox}>
+					<Text style={s.navTitle} numberOfLines={1}>
+						{title}
+					</Text>
+					{subtitle ? (
+						<Text style={s.navSubtitle} numberOfLines={1}>
+							{subtitle}
+						</Text>
+					) : null}
+				</View>
+				{primaryLabel || spinning ? (
+					<Pressable
+						accessibilityRole="button"
+						accessibilityState={{ disabled: primaryDisabled, busy: spinning }}
+						onPress={canPrimary ? onPrimary : undefined}
+						hitSlop={12}
+						style={[s.navSide, { alignItems: 'flex-end' }]}
+					>
+						{spinning ? (
+							<ActivityIndicator
+								color={color.accent}
+								size="small"
+								accessibilityLabel={primaryBusy ? primaryBusyLabel : busyLabel}
+							/>
+						) : primaryLabel ? (
+							<Text style={[s.navAction, primaryDisabled && { opacity: 0.35 }]}>
+								{primaryLabel}
+							</Text>
+						) : null}
+					</Pressable>
+				) : (
+					<View style={s.navSide} />
+				)}
+			</View>
+			{error ? (
+				<Text accessibilityRole="alert" accessibilityLiveRegion="polite" style={s.error}>
+					{error}
+				</Text>
+			) : null}
+		</>
+	);
+
+	if (Platform.OS === 'ios') {
+		// The system page sheet: the app behind shrinks back and dims, the sheet
+		// follows a swipe down, and the motion is UIKit's own rather than a view
+		// sliding over a shadow. A swipe is a Cancel, refused while a save or a
+		// delete is running so its answer is not lost with the sheet.
+		return (
+			<Modal
+				visible={open}
+				presentationStyle="pageSheet"
+				animationType="slide"
+				allowSwipeDismissal={!spinning}
+				onRequestClose={requestClose}
+				onDismiss={onDismiss}
+			>
+				<View style={[s.sheet, s.page]}>
+					{bar}
+					<ScrollView
+						style={{ flex: 1 }}
+						contentContainerStyle={{ gap: space.lg, paddingBottom: space.xl + insets.bottom }}
+						keyboardShouldPersistTaps="handled"
+						keyboardDismissMode="interactive"
+						// The sheet sits below the top of the screen, so a
+						// KeyboardAvoidingView measured against its own frame would
+						// under-pad by that offset. The scroll view's native keyboard
+						// inset is computed in screen space and is right in any sheet.
+						automaticallyAdjustKeyboardInsets
+					>
+						{children}
+					</ScrollView>
+				</View>
+			</Modal>
+		);
+	}
+
 	return (
 		<Modal
 			visible={open}
@@ -67,61 +169,16 @@ export function Sheet({
 			onRequestClose={onClose}
 			onDismiss={onDismiss}
 		>
-			<KeyboardAvoidingView
-				style={{ flex: 1, justifyContent: 'flex-end' }}
-				behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-			>
+			<KeyboardAvoidingView style={{ flex: 1, justifyContent: 'flex-end' }}>
 				<Pressable style={s.backdrop} onPress={onClose} />
 				<View
 					style={[
 						s.sheet,
+						s.drawer,
 						{ maxHeight: height * 0.94, flexShrink: 1, paddingBottom: space.lg + insets.bottom }
 					]}
 				>
-					<View style={s.grabber} />
-					<View style={s.navBar}>
-						<Pressable accessibilityRole="button" onPress={onClose} hitSlop={12} style={s.navSide}>
-							<Text style={s.navAction}>{copy.common.cancel}</Text>
-						</Pressable>
-						<View style={s.titleBox}>
-							<Text style={s.navTitle} numberOfLines={1}>
-								{title}
-							</Text>
-							{subtitle ? (
-								<Text style={s.navSubtitle} numberOfLines={1}>
-									{subtitle}
-								</Text>
-							) : null}
-						</View>
-						{primaryLabel || primaryBusy ? (
-							<Pressable
-								accessibilityRole="button"
-								accessibilityState={{ disabled: primaryDisabled, busy: primaryBusy }}
-								onPress={canPrimary ? onPrimary : undefined}
-								hitSlop={12}
-								style={[s.navSide, { alignItems: 'flex-end' }]}
-							>
-								{primaryBusy ? (
-									<ActivityIndicator
-										color={color.accent}
-										size="small"
-										accessibilityLabel={primaryBusyLabel}
-									/>
-								) : primaryLabel ? (
-									<Text style={[s.navAction, primaryDisabled && { opacity: 0.35 }]}>
-										{primaryLabel}
-									</Text>
-								) : null}
-							</Pressable>
-						) : (
-							<View style={s.navSide} />
-						)}
-					</View>
-					{error ? (
-						<Text accessibilityRole="alert" accessibilityLiveRegion="polite" style={s.error}>
-							{error}
-						</Text>
-					) : null}
+					{bar}
 					<ScrollView
 						style={{ maxHeight: height * 0.72, flexShrink: 1 }}
 						contentContainerStyle={{ gap: space.lg, paddingBottom: space.sm }}
@@ -146,11 +203,14 @@ const s = StyleSheet.create({
 	},
 	sheet: {
 		backgroundColor: color.bg,
-		borderTopLeftRadius: radius.sheet,
-		borderTopRightRadius: radius.sheet,
 		paddingHorizontal: space.lg,
 		paddingTop: space.sm,
-		gap: space.md,
+		gap: space.md
+	},
+	page: { flex: 1 },
+	drawer: {
+		borderTopLeftRadius: radius.sheet,
+		borderTopRightRadius: radius.sheet,
 		shadowColor: '#000',
 		shadowOpacity: 0.16,
 		shadowRadius: 22,

@@ -19,6 +19,7 @@ import { DateField, SegmentedControl } from '../../../src/ui/controls';
 import { Sheet } from '../../../src/ui/Sheet';
 import { useTripHeaderAction } from '../../../src/ui/TripHeaderAction';
 import { useSheetHandoff } from '../../../src/ui/useSheetHandoff';
+import { showActionMenu } from '../../../src/ui/actionMenu';
 import { AppSymbol } from '../../../src/ui/Symbol';
 import { color, radius, space, type } from '../../../src/theme';
 import { DayBoard } from '../../../src/screens/schedule/DayBoard';
@@ -87,7 +88,15 @@ export default function Calendar() {
 		setMapFocusKey((key) => key + 1);
 	}, [data?.day]);
 	const headerAdd = useCallback(() => {
-		if (!locked && data) setAddMenuOpen(true);
+		if (locked || !data) return;
+		const shown = showActionMenu(copy.schedule.add.replace(/^\+\s*/, ''), [
+			{ label: copy.schedule.dialog.add, onPress: () => setAdding({ day: data.day }) },
+			{
+				label: copy.schedule.addStay.replace(/^\+\s*/, ''),
+				onPress: () => setAdding({ day: data.day, type: 'stay' })
+			}
+		]);
+		if (!shown) setAddMenuOpen(true);
 	}, [data, locked]);
 	useTripHeaderAction(!locked && data ? headerAdd : null);
 	const addHandoff = useSheetHandoff({

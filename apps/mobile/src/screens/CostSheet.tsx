@@ -7,7 +7,7 @@ import { useMutation } from '../hooks/useMutation';
 import { DestructiveRow, Field, InsetSection, ListRow, SectionHeader } from '../ui';
 import { ChecklistRow, SearchablePicker, SegmentedControl } from '../ui/controls';
 import { Sheet } from '../ui/Sheet';
-import { ConfirmSheet } from '../ui/ConfirmSheet';
+import { ConfirmSheet, confirmOverlays } from '../ui/ConfirmSheet';
 import { currencyName } from '@trippy/core/currency-names';
 import { parseAmount } from '../lib/amount';
 
@@ -96,7 +96,9 @@ export function CostSheet({
 	return (
 		<>
 			<Sheet
-				open={open && !confirmDelete}
+				open={open && (confirmOverlays || !confirmDelete)}
+				busy={confirmOverlays && remove.busy}
+				busyLabel={copy.common.deleting}
 				title={item ? copy.preparation.costDialog.editTitle : copy.preparation.costDialog.addTitle}
 				onClose={onClose}
 				onPrimary={() => void save.run()}

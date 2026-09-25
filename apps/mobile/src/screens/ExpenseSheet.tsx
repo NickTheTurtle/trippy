@@ -16,7 +16,7 @@ import {
 } from '../ui';
 import { CheckboxGlyph, DateField, SearchablePicker, SegmentedControl } from '../ui/controls';
 import { Sheet } from '../ui/Sheet';
-import { ConfirmSheet } from '../ui/ConfirmSheet';
+import { ConfirmSheet, confirmOverlays } from '../ui/ConfirmSheet';
 import { color, hairline, rowInset, space, type } from '../theme';
 import { parseAmount } from '../lib/amount';
 
@@ -284,7 +284,9 @@ export function ExpenseSheet({
 	return (
 		<>
 			<Sheet
-				open={open && !confirmDelete}
+				open={open && (confirmOverlays || !confirmDelete)}
+				busy={confirmOverlays && remove.busy}
+				busyLabel={copy.common.deleting}
 				title={title}
 				onClose={onClose}
 				onPrimary={() => void save.run()}
@@ -452,7 +454,9 @@ export function PaymentSheet({
 	return (
 		<>
 			<Sheet
-				open={open && !confirmDelete}
+				open={open && (confirmOverlays || !confirmDelete)}
+				busy={confirmOverlays && remove.busy}
+				busyLabel={copy.common.deleting}
 				title={payment.description}
 				onClose={onClose}
 				onPrimary={() => void save.run()}
