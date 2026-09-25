@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react';
-import { View } from 'react-native';
 import { copy } from '@trippy/copy';
 import { nightsBetween } from '@trippy/copy/format';
 import { CURRENCY_CODES } from '@trippy/core/currency';
@@ -7,9 +6,8 @@ import { currencyName } from '@trippy/core/currency-names';
 import { api } from '../lib/api';
 import { useMutation } from '../hooks/useMutation';
 import { DateField, SearchablePicker } from '../ui/controls';
-import { Field, FormError, InsetSection } from '../ui';
+import { Field, InsetSection } from '../ui';
 import { Sheet } from '../ui/Sheet';
-import { space } from '../theme';
 
 export function NewTrip({
 	open,
@@ -52,37 +50,29 @@ export function NewTrip({
 			primaryBusyLabel={copy.common.adding}
 			primaryBusy={submit.busy}
 		>
-			<InsetSection>
-				<View style={{ gap: space.md, padding: space.md }}>
-					<Field label={copy.tripForm.nameLabel} value={name} onChangeText={setName} />
-					<View style={{ flexDirection: 'row', gap: space.md }}>
-						<View style={{ flex: 1 }}>
-							<DateField
-								label={copy.tripForm.startLabel}
-								value={startDate}
-								onChange={setStart}
-								maximum={endDate || undefined}
-							/>
-						</View>
-						<View style={{ flex: 1 }}>
-							<DateField
-								label={copy.tripForm.endLabel}
-								value={endDate}
-								onChange={setEnd}
-								minimum={startDate || undefined}
-							/>
-						</View>
-					</View>
-					<SearchablePicker
-						label={copy.tripForm.currencyLabel}
-						value={homeCurrency}
-						options={currencyOptions}
-						onPick={setCurrency}
-						noMatches={copy.ui.currencyPicker.noMatches}
-					/>
-				</View>
+			<InsetSection error={submit.error}>
+				<Field label={copy.tripForm.nameLabel} value={name} onChangeText={setName} />
+				<DateField
+					label={copy.tripForm.startLabel}
+					value={startDate}
+					onChange={setStart}
+					maximum={endDate || undefined}
+				/>
+				<DateField
+					label={copy.tripForm.endLabel}
+					value={endDate}
+					onChange={setEnd}
+					minimum={startDate || undefined}
+				/>
+				<SearchablePicker
+					label={copy.tripForm.currencyLabel}
+					value={homeCurrency}
+					options={currencyOptions}
+					onPick={setCurrency}
+					noMatches={copy.ui.currencyPicker.noMatches}
+					last
+				/>
 			</InsetSection>
-			<FormError message={submit.error} />
 		</Sheet>
 	);
 }

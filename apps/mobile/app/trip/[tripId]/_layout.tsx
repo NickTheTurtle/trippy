@@ -68,6 +68,7 @@ export default function TripTabs() {
 	const events = useTripEvents(id || null);
 	const [editing, setEditing] = useState(false);
 	const [confirming, setConfirming] = useState<'delete' | 'leave' | null>(null);
+	const [actionsOpen, setActionsOpen] = useState(false);
 	const loadedFor = useRef<string | null>(null);
 	const trip = data?.trip.id === id ? data.trip : null;
 	if (trip) loadedFor.current = trip.id;
@@ -120,12 +121,17 @@ export default function TripTabs() {
 									}}
 								>
 									<Pressable
-										onPress={() => (canEdit ? setEditing(true) : setConfirming('leave'))}
+										accessibilityRole="button"
+										accessibilityLabel={copy.common.more}
+										onPress={() => setActionsOpen(true)}
 										hitSlop={8}
 									>
-										<Text style={{ ...type.footnote, color: color.accent, fontWeight: '600' }}>
-											{canEdit ? copy.tripShell.editTrip : copy.tripShell.leaveTrip}
-										</Text>
+										<AppSymbol
+											name="ellipsis.circle"
+											fallback="ellipsis-horizontal-circle-outline"
+											size={24}
+											color={color.accent}
+										/>
 									</Pressable>
 									<AccountMenu />
 								</View>
@@ -160,6 +166,24 @@ export default function TripTabs() {
 						<Tabs.Screen name="index" options={{ href: null }} />
 					</Tabs>
 				</View>
+				<TripActionSheet
+					open={actionsOpen}
+					trip={trip}
+					canEdit={canEdit}
+					onClose={() => setActionsOpen(false)}
+					onEdit={() => {
+						setActionsOpen(false);
+						setEditing(true);
+					}}
+					onLeave={() => {
+						setActionsOpen(false);
+						setConfirming('leave');
+					}}
+					onDelete={() => {
+						setActionsOpen(false);
+						setConfirming('delete');
+					}}
+				/>
 				<EditTripSheet
 					trip={trip}
 					open={editing}
@@ -189,6 +213,47 @@ export default function TripTabs() {
 				/>
 			</TripEventsProvider>
 		</TripIdContext.Provider>
+	);
+}
+
+function TripActionSheet({
+	open,
+	trip,
+	canEdit,
+	onClose,
+	onEdit,
+	onLeave,
+	onDelete
+}: {
+	open: boolean;
+	trip: Trip;
+	canEdit: boolean;
+	onClose: () => void;
+	onEdit: () => void;
+	onLeave: () => void;
+	onDelete: () => void;
+}) {
+	return (
+		<Sheet open={open} title={trip.name} onClose={onClose}>
+			<InsetSection>
+				{canEdit ? (
+					<>
+						<ListRow
+							title={copy.tripShell.editTrip}
+							symbol={{ name: 'pencil', fallback: 'create-outline' }}
+							onPress={onEdit}
+						/>
+						<DestructiveRow
+							title={copy.common.delete}
+							accessibilityLabel={copy.common.deleteLabel(trip.name)}
+							onPress={onDelete}
+						/>
+					</>
+				) : (
+					<DestructiveRow title={copy.tripShell.leaveTrip} onPress={onLeave} />
+				)}
+			</InsetSection>
+		</Sheet>
 	);
 }
 
@@ -261,37 +326,27 @@ function EditTripSheet({
 			primaryBusyLabel={copy.common.saving}
 			primaryBusy={save.busy}
 		>
-			<InsetSection>
-				<View style={{ gap: space.md, padding: space.md }}>
-					<Field label={copy.tripForm.nameLabel} value={name} onChangeText={setName} />
-					<View style={{ flexDirection: 'row', gap: space.md }}>
-						<View style={{ flex: 1 }}>
-							<DateField
-								label={copy.tripForm.startLabel}
-								value={startDate}
-								onChange={setStartDate}
-								maximum={endDate || undefined}
-							/>
-						</View>
-						<View style={{ flex: 1 }}>
-							<DateField
-								label={copy.tripForm.endLabel}
-								value={endDate}
-								onChange={setEndDate}
-								minimum={startDate || undefined}
-							/>
-						</View>
-					</View>
-					<SearchablePicker
-						label={copy.tripForm.currencyLabel}
-						value={currency}
-						options={options}
-						onPick={setCurrency}
-						noMatches={copy.ui.currencyPicker.noMatches}
-					/>
-				</View>
-			</InsetSection>
-			<InsetSection>
+			<InsetSection footer={copy.tripShell.editDialog.lockFooter} error={save.error}>
+				<Field label={copy.tripForm.nameLabel} value={name} onChangeText={setName} />
+				<DateField
+					label={copy.tripForm.startLabel}
+					value={startDate}
+					onChange={setStartDate}
+					maximum={endDate || undefined}
+				/>
+				<DateField
+					label={copy.tripForm.endLabel}
+					value={endDate}
+					onChange={setEndDate}
+					minimum={startDate || undefined}
+				/>
+				<SearchablePicker
+					label={copy.tripForm.currencyLabel}
+					value={currency}
+					options={options}
+					onPick={setCurrency}
+					noMatches={copy.ui.currencyPicker.noMatches}
+				/>
 				<ListRow
 					title={copy.tripShell.editDialog.lockLabel}
 					symbol={{ name: 'lock', fallback: 'lock-closed-outline' }}
@@ -301,7 +356,6 @@ function EditTripSheet({
 					last
 				/>
 			</InsetSection>
-			<FormError message={save.error} />
 			<InsetSection>
 				<DestructiveRow
 					title={copy.common.delete}

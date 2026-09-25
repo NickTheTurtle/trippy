@@ -4,7 +4,7 @@ import { Redirect, router, useLocalSearchParams } from 'expo-router';
 import { copy } from '@trippy/copy';
 import { useAuth } from '../src/auth';
 import { useMutation } from '../src/hooks/useMutation';
-import { Button, Field, FormError, InsetSection, Loading, Screen } from '../src/ui';
+import { Button, Field, InsetSection, Loading, Screen } from '../src/ui';
 import { color, space, type } from '../src/theme';
 
 export default function Login() {
@@ -26,31 +26,31 @@ export default function Login() {
 			style={{ flex: 1 }}
 			behavior={Platform.OS === 'ios' ? 'padding' : undefined}
 		>
-			<Screen largeTitle={copy.auth.login.title} subtitle={copy.shell.brand}>
+			<Screen largeTitle={copy.auth.login.title}>
 				<Text style={type.subhead}>{copy.auth.login.blurb}</Text>
-				<InsetSection>
-					<View style={{ gap: space.md, padding: space.md }}>
-						<Field
-							label={copy.auth.login.emailLabel}
-							value={email}
-							onChangeText={setEmail}
-							autoCapitalize="none"
-							autoComplete="email"
-							keyboardType="email-address"
-							textContentType="emailAddress"
-						/>
-						<Field
-							label={copy.auth.login.passwordLabel}
-							value={password}
-							onChangeText={setPassword}
-							secureTextEntry
-							autoComplete="current-password"
-							textContentType="password"
-							onSubmitEditing={() => void submit.run()}
-						/>
-					</View>
+				<InsetSection error={submit.error}>
+					<Field
+						label={copy.auth.login.emailLabel}
+						hideLabel
+						value={email}
+						onChangeText={setEmail}
+						autoCapitalize="none"
+						autoComplete="email"
+						keyboardType="email-address"
+						textContentType="emailAddress"
+					/>
+					<Field
+						label={copy.auth.login.passwordLabel}
+						hideLabel
+						last
+						value={password}
+						onChangeText={setPassword}
+						secureTextEntry
+						autoComplete="current-password"
+						textContentType="password"
+						onSubmitEditing={() => void submit.run()}
+					/>
 				</InsetSection>
-				<FormError message={submit.error} />
 				<Button
 					label={copy.auth.login.submitLabel}
 					onPress={() => void submit.run()}

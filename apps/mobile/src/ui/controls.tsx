@@ -3,6 +3,7 @@ import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } fr
 import DateTimePicker from '@react-native-community/datetimepicker';
 import NativeSegmentedControl from '@react-native-segmented-control/segmented-control';
 import { copy } from '@trippy/copy';
+import { formatDay } from '@trippy/copy/format';
 import { color, fieldLabel, radius, space, type } from '../theme';
 import { AppSymbol } from './Symbol';
 
@@ -105,26 +106,31 @@ export function DateField({
 	value,
 	onChange,
 	minimum,
-	maximum
+	maximum,
+	last = false
 }: {
 	label: string;
 	value: string;
 	onChange: (value: string) => void;
 	minimum?: string;
 	maximum?: string;
+	last?: boolean;
 }) {
 	const [open, setOpen] = useState(false);
 	const date = dayToDate(value) ?? new Date();
+	const shown = value ? formatDay(value, { year: true }) : label;
 	return (
-		<View style={{ gap: space.xs }}>
-			<Text style={fieldLabel}>{label}</Text>
+		<View>
 			<Pressable
 				accessibilityRole="button"
 				accessibilityLabel={label}
 				onPress={() => setOpen(true)}
-				style={s.fieldButton}
+				style={[s.formRow, !last && s.rowSeparator]}
 			>
-				<Text style={value ? type.body : type.faint}>{value || label}</Text>
+				<Text style={type.body}>{label}</Text>
+				<Text style={[value ? type.body : type.faint, { flex: 1, textAlign: 'right' }]}>
+					{shown}
+				</Text>
 			</Pressable>
 			{open ? (
 				<DateTimePicker
@@ -324,13 +330,15 @@ export function SearchablePicker({
 	value,
 	options,
 	onPick,
-	noMatches
+	noMatches,
+	last = false
 }: {
 	label: string;
 	value: string;
 	options: SearchablePickerOption[];
 	onPick: (value: string) => void;
 	noMatches: string;
+	last?: boolean;
 }) {
 	const [open, setOpen] = useState(false);
 	const [q, setQ] = useState('');
@@ -349,8 +357,7 @@ export function SearchablePicker({
 		[needle, options]
 	);
 	return (
-		<View style={{ gap: space.xs }}>
-			<Text style={fieldLabel}>{label}</Text>
+		<View>
 			<Pressable
 				accessibilityRole="button"
 				accessibilityLabel={label}
@@ -358,10 +365,15 @@ export function SearchablePicker({
 					setQ('');
 					setOpen(true);
 				}}
-				style={s.fieldButton}
+				style={[s.formRow, !last && s.rowSeparator]}
 			>
-				<Text style={type.body}>{current ? current.label : value}</Text>
-				{current?.detail ? <Text style={type.faint}>{current.detail}</Text> : null}
+				<Text style={type.body}>{label}</Text>
+				<View style={{ flex: 1 }}>
+					<Text style={[type.body, { textAlign: 'right' }]}>{current ? current.label : value}</Text>
+					{current?.detail ? (
+						<Text style={[type.faint, { textAlign: 'right' }]}>{current.detail}</Text>
+					) : null}
+				</View>
 			</Pressable>
 			{open ? (
 				<OptionBox
@@ -449,6 +461,14 @@ function formatMinutes(value: number): string {
 }
 
 const s = StyleSheet.create({
+	formRow: {
+		minHeight: 44,
+		flexDirection: 'row',
+		alignItems: 'center',
+		paddingHorizontal: space.md,
+		gap: space.md
+	},
+	rowSeparator: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: color.line },
 	segmented: { flexDirection: 'row', backgroundColor: color.surface2, borderRadius: 9, padding: 2 },
 	segment: { flex: 1, alignItems: 'center', paddingVertical: 7, borderRadius: 7 },
 	segmentOn: { backgroundColor: color.surface },

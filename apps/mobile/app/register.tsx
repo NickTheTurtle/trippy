@@ -4,7 +4,7 @@ import { Redirect, router } from 'expo-router';
 import { copy } from '@trippy/copy';
 import { useAuth } from '../src/auth';
 import { useMutation } from '../src/hooks/useMutation';
-import { Button, Field, FormError, InsetSection, Loading, Screen } from '../src/ui';
+import { Button, Field, InsetSection, Loading, Screen } from '../src/ui';
 import { color, space, type } from '../src/theme';
 
 export default function Register() {
@@ -26,7 +26,7 @@ export default function Register() {
 	if (user) return <Redirect href="/trips" />;
 	if (pending) {
 		return (
-			<Screen largeTitle={copy.auth.register.sentTitle} subtitle={copy.shell.brand}>
+			<Screen largeTitle={copy.auth.register.sentTitle}>
 				<Text style={type.subhead}>{copy.auth.register.sentBlurb}</Text>
 				<Button label={copy.auth.login.submitLabel} onPress={() => router.replace('/login')} />
 			</Screen>
@@ -38,38 +38,38 @@ export default function Register() {
 			style={{ flex: 1 }}
 			behavior={Platform.OS === 'ios' ? 'padding' : undefined}
 		>
-			<Screen largeTitle={copy.auth.register.title} subtitle={copy.shell.brand}>
+			<Screen largeTitle={copy.auth.register.title}>
 				<Text style={type.subhead}>{copy.auth.register.blurb}</Text>
-				<InsetSection>
-					<View style={{ gap: space.md, padding: space.md }}>
-						<Field
-							label={copy.auth.register.nameLabel}
-							value={name}
-							onChangeText={setName}
-							autoComplete="name"
-							textContentType="name"
-						/>
-						<Field
-							label={copy.auth.register.emailLabel}
-							value={email}
-							onChangeText={setEmail}
-							autoCapitalize="none"
-							autoComplete="email"
-							keyboardType="email-address"
-							textContentType="emailAddress"
-						/>
-						<Field
-							label={copy.auth.register.passwordLabel}
-							value={password}
-							onChangeText={setPassword}
-							secureTextEntry
-							autoComplete="new-password"
-							textContentType="newPassword"
-							placeholder={copy.auth.register.passwordHint}
-						/>
-					</View>
+				<InsetSection footer={copy.auth.register.passwordHint} error={submit.error}>
+					<Field
+						label={copy.auth.register.nameLabel}
+						hideLabel
+						value={name}
+						onChangeText={setName}
+						autoComplete="name"
+						textContentType="name"
+					/>
+					<Field
+						label={copy.auth.register.emailLabel}
+						hideLabel
+						value={email}
+						onChangeText={setEmail}
+						autoCapitalize="none"
+						autoComplete="email"
+						keyboardType="email-address"
+						textContentType="emailAddress"
+					/>
+					<Field
+						label={copy.auth.register.passwordLabel}
+						hideLabel
+						last
+						value={password}
+						onChangeText={setPassword}
+						secureTextEntry
+						autoComplete="new-password"
+						textContentType="newPassword"
+					/>
 				</InsetSection>
-				<FormError message={submit.error} />
 				<Button
 					label={copy.auth.register.submitLabel}
 					onPress={() => void submit.run()}

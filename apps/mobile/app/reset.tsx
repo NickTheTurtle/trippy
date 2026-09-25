@@ -6,7 +6,7 @@ import { type } from '../src/theme';
 
 export default function Reset() {
 	return (
-		<Screen largeTitle={copy.auth.reset.title} subtitle={copy.shell.brand}>
+		<Screen largeTitle={copy.auth.reset.title}>
 			<Text style={type.subhead}>{copy.mobileAuth.openWebLink}</Text>
 			<Button label={copy.auth.reset.footerLink} onPress={() => router.replace('/login')} />
 		</Screen>

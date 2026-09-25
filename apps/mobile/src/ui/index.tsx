@@ -77,7 +77,7 @@ export function Button({
 			style={({ pressed }) => [
 				s.button,
 				{
-					minHeight: small ? 34 : controlHeight,
+					minHeight: small ? 34 : 50,
 					paddingHorizontal: small ? space.md : space.lg,
 					backgroundColor: background,
 					borderColor: normalized === 'plain' ? 'transparent' : background,
@@ -97,14 +97,30 @@ export function Button({
 	);
 }
 
-export const Field = forwardRef<ElementRef<typeof TextInput>, { label: string } & TextInputProps>(
-	({ label, style, ...props }, ref) => (
-		<View style={{ gap: space.xs }}>
-			<Text style={s.label}>{label}</Text>
+type FieldProps = {
+	label: string;
+	labelWidth?: number;
+	hideLabel?: boolean;
+	last?: boolean;
+} & TextInputProps;
+
+export const Field = forwardRef<ElementRef<typeof TextInput>, FieldProps>(
+	(
+		{ label, labelWidth = 112, hideLabel = false, last = false, placeholder, style, ...props },
+		ref
+	) => (
+		<View style={[s.formRow, !last && s.rowSeparator]}>
+			{hideLabel ? null : (
+				<Text style={[type.body, { width: labelWidth }]} numberOfLines={1}>
+					{label}
+				</Text>
+			)}
 			<TextInput
 				ref={ref}
+				accessibilityLabel={label}
+				placeholder={placeholder ?? (hideLabel ? label : undefined)}
 				placeholderTextColor={color.inkFaint}
-				style={[s.input, style]}
+				style={[s.formInput, hideLabel && { textAlign: 'left' }, style]}
 				{...props}
 			/>
 		</View>
@@ -115,9 +131,9 @@ Field.displayName = 'Field';
 export function FormError({ message }: { message: string }) {
 	if (!message) return null;
 	return (
-		<View style={s.formError}>
-			<Text style={{ ...type.footnote, color: color.dangerInk }}>{message}</Text>
-		</View>
+		<Text style={{ ...type.footnote, color: color.dangerInk, marginLeft: space.lg }}>
+			{message}
+		</Text>
 	);
 }
 
@@ -226,16 +242,22 @@ export function InsetGroupedList({ children, style }: { children: ReactNode; sty
 export function InsetSection({
 	title,
 	children,
-	style
+	style,
+	footer,
+	error
 }: {
 	title?: string;
 	children: ReactNode;
 	style?: ViewStyle;
+	footer?: string;
+	error?: string;
 }) {
 	return (
 		<View style={[{ gap: 7 }, style]}>
 			{title ? <Text style={s.sectionTitle}>{title}</Text> : null}
 			<InsetGroupedList>{children}</InsetGroupedList>
+			{error ? <Text style={[s.sectionFooter, { color: color.dangerInk }]}>{error}</Text> : null}
+			{footer && !error ? <Text style={s.sectionFooter}>{footer}</Text> : null}
 		</View>
 	);
 }
@@ -377,25 +399,24 @@ const s = StyleSheet.create({
 		flexDirection: 'row',
 		alignItems: 'center',
 		justifyContent: 'center',
-		borderRadius: radius.button,
+		borderRadius: radius.section,
 		borderWidth: 1
 	},
 	buttonLabel: { fontWeight: '600' },
 	label: fieldLabel,
-	input: {
+	formRow: {
 		minHeight: controlHeight,
-		borderWidth: 1,
-		borderColor: color.line,
-		borderRadius: radius.button,
-		backgroundColor: color.surface,
+		flexDirection: 'row',
+		alignItems: 'center',
 		paddingHorizontal: space.md,
-		fontSize: 17,
-		color: color.ink
+		gap: space.md
 	},
-	formError: {
-		backgroundColor: color.dangerSoft,
-		borderRadius: radius.button,
-		padding: space.md
+	formInput: {
+		flex: 1,
+		minHeight: controlHeight,
+		fontSize: 17,
+		color: color.ink,
+		textAlign: 'right'
 	},
 	empty: {
 		alignItems: 'center',
@@ -413,6 +434,10 @@ const s = StyleSheet.create({
 		marginLeft: space.lg,
 		textTransform: 'uppercase',
 		letterSpacing: 0.35
+	},
+	sectionFooter: {
+		...type.footnote,
+		marginHorizontal: space.lg
 	},
 	row: {
 		minHeight: 52,
