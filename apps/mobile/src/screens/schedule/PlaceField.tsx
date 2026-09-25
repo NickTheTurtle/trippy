@@ -1,12 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
 import { copy } from '@trippy/copy';
 import { isLocatedType, type EventType } from '@trippy/core/types';
 import type { PlaceHit, PlaceHitDetails } from '../../lib/api-types';
 import { api } from '../../lib/api';
-import { Field } from '../../ui';
+import { Field, InsetSection, ListRow } from '../../ui';
 import { useToast } from '../../ui/Toast';
-import { color, radius, space, type } from '../../theme';
 import { keepsPick, placeLabel, placeOptions, poiKindFor } from './shared';
 import type { Cell, SavedPoi } from './types';
 
@@ -233,70 +231,65 @@ export function usePlaceField({
 			: options;
 
 	const field = !placeable ? null : (
-		<View style={{ gap: space.sm }}>
-			<Field
-				label={placeLabel(eventType)}
-				value={place}
-				onChangeText={onTyped}
-				editable={!readonly && !savingHit}
-				autoCorrect={false}
-			/>
-			{readonly ? null : (
-				<View style={{ borderWidth: 1, borderColor: color.line, borderRadius: radius.md }}>
-					{shownOptions.slice(0, 5).map((option, index) => (
-						<Pressable
+		<>
+			<InsetSection
+				footer={
+					typed.current && place.trim().length > 0
+						? searching || savingHit
+							? copy.schedule.placeSearch.searching
+							: place.trim().length < MIN_QUERY
+								? copy.schedule.placeSearch.keepTyping
+								: searched && hits.length === 0
+									? copy.schedule.placeSearch.nothingFound
+									: copy.schedule.placeSearch.noMatch
+						: undefined
+				}
+			>
+				<Field
+					variant="row"
+					label={placeLabel(eventType)}
+					value={place}
+					onChangeText={onTyped}
+					editable={!readonly && !savingHit}
+					autoCorrect={false}
+					last
+				/>
+			</InsetSection>
+			{readonly ? null : shownOptions.length || (typed.current && hits.length) ? (
+				<InsetSection>
+					{shownOptions.slice(0, 5).map((option, index, list) => (
+						<ListRow
 							key={option.key}
-							disabled={savingHit}
+							title={option.label}
+							subtitle={option.detail}
+							accessory={option.key === poi ? 'checkmark' : 'none'}
 							onPress={() => {
+								if (savingHit) return;
 								setPoi(option.key);
 								setPlace(option.label);
 								typed.current = false;
 								clearSearch();
 							}}
-							style={({ pressed }) => ({
-								paddingHorizontal: space.md,
-								paddingVertical: space.sm,
-								borderTopWidth: index === 0 ? 0 : 1,
-								borderTopColor: color.line,
-								backgroundColor: pressed ? color.surface2 : color.surface
-							})}
-						>
-							<Text style={type.body}>{option.label}</Text>
-							{option.detail ? <Text style={type.faint}>{option.detail}</Text> : null}
-						</Pressable>
+							last={!typed.current && index === list.length - 1}
+						/>
 					))}
-					{typed.current &&
-						hits.slice(0, 5).map((hit, index) => (
-							<Pressable
-								key={`hit:${hit.id ?? ''}:${hit.name}:${index}`}
-								disabled={savingHit}
-								onPress={() => void adopt(hit)}
-								style={({ pressed }) => ({
-									paddingHorizontal: space.md,
-									paddingVertical: space.sm,
-									borderTopWidth: 1,
-									borderTopColor: color.line,
-									backgroundColor: pressed ? color.surface2 : color.surface
-								})}
-							>
-								<Text style={type.body}>{hit.name}</Text>
-								{hit.address ? <Text style={type.faint}>{hit.address}</Text> : null}
-							</Pressable>
-						))}
-				</View>
-			)}
-			{typed.current && place.trim().length > 0 ? (
-				<Text style={type.faint}>
-					{searching || savingHit
-						? copy.schedule.placeSearch.searching
-						: place.trim().length < MIN_QUERY
-							? copy.schedule.placeSearch.keepTyping
-							: searched && hits.length === 0
-								? copy.schedule.placeSearch.nothingFound
-								: copy.schedule.placeSearch.noMatch}
-				</Text>
+					{typed.current
+						? hits.slice(0, 5).map((hit, index, list) => (
+								<ListRow
+									key={`hit:${hit.id ?? ''}:${hit.name}:${index}`}
+									title={hit.name}
+									subtitle={hit.address}
+									accessory="none"
+									onPress={() => {
+										if (!savingHit) void adopt(hit);
+									}}
+									last={index === list.length - 1}
+								/>
+							))
+						: null}
+				</InsetSection>
 			) : null}
-		</View>
+		</>
 	);
 
 	return { poi, place, spot, placeable, field, retype };

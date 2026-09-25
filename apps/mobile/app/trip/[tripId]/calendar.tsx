@@ -5,9 +5,20 @@ import { useTripId } from '../../../src/trip-id';
 import { useApi } from '../../../src/hooks/useApi';
 import { useLiveSection } from '../../../src/hooks/useTripEvents';
 import { useToast } from '../../../src/ui/Toast';
-import { Button, Card, EmptyState, FormError, Loading, Screen } from '../../../src/ui';
-import { Picker } from '../../../src/ui/controls';
-import { color, radius, space, type } from '../../../src/theme';
+import {
+	Button,
+	EmptyState,
+	FormError,
+	InsetSection,
+	ListRow,
+	Loading,
+	Screen
+} from '../../../src/ui';
+import { DateField, SegmentedControl } from '../../../src/ui/controls';
+import { Sheet } from '../../../src/ui/Sheet';
+import { useTripHeaderAction } from '../../../src/ui/TripHeaderAction';
+import { AppSymbol } from '../../../src/ui/Symbol';
+import { color, hairline, radius, space, type } from '../../../src/theme';
 import { DayBoard } from '../../../src/screens/schedule/DayBoard';
 import { DayMap } from '../../../src/screens/schedule/DayMap';
 import { EventSheet } from '../../../src/screens/schedule/EventSheet';
@@ -40,6 +51,9 @@ export default function Calendar() {
 	const [opened, setOpened] = useState<EventRow | null>(null);
 	const [mapFocusId, setMapFocusId] = useState<string | null>(null);
 	const [mapFocusKey, setMapFocusKey] = useState(0);
+	const [addMenuOpen, setAddMenuOpen] = useState(false);
+	const [jumpOpen, setJumpOpen] = useState(false);
+	const [viewAsOpen, setViewAsOpen] = useState(false);
 	const openedRef = useRef<ScheduleData | null>(null);
 	openedRef.current = data;
 	const memberName = useMemo(
@@ -70,6 +84,10 @@ export default function Calendar() {
 		setMapFocusId(null);
 		setMapFocusKey((key) => key + 1);
 	}, [data?.day]);
+	const headerAdd = useCallback(() => {
+		if (!locked && data) setAddMenuOpen(true);
+	}, [data, locked]);
+	useTripHeaderAction(!locked && data ? headerAdd : null);
 
 	if (schedule.loading && !data) return <Loading />;
 	if (!data || !schedule.anchor) {
@@ -95,87 +113,73 @@ export default function Calendar() {
 				}
 			>
 				<FormError message={schedule.error ?? ''} />
-				<Card style={{ gap: space.md }}>
-					<View
-						style={{
-							flexDirection: 'row',
-							alignItems: 'center',
-							justifyContent: 'space-between',
-							gap: space.sm
-						}}
-					>
-						<Button
-							label="‹"
-							accessibilityLabel={copy.schedule.nav.previousDay}
-							tone="ghost"
-							small
+				<View style={{ gap: space.md }}>
+					<View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+						<IconButton
+							label={copy.schedule.nav.previousDay}
+							icon="chevron.left"
+							fallback="chevron-back"
 							disabled={!data.prevDay}
 							onPress={schedule.stepPrev}
 						/>
 						<View style={{ flex: 1, alignItems: 'center' }}>
-							<Text style={type.head}>{dayLabel(data.day)}</Text>
+							<Text style={type.title2}>{dayLabel(data.day)}</Text>
 							<Text style={type.faint}>
-								{data.prevDay ? '' : copy.schedule.mobile.firstDay}{' '}
-								{data.nextDay ? '' : copy.schedule.mobile.lastDay}
+								{[
+									!data.prevDay ? copy.schedule.mobile.firstDay : null,
+									!data.nextDay ? copy.schedule.mobile.lastDay : null
+								]
+									.filter(Boolean)
+									.join(' · ') || ' '}
 							</Text>
 						</View>
-						<Button
-							label="›"
-							accessibilityLabel={copy.schedule.nav.nextDay}
-							tone="ghost"
-							small
+						<IconButton
+							label={copy.schedule.nav.nextDay}
+							icon="chevron.right"
+							fallback="chevron-forward"
 							disabled={!data.nextDay}
 							onPress={schedule.stepNext}
 						/>
 					</View>
-					<Picker
-						label={copy.schedule.viewAriaLabel}
-						options={[
+					<SegmentedControl
+						items={[
 							{ key: 'day', label: copy.schedule.views.day },
 							{ key: 'agenda', label: copy.schedule.views.agenda }
 						]}
-						value={schedule.view}
+						active={schedule.view}
 						onPick={(view) => schedule.setView(view as 'day' | 'agenda')}
 					/>
-					<Picker
-						label={copy.schedule.nav.jumpToDate}
-						options={data.days.map((d) => ({ key: d, label: dayLabel(d) }))}
-						value={data.day}
-						onPick={schedule.setDay}
-					/>
-					<Picker
-						label={copy.viewAs.label}
-						options={schedule.viewAsOptions.map((o) => ({
-							key: o.key,
-							label: o.warn ? `${o.label} (!)` : o.label
-						}))}
-						value={schedule.readAs}
-						onPick={schedule.setViewAs}
-					/>
-					<View style={{ flexDirection: 'row', gap: space.sm, flexWrap: 'wrap' }}>
+					<View style={{ gap: space.sm }}>
+						<ListRow
+							title={copy.schedule.nav.jumpToDate}
+							value={dayLabel(data.day)}
+							onPress={() => setJumpOpen(true)}
+							last
+						/>
+						<ListRow
+							title={copy.viewAs.label}
+							value={
+								schedule.viewAsOptions.find((option) => option.key === schedule.readAs)?.label ??
+								copy.viewAs.everyone
+							}
+							onPress={() => setViewAsOpen(true)}
+							last
+						/>
 						{locked ? (
-							<Tag label={copy.schedule.lock.tag} tone="lock" />
-						) : (
-							<>
-								<Button
-									label={copy.schedule.add}
-									small
-									onPress={() => setAdding({ day: data.day })}
-								/>
-								<Button
-									label={copy.schedule.addStay}
-									small
-									tone="ghost"
-									onPress={() => setAdding({ day: data.day, type: 'stay' })}
-								/>
-							</>
-						)}
+							<Text style={{ ...type.footnote, color: color.warn }}>{copy.schedule.lock.hint}</Text>
+						) : null}
 					</View>
-				</Card>
+				</View>
 
 				<StayBand stays={schedule.anchor.stays} locked={locked} onOpenEvent={openAndFocus} />
 				{schedule.view === 'day' ? (
-					<Card style={{ padding: space.sm }}>
+					<View
+						style={{
+							backgroundColor: color.surface,
+							borderRadius: radius.section,
+							overflow: 'hidden'
+						}}
+					>
 						<DayBoard
 							base={`/trips/${tripId}/schedule`}
 							entry={schedule.anchor}
@@ -187,7 +191,7 @@ export default function Calendar() {
 							onGestureChange={setGestureActive}
 							onReload={schedule.reload}
 						/>
-					</Card>
+					</View>
 				) : (
 					<Agenda
 						entry={schedule.anchor}
@@ -278,7 +282,182 @@ export default function Calendar() {
 					}}
 				/>
 			) : null}
+			<AddMenuSheet
+				open={addMenuOpen}
+				onClose={() => setAddMenuOpen(false)}
+				onEvent={() => {
+					setAddMenuOpen(false);
+					setAdding({ day: data.day });
+				}}
+				onStay={() => {
+					setAddMenuOpen(false);
+					setAdding({ day: data.day, type: 'stay' });
+				}}
+			/>
+			<JumpSheet
+				open={jumpOpen}
+				value={data.day}
+				firstDay={data.firstDay}
+				lastDay={data.lastDay}
+				onClose={() => setJumpOpen(false)}
+				onPick={(next) => {
+					schedule.setDay(next);
+					setJumpOpen(false);
+				}}
+			/>
+			<OptionSheet
+				open={viewAsOpen}
+				title={copy.viewAs.label}
+				value={schedule.readAs}
+				options={schedule.viewAsOptions.map((option) => ({
+					key: option.key,
+					label: option.warn ? `${option.label} (!)` : option.label
+				}))}
+				onClose={() => setViewAsOpen(false)}
+				onPick={(next) => {
+					schedule.setViewAs(next);
+					setViewAsOpen(false);
+				}}
+			/>
 		</>
+	);
+}
+
+function IconButton({
+	label,
+	icon,
+	fallback,
+	disabled,
+	onPress
+}: {
+	label: string;
+	icon: string;
+	fallback: React.ComponentProps<typeof AppSymbol>['fallback'];
+	disabled?: boolean;
+	onPress: () => void;
+}) {
+	return (
+		<Pressable
+			accessibilityRole="button"
+			accessibilityLabel={label}
+			accessibilityState={{ disabled }}
+			disabled={disabled}
+			onPress={onPress}
+			hitSlop={10}
+			style={{
+				width: 44,
+				height: 44,
+				alignItems: 'center',
+				justifyContent: 'center',
+				opacity: disabled ? 0.3 : 1
+			}}
+		>
+			<AppSymbol name={icon} fallback={fallback} size={22} color={color.accent} />
+		</Pressable>
+	);
+}
+
+function AddMenuSheet({
+	open,
+	onClose,
+	onEvent,
+	onStay
+}: {
+	open: boolean;
+	onClose: () => void;
+	onEvent: () => void;
+	onStay: () => void;
+}) {
+	return (
+		<Sheet open={open} title={copy.schedule.add.replace(/^\+\s*/, '')} onClose={onClose}>
+			<InsetSection>
+				<ListRow
+					title={copy.schedule.dialog.add}
+					symbol={{ name: 'calendar.badge.plus', fallback: 'calendar-outline' }}
+					onPress={onEvent}
+				/>
+				<ListRow
+					title={copy.schedule.addStay.replace(/^\+\s*/, '')}
+					symbol={{ name: 'bed.double', fallback: 'bed-outline' }}
+					onPress={onStay}
+					last
+				/>
+			</InsetSection>
+		</Sheet>
+	);
+}
+
+function JumpSheet({
+	open,
+	value,
+	firstDay,
+	lastDay,
+	onClose,
+	onPick
+}: {
+	open: boolean;
+	value: string;
+	firstDay: string;
+	lastDay: string;
+	onClose: () => void;
+	onPick: (day: string) => void;
+}) {
+	const [draft, setDraft] = useState(value);
+	useEffect(() => {
+		if (open) setDraft(value);
+	}, [open, value]);
+	return (
+		<Sheet
+			open={open}
+			title={copy.schedule.nav.jumpToDate}
+			onClose={onClose}
+			onPrimary={() => onPick(draft)}
+			primaryLabel={copy.common.save}
+		>
+			<InsetSection>
+				<DateField
+					label={copy.schedule.fields.date}
+					value={draft}
+					onChange={setDraft}
+					minimum={firstDay}
+					maximum={lastDay}
+					last
+				/>
+			</InsetSection>
+		</Sheet>
+	);
+}
+
+function OptionSheet({
+	open,
+	title,
+	value,
+	options,
+	onClose,
+	onPick
+}: {
+	open: boolean;
+	title: string;
+	value: string;
+	options: { key: string; label: string }[];
+	onClose: () => void;
+	onPick: (key: string) => void;
+}) {
+	return (
+		<Sheet open={open} title={title} onClose={onClose}>
+			<InsetSection>
+				{options.map((option, index) => (
+					<ListRow
+						key={option.key}
+						title={option.label}
+						accessory={option.key === value ? 'checkmark' : 'none'}
+						accessibilityState={{ selected: option.key === value }}
+						onPress={() => onPick(option.key)}
+						last={index === options.length - 1}
+					/>
+				))}
+			</InsetSection>
+		</Sheet>
 	);
 }
 
@@ -293,15 +472,21 @@ function StayBand({
 }) {
 	if (!stays.length) return null;
 	return (
-		<Card style={{ gap: space.sm }}>
-			<Text style={type.head}>{copy.schedule.mobile.stays}</Text>
-			{stays.map((stay) => (
+		<InsetSection title={copy.schedule.mobile.stays}>
+			{stays.map((stay, index) => (
 				<Pressable
 					key={stay.id}
 					accessibilityRole="button"
 					accessibilityLabel={locked ? `View ${stay.title}` : copy.common.editLabel(stay.title)}
 					onPress={() => onOpenEvent(stay.id)}
-					style={({ pressed }) => ({ gap: space.xs, opacity: pressed ? 0.75 : 1 })}
+					style={({ pressed }) => ({
+						minHeight: 44,
+						paddingHorizontal: space.md,
+						paddingVertical: space.sm,
+						opacity: pressed ? 0.75 : 1,
+						borderBottomWidth: index === stays.length - 1 ? 0 : hairline,
+						borderBottomColor: color.line
+					})}
 				>
 					<Text style={type.body}>{stay.title}</Text>
 					<Text style={type.faint}>
@@ -309,7 +494,7 @@ function StayBand({
 					</Text>
 				</Pressable>
 			))}
-		</Card>
+		</InsetSection>
 	);
 }
 
@@ -363,17 +548,25 @@ function Agenda({
 	);
 	if (!rows.length) {
 		return (
-			<Card>
+			<InsetSection>
 				<EmptyState message={copy.common.nothingAdded} hint={copy.schedule.mobile.freeDay} />
-			</Card>
+			</InsetSection>
 		);
 	}
 	return (
-		<View style={{ gap: space.md }}>
-			{rows.map((row) => (
-				<View key={row.key}>{row.node}</View>
+		<InsetSection title={dayLabel(entry.day)}>
+			{rows.map((row, index) => (
+				<View
+					key={row.key}
+					style={{
+						borderBottomWidth: index === rows.length - 1 ? 0 : hairline,
+						borderBottomColor: color.line
+					}}
+				>
+					{row.node}
+				</View>
 			))}
-		</View>
+		</InsetSection>
 	);
 }
 
@@ -394,29 +587,36 @@ function EventCard({
 			onPress={onPress}
 			style={({ pressed }) => ({ opacity: pressed ? 0.75 : 1 })}
 		>
-			<Card style={{ gap: space.sm }}>
-				<View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: space.md }}>
-					<Text style={{ ...type.small, color: color.accent, width: 76 }}>
-						{clockRange(event.start_min, event.end_min)}
+			<View
+				style={{
+					minHeight: 56,
+					flexDirection: 'row',
+					alignItems: 'center',
+					gap: space.md,
+					paddingHorizontal: space.md,
+					paddingVertical: space.sm
+				}}
+			>
+				<Text style={{ ...type.footnote, color: color.inkSoft, width: 76 }}>
+					{clockRange(event.start_min, event.end_min)}
+				</Text>
+				<View style={{ flex: 1 }}>
+					<Text style={{ ...type.body, fontWeight: '600' }} numberOfLines={2}>
+						{event.title}
 					</Text>
-					<View style={{ flex: 1, gap: space.xs }}>
-						<Text style={type.body}>{event.title}</Text>
-						<View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.xs }}>
-							<Tag label={typeLabel(event.type)} />
-							{locked ? <Tag label={copy.schedule.lock.tag} tone="lock" /> : null}
-							{event.people.length === 0 ? (
-								<Tag label={copy.common.everyone} />
-							) : (
-								event.people.map((id) => (
-									<Tag key={id} label={(memberName.get(id) ?? '?').split(' ')[0]} />
-								))
-							)}
-						</View>
-						{event.place_text ? <Text style={type.faint}>{event.place_text}</Text> : null}
-						{event.notes ? <Text style={type.small}>{event.notes}</Text> : null}
-					</View>
+					<Text style={type.faint} numberOfLines={1}>
+						{[
+							event.place_text,
+							event.people.length === 0
+								? copy.common.everyone
+								: event.people.map((id) => memberName.get(id) ?? '?').join(', ')
+						]
+							.filter(Boolean)
+							.join(' · ')}
+					</Text>
 				</View>
-			</Card>
+				<Text style={{ color: color.inkFaint, fontSize: 28, lineHeight: 28 }}>›</Text>
+			</View>
 		</Pressable>
 	);
 }
@@ -443,26 +643,49 @@ function JourneyCard({
 			onPress={onPress}
 			style={({ pressed }) => ({ opacity: pressed ? 0.75 : 1 })}
 		>
-			<Card
-				style={{ gap: space.sm, borderWidth: 1, borderColor: leg.tight ? color.warn : color.line }}
+			<View
+				style={{
+					minHeight: 44,
+					flexDirection: 'row',
+					alignItems: 'center',
+					gap: space.md,
+					paddingLeft: 92,
+					paddingRight: space.md,
+					paddingVertical: space.sm
+				}}
 			>
-				<View style={{ flexDirection: 'row', gap: space.md }}>
-					<Text style={{ ...type.small, color: color.accent, width: 76 }}>
-						{clockRange(leg.startMin, leg.endMin)}
+				<AppSymbol
+					name={symbolForMode(leg.resolvedMode)}
+					fallback="navigate-outline"
+					size={15}
+					color={leg.tight ? color.warn : color.inkFaint}
+				/>
+				<View style={{ flex: 1 }}>
+					<Text style={type.subhead} numberOfLines={1}>
+						{name}
 					</Text>
-					<View style={{ flex: 1, gap: space.xs }}>
-						<Text style={type.body}>{name}</Text>
-						<Text style={type.small}>
-							{mode} · {leg.resolvedMins} min · {peopleLabel(leg.people)}
-						</Text>
-						{leg.tight ? (
-							<Text style={{ ...type.small, color: color.warn }}>{copy.viewAs.travelWarning}</Text>
-						) : null}
-					</View>
+					<Text style={type.faint} numberOfLines={1}>
+						{mode} · {leg.resolvedMins} min · {peopleLabel(leg.people)}
+					</Text>
 				</View>
-			</Card>
+				{leg.tight ? (
+					<AppSymbol
+						name="exclamationmark.triangle.fill"
+						fallback="warning-outline"
+						size={14}
+						color={color.warn}
+					/>
+				) : null}
+			</View>
 		</Pressable>
 	);
+}
+
+function symbolForMode(mode: string): string {
+	if (mode === 'walk') return 'figure.walk';
+	if (mode === 'drive') return 'car.fill';
+	if (mode === 'transit') return 'tram.fill';
+	return 'location.fill';
 }
 
 function Tag({ label, tone = 'normal' }: { label: string; tone?: 'normal' | 'lock' }) {

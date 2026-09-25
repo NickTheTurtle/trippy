@@ -8,7 +8,7 @@ import MapView, {
 	type MapMarker
 } from 'react-native-maps';
 import { copy } from '@trippy/copy';
-import { Button, Card } from '../../ui';
+import { InsetSection, ListRow } from '../../ui';
 import { color, radius, space, type } from '../../theme';
 import { buildScheduleMapModel, type MobileMapPin } from './mapModel';
 import type { BoardDay, Cell, EventRow, SavedPoi } from './types';
@@ -66,26 +66,26 @@ export function DayMap({
 	}, [focusPin?.key, focusKey]);
 
 	return (
-		<Card style={{ gap: space.sm }}>
-			<View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-				<Text style={type.head}>{copy.schedule.map.title}</Text>
-				<View style={{ flexDirection: 'row', gap: space.sm }}>
-					{focusPin ? (
-						<Button label={copy.schedule.map.backToDay} small tone="ghost" onPress={onClearFocus} />
-					) : null}
-					<Button
-						label={expanded ? copy.schedule.map.hide : copy.schedule.map.show}
-						small
-						tone="ghost"
-						accessibilityLabel={expanded ? copy.schedule.map.hide : copy.schedule.map.show}
-						accessibilityState={{ expanded }}
-						onPress={() => setExpanded((value) => !value)}
-					/>
-				</View>
-			</View>
+		<InsetSection>
+			<ListRow
+				title={copy.schedule.map.title}
+				value={expanded ? copy.schedule.map.hide : copy.schedule.map.show}
+				accessory="none"
+				accessibilityState={{ expanded }}
+				onPress={() => setExpanded((value) => !value)}
+				last={!expanded && !focusPin}
+			/>
+			{focusPin ? (
+				<ListRow
+					title={copy.schedule.map.backToDay}
+					accessory="none"
+					onPress={onClearFocus}
+					last={!expanded}
+				/>
+			) : null}
 			{expanded ? (
 				<MapView
-					style={{ height: 260, borderRadius: radius.md, overflow: 'hidden' }}
+					style={{ height: 260 }}
 					initialRegion={model.region}
 					region={focusPin ? focusRegion(focusPin) : model.region}
 					showsUserLocation={false}
@@ -176,7 +176,7 @@ export function DayMap({
 					))}
 				</MapView>
 			) : null}
-		</Card>
+		</InsetSection>
 	);
 }
 
