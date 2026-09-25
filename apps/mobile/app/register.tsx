@@ -26,7 +26,7 @@ export default function Register() {
 	if (user) return <Redirect href="/trips" />;
 	if (pending) {
 		return (
-			<Screen largeTitle={copy.auth.register.sentTitle}>
+			<Screen topOffset={Platform.OS === 'web' ? 72 : 0} largeTitle={copy.auth.register.sentTitle}>
 				<Text style={type.subhead}>{copy.auth.register.sentBlurb}</Text>
 				<Button label={copy.auth.login.submitLabel} onPress={() => router.replace('/login')} />
 			</Screen>
@@ -38,20 +38,20 @@ export default function Register() {
 			style={{ flex: 1 }}
 			behavior={Platform.OS === 'ios' ? 'padding' : undefined}
 		>
-			<Screen largeTitle={copy.auth.register.title}>
+			<Screen topOffset={Platform.OS === 'web' ? 72 : 0} largeTitle={copy.auth.register.title}>
 				<Text style={type.subhead}>{copy.auth.register.blurb}</Text>
 				<InsetSection footer={copy.auth.register.passwordHint} error={submit.error}>
 					<Field
+						variant="row"
 						label={copy.auth.register.nameLabel}
-						hideLabel
 						value={name}
 						onChangeText={setName}
 						autoComplete="name"
 						textContentType="name"
 					/>
 					<Field
+						variant="row"
 						label={copy.auth.register.emailLabel}
-						hideLabel
 						value={email}
 						onChangeText={setEmail}
 						autoCapitalize="none"
@@ -60,8 +60,8 @@ export default function Register() {
 						textContentType="emailAddress"
 					/>
 					<Field
+						variant="row"
 						label={copy.auth.register.passwordLabel}
-						hideLabel
 						last
 						value={password}
 						onChangeText={setPassword}

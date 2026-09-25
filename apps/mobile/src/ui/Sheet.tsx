@@ -27,7 +27,8 @@ export function Sheet({
 	primaryBusyLabel = copy.common.saving,
 	primaryBusy = false,
 	primaryDisabled = false,
-	children
+	children,
+	onDismiss
 }: {
 	open: boolean;
 	title: string;
@@ -39,6 +40,7 @@ export function Sheet({
 	primaryBusy?: boolean;
 	primaryDisabled?: boolean;
 	children: ReactNode;
+	onDismiss?: () => void;
 }) {
 	const { height } = useWindowDimensions();
 	const insets = useSafeAreaInsets();
@@ -48,14 +50,23 @@ export function Sheet({
 	}, [open]);
 	const canPrimary = !!onPrimary && !!primaryLabel && !primaryBusy && !primaryDisabled;
 	return (
-		<Modal visible={open} transparent animationType="slide" onRequestClose={onClose}>
+		<Modal
+			visible={open}
+			transparent
+			animationType="slide"
+			onRequestClose={onClose}
+			onDismiss={onDismiss}
+		>
 			<KeyboardAvoidingView
 				style={{ flex: 1, justifyContent: 'flex-end' }}
 				behavior={Platform.OS === 'ios' ? 'padding' : undefined}
 			>
 				<Pressable style={s.backdrop} onPress={onClose} />
 				<View
-					style={[s.sheet, { maxHeight: height * 0.94, paddingBottom: space.lg + insets.bottom }]}
+					style={[
+						s.sheet,
+						{ maxHeight: height * 0.94, flexShrink: 1, paddingBottom: space.lg + insets.bottom }
+					]}
 				>
 					<View style={s.grabber} />
 					<View style={s.navBar}>
@@ -72,24 +83,29 @@ export function Sheet({
 								</Text>
 							) : null}
 						</View>
-						<Pressable
-							accessibilityRole="button"
-							onPress={canPrimary ? onPrimary : undefined}
-							hitSlop={12}
-							style={[s.navSide, { alignItems: 'flex-end' }]}
-						>
-							{primaryBusy ? (
-								<ActivityIndicator
-									color={color.accent}
-									size="small"
-									accessibilityLabel={primaryBusyLabel}
-								/>
-							) : primaryLabel ? (
-								<Text style={[s.navAction, primaryDisabled && { opacity: 0.35 }]}>
-									{primaryLabel}
-								</Text>
-							) : null}
-						</Pressable>
+						{primaryLabel || primaryBusy ? (
+							<Pressable
+								accessibilityRole="button"
+								accessibilityState={{ disabled: primaryDisabled, busy: primaryBusy }}
+								onPress={canPrimary ? onPrimary : undefined}
+								hitSlop={12}
+								style={[s.navSide, { alignItems: 'flex-end' }]}
+							>
+								{primaryBusy ? (
+									<ActivityIndicator
+										color={color.accent}
+										size="small"
+										accessibilityLabel={primaryBusyLabel}
+									/>
+								) : primaryLabel ? (
+									<Text style={[s.navAction, primaryDisabled && { opacity: 0.35 }]}>
+										{primaryLabel}
+									</Text>
+								) : null}
+							</Pressable>
+						) : (
+							<View style={s.navSide} />
+						)}
 					</View>
 					<ScrollView
 						style={{ maxHeight: height * 0.72, flexShrink: 1 }}

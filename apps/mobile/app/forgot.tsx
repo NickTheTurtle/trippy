@@ -21,7 +21,7 @@ export default function Forgot() {
 	if (user) return <Redirect href="/trips" />;
 	if (sent) {
 		return (
-			<Screen largeTitle={copy.auth.forgot.sentTitle}>
+			<Screen topOffset={Platform.OS === 'web' ? 72 : 0} largeTitle={copy.auth.forgot.sentTitle}>
 				<Text style={type.subhead}>{copy.auth.forgot.sentBlurb}</Text>
 				<Button label={copy.auth.forgot.footerLink} onPress={() => router.replace('/login')} />
 			</Screen>
@@ -33,12 +33,12 @@ export default function Forgot() {
 			style={{ flex: 1 }}
 			behavior={Platform.OS === 'ios' ? 'padding' : undefined}
 		>
-			<Screen largeTitle={copy.auth.forgot.title}>
+			<Screen topOffset={Platform.OS === 'web' ? 72 : 0} largeTitle={copy.auth.forgot.title}>
 				<Text style={type.subhead}>{copy.auth.forgot.blurb}</Text>
 				<InsetSection error={submit.error}>
 					<Field
+						variant="row"
 						label={copy.auth.forgot.emailLabel}
-						hideLabel
 						last
 						value={email}
 						onChangeText={setEmail}

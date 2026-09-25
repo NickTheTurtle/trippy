@@ -26,12 +26,12 @@ export default function Login() {
 			style={{ flex: 1 }}
 			behavior={Platform.OS === 'ios' ? 'padding' : undefined}
 		>
-			<Screen largeTitle={copy.auth.login.title}>
+			<Screen safeTop largeTitle={copy.auth.login.title}>
 				<Text style={type.subhead}>{copy.auth.login.blurb}</Text>
 				<InsetSection error={submit.error}>
 					<Field
+						variant="row"
 						label={copy.auth.login.emailLabel}
-						hideLabel
 						value={email}
 						onChangeText={setEmail}
 						autoCapitalize="none"
@@ -40,8 +40,8 @@ export default function Login() {
 						textContentType="emailAddress"
 					/>
 					<Field
+						variant="row"
 						label={copy.auth.login.passwordLabel}
-						hideLabel
 						last
 						value={password}
 						onChangeText={setPassword}

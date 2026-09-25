@@ -6,7 +6,7 @@ import { type } from '../src/theme';
 
 export default function Verify() {
 	return (
-		<Screen largeTitle={copy.auth.verify.title}>
+		<Screen safeTop largeTitle={copy.auth.verify.title}>
 			<Text style={type.subhead}>{copy.mobileAuth.openWebLink}</Text>
 			<Button label={copy.auth.verify.logIn} onPress={() => router.replace('/login')} />
 		</Screen>

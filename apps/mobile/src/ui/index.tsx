@@ -10,6 +10,7 @@ import {
 	TextInput,
 	View
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { RefreshControlProps, TextInputProps, ViewStyle } from 'react-native';
 import type { AccessibilityState } from 'react-native';
 import {
@@ -100,31 +101,53 @@ export function Button({
 type FieldProps = {
 	label: string;
 	labelWidth?: number;
-	hideLabel?: boolean;
+	variant?: 'stacked' | 'row' | 'bare';
 	last?: boolean;
 } & TextInputProps;
 
 export const Field = forwardRef<ElementRef<typeof TextInput>, FieldProps>(
-	(
-		{ label, labelWidth = 112, hideLabel = false, last = false, placeholder, style, ...props },
-		ref
-	) => (
-		<View style={[s.formRow, !last && s.rowSeparator]}>
-			{hideLabel ? null : (
-				<Text style={[type.body, { width: labelWidth }]} numberOfLines={1}>
-					{label}
-				</Text>
-			)}
-			<TextInput
-				ref={ref}
-				accessibilityLabel={label}
-				placeholder={placeholder ?? (hideLabel ? label : undefined)}
-				placeholderTextColor={color.inkFaint}
-				style={[s.formInput, hideLabel && { textAlign: 'left' }, style]}
-				{...props}
-			/>
-		</View>
-	)
+	({ label, labelWidth, variant = 'stacked', last = false, placeholder, style, ...props }, ref) => {
+		if (variant === 'bare') {
+			return (
+				<TextInput
+					ref={ref}
+					accessibilityLabel={label}
+					placeholder={placeholder}
+					placeholderTextColor={color.inkFaint}
+					style={[s.bareInput, style]}
+					{...props}
+				/>
+			);
+		}
+		if (variant === 'row') {
+			return (
+				<View style={[s.formRow, !last && s.rowSeparator]}>
+					<Text style={[type.body, labelWidth ? { width: labelWidth } : s.rowLabel]}>{label}</Text>
+					<TextInput
+						ref={ref}
+						accessibilityLabel={label}
+						placeholder={placeholder}
+						placeholderTextColor={color.inkFaint}
+						style={[s.formInput, style]}
+						{...props}
+					/>
+				</View>
+			);
+		}
+		return (
+			<View style={{ gap: space.xs }}>
+				{label ? <Text style={s.label}>{label}</Text> : null}
+				<TextInput
+					ref={ref}
+					accessibilityLabel={label || props.accessibilityLabel}
+					placeholder={placeholder}
+					placeholderTextColor={color.inkFaint}
+					style={[s.input, style]}
+					{...props}
+				/>
+			</View>
+		);
+	}
 );
 Field.displayName = 'Field';
 
@@ -153,7 +176,9 @@ export function Screen({
 	scrollEnabled = true,
 	largeTitle,
 	subtitle,
-	action
+	action,
+	safeTop = false,
+	topOffset = 0
 }: {
 	children: ReactNode;
 	scroll?: boolean;
@@ -162,7 +187,10 @@ export function Screen({
 	largeTitle?: string;
 	subtitle?: string;
 	action?: ReactNode;
+	safeTop?: boolean;
+	topOffset?: number;
 }) {
+	const insets = useSafeAreaInsets();
 	const content = (
 		<>
 			<LiveOff />
@@ -174,7 +202,12 @@ export function Screen({
 	return (
 		<ScrollView
 			style={{ backgroundColor: color.bg }}
-			contentContainerStyle={s.screenContent}
+			contentContainerStyle={[
+				s.screenContent,
+				(safeTop || topOffset > 0) && {
+					paddingTop: (safeTop ? insets.top + space.lg : space.lg) + topOffset
+				}
+			]}
 			keyboardShouldPersistTaps="handled"
 			refreshControl={refreshControl}
 			scrollEnabled={scrollEnabled}
@@ -289,7 +322,11 @@ export function ListRow({
 }) {
 	const destructive = tone === 'destructive';
 	const content = (
-		<View style={[s.row, !last && s.rowSeparator]}>
+		<View
+			accessible={!onPress && accessory !== 'switch'}
+			accessibilityLabel={accessibilityLabel ?? rowAccessibilityLabel(title, subtitle, value)}
+			style={[s.row, !last && s.rowSeparator]}
+		>
 			{symbol ? (
 				<View style={[s.symbolTile, destructive && { backgroundColor: color.dangerSoft }]}>
 					<AppSymbol
@@ -311,6 +348,7 @@ export function ListRow({
 				<AppSymbol name="checkmark" fallback="checkmark" size={18} color={color.accent} />
 			) : accessory === 'switch' ? (
 				<Switch
+					accessibilityLabel={accessibilityLabel ?? rowAccessibilityLabel(title, subtitle, value)}
 					value={!!switchValue}
 					onValueChange={onSwitch}
 					trackColor={{ false: color.line, true: color.accentSoft }}
@@ -323,13 +361,21 @@ export function ListRow({
 	return (
 		<Pressable
 			accessibilityRole="button"
-			accessibilityLabel={accessibilityLabel ?? title}
+			accessibilityLabel={accessibilityLabel ?? rowAccessibilityLabel(title, subtitle, value)}
 			onPress={onPress}
 			style={({ pressed }) => ({ opacity: pressed ? 0.62 : 1 })}
 		>
 			{content}
 		</Pressable>
 	);
+}
+
+function rowAccessibilityLabel(
+	title: string,
+	subtitle?: string | null,
+	value?: string | ReactNode
+): string {
+	return [title, subtitle, typeof value === 'string' ? value : null].filter(Boolean).join(', ');
 }
 
 export function DestructiveRow({
@@ -411,12 +457,30 @@ const s = StyleSheet.create({
 		paddingHorizontal: space.md,
 		gap: space.md
 	},
+	rowLabel: { minWidth: 72, maxWidth: '45%', flexShrink: 1 },
 	formInput: {
 		flex: 1,
 		minHeight: controlHeight,
 		fontSize: 17,
 		color: color.ink,
 		textAlign: 'right'
+	},
+	input: {
+		height: controlHeight,
+		borderWidth: 1,
+		borderColor: color.line,
+		borderRadius: radius.button,
+		backgroundColor: color.surface,
+		paddingHorizontal: space.md,
+		fontSize: 15,
+		color: color.ink
+	},
+	bareInput: {
+		minHeight: 34,
+		fontSize: 17,
+		color: color.ink,
+		paddingHorizontal: 0,
+		paddingVertical: 0
 	},
 	empty: {
 		alignItems: 'center',

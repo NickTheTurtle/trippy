@@ -84,6 +84,7 @@ export default function Account() {
 						<Pressable
 							accessibilityRole="button"
 							accessibilityLabel={copy.common.save}
+							accessibilityState={{ disabled: !canSave, busy: saveProfile.busy }}
 							onPress={canSave ? () => void saveProfile.run() : undefined}
 							hitSlop={10}
 						>
@@ -103,8 +104,14 @@ export default function Account() {
 			/>
 			<Screen largeTitle={Platform.OS === 'web' ? copy.account.heading : undefined}>
 				<InsetSection title={copy.account.profile.heading} error={saveProfile.error}>
-					<Field label={copy.account.profile.nameLabel} value={name} onChangeText={setName} />
 					<Field
+						variant="row"
+						label={copy.account.profile.nameLabel}
+						value={name}
+						onChangeText={setName}
+					/>
+					<Field
+						variant="row"
 						label={copy.account.profile.emailLabel}
 						value={email}
 						onChangeText={setEmail}
@@ -113,6 +120,7 @@ export default function Account() {
 					/>
 					{changingEmail ? (
 						<Field
+							variant="row"
 							label={copy.account.profile.currentPasswordLabel}
 							value={currentPassword}
 							onChangeText={setCurrentPassword}
@@ -121,6 +129,7 @@ export default function Account() {
 						/>
 					) : null}
 					<SearchablePicker
+						variant="row"
 						label={copy.account.profile.timeZoneLabel}
 						value={homeTz}
 						options={zoneOptions}
@@ -182,6 +191,7 @@ function PasswordSheet({ open, onClose }: { open: boolean; onClose: () => void }
 		>
 			<InsetSection footer={copy.account.password.newHint} error={savePassword.error}>
 				<Field
+					variant="row"
 					label={copy.account.password.currentLabel}
 					value={current}
 					onChangeText={setCurrent}
@@ -189,6 +199,7 @@ function PasswordSheet({ open, onClose }: { open: boolean; onClose: () => void }
 					autoComplete="current-password"
 				/>
 				<Field
+					variant="row"
 					label={copy.account.password.newLabel}
 					value={next}
 					onChangeText={setNext}
@@ -196,6 +207,7 @@ function PasswordSheet({ open, onClose }: { open: boolean; onClose: () => void }
 					autoComplete="new-password"
 				/>
 				<Field
+					variant="row"
 					label={copy.account.password.confirmLabel}
 					value={confirm}
 					onChangeText={setConfirm}

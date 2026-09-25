@@ -443,7 +443,9 @@ function JourneyCard({
 			onPress={onPress}
 			style={({ pressed }) => ({ opacity: pressed ? 0.75 : 1 })}
 		>
-			<Card style={{ gap: space.sm, borderColor: leg.tight ? color.warn : color.line }}>
+			<Card
+				style={{ gap: space.sm, borderWidth: 1, borderColor: leg.tight ? color.warn : color.line }}
+			>
 				<View style={{ flexDirection: 'row', gap: space.md }}>
 					<Text style={{ ...type.small, color: color.accent, width: 76 }}>
 						{clockRange(leg.startMin, leg.endMin)}

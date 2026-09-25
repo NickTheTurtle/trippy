@@ -51,7 +51,7 @@ export function NewTrip({
 			primaryBusy={submit.busy}
 		>
 			<InsetSection error={submit.error}>
-				<Field label={copy.tripForm.nameLabel} value={name} onChangeText={setName} />
+				<Field variant="row" label={copy.tripForm.nameLabel} value={name} onChangeText={setName} />
 				<DateField
 					label={copy.tripForm.startLabel}
 					value={startDate}
@@ -65,6 +65,7 @@ export function NewTrip({
 					minimum={startDate || undefined}
 				/>
 				<SearchablePicker
+					variant="row"
 					label={copy.tripForm.currencyLabel}
 					value={homeCurrency}
 					options={currencyOptions}

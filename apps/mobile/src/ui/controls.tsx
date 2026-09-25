@@ -4,6 +4,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import NativeSegmentedControl from '@react-native-segmented-control/segmented-control';
 import { copy } from '@trippy/copy';
 import { formatDay } from '@trippy/copy/format';
+import { clock } from '../screens/schedule/shared';
 import { color, fieldLabel, radius, space, type } from '../theme';
 import { AppSymbol } from './Symbol';
 
@@ -115,6 +116,7 @@ export function DateField({
 	minimum?: string;
 	maximum?: string;
 	last?: boolean;
+	variant?: 'stacked' | 'row';
 }) {
 	const [open, setOpen] = useState(false);
 	const date = dayToDate(value) ?? new Date();
@@ -124,7 +126,10 @@ export function DateField({
 			<Pressable
 				accessibilityRole="button"
 				accessibilityLabel={label}
-				onPress={() => setOpen(true)}
+				onPress={() => {
+					if (!open && !value) onChange(dateToDay(date));
+					setOpen((v) => !v);
+				}}
 				style={[s.formRow, !last && s.rowSeparator]}
 			>
 				<Text style={type.body}>{label}</Text>
@@ -132,7 +137,16 @@ export function DateField({
 					{shown}
 				</Text>
 			</Pressable>
-			{open ? (
+			{open && Platform.OS === 'web' ? (
+				<TextInput
+					accessibilityLabel={label}
+					value={value}
+					onChangeText={onChange}
+					placeholder="YYYY-MM-DD"
+					autoCapitalize="none"
+					style={s.searchInput}
+				/>
+			) : open ? (
 				<DateTimePicker
 					value={date}
 					mode="date"
@@ -173,12 +187,23 @@ export function TimeField({
 			<Pressable
 				accessibilityRole="button"
 				accessibilityLabel={label}
-				onPress={() => setOpen(true)}
+				onPress={() => setOpen((v) => !v)}
 				style={s.fieldButton}
 			>
 				<Text style={type.body}>{formatMinutes(value)}</Text>
 			</Pressable>
-			{open ? (
+			{open && Platform.OS === 'web' ? (
+				<TextInput
+					accessibilityLabel={label}
+					value={String(value)}
+					onChangeText={(raw) => {
+						const next = Number(raw);
+						if (Number.isFinite(next)) onChange(Math.min(maximum, Math.max(minimum, next)));
+					}}
+					keyboardType="number-pad"
+					style={s.searchInput}
+				/>
+			) : open ? (
 				<DateTimePicker
 					value={time}
 					mode="time"
@@ -331,7 +356,8 @@ export function SearchablePicker({
 	options,
 	onPick,
 	noMatches,
-	last = false
+	last = false,
+	variant = 'stacked'
 }: {
 	label: string;
 	value: string;
@@ -339,6 +365,7 @@ export function SearchablePicker({
 	onPick: (value: string) => void;
 	noMatches: string;
 	last?: boolean;
+	variant?: 'stacked' | 'row';
 }) {
 	const [open, setOpen] = useState(false);
 	const [q, setQ] = useState('');
@@ -356,25 +383,33 @@ export function SearchablePicker({
 			}),
 		[needle, options]
 	);
+	const pickerButton = (
+		<Pressable
+			accessibilityRole="button"
+			accessibilityLabel={label}
+			onPress={() => {
+				setQ('');
+				setOpen(true);
+			}}
+			style={variant === 'row' ? [s.formRow, !last && s.rowSeparator] : s.fieldButton}
+		>
+			{variant === 'row' ? <Text style={type.body}>{label}</Text> : null}
+			<View style={{ flex: 1 }}>
+				<Text style={[type.body, { textAlign: variant === 'row' ? 'right' : 'left' }]}>
+					{current ? current.label : value}
+				</Text>
+				{current?.detail ? (
+					<Text style={[type.faint, { textAlign: variant === 'row' ? 'right' : 'left' }]}>
+						{current.detail}
+					</Text>
+				) : null}
+			</View>
+		</Pressable>
+	);
 	return (
-		<View>
-			<Pressable
-				accessibilityRole="button"
-				accessibilityLabel={label}
-				onPress={() => {
-					setQ('');
-					setOpen(true);
-				}}
-				style={[s.formRow, !last && s.rowSeparator]}
-			>
-				<Text style={type.body}>{label}</Text>
-				<View style={{ flex: 1 }}>
-					<Text style={[type.body, { textAlign: 'right' }]}>{current ? current.label : value}</Text>
-					{current?.detail ? (
-						<Text style={[type.faint, { textAlign: 'right' }]}>{current.detail}</Text>
-					) : null}
-				</View>
-			</Pressable>
+		<View style={variant === 'row' ? undefined : { gap: space.xs }}>
+			{variant === 'row' ? null : <Text style={fieldLabel}>{label}</Text>}
+			{pickerButton}
 			{open ? (
 				<OptionBox
 					q={q}
@@ -453,11 +488,7 @@ function minutesToDate(value: number): Date {
 	return d;
 }
 function formatMinutes(value: number): string {
-	const h = Math.floor(value / 60);
-	const m = value % 60;
-	const suffix = h >= 12 ? 'PM' : 'AM';
-	const hour = h % 12 || 12;
-	return `${hour}:${String(m).padStart(2, '0')} ${suffix}`;
+	return clock(value);
 }
 
 const s = StyleSheet.create({

@@ -349,6 +349,7 @@ export function ExpenseSheet({
 								{on && mode === 'exact' ? (
 									<View style={{ width: 94 }}>
 										<Field
+											variant="bare"
 											label=""
 											value={weights[m.id] ?? ''}
 											onChangeText={(v) => setWeights((w) => ({ ...w, [m.id]: v }))}
@@ -495,6 +496,7 @@ function Stepper({
 			/>
 			<View style={{ width: 48 }}>
 				<Field
+					variant="bare"
 					label=""
 					value={value}
 					onChangeText={onChange}

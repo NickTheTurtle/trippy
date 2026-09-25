@@ -513,6 +513,7 @@ function StayCard({
 			style={{
 				padding: space.md,
 				gap: space.sm,
+				borderWidth: 1,
 				borderColor: stay.you_voted ? color.accent : color.line
 			}}
 		>

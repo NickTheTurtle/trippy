@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { InteractionManager, Platform, Pressable, Text, View } from 'react-native';
 import { Tabs, router, useLocalSearchParams } from 'expo-router';
 import type { ComponentProps } from 'react';
 import { copy } from '@trippy/copy';
@@ -69,6 +69,7 @@ export default function TripTabs() {
 	const [editing, setEditing] = useState(false);
 	const [confirming, setConfirming] = useState<'delete' | 'leave' | null>(null);
 	const [actionsOpen, setActionsOpen] = useState(false);
+	const [pendingAction, setPendingAction] = useState<'edit' | 'leave' | 'delete' | null>(null);
 	const loadedFor = useRef<string | null>(null);
 	const trip = data?.trip.id === id ? data.trip : null;
 	if (trip) loadedFor.current = trip.id;
@@ -83,6 +84,27 @@ export default function TripTabs() {
 		toast.error(copy.tripShell.gone);
 		router.replace('/trips');
 	}, [errorStatus, id, toast]);
+
+	function runPendingAction(action: 'edit' | 'leave' | 'delete') {
+		InteractionManager.runAfterInteractions(() => {
+			if (action === 'edit') setEditing(true);
+			else setConfirming(action);
+		});
+	}
+	function queueAction(action: 'edit' | 'leave' | 'delete') {
+		setPendingAction(action);
+		setActionsOpen(false);
+		if (Platform.OS !== 'ios') {
+			setPendingAction(null);
+			runPendingAction(action);
+		}
+	}
+	function finishPendingAction() {
+		if (!pendingAction) return;
+		const action = pendingAction;
+		setPendingAction(null);
+		runPendingAction(action);
+	}
 	const destroy = useMutation(
 		async () => {
 			if (!trip || !confirming) return;
@@ -171,18 +193,10 @@ export default function TripTabs() {
 					trip={trip}
 					canEdit={canEdit}
 					onClose={() => setActionsOpen(false)}
-					onEdit={() => {
-						setActionsOpen(false);
-						setEditing(true);
-					}}
-					onLeave={() => {
-						setActionsOpen(false);
-						setConfirming('leave');
-					}}
-					onDelete={() => {
-						setActionsOpen(false);
-						setConfirming('delete');
-					}}
+					onEdit={() => queueAction('edit')}
+					onLeave={() => queueAction('leave')}
+					onDelete={() => queueAction('delete')}
+					onDismiss={finishPendingAction}
 				/>
 				<EditTripSheet
 					trip={trip}
@@ -223,7 +237,8 @@ function TripActionSheet({
 	onClose,
 	onEdit,
 	onLeave,
-	onDelete
+	onDelete,
+	onDismiss
 }: {
 	open: boolean;
 	trip: Trip;
@@ -232,9 +247,10 @@ function TripActionSheet({
 	onEdit: () => void;
 	onLeave: () => void;
 	onDelete: () => void;
+	onDismiss: () => void;
 }) {
 	return (
-		<Sheet open={open} title={trip.name} onClose={onClose}>
+		<Sheet open={open} title={trip.name} onClose={onClose} onDismiss={onDismiss}>
 			<InsetSection>
 				{canEdit ? (
 					<>
@@ -327,7 +343,7 @@ function EditTripSheet({
 			primaryBusy={save.busy}
 		>
 			<InsetSection footer={copy.tripShell.editDialog.lockFooter} error={save.error}>
-				<Field label={copy.tripForm.nameLabel} value={name} onChangeText={setName} />
+				<Field variant="row" label={copy.tripForm.nameLabel} value={name} onChangeText={setName} />
 				<DateField
 					label={copy.tripForm.startLabel}
 					value={startDate}
@@ -341,6 +357,7 @@ function EditTripSheet({
 					minimum={startDate || undefined}
 				/>
 				<SearchablePicker
+					variant="row"
 					label={copy.tripForm.currencyLabel}
 					value={currency}
 					options={options}
