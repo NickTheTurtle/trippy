@@ -68,6 +68,7 @@ export function usePlaceField({
 	const [searching, setSearching] = useState(false);
 	const [searched, setSearched] = useState(false);
 	const [savingHit, setSavingHit] = useState(false);
+	const [editing, setEditing] = useState(false);
 	const typed = useRef(false);
 	const abort = useRef<AbortController | null>(null);
 	const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -234,7 +235,7 @@ export function usePlaceField({
 		<>
 			<InsetSection
 				footer={
-					typed.current && place.trim().length > 0
+					editing && typed.current && place.trim().length > 0
 						? searching || savingHit
 							? copy.schedule.placeSearch.searching
 							: place.trim().length < MIN_QUERY
@@ -245,18 +246,24 @@ export function usePlaceField({
 						: undefined
 				}
 			>
-				<Field
-					variant="row"
-					label={placeLabel(eventType)}
-					value={place}
-					onChangeText={onTyped}
-					editable={!readonly && !savingHit}
-					autoCorrect={false}
+				<ListRow
+					title={copy.schedule.fields.place}
+					value={(spot?.name ?? place.trim()) || copy.schedule.placeSearch.noMatch}
+					accessory={readonly ? 'none' : 'chevron'}
+					onPress={readonly ? undefined : () => setEditing((value) => !value)}
 					last
 				/>
 			</InsetSection>
-			{readonly ? null : shownOptions.length || (typed.current && hits.length) ? (
+			{readonly || !editing ? null : (
 				<InsetSection>
+					<Field
+						variant="row"
+						label={placeLabel(eventType)}
+						value={place}
+						onChangeText={onTyped}
+						editable={!savingHit}
+						autoCorrect={false}
+					/>
 					{shownOptions.slice(0, 5).map((option, index, list) => (
 						<ListRow
 							key={option.key}
@@ -269,8 +276,9 @@ export function usePlaceField({
 								setPlace(option.label);
 								typed.current = false;
 								clearSearch();
+								setEditing(false);
 							}}
-							last={!typed.current && index === list.length - 1}
+							last={!typed.current && hits.length === 0 && index === list.length - 1}
 						/>
 					))}
 					{typed.current
@@ -281,14 +289,17 @@ export function usePlaceField({
 									subtitle={hit.address}
 									accessory="none"
 									onPress={() => {
-										if (!savingHit) void adopt(hit);
+										if (!savingHit) {
+											void adopt(hit);
+											setEditing(false);
+										}
 									}}
 									last={index === list.length - 1}
 								/>
 							))
 						: null}
 				</InsetSection>
-			) : null}
+			)}
 		</>
 	);
 

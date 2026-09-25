@@ -24,6 +24,7 @@ import {
 	dayLabel,
 	deriveTitle,
 	modeLabel,
+	placeLabel,
 	rangeLabel,
 	shiftDay,
 	typeLabel
@@ -323,6 +324,18 @@ export function EventSheet({
 				primaryBusy={save.busy}
 				error={save.error}
 			>
+				<InsetSection>
+					<Field
+						variant="row"
+						label={`${placeLabel(eventType)}${copy.ui.field.optionalSuffix}`}
+						value={label}
+						placeholder={derived}
+						maxLength={MAX_NAME_LENGTH}
+						onChangeText={setLabel}
+						editable={!locked}
+						last
+					/>
+				</InsetSection>
 				{place.field}
 				<RowPicker
 					label={copy.schedule.fields.type}
@@ -422,37 +435,35 @@ export function EventSheet({
 					readonly={locked}
 					onChange={setPeople}
 				/>
-				<InsetSection>
-					<Field
-						variant="row"
-						label={`${copy.schedule.fields.label}${copy.ui.field.optionalSuffix}`}
-						value={label}
-						placeholder={derived}
-						maxLength={MAX_NAME_LENGTH}
-						onChangeText={setLabel}
-						editable={!locked}
-						last
-					/>
-				</InsetSection>
-				<InsetSection title={`${copy.schedule.fields.notes}${copy.ui.field.optionalSuffix}`}>
-					<TextInput
-						accessibilityLabel={copy.schedule.fields.notes}
-						value={notes}
-						onChangeText={setNotes}
-						editable={!locked}
-						multiline
-						maxLength={MAX_NOTES_LENGTH}
-						placeholderTextColor={color.inkFaint}
-						style={{
-							minHeight: 88,
-							textAlignVertical: 'top',
-							backgroundColor: color.surface,
-							paddingHorizontal: space.md,
-							paddingVertical: space.sm,
-							color: color.ink
-						}}
-					/>
-				</InsetSection>
+				{locked ? (
+					<InsetSection>
+						<ListRow
+							title={`${copy.schedule.fields.notes}${copy.ui.field.optionalSuffix}`}
+							subtitle={notes || undefined}
+							accessory="none"
+							last
+						/>
+					</InsetSection>
+				) : (
+					<InsetSection title={`${copy.schedule.fields.notes}${copy.ui.field.optionalSuffix}`}>
+						<TextInput
+							accessibilityLabel={copy.schedule.fields.notes}
+							value={notes}
+							onChangeText={setNotes}
+							multiline
+							maxLength={MAX_NOTES_LENGTH}
+							placeholderTextColor={color.inkFaint}
+							style={{
+								minHeight: 88,
+								textAlignVertical: 'top',
+								backgroundColor: color.surface,
+								paddingHorizontal: space.md,
+								paddingVertical: space.sm,
+								color: color.ink
+							}}
+						/>
+					</InsetSection>
+				)}
 				<JourneyEditor
 					legs={legs}
 					edits={journeyEdits}
@@ -462,9 +473,22 @@ export function EventSheet({
 					onSet={setJourney}
 				/>
 				{locked ? (
-					<Text style={{ ...type.footnote, color: color.warn, marginHorizontal: space.lg }}>
-						{copy.schedule.lock.hint}
-					</Text>
+					<View
+						style={{
+							flexDirection: 'row',
+							alignItems: 'center',
+							gap: space.xs,
+							marginHorizontal: space.lg
+						}}
+					>
+						<AppSymbol
+							name="lock.fill"
+							fallback="lock-closed-outline"
+							size={13}
+							color={color.warn}
+						/>
+						<Text style={{ ...type.footnote, color: color.warn }}>{copy.schedule.lock.footer}</Text>
+					</View>
 				) : null}
 				{!locked && event ? (
 					<InsetSection>
@@ -608,9 +632,27 @@ function TimeRow({
 	onChange: (value: number) => void;
 	last?: boolean;
 }) {
+	const [open, setOpen] = useState(false);
 	return (
-		<View style={{ borderBottomWidth: last ? 0 : hairline, borderBottomColor: color.line }}>
-			<TimeField label={label} value={value} minimum={min} maximum={max} onChange={onChange} />
+		<View>
+			<ListRow
+				title={label}
+				value={timeLabel(value)}
+				onPress={() => setOpen((shown) => !shown)}
+				last={last && !open}
+			/>
+			{open ? (
+				<View
+					style={{
+						paddingHorizontal: space.md,
+						paddingBottom: space.sm,
+						borderBottomWidth: last ? 0 : hairline,
+						borderBottomColor: color.line
+					}}
+				>
+					<TimeField label={label} value={value} minimum={min} maximum={max} onChange={onChange} />
+				</View>
+			) : null}
 		</View>
 	);
 }
@@ -661,7 +703,13 @@ function PeopleChooser({
 		<InsetSection
 			title={copy.schedule.fields.participants}
 			footer={
-				value === null ? copy.schedule.fields.nobody : everyone ? copy.common.everyone : undefined
+				readonly
+					? undefined
+					: value === null
+						? copy.schedule.fields.nobody
+						: everyone
+							? copy.common.everyone
+							: undefined
 			}
 		>
 			{readonly ? (

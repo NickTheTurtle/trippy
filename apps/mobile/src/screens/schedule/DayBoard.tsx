@@ -658,8 +658,6 @@ function LegBar({
 				width,
 				height: h,
 				minHeight: MIN_LEG_H,
-				borderRadius: radius.sm,
-				backgroundColor: color.surface2,
 				paddingHorizontal: width < 64 ? 2 : 5,
 				justifyContent: 'center',
 				overflow: 'hidden'

@@ -149,12 +149,11 @@ export default function Calendar() {
 						active={schedule.view}
 						onPick={(view) => schedule.setView(view as 'day' | 'agenda')}
 					/>
-					<View style={{ gap: space.sm }}>
+					<InsetSection>
 						<ListRow
 							title={copy.schedule.nav.jumpToDate}
 							value={dayLabel(data.day)}
 							onPress={() => setJumpOpen(true)}
-							last
 						/>
 						<ListRow
 							title={copy.viewAs.label}
@@ -165,10 +164,12 @@ export default function Calendar() {
 							onPress={() => setViewAsOpen(true)}
 							last
 						/>
-						{locked ? (
-							<Text style={{ ...type.footnote, color: color.warn }}>{copy.schedule.lock.hint}</Text>
-						) : null}
-					</View>
+					</InsetSection>
+					{locked ? (
+						<Text style={{ ...type.footnote, color: color.warn, marginHorizontal: space.lg }}>
+							{copy.schedule.lock.hint}
+						</Text>
+					) : null}
 				</View>
 
 				<StayBand stays={schedule.anchor.stays} locked={locked} onOpenEvent={openAndFocus} />
