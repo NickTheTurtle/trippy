@@ -51,7 +51,7 @@ export default function Expenses() {
 	const settleBusy = useRef(new Set<string>());
 	const [settleNonce, setSettleNonce] = useState(0);
 	const addExpenseAction = useCallback(() => setAdding(true), []);
-	useTripHeaderAction(section === 'expenses' ? addExpenseAction : null);
+	useTripHeaderAction(data && section === 'expenses' ? addExpenseAction : null);
 
 	const settle = useMutation(
 		async (transfer: Transfer) => {
@@ -129,25 +129,32 @@ export default function Expenses() {
 
 				{section === 'expenses' ? (
 					<>
-						<InsetSection title={copy.expenses.tripTotal}>
-							<View style={{ flexDirection: 'row', gap: space.lg, padding: space.md }}>
-								<View style={{ flex: 1 }}>
-									<Text style={type.faint}>{copy.expenses.tripTotal}</Text>
-									<Text style={type.head}>{fmt(spent)}</Text>
-								</View>
-								<View style={{ flex: 1 }}>
-									<Text style={type.faint}>
-										{viewAs ? shareLabel(data.members, viewAs, data.me) : copy.expenses.perPerson}
-									</Text>
-									<Text style={type.head}>{fmt(viewAs ? mine : perPerson)}</Text>
-								</View>
-							</View>
-						</InsetSection>
 						{data.expenses.length > 0 ? (
-							<InsetSection title={copy.viewAs.label}>
+							<InsetSection>
+								<View style={{ flexDirection: 'row', gap: space.lg, padding: space.md }}>
+									<View style={{ flex: 1 }}>
+										<Text style={type.faint}>{copy.expenses.tripTotal}</Text>
+										<Text style={type.head}>{fmt(spent)}</Text>
+									</View>
+									<View style={{ flex: 1 }}>
+										<Text style={type.faint}>
+											{viewAs ? shareLabel(data.members, viewAs, data.me) : copy.expenses.perPerson}
+										</Text>
+										<Text style={type.head}>{fmt(viewAs ? mine : perPerson)}</Text>
+									</View>
+								</View>
+							</InsetSection>
+						) : null}
+						{data.expenses.length > 0 && data.members.length >= 2 ? (
+							<InsetSection>
 								<ListRow
 									title={copy.viewAs.label}
-									value={viewAs ? shareLabel(data.members, viewAs, data.me) : copy.viewAs.everyone}
+									value={
+										viewAs
+											? (data.members.find((member) => member.id === viewAs)?.name ??
+												shareLabel(data.members, viewAs, data.me))
+											: copy.viewAs.everyone
+									}
 									onPress={() => setViewAsOpen(true)}
 									last
 								/>
@@ -189,7 +196,7 @@ export default function Expenses() {
 				) : null}
 
 				{section === 'balances' ? (
-					<InsetSection title={copy.expenses.sections.balances}>
+					<InsetSection>
 						{unsettled.length === 0 ? (
 							<EmptyState message={copy.expenses.allEven} />
 						) : (
@@ -205,7 +212,7 @@ export default function Expenses() {
 				) : null}
 
 				{section === 'settle' ? (
-					<InsetSection title={copy.expenses.sections.settle}>
+					<InsetSection>
 						{data.settlement.length === 0 ? (
 							<EmptyState message={copy.expenses.nothingToSettle} />
 						) : (
@@ -326,12 +333,40 @@ function ExpenseLine({
 				/>
 			</View>
 			<View style={{ flex: 1 }}>
-				<Text style={{ ...type.body, fontWeight: '600' }}>{expense.description}</Text>
+				<View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
+					<Text style={{ ...type.body, fontWeight: '600', flexShrink: 1 }}>
+						{expense.description}
+					</Text>
+					{expense.needsReview ? (
+						<View
+							accessible
+							accessibilityLabel={copy.expenses.row.reviewTitle}
+							style={{
+								flexDirection: 'row',
+								alignItems: 'center',
+								gap: 3,
+								backgroundColor: color.warnSoft,
+								borderRadius: radius.sm,
+								paddingHorizontal: 5,
+								paddingVertical: 1
+							}}
+						>
+							<AppSymbol
+								name="exclamationmark.triangle.fill"
+								fallback="warning-outline"
+								size={12}
+								color={color.warn}
+							/>
+							<Text style={{ ...type.footnote, color: color.warn }}>
+								{copy.expenses.row.reviewShort}
+							</Text>
+						</View>
+					) : null}
+				</View>
 				<Text style={type.faint}>
 					{settled
-						? expense.description.replace(/^Payment from /, '').replace(' to ', ' paid ')
+						? formatSpentOn(expense.spent_on)
 						: `${credit ? copy.expenses.addDialog.receivedByLabel : copy.expenses.addDialog.paidByLabel} ${expense.payer_name} · ${copy.expenses.row.splitLabel(expense.split_mode, expense.participants)}`}
-					{expense.needsReview ? ` · ${copy.expenses.row.reviewTitle}` : ''}
 				</Text>
 			</View>
 			<View style={{ alignItems: 'flex-end' }}>
@@ -475,7 +510,7 @@ function TransferRow({
 		<View style={{ gap: space.xs, paddingVertical: space.sm }}>
 			<View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
 				<Text style={{ ...type.body, flex: 1, fontWeight: '600' }}>
-					{transfer.from} → {transfer.to}
+					{transfer.from} {copy.expenses.settleRow.pays} {transfer.to}
 				</Text>
 				<Text style={type.body}>{amount}</Text>
 				<Pressable

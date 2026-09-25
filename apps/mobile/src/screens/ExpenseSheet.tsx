@@ -7,9 +7,11 @@ import { formatMoney } from '@trippy/copy/format';
 import { api, ApiError } from '../lib/api';
 import { useMutation } from '../hooks/useMutation';
 import { DestructiveRow, Field, InsetGroupedList, InsetSection, ListRow } from '../ui';
-import { CheckBox, DateField, SearchablePicker, SegmentedControl } from '../ui/controls';
+import { DateField, SearchablePicker, SegmentedControl } from '../ui/controls';
 import { Sheet } from '../ui/Sheet';
 import { ConfirmSheet } from '../ui/ConfirmSheet';
+import { AppSymbol } from '../ui/Symbol';
+import { useToast } from '../ui/Toast';
 import { color, hairline, space, type } from '../theme';
 import { parseAmount } from '../lib/amount';
 
@@ -58,6 +60,11 @@ const MODES: { key: SplitMode; label: string }[] = [
 	{ key: 'shares', label: copy.expenses.addDialog.modes.shares.label },
 	{ key: 'exact', label: copy.expenses.addDialog.modes.exact.label }
 ];
+const KINDS = [
+	{ key: 'expense', label: copy.expenses.addDialog.kindExpense },
+	{ key: 'income', label: copy.expenses.addDialog.kindIncome }
+] as const;
+type ExpenseKind = (typeof KINDS)[number]['key'];
 
 type Option = { key: string; label: string; detail?: string };
 
@@ -67,6 +74,19 @@ function today(): string {
 
 function currencyOptions(currencies: readonly string[]) {
 	return currencies.map((code) => ({ key: code, label: code, detail: currencyName(code) }));
+}
+
+function payerOptions(members: readonly Member[], expense: Expense | null): Option[] {
+	const options = members.map((m) => ({ key: m.id, label: m.name }));
+	if (!expense || members.some((m) => m.id === expense.payer_id)) return options;
+	return [
+		{
+			key: expense.payer_id,
+			label: expense.payer_name,
+			detail: copy.expenses.formerTag
+		},
+		...options
+	];
 }
 
 export function ExpenseSheet({
@@ -89,52 +109,20 @@ export function ExpenseSheet({
 	const [description, setDescription] = useState('');
 	const [spentOn, setSpentOn] = useState('');
 	const [amount, setAmount] = useState('');
+	const [expenseKind, setExpenseKind] = useState<ExpenseKind>('expense');
 	const [currency, setCurrency] = useState(data.currency);
 	const [payerId, setPayerId] = useState(data.me);
 	const [mode, setMode] = useState<SplitMode>('even');
 	const [chosen, setChosen] = useState<string[]>([]);
 	const [weights, setWeights] = useState<Record<string, string>>({});
 	const [confirmDelete, setConfirmDelete] = useState(false);
+	const toast = useToast();
 
-	useEffect(() => {
-		if (!open) return;
-		if (expense) {
-			setDescription(expense.description);
-			setSpentOn(expense.spent_on);
-			setAmount((expense.amount_cents / 100).toFixed(2));
-			setCurrency(expense.currency);
-			setPayerId(expense.payer_id);
-			setMode(expense.split_mode);
-			const currentMemberIds = new Set(data.members.map((m) => m.id));
-			const currentParts = expense.parts.filter((p) => currentMemberIds.has(p.userId));
-			setChosen(currentParts.map((p) => p.userId));
-			setWeights(
-				Object.fromEntries(
-					currentParts.map((p) => [
-						p.userId,
-						expense.split_mode === 'exact' ? (p.weight / 100).toFixed(2) : String(p.weight)
-					])
-				)
-			);
-		} else {
-			const now = today();
-			setDescription('');
-			setSpentOn(now >= data.firstDay && now <= data.lastDay ? now : data.firstDay);
-			setAmount('');
-			setCurrency(data.currency);
-			setPayerId(data.me);
-			setMode('even');
-			setChosen(data.members.map((m) => m.id));
-			setWeights({});
-		}
-		setConfirmDelete(false);
-		save.reset();
-		remove.reset();
-	}, [open, expense?.id]);
-
-	const totalCents = Math.round((parseAmount(amount) || 0) * 100);
+	const parsedAmount = parseAmount(amount);
+	const amountMagnitude = Number.isFinite(parsedAmount) ? Math.abs(parsedAmount) : 0;
+	const totalCents = Math.round(amountMagnitude * 100) * (expenseKind === 'income' ? -1 : 1);
 	const absCents = Math.abs(totalCents);
-	const income = totalCents < 0;
+	const income = expenseKind === 'income';
 	const chosenMembers = data.members.filter((m) => chosen.includes(m.id));
 
 	function weightOf(id: string): number {
@@ -201,6 +189,7 @@ export function ExpenseSheet({
 			if (!Number.isFinite(value) || Math.round(value * 100) === 0) {
 				throw new ApiError(400, copy.common.amountMissing);
 			}
+			const signedValue = Math.abs(value) * (expenseKind === 'income' ? -1 : 1);
 			const currentChosen = data.members.filter((m) => chosen.includes(m.id)).map((m) => m.id);
 			try {
 				await api(`/trips/${tripId}/expenses${expense ? `/${expense.id}` : ''}`, {
@@ -208,7 +197,7 @@ export function ExpenseSheet({
 					body: {
 						description,
 						spentOn,
-						amount: value,
+						amount: signedValue,
 						currency,
 						payerId,
 						splitMode: mode,
@@ -241,6 +230,49 @@ export function ExpenseSheet({
 		}
 	);
 
+	useEffect(() => {
+		if (!open) return;
+		if (expense) {
+			const existingIncome = expense.amount_cents < 0;
+			setDescription(expense.description);
+			setSpentOn(expense.spent_on);
+			setAmount((Math.abs(expense.amount_cents) / 100).toFixed(2));
+			setExpenseKind(existingIncome ? 'income' : 'expense');
+			setCurrency(expense.currency);
+			setPayerId(expense.payer_id);
+			setMode(expense.split_mode);
+			const currentMemberIds = new Set(data.members.map((m) => m.id));
+			const currentParts = expense.parts.filter((p) => currentMemberIds.has(p.userId));
+			setChosen(currentParts.map((p) => p.userId));
+			setWeights(
+				Object.fromEntries(
+					currentParts.map((p) => [
+						p.userId,
+						expense.split_mode === 'exact' ? (p.weight / 100).toFixed(2) : String(p.weight)
+					])
+				)
+			);
+		} else {
+			const now = today();
+			setDescription('');
+			setSpentOn(now >= data.firstDay && now <= data.lastDay ? now : data.firstDay);
+			setAmount('');
+			setExpenseKind('expense');
+			setCurrency(data.currency);
+			setPayerId(data.me);
+			setMode('even');
+			setChosen(data.members.map((m) => m.id));
+			setWeights({});
+		}
+		setConfirmDelete(false);
+		save.reset();
+		remove.reset();
+	}, [open, expense?.id]);
+
+	useEffect(() => {
+		if (save.error) toast.error(save.error);
+	}, [save.error, toast]);
+
 	const title = expense
 		? income
 			? copy.expenses.addDialog.editIncomeTitle
@@ -272,8 +304,15 @@ export function ExpenseSheet({
 						variant="row"
 						label={copy.expenses.addDialog.amountLabel}
 						value={amount}
-						onChangeText={setAmount}
-						keyboardType="decimal-pad"
+						onChangeText={(value) => {
+							if (value.trim().startsWith('-')) {
+								setExpenseKind('income');
+								setAmount(value.replace(/^-+/, ''));
+							} else {
+								setAmount(value);
+							}
+						}}
+						keyboardType="numbers-and-punctuation"
 					/>
 					<SearchablePicker
 						variant="row"
@@ -290,16 +329,25 @@ export function ExpenseSheet({
 						last
 					/>
 				</InsetSection>
+				<InsetSection>
+					<View style={{ padding: space.md }}>
+						<SegmentedControl
+							items={[...KINDS]}
+							active={expenseKind}
+							onPick={(key) => setExpenseKind(key as ExpenseKind)}
+						/>
+					</View>
+				</InsetSection>
 				<RowPicker
 					label={
 						income ? copy.expenses.addDialog.receivedByLabel : copy.expenses.addDialog.paidByLabel
 					}
 					value={payerId}
-					options={data.members.map((m) => ({ key: m.id, label: m.name }))}
+					options={payerOptions(data.members, expense)}
 					onPick={setPayerId}
 				/>
 				<Text style={{ ...type.faint, color: income ? color.accentInk : color.inkFaint }}>
-					{income ? copy.expenses.addDialog.incomeNote : copy.expenses.addDialog.expenseNote}
+					{income ? copy.expenses.addDialog.incomeNote : copy.expenses.addDialog.mobileExpenseNote}
 				</Text>
 				<InsetSection title={copy.expenses.addDialog.splitLabel}>
 					<View style={{ padding: space.md }}>
@@ -376,6 +424,7 @@ export function PaymentSheet({
 }) {
 	const [spentOn, setSpentOn] = useState('');
 	const [confirmDelete, setConfirmDelete] = useState(false);
+	const toast = useToast();
 	useEffect(() => {
 		if (!open || !payment) return;
 		setSpentOn(payment.spent_on);
@@ -388,6 +437,9 @@ export function PaymentSheet({
 			api(`/trips/${tripId}/expenses/${payment?.id}/date`, { method: 'PUT', body: { spentOn } }),
 		{ fallback: copy.expenses.addDialog.fallback, onSuccess: onSaved }
 	);
+	useEffect(() => {
+		if (save.error) toast.error(save.error);
+	}, [save.error, toast]);
 	const remove = useMutation(
 		() => api(`/trips/${tripId}/expenses/${payment?.id}`, { method: 'DELETE' }),
 		{
@@ -529,11 +581,12 @@ function ParticipantSection({
 	const footer =
 		mode === 'exact' && Math.abs(totalCents) !== 0
 			? exactOff === 0
-				? copy.expenses.addDialog.fullyAllocated.trim()
-				: copy.expenses.addDialog
-						.remainder(formatMoney(Math.abs(exactOff), currency), exactOff > 0)
-						.trim()
-			: copy.expenses.addDialog.selectedCount(chosen.length, members.length);
+				? copy.expenses.addDialog.fullyAllocatedMobile
+				: copy.expenses.addDialog.remainderMobile(
+						formatMoney(Math.abs(exactOff), currency),
+						exactOff > 0
+					)
+			: undefined;
 	return (
 		<View style={{ gap: 7 }}>
 			<View
@@ -568,8 +621,12 @@ function ParticipantSection({
 							? formatMoney(preview.get(member.id) ?? 0, currency)
 							: null;
 					return (
-						<View
+						<Pressable
 							key={member.id}
+							accessibilityRole="checkbox"
+							accessibilityState={{ checked: on }}
+							accessibilityLabel={member.name}
+							onPress={() => onToggle(member.id)}
 							style={{
 								minHeight: 52,
 								flexDirection: 'row',
@@ -580,7 +637,7 @@ function ParticipantSection({
 								borderBottomColor: color.line
 							}}
 						>
-							<CheckBox checked={on} label={member.name} onPress={() => onToggle(member.id)} />
+							<CheckboxGlyph checked={on} />
 							<Text style={{ ...type.body, flex: 1 }}>{member.name}</Text>
 							{money && mode !== 'exact' ? <Text style={type.faint}>{money}</Text> : null}
 							{on && mode === 'shares' ? (
@@ -605,11 +662,32 @@ function ParticipantSection({
 									/>
 								</View>
 							) : null}
-						</View>
+						</Pressable>
 					);
 				})}
 			</InsetGroupedList>
-			<Text style={{ ...type.footnote, marginHorizontal: space.lg }}>{footer}</Text>
+			{footer ? (
+				<Text style={{ ...type.footnote, marginHorizontal: space.lg }}>{footer}</Text>
+			) : null}
+		</View>
+	);
+}
+
+function CheckboxGlyph({ checked }: { checked: boolean }) {
+	return (
+		<View
+			style={{
+				width: 24,
+				height: 24,
+				borderRadius: 12,
+				borderWidth: 1.5,
+				borderColor: checked ? color.accent : color.line,
+				backgroundColor: checked ? color.accent : color.surface,
+				alignItems: 'center',
+				justifyContent: 'center'
+			}}
+		>
+			{checked ? <AppSymbol name="checkmark" fallback="checkmark" size={15} color="#fff" /> : null}
 		</View>
 	);
 }

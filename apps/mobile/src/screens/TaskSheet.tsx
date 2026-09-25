@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { copy } from '@trippy/copy';
 import { api, ApiError } from '../lib/api';
 import { useMutation } from '../hooks/useMutation';
 import { DestructiveRow, Field, InsetSection, ListRow } from '../ui';
-import { CheckBox } from '../ui/controls';
 import { Sheet } from '../ui/Sheet';
 import { ConfirmSheet } from '../ui/ConfirmSheet';
+import { AppSymbol } from '../ui/Symbol';
 import { hairline, color, space, type } from '../theme';
 
 type Member = { id: string; name: string };
@@ -206,7 +206,11 @@ function ChecklistRow({
 	last: boolean;
 }) {
 	return (
-		<View
+		<Pressable
+			accessibilityRole="checkbox"
+			accessibilityState={{ checked }}
+			accessibilityLabel={label}
+			onPress={onPress}
 			style={{
 				minHeight: 52,
 				flexDirection: 'row',
@@ -217,8 +221,27 @@ function ChecklistRow({
 				borderBottomColor: color.line
 			}}
 		>
-			<CheckBox checked={checked} label={label} onPress={onPress} />
+			<CheckboxGlyph checked={checked} />
 			<Text style={type.body}>{label}</Text>
+		</Pressable>
+	);
+}
+
+function CheckboxGlyph({ checked }: { checked: boolean }) {
+	return (
+		<View
+			style={{
+				width: 24,
+				height: 24,
+				borderRadius: 12,
+				borderWidth: 1.5,
+				borderColor: checked ? color.accent : color.line,
+				backgroundColor: checked ? color.accent : color.surface,
+				alignItems: 'center',
+				justifyContent: 'center'
+			}}
+		>
+			{checked ? <AppSymbol name="checkmark" fallback="checkmark" size={15} color="#fff" /> : null}
 		</View>
 	);
 }
