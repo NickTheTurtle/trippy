@@ -38,12 +38,12 @@ export default function People() {
 	const [adding, setAdding] = useState(false);
 	const [editing, setEditing] = useState<Person | null>(null);
 	const [crewDraft, setCrewDraft] = useState<Crew | null | false>(false);
-	useTripHeaderAction(
-		useCallback(() => {
-			if (section === 'crews') setCrewDraft(null);
-			else if (data?.organizer) setAdding(true);
-		}, [data?.organizer, section])
-	);
+	const canAdd = section === 'crews' || !!data?.organizer;
+	const headerAction = useCallback(() => {
+		if (section === 'crews') setCrewDraft(null);
+		else if (data?.organizer) setAdding(true);
+	}, [data?.organizer, section]);
+	useTripHeaderAction(canAdd ? headerAction : null);
 
 	useEffect(() => {
 		if (error) toast.error(error);
@@ -62,7 +62,6 @@ export default function People() {
 	const knownNames = Object.fromEntries(data.people.map((person) => [person.id, person.name]));
 	const memberRows = data.people;
 	const crews = data.crews;
-	const canAdd = section === 'crews' || data.organizer;
 
 	return (
 		<>
@@ -104,16 +103,21 @@ export default function People() {
 									.filter((id) => knownNames[id])
 									.map((id) => knownNames[id]);
 								const subtitle = names.length ? names.join(', ') : copy.people.crews.nobody;
+								const count = copy.people.crews.memberCount(names.length);
 								return (
 									<ListRow
 										key={crew.id}
 										title={crew.name}
-										subtitle={`${crew.members.length} ${
-											crew.members.length === 1 ? 'person' : 'people'
-										}`}
+										subtitle={count}
 										detail={subtitle}
 										leading={<Avatar name={crew.name} />}
+										accessory={crew.locked ? 'none' : 'chevron'}
 										onPress={crew.locked ? undefined : () => setCrewDraft(crew)}
+										accessibilityLabel={
+											crew.locked
+												? [crew.name, count, subtitle, copy.people.crews.locked].join(', ')
+												: undefined
+										}
 										last={index === crews.length - 1}
 									/>
 								);
@@ -209,18 +213,30 @@ function MemberRow({
 		person.id === me ? copy.people.row.youTag : null,
 		person.role === 'organizer' ? copy.people.row.organizerTag : null,
 		person.placeholder && person.invitedEmail ? copy.people.row.invitedTag : null,
-		person.seeded || (person.placeholder && !person.invitedEmail) ? 'stand-in' : null
+		!person.placeholder && person.seeded ? copy.people.row.sampleTag : null
 	].filter(Boolean) as string[];
 	const status = tags.join(' · ');
-	const email = person.placeholder ? (person.invitedEmail ?? person.email) : person.email;
+	const editable = person.placeholder || person.seeded || person.id === me;
+	const detail = person.seeded
+		? copy.people.row.sampleCompanion
+		: person.placeholder
+			? (person.invitedEmail ?? person.email)
+			: person.email;
 	return (
 		<ListRow
 			title={person.name}
 			subtitle={status || null}
-			detail={email || null}
+			detail={detail || null}
 			leading={<Avatar name={person.name} />}
 			accessory={canOpen ? 'chevron' : 'none'}
 			onPress={canOpen ? onOpen : undefined}
+			accessibilityLabel={
+				canOpen
+					? editable
+						? copy.common.editLabel(person.name)
+						: copy.common.deleteLabel(person.name)
+					: undefined
+			}
 			last={last}
 		/>
 	);

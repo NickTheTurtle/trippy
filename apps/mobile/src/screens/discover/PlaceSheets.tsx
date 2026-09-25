@@ -24,13 +24,15 @@ type AddType = PoiKind | typeof STAY_VIEW;
 const TYPE_OPTIONS = [
 	...POI_KINDS.map((k) => ({
 		key: k,
-		label: k === 'food' ? 'Food' : 'Attractions'
+		label:
+			k === 'food' ? copy.mobileDiscover.shortTypes.food : copy.mobileDiscover.shortTypes.attraction
 	})),
 	{ key: STAY_VIEW, label: copy.discover.types.stay }
 ];
 const POI_TYPE_OPTIONS = POI_KINDS.map((k) => ({
 	key: k,
-	label: k === 'food' ? 'Food' : 'Attractions'
+	label:
+		k === 'food' ? copy.mobileDiscover.shortTypes.food : copy.mobileDiscover.shortTypes.attraction
 }));
 
 function newSessionToken(): string {
@@ -138,15 +140,11 @@ function TypeSegmentSection({
 				style={{
 					minHeight: 52,
 					padding: space.md,
-					flexDirection: 'row',
-					alignItems: 'center',
 					gap: space.md
 				}}
 			>
 				<Text style={type.body}>{copy.discover.placeFields.typeLabel}</Text>
-				<View style={{ flex: 1 }}>
-					<SegmentedControl items={options} active={value} onPick={onChange} />
-				</View>
+				<SegmentedControl items={options} active={value} onPick={onChange} />
 			</View>
 		</InsetSection>
 	);
@@ -467,14 +465,13 @@ export function AddDiscoverSheet({
 								<CoverImage photo={hit.photo} seed={hit.name} category={hit.category} height={40} />
 							</View>
 						}
-						value={
-							<Pressable onPress={unpick} hitSlop={8}>
-								<Text style={{ ...type.small, color: color.accent }}>
-									{copy.discover.addDialog.notThisOne}
-								</Text>
-							</Pressable>
-						}
 						accessory="none"
+					/>
+					<ListRow
+						title={copy.discover.addDialog.notThisOne}
+						accessory="none"
+						onPress={unpick}
+						accessibilityLabel={copy.discover.addDialog.notThisOne}
 						last
 					/>
 				</InsetSection>

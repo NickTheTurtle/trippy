@@ -26,6 +26,7 @@ import { color, radius, space, type } from '../../../src/theme';
 import { AppSymbol } from '../../../src/ui/Symbol';
 import { Sheet } from '../../../src/ui/Sheet';
 import { useTripHeaderAction } from '../../../src/ui/TripHeaderAction';
+import { useSheetHandoff } from '../../../src/ui/useSheetHandoff';
 import { CoverImage } from '../../../src/screens/discover/CoverImage';
 import {
 	CitySheet,
@@ -82,7 +83,6 @@ export default function Discover() {
 	const [deleteCity, setDeleteCity] = useState<TripCity | null>(null);
 	const [editPoi, setEditPoi] = useState<Poi | null>(null);
 	const [editStay, setEditStay] = useState<Stay | null>(null);
-	useTripHeaderAction(useCallback(() => setAdding(true), []));
 
 	const base = `/trips/${tripId}/discover`;
 	const trip = tripData?.trip;
@@ -112,6 +112,12 @@ export default function Discover() {
 		if (!cities.length) return null;
 		return cities.find((c) => c.id === cityId) ?? cities[0];
 	}, [cities, cityId]);
+	const canAddDiscover = !!data && !!current;
+	const addDiscoverAction = useCallback(() => setAdding(true), []);
+	useTripHeaderAction(canAddDiscover ? addDiscoverAction : null);
+	useEffect(() => {
+		if (!canAddDiscover && adding) setAdding(false);
+	}, [adding, canAddDiscover]);
 
 	const ambiguous = useMemo(
 		() =>
@@ -233,7 +239,10 @@ export default function Discover() {
 				/>
 
 				<SegmentedControl
-					items={FILTERS.map((f) => ({ key: f.key, label: f.key === 'food' ? 'Food' : f.label }))}
+					items={FILTERS.map((f) => ({
+						key: f.key,
+						label: f.key === 'food' ? copy.mobileDiscover.shortTypes.food : f.label
+					}))}
 					active={filter}
 					onPick={(key) => setFilter(key as Filter)}
 				/>
@@ -385,6 +394,11 @@ function CityStrip({
 }) {
 	const [open, setOpen] = useState(false);
 	const current = rows.find((row) => row.id === active) ?? rows[0];
+	const handoff = useSheetHandoff({
+		add: onAdd,
+		edit: onEdit,
+		delete: onDelete
+	});
 	return (
 		<>
 			<InsetSection>
@@ -397,7 +411,12 @@ function CityStrip({
 					last
 				/>
 			</InsetSection>
-			<Sheet open={open} title={copy.discover.cityList.navLabel} onClose={() => setOpen(false)}>
+			<Sheet
+				open={open}
+				title={copy.discover.cityList.navLabel}
+				onClose={() => setOpen(false)}
+				onDismiss={handoff.flush}
+			>
 				<InsetSection>
 					{rows.map((row, index) => (
 						<ListRow
@@ -406,6 +425,7 @@ function CityStrip({
 							subtitle={row.region ?? null}
 							value={row.badge ? String(row.badge) : undefined}
 							accessory={row.id === active ? 'checkmark' : 'none'}
+							accessibilityState={{ selected: row.id === active }}
 							onPress={() => {
 								onPick(row.id);
 								setOpen(false);
@@ -418,18 +438,12 @@ function CityStrip({
 							<ListRow
 								title={copy.discover.cityList.addCity}
 								symbol={{ name: 'plus', fallback: 'add' }}
-								onPress={() => {
-									setOpen(false);
-									onAdd();
-								}}
+								onPress={() => handoff.queue('add', () => setOpen(false))}
 							/>
 							<ListRow
 								title={copy.mobileDiscover.editCityButton}
 								symbol={{ name: 'pencil', fallback: 'create-outline' }}
-								onPress={() => {
-									setOpen(false);
-									onEdit();
-								}}
+								onPress={() => handoff.queue('edit', () => setOpen(false))}
 							/>
 							{canDelete ? (
 								<ListRow
@@ -437,10 +451,7 @@ function CityStrip({
 									tone="destructive"
 									symbol={{ name: 'trash', fallback: 'trash-outline' }}
 									accessory="none"
-									onPress={() => {
-										setOpen(false);
-										onDelete();
-									}}
+									onPress={() => handoff.queue('delete', () => setOpen(false))}
 									last
 								/>
 							) : null}
@@ -467,14 +478,31 @@ function PlaceCard({
 }) {
 	const href = poi.url ? safeExternalUrl(poi.url) : null;
 	const hrs = todayHours(parseHours(poi.hours), tz);
+	const rating = poi.rating
+		? copy.mobileDiscover.ratingLabel(poi.rating.toFixed(1), poi.rating_count)
+		: null;
 	const meta = placeMeta(poi, hrs);
 	return (
 		<Card style={{ padding: 0, overflow: 'hidden', borderRadius: radius.section }}>
-			<Pressable onPress={onEdit} accessibilityLabel={copy.common.editLabel(poi.name)}>
+			<Pressable
+				accessibilityRole="button"
+				onPress={onEdit}
+				accessibilityLabel={copy.common.editLabel(poi.name)}
+			>
 				<CoverImage photo={poi.photo} seed={poi.name} category={poi.category} flush />
 				<View style={{ padding: space.md, gap: space.sm }}>
 					<Text style={{ ...type.body, fontWeight: '600' }}>{poi.name}</Text>
-					{meta ? <Text style={type.subhead}>{meta}</Text> : null}
+					{rating || meta ? (
+						<View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
+							{rating ? (
+								<View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+									<AppSymbol name="star.fill" fallback="star" size={13} color={color.warn} />
+									<Text style={type.subhead}>{rating}</Text>
+								</View>
+							) : null}
+							{meta ? <Text style={type.subhead}>{meta}</Text> : null}
+						</View>
+					) : null}
 				</View>
 			</Pressable>
 			<View
@@ -495,7 +523,7 @@ function PlaceCard({
 					onPress={onVote}
 				/>
 				{href ? (
-					<Pressable onPress={() => void Linking.openURL(href)}>
+					<Pressable accessibilityRole="button" onPress={() => void Linking.openURL(href)}>
 						<Text style={{ ...type.small, color: color.accent }}>
 							{copy.mobileDiscover.openLink}
 						</Text>
@@ -523,7 +551,11 @@ function StayCard({
 	const href = stay.url ? safeExternalUrl(stay.url) : null;
 	return (
 		<Card style={{ padding: 0, overflow: 'hidden', borderRadius: radius.section }}>
-			<Pressable onPress={onEdit} accessibilityLabel={copy.common.editLabel(stay.name)}>
+			<Pressable
+				accessibilityRole="button"
+				onPress={onEdit}
+				accessibilityLabel={copy.common.editLabel(stay.name)}
+			>
 				<CoverImage photo={stay.photo} seed={stay.name} category="stay" flush />
 				<View style={{ padding: space.md, gap: space.sm }}>
 					<Text style={{ ...type.body, fontWeight: '600' }}>{stay.name}</Text>
@@ -551,7 +583,7 @@ function StayCard({
 					onPress={onVote}
 				/>
 				{href ? (
-					<Pressable onPress={() => void Linking.openURL(href)}>
+					<Pressable accessibilityRole="button" onPress={() => void Linking.openURL(href)}>
 						<Text style={{ ...type.small, color: color.accent }}>
 							{copy.mobileDiscover.openLink}
 						</Text>
@@ -622,9 +654,6 @@ function VoteRule({ pct }: { pct: number }) {
 
 function placeMeta(poi: VotedPoi, hours: string | null): string {
 	const parts = [
-		poi.rating
-			? `${poi.rating.toFixed(1)}${poi.rating_count ? ` (${poi.rating_count})` : ''}`
-			: null,
 		poi.price_level != null ? '$'.repeat(Math.max(1, poi.price_level)) : null,
 		hours,
 		poi.notes

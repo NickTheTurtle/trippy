@@ -308,7 +308,8 @@ export function ListRow({
 	switchValue,
 	last = false,
 	tone = 'normal',
-	accessibilityLabel
+	accessibilityLabel,
+	accessibilityState
 }: {
 	title: string;
 	subtitle?: string | null;
@@ -323,6 +324,7 @@ export function ListRow({
 	last?: boolean;
 	tone?: 'normal' | 'destructive';
 	accessibilityLabel?: string;
+	accessibilityState?: AccessibilityState;
 }) {
 	const destructive = tone === 'destructive';
 	const content = (
@@ -331,6 +333,7 @@ export function ListRow({
 			accessibilityLabel={
 				accessibilityLabel ?? rowAccessibilityLabel(title, subtitle, detail, value)
 			}
+			accessibilityState={accessibilityState}
 			style={[s.row, !last && s.rowSeparator]}
 		>
 			{leading ?? null}
@@ -378,6 +381,7 @@ export function ListRow({
 			accessibilityLabel={
 				accessibilityLabel ?? rowAccessibilityLabel(title, subtitle, detail, value)
 			}
+			accessibilityState={accessibilityState}
 			onPress={onPress}
 			style={({ pressed }) => ({ opacity: pressed ? 0.62 : 1 })}
 		>

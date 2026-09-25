@@ -301,6 +301,12 @@ export const copy = {
 			linked > 0
 				? `This also deletes the city's places and stays, plus ${linked} linked calendar item${linked === 1 ? '' : 's'}.`
 				: `This also deletes the city's places and stays.`,
+		shortTypes: {
+			attraction: 'Attractions',
+			food: 'Food'
+		},
+		ratingLabel: (rating: string, count?: number | null) =>
+			count ? `Rating ${rating} (${count})` : `Rating ${rating}`,
 		openLink: 'Open'
 	},
 
@@ -536,6 +542,8 @@ export const copy = {
 		crews: {
 			heading: 'Crews',
 			nobody: 'Nobody yet',
+			memberCount: (members: number) => `${members} ${members === 1 ? 'person' : 'people'}`,
+			locked: 'Locked',
 			addTitle: 'Add crew',
 			editTitle: 'Edit crew',
 			nameLabel: 'Name',

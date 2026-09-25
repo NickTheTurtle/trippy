@@ -1,26 +1,35 @@
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
+import {
+	createContext,
+	useCallback,
+	useContext,
+	useEffect,
+	useMemo,
+	useState,
+	type ReactNode
+} from 'react';
+import type { Dispatch, SetStateAction } from 'react';
 import { useFocusEffect } from 'expo-router';
 
 type HeaderAction = (() => void) | null;
-type HeaderActionContextValue = { action: HeaderAction; setAction: (action: HeaderAction) => void };
+type HeaderActionContextValue = {
+	action: HeaderAction;
+	setAction: Dispatch<SetStateAction<HeaderAction>>;
+};
 
 const HeaderActionContext = createContext<HeaderActionContextValue | null>(null);
 
 export function TripHeaderActionProvider({ children }: { children: ReactNode }) {
 	const [action, setAction] = useState<HeaderAction>(null);
-	return (
-		<HeaderActionContext.Provider value={{ action, setAction }}>
-			{children}
-		</HeaderActionContext.Provider>
-	);
+	const value = useMemo(() => ({ action, setAction }), [action]);
+	return <HeaderActionContext.Provider value={value}>{children}</HeaderActionContext.Provider>;
 }
 
-export function useTripHeaderAction(action: () => void) {
+export function useTripHeaderAction(action: HeaderAction) {
 	const ctx = useContext(HeaderActionContext);
 	useFocusEffect(
 		useCallback(() => {
 			ctx?.setAction(() => action);
-			return () => ctx?.setAction(null);
+			return () => ctx?.setAction((cur) => (cur === action ? null : cur));
 		}, [ctx, action])
 	);
 }
