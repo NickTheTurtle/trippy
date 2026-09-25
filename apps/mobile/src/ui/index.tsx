@@ -2,6 +2,7 @@ import { forwardRef } from 'react';
 import type { ElementRef, ReactNode } from 'react';
 import {
 	ActivityIndicator,
+	Platform,
 	Pressable,
 	ScrollView,
 	StyleSheet,
@@ -237,7 +238,8 @@ export function Screen({
 	subtitle,
 	action,
 	safeTop = false,
-	topOffset = 0
+	topOffset = 0,
+	nativeLargeTitle = false
 }: {
 	children: ReactNode;
 	scroll?: boolean;
@@ -248,6 +250,13 @@ export function Screen({
 	action?: ReactNode;
 	safeTop?: boolean;
 	topOffset?: number;
+	/**
+	 * The screen sits under the native stack's large title (Your Trips,
+	 * Account). iOS tracks a large title against the scroll view's adjusted
+	 * inset; without the automatic adjustment it reads the resting position as
+	 * already scrolled, so the large title collapsed, vanished and jumped back.
+	 */
+	nativeLargeTitle?: boolean;
 }) {
 	const insets = useSafeAreaInsets();
 	const inTabs = useInNativeTabs();
@@ -264,6 +273,11 @@ export function Screen({
 			style={{ backgroundColor: color.bg }}
 			contentContainerStyle={[
 				s.screenContent,
+				// A content box at least the screen's height, plus the insets iOS adds
+				// for the bar and home indicator, scrolls far enough to rest with the
+				// large title collapsed. Under a native large title, short content
+				// keeps its own height and bounces back, so the title re-expands.
+				nativeLargeTitle && Platform.OS === 'ios' && { flexGrow: 0 },
 				(safeTop || topOffset > 0) && {
 					paddingTop: (safeTop ? insets.top + space.lg : space.lg) + topOffset
 				}
@@ -271,7 +285,7 @@ export function Screen({
 			keyboardShouldPersistTaps="handled"
 			refreshControl={refreshControl}
 			scrollEnabled={scrollEnabled}
-			contentInsetAdjustmentBehavior={inTabs ? 'automatic' : undefined}
+			contentInsetAdjustmentBehavior={inTabs || nativeLargeTitle ? 'automatic' : undefined}
 		>
 			{content}
 		</ScrollView>

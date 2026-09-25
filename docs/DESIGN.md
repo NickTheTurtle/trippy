@@ -3818,6 +3818,20 @@ the bottom of the sheet content, and still open a confirmation sheet before anyt
 removed. The web app keeps its own phone footer rule because it is a browser dialog system,
 not a native form sheet.
 
+**A native large title needs four things, and had none.** On iPhone the Your Trips title
+vanished, collapsed at rest and jumped back. iOS tracks a large title against the scroll
+view's adjusted inset, so Trips and Account ask for the automatic inset (`Screen`
+`nativeLargeTitle`); without it the resting position reads as already scrolled. Their bar is
+transparent on iOS 26, because a background colour hides the large title there (the router
+defaults to transparent for that reason), and the page colour before 26, where no scroll
+edge effect would keep a transparent collapsed bar legible. Short content keeps its own
+height rather than the screen's, since a screen-high content box plus the bar's inset can
+rest with the title collapsed. And the scroll view is mounted from the first frame, loading
+state inside it, because iOS links the title to the scroll view present when the screen
+appears. Separately, Metro now pins react-native-screens and safe-area-context to the app's
+Expo Go versions: npm had hoisted newer copies for expo-router, so the header ran newer
+JavaScript against Expo Go's older native code.
+
 **On iOS the trip uses the system bars, so it gets Liquid Glass.** Liquid Glass (iOS 26)
 belongs to UIKit's own navigation and tab bars, and the trip had neither: its tab bar and
 header were JavaScript views drawn by the bottom-tabs navigator. On iOS the trip now uses

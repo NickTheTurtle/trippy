@@ -64,6 +64,18 @@ export const blockGap = 24;
  * JavaScript header that puts them flush against the screen edge.
  */
 export const headerEdge = Platform.OS === 'web' ? screenMargin : 0;
+/**
+ * The bar behind a native large title. On iOS 26 it has to stay transparent: a
+ * background colour makes the large title invisible there (the router's own
+ * default says so), the system's scroll edge effect keeps the collapsed bar
+ * legible, and the screen already paints the page colour behind it. Before 26
+ * there is no edge effect, so a transparent collapsed bar would let rows slide
+ * under its title unreadably; there, and off iOS, it is the page colour.
+ */
+const iosMajor = Platform.OS === 'ios' ? parseInt(String(Platform.Version), 10) : 0;
+export const largeTitleHeaderStyle = {
+	backgroundColor: iosMajor >= 26 ? 'transparent' : color.bg
+};
 export const hairline = Platform.select({ web: 1, default: 0.5 }) ?? 0.5;
 
 export const space = {

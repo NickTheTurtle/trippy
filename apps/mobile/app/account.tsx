@@ -10,7 +10,7 @@ import { Field, InsetSection, ListRow, Loading, Screen } from '../src/ui';
 import { SearchablePicker } from '../src/ui/controls';
 import { Sheet } from '../src/ui/Sheet';
 import { useToast } from '../src/ui/Toast';
-import { color, headerEdge, rowInset, type } from '../src/theme';
+import { color, headerEdge, largeTitleHeaderStyle, rowInset, type } from '../src/theme';
 
 type AccountData = {
 	profile: { name: string; email: string; homeTz: string; pendingEmail?: string | null };
@@ -68,7 +68,6 @@ export default function Account() {
 		}
 	);
 
-	if (loading && !data) return <Loading />;
 	const zoneOptions = (data?.timeZones ?? [homeTz]).map((zone) => ({ key: zone, label: zone }));
 	const pending = data?.profile.pendingEmail ?? null;
 	const canSave =
@@ -80,6 +79,7 @@ export default function Account() {
 				options={{
 					title: Platform.OS === 'web' ? '' : copy.account.heading,
 					headerLargeTitle: true,
+					headerStyle: largeTitleHeaderStyle,
 					headerRight: () => (
 						<Pressable
 							accessibilityRole="button"
@@ -103,59 +103,71 @@ export default function Account() {
 					)
 				}}
 			/>
-			<Screen largeTitle={Platform.OS === 'web' ? copy.account.heading : undefined}>
-				<View style={{ gap: 7 }}>
-					<InsetSection title={copy.account.profile.heading} error={saveProfile.error}>
-						<Field
-							variant="row"
-							label={copy.account.profile.nameLabel}
-							value={name}
-							onChangeText={setName}
-						/>
-						<Field
-							variant="row"
-							label={copy.account.profile.emailLabel}
-							value={email}
-							onChangeText={setEmail}
-							autoCapitalize="none"
-							keyboardType="email-address"
-						/>
-						{changingEmail ? (
-							<Field
-								variant="row"
-								label={copy.account.profile.currentPasswordLabel}
-								value={currentPassword}
-								onChangeText={setCurrentPassword}
-								secureTextEntry
-								autoComplete="current-password"
-							/>
-						) : null}
-						<SearchablePicker
-							variant="row"
-							label={copy.account.profile.timeZoneLabel}
-							value={homeTz}
-							options={zoneOptions}
-							onPick={setHomeTz}
-							noMatches={copy.account.profile.timeZoneNoMatches}
-							last
-						/>
-					</InsetSection>
-					{/* Outside the section's footer slot, which gives way to a save
+			<Screen
+				nativeLargeTitle
+				largeTitle={Platform.OS === 'web' ? copy.account.heading : undefined}
+			>
+				{/* The Screen stays mounted through the first load: iOS links the
+				    large title to the scroll view it finds when the screen appears,
+				    and a scroll view swapped in afterwards is never tracked. */}
+				{loading && !data ? (
+					<Loading />
+				) : (
+					<>
+						<View style={{ gap: 7 }}>
+							<InsetSection title={copy.account.profile.heading} error={saveProfile.error}>
+								<Field
+									variant="row"
+									label={copy.account.profile.nameLabel}
+									value={name}
+									onChangeText={setName}
+								/>
+								<Field
+									variant="row"
+									label={copy.account.profile.emailLabel}
+									value={email}
+									onChangeText={setEmail}
+									autoCapitalize="none"
+									keyboardType="email-address"
+								/>
+								{changingEmail ? (
+									<Field
+										variant="row"
+										label={copy.account.profile.currentPasswordLabel}
+										value={currentPassword}
+										onChangeText={setCurrentPassword}
+										secureTextEntry
+										autoComplete="current-password"
+									/>
+								) : null}
+								<SearchablePicker
+									variant="row"
+									label={copy.account.profile.timeZoneLabel}
+									value={homeTz}
+									options={zoneOptions}
+									onPick={setHomeTz}
+									noMatches={copy.account.profile.timeZoneNoMatches}
+									last
+								/>
+							</InsetSection>
+							{/* Outside the section's footer slot, which gives way to a save
 					    error: the pending address is still pending when a save fails. */}
-					{pending ? (
-						<Text style={{ ...type.footnote, marginHorizontal: rowInset }}>
-							{copy.account.profile.emailPending(pending)}
-						</Text>
-					) : null}
-				</View>
-				<InsetSection title={copy.account.password.heading}>
-					<ListRow
-						title={copy.account.password.change}
-						symbol={{ name: 'key', fallback: 'key-outline' }}
-						onPress={() => setPasswordOpen(true)}
-						last
-					/>
-				</InsetSection>
+							{pending ? (
+								<Text style={{ ...type.footnote, marginHorizontal: rowInset }}>
+									{copy.account.profile.emailPending(pending)}
+								</Text>
+							) : null}
+						</View>
+						<InsetSection title={copy.account.password.heading}>
+							<ListRow
+								title={copy.account.password.change}
+								symbol={{ name: 'key', fallback: 'key-outline' }}
+								onPress={() => setPasswordOpen(true)}
+								last
+							/>
+						</InsetSection>
+					</>
+				)}
 			</Screen>
 			<PasswordSheet open={passwordOpen} onClose={() => setPasswordOpen(false)} />
 		</>
