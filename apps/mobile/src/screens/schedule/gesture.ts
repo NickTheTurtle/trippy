@@ -16,3 +16,7 @@ export function passedGestureSlop(pointerDeltaY: number, slop = 3): boolean {
 	'worklet';
 	return Math.abs(pointerDeltaY) >= slop;
 }
+
+export function gripHeightForBlock(height: number): number {
+	return Math.min(22, Math.max(8, height * 0.3));
+}

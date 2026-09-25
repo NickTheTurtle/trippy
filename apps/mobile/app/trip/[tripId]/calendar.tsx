@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, RefreshControl, Text, View } from 'react-native';
 import { copy } from '@trippy/copy';
 import { useTripId } from '../../../src/trip-id';
@@ -9,6 +9,7 @@ import { Button, Card, EmptyState, FormError, Loading, Screen } from '../../../s
 import { Picker } from '../../../src/ui/controls';
 import { color, radius, space, type } from '../../../src/theme';
 import { DayBoard } from '../../../src/screens/schedule/DayBoard';
+import { DayMap } from '../../../src/screens/schedule/DayMap';
 import { EventSheet } from '../../../src/screens/schedule/EventSheet';
 import { useScheduleDay } from '../../../src/screens/schedule/useScheduleDay';
 import {
@@ -31,18 +32,44 @@ export default function Calendar() {
 	useLiveSection(['trip'], tripState.reload);
 	const data = schedule.data;
 	const locked = tripState.data?.trip.schedule_locked === 1;
-	const [adding, setAdding] = useState<{ day: string; type?: EventRow['type'] } | null>(null);
+	const [adding, setAdding] = useState<{
+		day: string;
+		type?: EventRow['type'];
+		poi?: { id: string; name: string };
+	} | null>(null);
 	const [opened, setOpened] = useState<EventRow | null>(null);
+	const [mapFocusId, setMapFocusId] = useState<string | null>(null);
+	const [mapFocusKey, setMapFocusKey] = useState(0);
 	const openedRef = useRef<ScheduleData | null>(null);
 	openedRef.current = data;
 	const memberName = useMemo(
 		() => new Map((data?.members ?? []).map((member) => [member.id, member.name])),
 		[data?.members]
 	);
+	const memberIds = useMemo(() => data?.members.map((member) => member.id) ?? [], [data?.members]);
+
+	// Stable, so the memoized board blocks and the map do not all re-render on
+	// every gesture start and end. It reads the latest payload through the ref.
+	const openAndFocus = useCallback((id: string) => {
+		setMapFocusId(id);
+		setMapFocusKey((key) => key + 1);
+		for (const entry of openedRef.current?.board ?? []) {
+			for (const event of [...entry.events, ...entry.stays]) {
+				if (event.id === id) {
+					setOpened(event);
+					return;
+				}
+			}
+		}
+	}, []);
 
 	useEffect(() => {
 		if (schedule.error) toast.error(schedule.error);
 	}, [schedule.error, toast]);
+	useEffect(() => {
+		setMapFocusId(null);
+		setMapFocusKey((key) => key + 1);
+	}, [data?.day]);
 
 	if (schedule.loading && !data) return <Loading />;
 	if (!data || !schedule.anchor) {
@@ -53,17 +80,6 @@ export default function Calendar() {
 			</Screen>
 		);
 	}
-
-	const openSaved = (id: string) => {
-		for (const entry of openedRef.current?.board ?? []) {
-			for (const event of [...entry.events, ...entry.stays]) {
-				if (event.id === id) {
-					setOpened(event);
-					return;
-				}
-			}
-		}
-	};
 
 	const refresh = () => {
 		schedule.reload();
@@ -157,17 +173,17 @@ export default function Calendar() {
 					</View>
 				</Card>
 
-				<StayBand stays={schedule.anchor.stays} locked={locked} onOpenEvent={openSaved} />
+				<StayBand stays={schedule.anchor.stays} locked={locked} onOpenEvent={openAndFocus} />
 				{schedule.view === 'day' ? (
 					<Card style={{ padding: space.sm }}>
 						<DayBoard
 							base={`/trips/${tripId}/schedule`}
 							entry={schedule.anchor}
-							memberIds={data.members.map((member) => member.id)}
+							memberIds={memberIds}
 							peopleLabel={schedule.peopleLabel}
 							eventById={schedule.eventById}
 							locked={locked}
-							onOpen={openSaved}
+							onOpen={openAndFocus}
 							onGestureChange={setGestureActive}
 							onReload={schedule.reload}
 						/>
@@ -179,10 +195,29 @@ export default function Calendar() {
 						peopleLabel={schedule.peopleLabel}
 						memberName={memberName}
 						locked={locked}
-						onOpenEvent={openSaved}
-						onOpenLeg={(leg) => openSaved(leg.toEventId)}
+						onOpenEvent={openAndFocus}
+						onOpenLeg={(leg) => openAndFocus(leg.toEventId)}
 					/>
 				)}
+				<DayMap
+					entry={schedule.anchor}
+					saved={data.saved}
+					city={schedule.anchor.city}
+					memberIds={schedule.visibleMemberIds}
+					peopleLabel={schedule.peopleLabel}
+					locked={locked}
+					focusId={mapFocusId}
+					focusKey={mapFocusKey}
+					onOpenEvent={openAndFocus}
+					onAddPlace={(place) =>
+						setAdding({
+							day: data.day,
+							type: place.kind === 'food' ? 'food' : 'activity',
+							poi: place
+						})
+					}
+					onClearFocus={() => setMapFocusId(null)}
+				/>
 			</Screen>
 
 			{adding ? (
@@ -193,6 +228,7 @@ export default function Calendar() {
 					day={adding.day}
 					suggestedStart={schedule.suggestedStart(adding.day)}
 					initialType={adding.type ?? 'activity'}
+					initialPoi={adding.poi}
 					legs={schedule.draftLegs}
 					eventOf={(id) => schedule.eventById.get(id) ?? null}
 					peopleLabel={schedule.peopleLabel}
@@ -236,6 +272,7 @@ export default function Calendar() {
 					onClose={() => setOpened(null)}
 					onDone={() => {
 						setOpened(null);
+						setMapFocusId(null);
 						schedule.setPreview(null);
 						schedule.reload();
 					}}

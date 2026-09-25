@@ -8,6 +8,12 @@ const projectRoot = __dirname;
 const workspaceRoot = path.resolve(projectRoot, '../..');
 
 const config = getDefaultConfig(projectRoot);
+// React Native 0.87 no longer publishes rn-get-polyfills.js, so this app owns
+// the polyfill package explicitly and resolves it from the app itself. See the
+// serializer note at the bottom.
+const rnPolyfills = require(
+	require.resolve('@react-native/js-polyfills', { paths: [projectRoot] })
+);
 
 config.watchFolders = [workspaceRoot];
 config.resolver.nodeModulesPaths = [
@@ -53,5 +59,12 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
 	}
 	return context.resolveRequest(context, moduleName, platform);
 };
+
+// Expo's SDK 57 Metro config still asks React Native for rn-get-polyfills. The
+// app's React Native 0.87 package no longer publishes that file, so native
+// exports failed to bundle. Asking for this app's explicit polyfill dependency
+// gives Metro the same list without leaning on the web workspace's older React
+// Native copy being hoisted.
+config.serializer.getPolyfills = ({ platform }) => (platform ? rnPolyfills() : []);
 
 module.exports = config;

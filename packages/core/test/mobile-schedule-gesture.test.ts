@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { PX_PER_MIN } from '../../../apps/mobile/src/screens/schedule/shared';
 import {
+	gripHeightForBlock,
 	passedGestureSlop,
 	snapMoveStart,
 	snapResizeEnd
@@ -19,5 +20,11 @@ describe('mobile schedule gesture math', () => {
 
 	it('clamps resize to midnight', () => {
 		expect(snapResizeEnd(780, 900 * PX_PER_MIN, 720)).toBe(1440);
+	});
+
+	it('keeps short block grip from covering the whole block', () => {
+		expect(gripHeightForBlock(17)).toBe(8);
+		expect(gripHeightForBlock(34)).toBeCloseTo(10.2);
+		expect(gripHeightForBlock(100)).toBe(22);
 	});
 });

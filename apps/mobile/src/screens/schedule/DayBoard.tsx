@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ElementRef } from 'react';
 import { Text, View, useWindowDimensions } from 'react-native';
 import {
@@ -28,7 +28,7 @@ import {
 	topPx,
 	windowStart
 } from './shared';
-import { passedGestureSlop, snapMoveStart, snapResizeEnd } from './gesture';
+import { gripHeightForBlock, passedGestureSlop, snapMoveStart, snapResizeEnd } from './gesture';
 import type { BoardDay, EventRow, LegRow } from './types';
 
 const GUTTER = 58;
@@ -214,6 +214,21 @@ export function DayBoard({
 		},
 		[base, onReload, toast]
 	);
+	const openBlock = useCallback((id: string) => onOpen(id), [onOpen]);
+	const commitMove = useCallback(
+		(id: string, minute: number) => {
+			const event = entry.events.find((row) => row.id === id);
+			if (event) void writeMove(event, minute);
+		},
+		[entry.events, writeMove]
+	);
+	const commitResize = useCallback(
+		(id: string, minute: number) => {
+			const event = entry.events.find((row) => row.id === id);
+			if (event) void writeResize(event, minute);
+		},
+		[entry.events, writeResize]
+	);
 
 	return (
 		<View onLayout={(event) => setBoardOuterW(Math.max(1, event.nativeEvent.layout.width))}>
@@ -265,26 +280,29 @@ export function DayBoard({
 						{entry.events.map((event) => {
 							const placed = layout.placed.get(event.id);
 							if (!placed) return null;
+							const drawnStart = baseStartFor(event);
+							const drawnEnd = baseEndFor(event);
 							const trimmedHeight =
-								heightPx(baseStartFor(event), baseEndFor(event), boardStart) -
-								(trims.get(event.id) ?? 0);
+								heightPx(drawnStart, drawnEnd, boardStart) - (trims.get(event.id) ?? 0);
 							return (
 								<EventBlock
 									key={event.id}
 									event={event}
 									left={GUTTER + placed.left * laneW}
 									width={Math.max(44, placed.width * laneW - GAP)}
-									top={topPx(baseStartFor(event), boardStart)}
+									top={topPx(drawnStart, boardStart)}
 									height={Math.max(MIN_LEG_H, trimmedHeight)}
+									drawnStart={drawnStart}
+									drawnEnd={drawnEnd}
 									peopleLabel={peopleLabel}
 									locked={locked}
 									legTarget={legTargets.has(event.id)}
-									onOpen={() => onOpen(event.id)}
+									onOpen={openBlock}
 									onBeginGesture={beginGesture}
 									onEndGesture={endGesture}
 									onReportMinute={reportMinute}
-									onCommitMove={(minute) => void writeMove(event, minute)}
-									onCommitResize={(minute) => void writeResize(event, minute)}
+									onCommitMove={commitMove}
+									onCommitResize={commitResize}
 								/>
 							);
 						})}
@@ -338,7 +356,9 @@ const EventBlock = memo(function EventBlock({
 	onEndGesture,
 	onReportMinute,
 	onCommitMove,
-	onCommitResize
+	onCommitResize,
+	drawnStart,
+	drawnEnd
 }: {
 	event: EventRow;
 	left: number;
@@ -348,12 +368,14 @@ const EventBlock = memo(function EventBlock({
 	peopleLabel: (ids: string[]) => string;
 	locked: boolean;
 	legTarget: boolean;
-	onOpen: () => void;
+	onOpen: (id: string) => void;
 	onBeginGesture: () => void;
 	onEndGesture: () => void;
 	onReportMinute: (label: ActiveLabel) => void;
-	onCommitMove: (minute: number) => void;
-	onCommitResize: (minute: number) => void;
+	onCommitMove: (id: string, minute: number) => void;
+	onCommitResize: (id: string, minute: number) => void;
+	drawnStart: number;
+	drawnEnd: number;
 }) {
 	const translateY = useSharedValue(0);
 	const extraH = useSharedValue(0);
@@ -362,32 +384,24 @@ const EventBlock = memo(function EventBlock({
 	const lastMoveMinute = useSharedValue(event.start_min);
 	const lastEndMinute = useSharedValue(event.end_min);
 
-	useEffect(() => {
+	useLayoutEffect(() => {
 		translateY.value = 0;
 		extraH.value = 0;
-		lastMoveMinute.value = event.start_min;
-		lastEndMinute.value = event.end_min;
+		lastMoveMinute.value = drawnStart;
+		lastEndMinute.value = drawnEnd;
 		moved.value = false;
 		panStarted.value = false;
-	}, [
-		event.start_min,
-		event.end_min,
-		extraH,
-		lastEndMinute,
-		lastMoveMinute,
-		moved,
-		panStarted,
-		translateY
-	]);
+	}, [drawnStart, drawnEnd, extraH, lastEndMinute, lastMoveMinute, moved, panStarted, translateY]);
+	const gripHeight = gripHeightForBlock(height);
 
 	const tapGesture = useMemo(
 		() =>
 			Gesture.Tap()
 				.maxDuration(GESTURE_MS - 10)
 				.onEnd((_event, success) => {
-					if (success) runOnJS(onOpen)();
+					if (success) runOnJS(onOpen)(event.id);
 				}),
-		[onOpen]
+		[event.id, onOpen]
 	);
 
 	const moveGesture = useMemo(
@@ -421,10 +435,12 @@ const EventBlock = memo(function EventBlock({
 				})
 				.onEnd((_event, success) => {
 					const next = lastMoveMinute.value;
-					if (success && moved.value && next !== event.start_min) runOnJS(onCommitMove)(next);
+					if (success && moved.value && next !== event.start_min) {
+						runOnJS(onCommitMove)(event.id, next);
+					}
 				})
-				.onFinalize(() => {
-					translateY.value = 0;
+				.onFinalize((_event, success) => {
+					if (!success) translateY.value = 0;
 					if (panStarted.value) runOnJS(onEndGesture)();
 					panStarted.value = false;
 				}),
@@ -476,10 +492,12 @@ const EventBlock = memo(function EventBlock({
 				})
 				.onEnd((_event, success) => {
 					const next = lastEndMinute.value;
-					if (success && moved.value && next !== event.end_min) runOnJS(onCommitResize)(next);
+					if (success && moved.value && next !== event.end_min) {
+						runOnJS(onCommitResize)(event.id, next);
+					}
 				})
-				.onFinalize(() => {
-					extraH.value = 0;
+				.onFinalize((_event, success) => {
+					if (!success) extraH.value = 0;
 					if (panStarted.value) runOnJS(onEndGesture)();
 					panStarted.value = false;
 				}),
@@ -504,9 +522,9 @@ const EventBlock = memo(function EventBlock({
 			Gesture.Tap()
 				.maxDuration(GESTURE_MS - 10)
 				.onEnd((_event, success) => {
-					if (success) runOnJS(onOpen)();
+					if (success) runOnJS(onOpen)(event.id);
 				}),
-		[onOpen]
+		[event.id, onOpen]
 	);
 
 	const resizeGesture = useMemo(() => Gesture.Exclusive(resizePan, gripTap), [gripTap, resizePan]);
@@ -566,18 +584,23 @@ const EventBlock = memo(function EventBlock({
 								action.nativeEvent.actionName === 'increment'
 									? Math.min(DAY_END, event.end_min + 5)
 									: Math.max(event.start_min + MIN_EVENT_MINS, event.end_min - 5);
-							onCommitResize(next);
+							onCommitResize(event.id, next);
 						}}
 						style={{
 							position: 'absolute',
 							left: 0,
 							right: 0,
-							bottom: -38,
-							height: 44,
+							bottom: 0,
+							height: gripHeight,
 							justifyContent: 'center'
 						}}
 					>
-						<View style={{ height: 10, backgroundColor: 'rgba(255,255,255,0.28)' }} />
+						<View
+							style={{
+								height: Math.min(12, gripHeight),
+								backgroundColor: 'rgba(255,255,255,0.28)'
+							}}
+						/>
 					</Animated.View>
 				</GestureDetector>
 			)}
