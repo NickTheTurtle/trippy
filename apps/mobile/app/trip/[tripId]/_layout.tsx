@@ -22,7 +22,7 @@ import {
 	Loading,
 	Screen
 } from '../../../src/ui';
-import { ConfirmSheet } from '../../../src/ui/ConfirmSheet';
+import { ConfirmSheet, confirmOverlays } from '../../../src/ui/ConfirmSheet';
 import { Sheet } from '../../../src/ui/Sheet';
 import { DateField, SearchablePicker } from '../../../src/ui/controls';
 import { useToast } from '../../../src/ui/Toast';
@@ -32,6 +32,7 @@ import {
 	useCurrentTripHeaderAction
 } from '../../../src/ui/TripHeaderAction';
 import { useSheetHandoff } from '../../../src/ui/useSheetHandoff';
+import { showActionMenu } from '../../../src/ui/actionMenu';
 import { color, screenMargin, space, type } from '../../../src/theme';
 
 type Trip = {
@@ -213,7 +214,29 @@ function TripTabsInner({
 									<Pressable
 										accessibilityRole="button"
 										accessibilityLabel={copy.common.more}
-										onPress={() => setActionsOpen(true)}
+										onPress={() => {
+											if (destroy.busy) return;
+											const shown = showActionMenu(
+												trip.name,
+												canEdit
+													? [
+															{ label: copy.tripShell.editTrip, onPress: () => setEditing(true) },
+															{
+																label: copy.common.delete,
+																destructive: true,
+																onPress: () => setConfirming('delete')
+															}
+														]
+													: [
+															{
+																label: copy.tripShell.leaveTrip,
+																destructive: true,
+																onPress: () => setConfirming('leave')
+															}
+														]
+											);
+											if (!shown) setActionsOpen(true);
+										}}
 										hitSlop={8}
 									>
 										<AppSymbol
@@ -269,13 +292,14 @@ function TripTabsInner({
 				<EditTripSheet
 					trip={trip}
 					open={editing}
+					busy={confirmOverlays && destroy.busy}
 					onClose={() => setEditing(false)}
 					onSaved={() => {
 						setEditing(false);
 						reload();
 					}}
 					onDelete={() => {
-						setEditing(false);
+						if (!confirmOverlays) setEditing(false);
 						setConfirming('delete');
 					}}
 				/>
@@ -351,12 +375,14 @@ function spanDays(start: string, end: string): number | null {
 function EditTripSheet({
 	trip,
 	open,
+	busy,
 	onClose,
 	onSaved,
 	onDelete
 }: {
 	trip: Trip;
 	open: boolean;
+	busy: boolean;
 	onClose: () => void;
 	onSaved: () => void;
 	onDelete: () => void;
@@ -409,6 +435,8 @@ function EditTripSheet({
 			primaryLabel={copy.common.save}
 			primaryBusyLabel={copy.common.saving}
 			primaryBusy={save.busy}
+			busy={busy}
+			busyLabel={copy.common.deleting}
 		>
 			<InsetSection footer={copy.tripShell.editDialog.lockFooter} error={save.error}>
 				<Field variant="row" label={copy.tripForm.nameLabel} value={name} onChangeText={setName} />

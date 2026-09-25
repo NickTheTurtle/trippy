@@ -8,7 +8,7 @@ import { api } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
 import { DestructiveRow, Field, InsetGroupedList, InsetSection, ListRow } from '../../ui';
 import { Sheet } from '../../ui/Sheet';
-import { ConfirmSheet } from '../../ui/ConfirmSheet';
+import { ConfirmSheet, confirmOverlays } from '../../ui/ConfirmSheet';
 import { ChecklistRow, DateField, SegmentedControl, TimeField } from '../../ui/controls';
 import { AppSymbol } from '../../ui/Symbol';
 import { color, radius, rowInset, space, type } from '../../theme';
@@ -307,7 +307,9 @@ export function EventSheet({
 	return (
 		<>
 			<Sheet
-				open={open && !confirmDelete}
+				open={open && (confirmOverlays || !confirmDelete)}
+				busy={confirmOverlays && remove.busy}
+				busyLabel={copy.common.deleting}
 				title={
 					locked
 						? copy.schedule.dialog.view

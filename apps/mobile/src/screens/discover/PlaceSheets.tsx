@@ -11,7 +11,7 @@ import { api, ApiError, isAbort } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
 import { DestructiveRow, Field, InsetSection, ListRow, SectionHeader } from '../../ui';
 import { Sheet } from '../../ui/Sheet';
-import { ConfirmSheet } from '../../ui/ConfirmSheet';
+import { ConfirmSheet, confirmOverlays } from '../../ui/ConfirmSheet';
 import { SearchablePicker, SegmentedControl } from '../../ui/controls';
 import { CoverImage } from './CoverImage';
 import { color, rowInset, space, type } from '../../theme';
@@ -556,7 +556,9 @@ export function EditPlaceSheet({
 	return (
 		<>
 			<Sheet
-				open={open && !confirm}
+				open={open && (confirmOverlays || !confirm)}
+				busy={confirmOverlays && remove.busy}
+				busyLabel={copy.common.deleting}
 				title={copy.discover.editPlace.title}
 				onClose={onClose}
 				onPrimary={() => void save.run()}
@@ -688,7 +690,9 @@ export function EditStaySheet({
 	return (
 		<>
 			<Sheet
-				open={open && !confirm}
+				open={open && (confirmOverlays || !confirm)}
+				busy={confirmOverlays && remove.busy}
+				busyLabel={copy.common.deleting}
 				title={copy.discover.editStay.title}
 				onClose={onClose}
 				onPrimary={submit}
