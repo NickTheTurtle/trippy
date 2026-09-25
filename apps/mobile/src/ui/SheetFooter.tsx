@@ -5,6 +5,8 @@ import { color, radius, space } from '../theme';
 import { Button } from './index';
 import { AppSymbol } from './Symbol';
 
+// Deprecated for new sheets. R4 still uses this for the Schedule event sheet
+// until that form moves to the iOS navigation-bar Save pattern.
 export function SheetFooter({
 	primaryLabel,
 	primaryBusyLabel = copy.common.saving,

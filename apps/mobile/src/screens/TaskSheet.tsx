@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import { copy } from '@trippy/copy';
 import { api, ApiError } from '../lib/api';
 import { useMutation } from '../hooks/useMutation';
-import { DestructiveRow, Field, FormError, InsetSection } from '../ui';
+import { DestructiveRow, Field, InsetSection, ListRow } from '../ui';
 import { CheckBox } from '../ui/controls';
 import { Sheet } from '../ui/Sheet';
 import { ConfirmSheet } from '../ui/ConfirmSheet';
-import { color, fieldLabel, radius, space, type } from '../theme';
+import { hairline, color, space, type } from '../theme';
 
 type Member = { id: string; name: string };
 type Crew = { id: string; name: string; members: string[]; locked?: boolean };
@@ -152,77 +152,73 @@ function AssigneePicker({
 		onChange([...next]);
 	};
 	return (
-		<View style={{ gap: space.sm }}>
-			<Text style={fieldLabel}>
-				{copy.preparation.taskDialog.assignLabel}
-				{copy.ui.field.optionalSuffix}
-			</Text>
+		<InsetSection
+			title={`${copy.preparation.taskDialog.assignLabel}${copy.ui.field.optionalSuffix}`}
+		>
 			{members.length > 2 ? (
-				<View style={{ flexDirection: 'row', gap: space.sm }}>
-					<Chip
-						label={copy.preparation.taskDialog.selectEveryone}
+				<>
+					<ListRow
+						title={copy.preparation.taskDialog.selectEveryone}
+						accessory="none"
 						onPress={() => setAll(members.map((m) => m.id))}
 					/>
-					<Chip label={copy.preparation.taskDialog.clear} onPress={() => onChange([])} />
-				</View>
+					<ListRow
+						title={copy.preparation.taskDialog.clear}
+						accessory="none"
+						onPress={() => onChange([])}
+					/>
+				</>
 			) : null}
-			{crews.length ? (
-				<ScrollView
-					horizontal
-					showsHorizontalScrollIndicator={false}
-					keyboardShouldPersistTaps="handled"
-				>
-					<View style={{ flexDirection: 'row', gap: space.sm }}>
-						{crews.map((crew) => (
-							<Chip key={crew.id} label={crew.name} onPress={() => setAll(crew.members)} />
-						))}
-					</View>
-				</ScrollView>
-			) : null}
-			<View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
-				{members.map((member) => {
-					const on = selectedSet.has(member.id);
-					return (
-						<Pressable
-							key={member.id}
-							onPress={() => toggle(member.id)}
-							style={({ pressed }) => ({
-								flexDirection: 'row',
-								alignItems: 'center',
-								gap: space.xs,
-								paddingHorizontal: space.sm,
-								paddingVertical: 6,
-								borderRadius: 999,
-								borderWidth: 1,
-								borderColor: on ? color.accent : color.line,
-								backgroundColor: on ? color.accentSoft : color.surface,
-								opacity: pressed ? 0.7 : 1
-							})}
-						>
-							<CheckBox checked={on} label={member.name} onPress={() => toggle(member.id)} />
-							<Text style={type.small}>{member.name}</Text>
-						</Pressable>
-					);
-				})}
-			</View>
-		</View>
+			{crews.map((crew) => (
+				<ListRow
+					key={crew.id}
+					title={crew.name}
+					subtitle={copy.people.crews.memberCount(crew.members.length)}
+					accessory="none"
+					onPress={() => setAll(crew.members)}
+				/>
+			))}
+			{members.map((member, index) => {
+				const on = selectedSet.has(member.id);
+				return (
+					<ChecklistRow
+						key={member.id}
+						label={member.name}
+						checked={on}
+						onPress={() => toggle(member.id)}
+						last={index === members.length - 1}
+					/>
+				);
+			})}
+		</InsetSection>
 	);
 }
 
-function Chip({ label, onPress }: { label: string; onPress: () => void }) {
+function ChecklistRow({
+	label,
+	checked,
+	onPress,
+	last
+}: {
+	label: string;
+	checked: boolean;
+	onPress: () => void;
+	last: boolean;
+}) {
 	return (
-		<Pressable
-			onPress={onPress}
-			style={({ pressed }) => ({
+		<View
+			style={{
+				minHeight: 52,
+				flexDirection: 'row',
+				alignItems: 'center',
+				gap: space.md,
 				paddingHorizontal: space.md,
-				paddingVertical: 7,
-				borderRadius: radius.md,
-				borderWidth: 1,
-				borderColor: color.line,
-				backgroundColor: pressed ? color.surface2 : color.surface
-			})}
+				borderBottomWidth: last ? 0 : hairline,
+				borderBottomColor: color.line
+			}}
 		>
-			<Text style={type.small}>{label}</Text>
-		</Pressable>
+			<CheckBox checked={checked} label={label} onPress={onPress} />
+			<Text style={type.body}>{label}</Text>
+		</View>
 	);
 }
