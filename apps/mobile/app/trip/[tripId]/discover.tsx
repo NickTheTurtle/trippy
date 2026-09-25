@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Linking, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Linking, Pressable, RefreshControl, Text, View } from 'react-native';
 import { copy } from '@trippy/copy';
 import { formatPerNight } from '@trippy/copy/format';
 import { localDayMinutes } from '@trippy/core/tz';
@@ -16,7 +16,6 @@ import {
 	Card,
 	EmptyState,
 	FormError,
-	InsetGroupedList,
 	InsetSection,
 	ListRow,
 	Loading,
@@ -25,6 +24,8 @@ import {
 import { SegmentedControl } from '../../../src/ui/controls';
 import { color, radius, space, type } from '../../../src/theme';
 import { AppSymbol } from '../../../src/ui/Symbol';
+import { Sheet } from '../../../src/ui/Sheet';
+import { useTripHeaderAction } from '../../../src/ui/TripHeaderAction';
 import { CoverImage } from '../../../src/screens/discover/CoverImage';
 import {
 	CitySheet,
@@ -81,6 +82,7 @@ export default function Discover() {
 	const [deleteCity, setDeleteCity] = useState<TripCity | null>(null);
 	const [editPoi, setEditPoi] = useState<Poi | null>(null);
 	const [editStay, setEditStay] = useState<Stay | null>(null);
+	useTripHeaderAction(useCallback(() => setAdding(true), []));
 
 	const base = `/trips/${tripId}/discover`;
 	const trip = tripData?.trip;
@@ -231,12 +233,11 @@ export default function Discover() {
 				/>
 
 				<SegmentedControl
-					items={FILTERS.map((f) => ({ key: f.key, label: f.label }))}
+					items={FILTERS.map((f) => ({ key: f.key, label: f.key === 'food' ? 'Food' : f.label }))}
 					active={filter}
 					onPick={(key) => setFilter(key as Filter)}
 				/>
 
-				<Button tone="plain" label={copy.discover.header.add} onPress={() => setAdding(true)} />
 				<InsetSection
 					title={copy.discover.cityList.cityLabel(
 						current.name,
@@ -372,55 +373,72 @@ function CityStrip({
 	onEdit: () => void;
 	onDelete: () => void;
 }) {
+	const [open, setOpen] = useState(false);
+	const current = rows.find((row) => row.id === active) ?? rows[0];
 	return (
-		<View style={{ gap: space.sm }}>
-			<ScrollView
-				horizontal
-				showsHorizontalScrollIndicator={false}
-				keyboardShouldPersistTaps="handled"
-			>
-				<View style={{ flexDirection: 'row', gap: space.sm }}>
-					{rows.map((row) => {
-						const on = row.id === active;
-						return (
-							<Pressable
-								key={row.id}
-								onPress={() => onPick(row.id)}
-								style={({ pressed }) => ({
-									minWidth: 88,
-									paddingHorizontal: space.md,
-									paddingVertical: space.sm,
-									borderRadius: radius.md,
-									borderWidth: 1,
-									borderColor: on ? color.accent : color.line,
-									backgroundColor: on ? color.accentSoft : color.surface,
-									opacity: pressed ? 0.7 : 1
-								})}
-							>
-								<Text
-									style={{
-										...type.small,
-										color: on ? color.accentInk : color.inkSoft,
-										fontWeight: on ? '600' : '400'
+		<>
+			<InsetSection>
+				<ListRow
+					title={current?.name ?? copy.discover.cityList.navLabel}
+					subtitle={current?.region ?? null}
+					value={current?.badge ? String(current.badge) : undefined}
+					symbol={{ name: 'mappin.and.ellipse', fallback: 'location-outline' }}
+					onPress={() => setOpen(true)}
+					last
+				/>
+			</InsetSection>
+			<Sheet open={open} title={copy.discover.cityList.navLabel} onClose={() => setOpen(false)}>
+				<InsetSection>
+					{rows.map((row, index) => (
+						<ListRow
+							key={row.id}
+							title={row.name}
+							subtitle={row.region ?? null}
+							value={row.badge ? String(row.badge) : undefined}
+							accessory={row.id === active ? 'checkmark' : 'none'}
+							onPress={() => {
+								onPick(row.id);
+								setOpen(false);
+							}}
+							last={index === rows.length - 1 && !isOrganizer}
+						/>
+					))}
+					{isOrganizer ? (
+						<>
+							<ListRow
+								title={copy.discover.cityList.addCity}
+								symbol={{ name: 'plus', fallback: 'add' }}
+								onPress={() => {
+									setOpen(false);
+									onAdd();
+								}}
+							/>
+							<ListRow
+								title={copy.mobileDiscover.editCityButton}
+								symbol={{ name: 'pencil', fallback: 'create-outline' }}
+								onPress={() => {
+									setOpen(false);
+									onEdit();
+								}}
+							/>
+							{canDelete ? (
+								<ListRow
+									title={copy.common.delete}
+									tone="destructive"
+									symbol={{ name: 'trash', fallback: 'trash-outline' }}
+									accessory="none"
+									onPress={() => {
+										setOpen(false);
+										onDelete();
 									}}
-								>
-									{row.name}
-									{row.badge ? `  ${row.badge}` : ''}
-								</Text>
-								{row.region ? <Text style={type.faint}>{row.region}</Text> : null}
-							</Pressable>
-						);
-					})}
-				</View>
-			</ScrollView>
-			{isOrganizer ? (
-				<Pressable onPress={onAdd} hitSlop={8}>
-					<Text style={{ ...type.footnote, color: color.accent, fontWeight: '600' }}>
-						{copy.discover.cityList.addCity}
-					</Text>
-				</Pressable>
-			) : null}
-		</View>
+									last
+								/>
+							) : null}
+						</>
+					) : null}
+				</InsetSection>
+			</Sheet>
+		</>
 	);
 }
 
@@ -440,27 +458,40 @@ function PlaceCard({
 	const href = poi.url ? safeExternalUrl(poi.url) : null;
 	const hrs = todayHours(parseHours(poi.hours), tz);
 	return (
-		<Card style={{ padding: space.md, gap: space.sm }}>
-			<Pressable onPress={onEdit} style={{ gap: space.sm }}>
-				<CoverImage photo={poi.photo} seed={poi.name} category={poi.category} />
-				<Text style={{ ...type.body, fontWeight: '600' }}>{poi.name}</Text>
-				<View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
-					{poi.rating ? (
-						<Text style={{ ...type.small, color: color.warn }}>
-							★ {poi.rating.toFixed(1)}
-							{poi.rating_count ? ` (${poi.rating_count})` : ''}
-						</Text>
-					) : null}
-					{poi.price_level != null ? (
-						<Text style={{ ...type.small, color: color.accentInk }}>
-							{'$'.repeat(Math.max(1, poi.price_level))}
-						</Text>
-					) : null}
-					{hrs ? <Text style={type.small}>{hrs}</Text> : null}
+		<Card style={{ padding: 0, overflow: 'hidden' }}>
+			<Pressable onPress={onEdit} accessibilityLabel={copy.common.editLabel(poi.name)}>
+				<CoverImage photo={poi.photo} seed={poi.name} category={poi.category} flush />
+				<View style={{ padding: space.md, gap: space.sm }}>
+					<Text style={{ ...type.body, fontWeight: '600' }}>{poi.name}</Text>
+					<View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
+						{poi.rating ? (
+							<View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+								<AppSymbol name="star.fill" fallback="star" size={13} color={color.warn} />
+								<Text style={{ ...type.small, color: color.warn }}>
+									{poi.rating.toFixed(1)}
+									{poi.rating_count ? ` (${poi.rating_count})` : ''}
+								</Text>
+							</View>
+						) : null}
+						{poi.price_level != null ? (
+							<Text style={{ ...type.small, color: color.accentInk }}>
+								{'$'.repeat(Math.max(1, poi.price_level))}
+							</Text>
+						) : null}
+						{hrs ? <Text style={type.small}>{hrs}</Text> : null}
+					</View>
+					{poi.notes ? <Text style={type.faint}>{poi.notes}</Text> : null}
 				</View>
-				{poi.notes ? <Text style={type.faint}>{poi.notes}</Text> : null}
 			</Pressable>
-			<View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+			<View
+				style={{
+					flexDirection: 'row',
+					alignItems: 'center',
+					gap: space.sm,
+					paddingHorizontal: space.md,
+					paddingBottom: space.md
+				}}
+			>
 				<VoteButton
 					count={poi.votes}
 					mine={poi.you_voted === 1}
@@ -475,16 +506,6 @@ function PlaceCard({
 						</Text>
 					</Pressable>
 				) : null}
-				<Pressable
-					accessibilityRole="button"
-					accessibilityLabel={copy.common.editLabel(poi.name)}
-					onPress={onEdit}
-					style={{ marginLeft: 'auto', flexShrink: 1 }}
-				>
-					<Text style={{ ...type.small, color: color.accent }}>
-						{copy.common.editLabel(poi.name)}
-					</Text>
-				</Pressable>
 			</View>
 			<VoteRule pct={pct} />
 		</Card>
@@ -506,23 +527,26 @@ function StayCard({
 }) {
 	const href = stay.url ? safeExternalUrl(stay.url) : null;
 	return (
-		<Card
-			style={{
-				padding: space.md,
-				gap: space.sm,
-				borderWidth: 1,
-				borderColor: stay.you_voted ? color.accent : color.line
-			}}
-		>
-			<Pressable onPress={onEdit} style={{ gap: space.sm }}>
-				<CoverImage photo={stay.photo} seed={stay.name} category="stay" />
-				<Text style={{ ...type.body, fontWeight: '600' }}>{stay.name}</Text>
-				<Text style={type.faint}>
-					{stay.tag ? `${stay.tag} · ` : ''}
-					{formatPerNight(stay.price_cents, stay.currency || currency)}
-				</Text>
+		<Card style={{ padding: 0, overflow: 'hidden' }}>
+			<Pressable onPress={onEdit} accessibilityLabel={copy.common.editLabel(stay.name)}>
+				<CoverImage photo={stay.photo} seed={stay.name} category="stay" flush />
+				<View style={{ padding: space.md, gap: space.sm }}>
+					<Text style={{ ...type.body, fontWeight: '600' }}>{stay.name}</Text>
+					<Text style={type.faint}>
+						{stay.tag ? `${stay.tag} · ` : ''}
+						{formatPerNight(stay.price_cents, stay.currency || currency)}
+					</Text>
+				</View>
 			</Pressable>
-			<View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+			<View
+				style={{
+					flexDirection: 'row',
+					alignItems: 'center',
+					gap: space.sm,
+					paddingHorizontal: space.md,
+					paddingBottom: space.md
+				}}
+			>
 				<VoteButton
 					count={stay.votes}
 					mine={stay.you_voted === 1}
@@ -537,16 +561,6 @@ function StayCard({
 						</Text>
 					</Pressable>
 				) : null}
-				<Pressable
-					accessibilityRole="button"
-					accessibilityLabel={copy.common.editLabel(stay.name)}
-					onPress={onEdit}
-					style={{ marginLeft: 'auto', flexShrink: 1 }}
-				>
-					<Text style={{ ...type.small, color: color.accent }}>
-						{copy.common.editLabel(stay.name)}
-					</Text>
-				</Pressable>
 			</View>
 			<VoteRule pct={pct} />
 		</Card>
@@ -585,7 +599,12 @@ function VoteButton({
 				opacity: busy ? 0.45 : pressed ? 0.7 : 1
 			})}
 		>
-			<Text style={{ fontSize: 13, color: mine ? color.accentInk : color.inkFaint }}>♥</Text>
+			<AppSymbol
+				name={mine ? 'heart.fill' : 'heart'}
+				fallback={mine ? 'heart' : 'heart-outline'}
+				size={13}
+				color={mine ? color.accentInk : color.inkFaint}
+			/>
 			<Text style={{ ...type.small, color: mine ? color.accentInk : color.inkSoft }}>{count}</Text>
 		</Pressable>
 	);

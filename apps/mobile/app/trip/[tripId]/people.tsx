@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Pressable, RefreshControl, Text, View } from 'react-native';
 import { copy } from '@trippy/copy';
 import { useTripId } from '../../../src/trip-id';
 import { useApi } from '../../../src/hooks/useApi';
 import { useLiveSection } from '../../../src/hooks/useTripEvents';
 import { useToast } from '../../../src/ui/Toast';
+import { useTripHeaderAction } from '../../../src/ui/TripHeaderAction';
 import {
 	Button,
 	EmptyState,
@@ -37,6 +38,12 @@ export default function People() {
 	const [adding, setAdding] = useState(false);
 	const [editing, setEditing] = useState<Person | null>(null);
 	const [crewDraft, setCrewDraft] = useState<Crew | null | false>(false);
+	useTripHeaderAction(
+		useCallback(() => {
+			if (section === 'crews') setCrewDraft(null);
+			else if (data?.organizer) setAdding(true);
+		}, [data?.organizer, section])
+	);
 
 	useEffect(() => {
 		if (error) toast.error(error);
@@ -113,13 +120,6 @@ export default function People() {
 						)}
 					</InsetSection>
 				)}
-				{canAdd ? (
-					<Button
-						tone="plain"
-						label={copy.common.add}
-						onPress={() => (section === 'crews' ? setCrewDraft(null) : setAdding(true))}
-					/>
-				) : null}
 			</Screen>
 
 			{adding ? (
@@ -210,10 +210,10 @@ function MemberRow({
 	].filter(Boolean) as string[];
 	const subtitle = [
 		person.seeded ? copy.people.row.sampleCompanion : person.email,
-		tags.join(' � ')
+		tags.join(' · ')
 	]
 		.filter(Boolean)
-		.join(' � ');
+		.join(' · ');
 	return (
 		<ListRow
 			title={person.name}

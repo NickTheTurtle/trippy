@@ -27,6 +27,10 @@ import { Sheet } from '../../../src/ui/Sheet';
 import { DateField, SearchablePicker } from '../../../src/ui/controls';
 import { useToast } from '../../../src/ui/Toast';
 import { AppSymbol, type AppSymbolName } from '../../../src/ui/Symbol';
+import {
+	TripHeaderActionProvider,
+	useCurrentTripHeaderAction
+} from '../../../src/ui/TripHeaderAction';
 import { color, space, type } from '../../../src/theme';
 
 type Trip = {
@@ -129,6 +133,60 @@ export default function TripTabs() {
 		);
 	const canEdit = trip.role === 'organizer';
 	return (
+		<TripHeaderActionProvider>
+			<TripTabsInner
+				id={id}
+				trip={trip}
+				events={events}
+				canEdit={canEdit}
+				editing={editing}
+				setEditing={setEditing}
+				confirming={confirming}
+				setConfirming={setConfirming}
+				actionsOpen={actionsOpen}
+				setActionsOpen={setActionsOpen}
+				queueAction={queueAction}
+				flushPendingAction={flushPendingAction}
+				destroy={destroy}
+				reload={reload}
+			/>
+		</TripHeaderActionProvider>
+	);
+}
+
+function TripTabsInner({
+	id,
+	trip,
+	events,
+	canEdit,
+	editing,
+	setEditing,
+	confirming,
+	setConfirming,
+	actionsOpen,
+	setActionsOpen,
+	queueAction,
+	flushPendingAction,
+	destroy,
+	reload
+}: {
+	id: string;
+	trip: Trip;
+	events: ReturnType<typeof useTripEvents>;
+	canEdit: boolean;
+	editing: boolean;
+	setEditing: (value: boolean) => void;
+	confirming: 'delete' | 'leave' | null;
+	setConfirming: (value: 'delete' | 'leave' | null) => void;
+	actionsOpen: boolean;
+	setActionsOpen: (value: boolean) => void;
+	queueAction: (action: 'edit' | 'leave' | 'delete') => void;
+	flushPendingAction: () => void;
+	destroy: ReturnType<typeof useMutation>;
+	reload: () => void;
+}) {
+	const headerAdd = useCurrentTripHeaderAction();
+	return (
 		<TripIdContext.Provider value={id}>
 			<TripEventsProvider value={events}>
 				<View style={{ flex: 1 }}>
@@ -148,6 +206,16 @@ export default function TripTabs() {
 										marginRight: space.sm
 									}}
 								>
+									{headerAdd ? (
+										<Pressable
+											accessibilityRole="button"
+											accessibilityLabel={copy.common.add}
+											onPress={headerAdd}
+											hitSlop={8}
+										>
+											<AppSymbol name="plus" fallback="add" size={24} color={color.accent} />
+										</Pressable>
+									) : null}
 									<Pressable
 										accessibilityRole="button"
 										accessibilityLabel={copy.common.more}

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, RefreshControl, Text, View } from 'react-native';
 import { copy } from '@trippy/copy';
 import { cap, formatMoney } from '@trippy/copy/format';
@@ -21,6 +21,7 @@ import { CheckBox, Picker, SegmentedControl } from '../../../src/ui/controls';
 import { TaskSheet } from '../../../src/screens/TaskSheet';
 import { CostSheet } from '../../../src/screens/CostSheet';
 import { useToast } from '../../../src/ui/Toast';
+import { useTripHeaderAction } from '../../../src/ui/TripHeaderAction';
 import { color, space, type } from '../../../src/theme';
 import { AppSymbol } from '../../../src/ui/Symbol';
 
@@ -75,6 +76,12 @@ export default function Pretrip() {
 	const [editingCost, setEditingCost] = useState<CostItem | null>(null);
 	const [addingCost, setAddingCost] = useState(false);
 	const [viewAs, setViewAs] = useState('');
+	useTripHeaderAction(
+		useCallback(() => {
+			if (section === 'costs') setAddingCost(true);
+			else setAddingTask(true);
+		}, [section])
+	);
 
 	if (loading && !data) return <Loading />;
 	if (!data) {
@@ -239,7 +246,6 @@ function Tasks({
 					onEdit={onEdit}
 				/>
 			) : null}
-			<Button tone="plain" label={copy.preparation.add} onPress={onAdd} />
 		</>
 	);
 }
@@ -469,9 +475,16 @@ function Costs({
 										onPress={() => rows.length && setOpen((o) => ({ ...o, [category]: !expanded }))}
 										style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}
 									>
-										<Text style={{ ...type.faint, width: 14 }}>
-											{rows.length ? (expanded ? '▾' : '▸') : ''}
-										</Text>
+										<View style={{ width: 14 }}>
+											{rows.length ? (
+												<AppSymbol
+													name={expanded ? 'chevron.down' : 'chevron.right'}
+													fallback={expanded ? 'chevron-down' : 'chevron-forward'}
+													size={13}
+													color={color.inkFaint}
+												/>
+											) : null}
+										</View>
 										<Text style={{ ...type.body, fontWeight: '600', flex: 1 }}>
 											{cap(category)}
 										</Text>

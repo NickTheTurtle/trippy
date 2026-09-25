@@ -1,26 +1,24 @@
 import { useEffect, useState } from 'react';
-import { Image, Text, View } from 'react-native';
-import { coverArt, photoSrc } from '@trippy/core/cover';
+import { Image, View } from 'react-native';
+import { photoSrc } from '@trippy/core/cover';
 import { API_BASE } from '../../lib/api';
 import { getToken } from '../../lib/token';
 import { color, radius } from '../../theme';
-
-function firstColour(background: string): string {
-	return background.match(/#[0-9a-f]{6}/i)?.[0] ?? color.surface2;
-}
+import { AppSymbol } from '../../ui/Symbol';
 
 export function CoverImage({
 	photo,
 	seed,
 	category,
-	height = 116
+	height = 116,
+	flush = false
 }: {
 	photo?: string | null;
 	seed: string;
 	category?: string | null;
 	height?: number;
+	flush?: boolean;
 }) {
-	const art = coverArt(seed, category);
 	const src = photoSrc(photo);
 	const proxied = !!src?.startsWith('/api/');
 	const [failed, setFailed] = useState(false);
@@ -38,9 +36,9 @@ export function CoverImage({
 		<View
 			style={{
 				height,
-				borderRadius: radius.lg,
+				borderRadius: flush ? 0 : radius.lg,
 				overflow: 'hidden',
-				backgroundColor: firstColour(art.background),
+				backgroundColor: color.accentSoft,
 				alignItems: 'center',
 				justifyContent: 'center'
 			}}
@@ -59,8 +57,33 @@ export function CoverImage({
 					resizeMode="cover"
 				/>
 			) : (
-				<Text style={{ fontSize: 34 }}>{art.glyph}</Text>
+				<AppSymbol
+					name={symbolFor(category)}
+					fallback={fallbackFor(category)}
+					size={32}
+					color={color.accentInk}
+				/>
 			)}
 		</View>
 	);
+}
+
+function symbolFor(category?: string | null): string {
+	const text = (category ?? '').toLowerCase();
+	if (text.includes('stay') || text.includes('hotel') || text.includes('lodging'))
+		return 'bed.double.fill';
+	if (text.includes('food') || text.includes('restaurant') || text.includes('drink'))
+		return 'fork.knife';
+	return 'mappin.and.ellipse';
+}
+
+function fallbackFor(
+	category?: string | null
+): 'bed-outline' | 'restaurant-outline' | 'location-outline' {
+	const text = (category ?? '').toLowerCase();
+	if (text.includes('stay') || text.includes('hotel') || text.includes('lodging'))
+		return 'bed-outline';
+	if (text.includes('food') || text.includes('restaurant') || text.includes('drink'))
+		return 'restaurant-outline';
+	return 'location-outline';
 }

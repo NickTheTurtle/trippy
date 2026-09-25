@@ -343,7 +343,12 @@ function MemberMultiSelect({
 								opacity: pressed ? 0.7 : 1
 							})}
 						>
-							<Text style={{ color: on ? color.accentInk : color.inkFaint }}>{on ? '✓' : '□'}</Text>
+							<AppSymbol
+								name={on ? 'checkmark.circle.fill' : 'circle'}
+								fallback={on ? 'checkmark-circle' : 'ellipse-outline'}
+								size={16}
+								color={on ? color.accentInk : color.inkFaint}
+							/>
 							<Text style={type.small}>{person.name}</Text>
 						</Pressable>
 					);
