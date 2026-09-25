@@ -9,6 +9,7 @@ import { Button, Card, EmptyState, FormError, Loading, Screen } from '../../../s
 import { Picker } from '../../../src/ui/controls';
 import { color, radius, space, type } from '../../../src/theme';
 import { DayBoard } from '../../../src/screens/schedule/DayBoard';
+import { DayMap } from '../../../src/screens/schedule/DayMap';
 import { EventSheet } from '../../../src/screens/schedule/EventSheet';
 import { useScheduleDay } from '../../../src/screens/schedule/useScheduleDay';
 import {
@@ -31,8 +32,13 @@ export default function Calendar() {
 	useLiveSection(['trip'], tripState.reload);
 	const data = schedule.data;
 	const locked = tripState.data?.trip.schedule_locked === 1;
-	const [adding, setAdding] = useState<{ day: string; type?: EventRow['type'] } | null>(null);
+	const [adding, setAdding] = useState<{
+		day: string;
+		type?: EventRow['type'];
+		poi?: { id: string; name: string };
+	} | null>(null);
 	const [opened, setOpened] = useState<EventRow | null>(null);
+	const [mapFocusId, setMapFocusId] = useState<string | null>(null);
 	const openedRef = useRef<ScheduleData | null>(null);
 	openedRef.current = data;
 	const memberName = useMemo(
@@ -63,6 +69,10 @@ export default function Calendar() {
 				}
 			}
 		}
+	};
+	const openAndFocus = (id: string) => {
+		setMapFocusId(id);
+		openSaved(id);
 	};
 
 	const refresh = () => {
@@ -167,7 +177,7 @@ export default function Calendar() {
 							peopleLabel={schedule.peopleLabel}
 							eventById={schedule.eventById}
 							locked={locked}
-							onOpen={openSaved}
+							onOpen={openAndFocus}
 							onGestureChange={setGestureActive}
 							onReload={schedule.reload}
 						/>
@@ -179,10 +189,28 @@ export default function Calendar() {
 						peopleLabel={schedule.peopleLabel}
 						memberName={memberName}
 						locked={locked}
-						onOpenEvent={openSaved}
-						onOpenLeg={(leg) => openSaved(leg.toEventId)}
+						onOpenEvent={openAndFocus}
+						onOpenLeg={(leg) => openAndFocus(leg.toEventId)}
 					/>
 				)}
+				<DayMap
+					entry={schedule.anchor}
+					saved={data.saved}
+					city={schedule.anchor.city}
+					memberIds={data.members.map((member) => member.id)}
+					peopleLabel={schedule.peopleLabel}
+					locked={locked}
+					focusId={mapFocusId}
+					onOpenEvent={openAndFocus}
+					onAddPlace={(place) =>
+						setAdding({
+							day: data.day,
+							type: place.kind === 'food' ? 'food' : 'activity',
+							poi: place
+						})
+					}
+					onClearFocus={() => setMapFocusId(null)}
+				/>
 			</Screen>
 
 			{adding ? (
@@ -193,6 +221,7 @@ export default function Calendar() {
 					day={adding.day}
 					suggestedStart={schedule.suggestedStart(adding.day)}
 					initialType={adding.type ?? 'activity'}
+					initialPoi={adding.poi}
 					legs={schedule.draftLegs}
 					eventOf={(id) => schedule.eventById.get(id) ?? null}
 					peopleLabel={schedule.peopleLabel}

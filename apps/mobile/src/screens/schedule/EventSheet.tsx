@@ -64,6 +64,7 @@ export function EventSheet({
 	startMin,
 	suggestedStart,
 	initialType = 'activity',
+	initialPoi,
 	legs,
 	eventOf,
 	peopleLabel,
@@ -87,6 +88,7 @@ export function EventSheet({
 	startMin?: number | null;
 	suggestedStart?: number;
 	initialType?: EventType;
+	initialPoi?: { id: string; name: string };
 	legs: LegRow[];
 	eventOf: (eventId: string) => EventRow | null;
 	peopleLabel: (ids: string[]) => string;
@@ -127,7 +129,7 @@ export function EventSheet({
 		? ((event.type === 'stay' ? stays : saved).find((p) => p.id === savedPick)?.name ??
 				(savedPick ? '' : event.place_text)) ||
 			''
-		: '';
+		: (initialPoi?.name ?? '');
 
 	const place = usePlaceField({
 		base,
@@ -136,7 +138,7 @@ export function EventSheet({
 		cityId,
 		saved,
 		stays,
-		initialPoi: savedPick,
+		initialPoi: event ? savedPick : (initialPoi?.id ?? ''),
 		initialPlace: openedOn,
 		readonly: locked
 	});

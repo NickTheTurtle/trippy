@@ -595,7 +595,9 @@ export const copy = {
 		},
 		mapCard: {
 			/** Carries the plus, like every other add in the app. */
-			add: '+ Add'
+			add: '+ Add',
+			savedLocation: 'Saved location',
+			votes: (count: number) => `${count} ${count === 1 ? 'vote' : 'votes'}`
 		}
 	},
 

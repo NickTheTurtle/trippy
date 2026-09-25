@@ -214,6 +214,21 @@ export function DayBoard({
 		},
 		[base, onReload, toast]
 	);
+	const openBlock = useCallback((id: string) => onOpen(id), [onOpen]);
+	const commitMove = useCallback(
+		(id: string, minute: number) => {
+			const event = entry.events.find((row) => row.id === id);
+			if (event) void writeMove(event, minute);
+		},
+		[entry.events, writeMove]
+	);
+	const commitResize = useCallback(
+		(id: string, minute: number) => {
+			const event = entry.events.find((row) => row.id === id);
+			if (event) void writeResize(event, minute);
+		},
+		[entry.events, writeResize]
+	);
 
 	return (
 		<View onLayout={(event) => setBoardOuterW(Math.max(1, event.nativeEvent.layout.width))}>
@@ -279,12 +294,12 @@ export function DayBoard({
 									peopleLabel={peopleLabel}
 									locked={locked}
 									legTarget={legTargets.has(event.id)}
-									onOpen={() => onOpen(event.id)}
+									onOpen={openBlock}
 									onBeginGesture={beginGesture}
 									onEndGesture={endGesture}
 									onReportMinute={reportMinute}
-									onCommitMove={(minute) => void writeMove(event, minute)}
-									onCommitResize={(minute) => void writeResize(event, minute)}
+									onCommitMove={commitMove}
+									onCommitResize={commitResize}
 								/>
 							);
 						})}
@@ -348,12 +363,12 @@ const EventBlock = memo(function EventBlock({
 	peopleLabel: (ids: string[]) => string;
 	locked: boolean;
 	legTarget: boolean;
-	onOpen: () => void;
+	onOpen: (id: string) => void;
 	onBeginGesture: () => void;
 	onEndGesture: () => void;
 	onReportMinute: (label: ActiveLabel) => void;
-	onCommitMove: (minute: number) => void;
-	onCommitResize: (minute: number) => void;
+	onCommitMove: (id: string, minute: number) => void;
+	onCommitResize: (id: string, minute: number) => void;
 }) {
 	const translateY = useSharedValue(0);
 	const extraH = useSharedValue(0);
@@ -373,10 +388,12 @@ const EventBlock = memo(function EventBlock({
 		event.start_min,
 		event.end_min,
 		extraH,
+		height,
 		lastEndMinute,
 		lastMoveMinute,
 		moved,
 		panStarted,
+		top,
 		translateY
 	]);
 
@@ -385,9 +402,9 @@ const EventBlock = memo(function EventBlock({
 			Gesture.Tap()
 				.maxDuration(GESTURE_MS - 10)
 				.onEnd((_event, success) => {
-					if (success) runOnJS(onOpen)();
+					if (success) runOnJS(onOpen)(event.id);
 				}),
-		[onOpen]
+		[event.id, onOpen]
 	);
 
 	const moveGesture = useMemo(
@@ -421,10 +438,12 @@ const EventBlock = memo(function EventBlock({
 				})
 				.onEnd((_event, success) => {
 					const next = lastMoveMinute.value;
-					if (success && moved.value && next !== event.start_min) runOnJS(onCommitMove)(next);
+					if (success && moved.value && next !== event.start_min) {
+						runOnJS(onCommitMove)(event.id, next);
+					}
 				})
-				.onFinalize(() => {
-					translateY.value = 0;
+				.onFinalize((_event, success) => {
+					if (!success) translateY.value = 0;
 					if (panStarted.value) runOnJS(onEndGesture)();
 					panStarted.value = false;
 				}),
@@ -476,10 +495,12 @@ const EventBlock = memo(function EventBlock({
 				})
 				.onEnd((_event, success) => {
 					const next = lastEndMinute.value;
-					if (success && moved.value && next !== event.end_min) runOnJS(onCommitResize)(next);
+					if (success && moved.value && next !== event.end_min) {
+						runOnJS(onCommitResize)(event.id, next);
+					}
 				})
-				.onFinalize(() => {
-					extraH.value = 0;
+				.onFinalize((_event, success) => {
+					if (!success) extraH.value = 0;
 					if (panStarted.value) runOnJS(onEndGesture)();
 					panStarted.value = false;
 				}),
@@ -504,9 +525,9 @@ const EventBlock = memo(function EventBlock({
 			Gesture.Tap()
 				.maxDuration(GESTURE_MS - 10)
 				.onEnd((_event, success) => {
-					if (success) runOnJS(onOpen)();
+					if (success) runOnJS(onOpen)(event.id);
 				}),
-		[onOpen]
+		[event.id, onOpen]
 	);
 
 	const resizeGesture = useMemo(() => Gesture.Exclusive(resizePan, gripTap), [gripTap, resizePan]);
@@ -566,18 +587,20 @@ const EventBlock = memo(function EventBlock({
 								action.nativeEvent.actionName === 'increment'
 									? Math.min(DAY_END, event.end_min + 5)
 									: Math.max(event.start_min + MIN_EVENT_MINS, event.end_min - 5);
-							onCommitResize(next);
+							onCommitResize(event.id, next);
 						}}
 						style={{
 							position: 'absolute',
 							left: 0,
 							right: 0,
-							bottom: -38,
-							height: 44,
+							bottom: 0,
+							height: Math.min(22, height),
 							justifyContent: 'center'
 						}}
 					>
-						<View style={{ height: 10, backgroundColor: 'rgba(255,255,255,0.28)' }} />
+						<View
+							style={{ height: Math.min(12, height), backgroundColor: 'rgba(255,255,255,0.28)' }}
+						/>
 					</Animated.View>
 				</GestureDetector>
 			)}

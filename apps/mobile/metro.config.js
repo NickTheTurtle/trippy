@@ -8,6 +8,7 @@ const projectRoot = __dirname;
 const workspaceRoot = path.resolve(projectRoot, '../..');
 
 const config = getDefaultConfig(projectRoot);
+const rnPolyfills = require(path.resolve(workspaceRoot, 'node_modules/react-native/rn-get-polyfills'));
 
 config.watchFolders = [workspaceRoot];
 config.resolver.nodeModulesPaths = [
@@ -53,5 +54,12 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
 	}
 	return context.resolveRequest(context, moduleName, platform);
 };
+
+// Expo's SDK 57 Metro config still asks React Native for rn-get-polyfills. The
+// app's React Native 0.87 package no longer publishes that helper, while the
+// workspace copy still does. Point only this serializer hook at the workspace
+// helper so native exports can bundle without changing the app's React Native
+// singleton resolution above.
+config.serializer.getPolyfills = () => rnPolyfills();
 
 module.exports = config;

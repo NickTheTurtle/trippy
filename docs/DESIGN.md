@@ -3775,13 +3775,12 @@ must split assigned and unassigned rows the same way. The pure `totalFor` / `amo
 helpers therefore live in `@trippy/core/pretrip-shares` rather than being copied into the
 native screen; the web file remains a shim so existing imports keep working.
 
-**Native Discover keeps the web's list model and leaves maps for the map PR.** Cities stay
+**Native Discover keeps the web's list model and stays list-first.** Cities stay
 the standing axis, filters stay All / Attractions / Food & Drinks / Stays, and one
 vote-sorted list mixes stays and places with stays first on ties just like web. The native
 screen uses horizontal city chips instead of the web sidebar because a permanent side rail
-would consume the whole phone width. Maps are deliberately absent here so PR 8 can choose
-one native map implementation for both Discover and Schedule rather than this PR adding a
-throwaway substitute.
+would consume the whole phone width. The web no longer has a Discover map, so native does
+not add one either; Schedule is the map-owning surface.
 
 **Native cover photos go through the same proxy when they are used.** A stored Google photo
 reference still resolves through `/api/place-photo`, not directly to Google, because the
@@ -3821,6 +3820,15 @@ computed boxes. A normal swipe over a block is still scrolling intent; only a
 press held still becomes a schedule edit. The displayed position is kept until
 the reload lands, matching the web board's pending override, so a successful
 write does not flash back to the old time while the API settles the day.
+
+**Native maps use `react-native-maps`, with a web preview fallback.** Expo Go
+already bundles the native map view, so the phone app can use Apple Maps on iOS
+and Google Maps on Android without a custom native module. The Expo web preview
+cannot render `react-native-maps`, so `DayMap.web.tsx` renders the same pins as
+a list instead of crashing Metro. No Google key is needed for Expo Go. A
+production Android build will need an Android Maps SDK key wired through
+`app.json` and the `react-native-maps` config plugin; that is a build-time
+secret, not a value to commit here.
 
 **Auth is the same session row presented two ways.** A browser gets an httpOnly
 cookie, which is the right answer there and the one thing script cannot read. A
