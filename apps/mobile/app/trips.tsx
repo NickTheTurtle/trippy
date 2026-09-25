@@ -9,7 +9,7 @@ import { EmptyState, FormError, InsetGroupedList, ListRow, Loading, Screen } fro
 import { AppSymbol } from '../src/ui/Symbol';
 import { AccountMenu } from '../src/ui/AccountMenu';
 import { NewTrip } from '../src/screens/NewTrip';
-import { color, space, type } from '../src/theme';
+import { color, headerEdge, space, type } from '../src/theme';
 
 type City = { id: string; name: string; photo: string | null };
 type Trip = {
@@ -41,7 +41,14 @@ export default function Trips() {
 					title: Platform.OS === 'web' ? '' : copy.trips.heading,
 					headerLargeTitle: true,
 					headerRight: () => (
-						<View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
+						<View
+							style={{
+								flexDirection: 'row',
+								alignItems: 'center',
+								gap: space.lg,
+								marginRight: headerEdge
+							}}
+						>
 							<Pressable
 								accessibilityRole="button"
 								accessibilityLabel={copy.common.add}
@@ -63,7 +70,7 @@ export default function Trips() {
 				{loading && !data ? (
 					<Loading />
 				) : trips.length === 0 ? (
-					<EmptyState message={copy.common.nothingAdded} />
+					<EmptyState graphic message={copy.common.nothingAdded} />
 				) : (
 					<InsetGroupedList>
 						{trips.map((trip, index) => (

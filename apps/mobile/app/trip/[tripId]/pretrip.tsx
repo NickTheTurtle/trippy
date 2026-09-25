@@ -12,17 +12,18 @@ import {
 	Button,
 	EmptyState,
 	FormError,
+	GroupedRow,
 	InsetSection,
-	ListRow,
 	Loading,
-	Screen
+	Screen,
+	SectionHeader
 } from '../../../src/ui';
 import { CheckBox, Picker, SegmentedControl } from '../../../src/ui/controls';
 import { TaskSheet } from '../../../src/screens/TaskSheet';
 import { CostSheet } from '../../../src/screens/CostSheet';
 import { useToast } from '../../../src/ui/Toast';
 import { useTripHeaderAction } from '../../../src/ui/TripHeaderAction';
-import { color, space, type } from '../../../src/theme';
+import { color, rowInset, space, type } from '../../../src/theme';
 import { AppSymbol } from '../../../src/ui/Symbol';
 
 type Member = { id: string; name: string };
@@ -109,11 +110,9 @@ export default function Pretrip() {
 
 				{section === 'costs' ? (
 					<Costs
-						tripId={tripId}
 						data={data}
 						viewAs={viewAs}
 						onViewAs={setViewAs}
-						onAdd={() => setAddingCost(true)}
 						onEdit={setEditingCost}
 						grand={grand}
 						perPerson={perPerson}
@@ -220,6 +219,8 @@ function Tasks({
 		kind === 'tasks' ? list.filter((task) => task.people.some((p) => p.id === data.me)) : [];
 	const others = kind === 'tasks' ? list.filter((task) => !mine.includes(task)) : list;
 
+	if (list.length === 0) return <EmptyState graphic message={copy.common.nothingAdded} />;
+
 	return (
 		<>
 			{mine.length > 0 ? (
@@ -306,14 +307,15 @@ function TaskRow({
 	last: boolean;
 }) {
 	const assigned = task.people.length > 0;
-	const mine = task.people.find((p) => p.id === me);
 	const state = task.done ? 'on' : task.doneCount > 0 ? 'part' : 'off';
 	const summary = assigned
 		? copy.preparation.taskList.doneSummary(task.doneCount, task.people.length)
 		: null;
 	return (
-		<View style={{ paddingVertical: space.sm, borderTopWidth: 1, borderTopColor: color.line }}>
-			<View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
+		<GroupedRow
+			alignTop
+			last={last}
+			leading={
 				<CheckBox
 					checked={state === 'on'}
 					state={state === 'on' ? 'checked' : state === 'part' ? 'mixed' : 'unchecked'}
@@ -334,38 +336,37 @@ function TaskRow({
 						}
 					}}
 				/>
-				<Pressable
-					onPress={onEdit}
-					style={{ flex: 1 }}
-					hitSlop={6}
-					accessibilityLabel={copy.preparation.taskList.editLabel(
-						kind === 'packing' ? 'packing' : 'task',
-						task.label
-					)}
+			}
+		>
+			<Pressable
+				onPress={onEdit}
+				hitSlop={6}
+				accessibilityLabel={copy.preparation.taskList.editLabel(
+					kind === 'packing' ? 'packing' : 'task',
+					task.label
+				)}
+				style={{ gap: 2 }}
+			>
+				<Text
+					style={{
+						...type.body,
+						color: task.done ? color.inkFaint : color.ink,
+						textDecorationLine: task.done ? 'line-through' : 'none'
+					}}
 				>
-					<Text
-						style={{
-							...type.body,
-							color: task.done ? color.inkFaint : color.ink,
-							textDecorationLine: task.done ? 'line-through' : 'none'
-						}}
-					>
-						{task.label}
-					</Text>
-					{summary ? <Text style={type.faint}>{summary}</Text> : null}
-				</Pressable>
-			</View>
-			{task.flag ? (
-				<Text style={{ ...type.faint, color: color.warn, marginLeft: 34 }}>{task.flag}</Text>
-			) : null}
+					{task.label}
+				</Text>
+				{summary ? <Text style={type.faint}>{summary}</Text> : null}
+			</Pressable>
+			{task.flag ? <Text style={{ ...type.faint, color: color.warn }}>{task.flag}</Text> : null}
 			{assigned ? (
 				<View
 					style={{
 						flexDirection: 'row',
 						flexWrap: 'wrap',
-						gap: space.sm,
-						marginTop: space.xs,
-						marginLeft: 34
+						columnGap: space.sm,
+						rowGap: 2,
+						marginTop: space.xs
 					}}
 				>
 					{task.people.map((p) => (
@@ -390,27 +391,23 @@ function TaskRow({
 						</Pressable>
 					))}
 				</View>
-			) : mine ? null : null}
-		</View>
+			) : null}
+		</GroupedRow>
 	);
 }
 
 function Costs({
-	tripId,
 	data,
 	viewAs,
 	onViewAs,
-	onAdd,
 	onEdit,
 	grand,
 	perPerson,
 	shownTotal
 }: {
-	tripId: string;
 	data: Data;
 	viewAs: string;
 	onViewAs: (id: string) => void;
-	onAdd: () => void;
 	onEdit: (item: CostItem) => void;
 	grand: number;
 	perPerson: number;
@@ -418,105 +415,95 @@ function Costs({
 }) {
 	const [open, setOpen] = useState<Record<string, boolean>>({});
 	const fmt = (cents: number) => formatMoney(cents, data.currency, { whole: true });
+	if (data.budget.items.length === 0) {
+		return <EmptyState graphic message={copy.common.nothingAdded} />;
+	}
 	const shown = viewAs
 		? data.budget.items.filter((item) => isFor(item, viewAs))
 		: data.budget.items;
 	return (
 		<>
-			<InsetSection title={copy.preparation.sections.costs}>
-				<View
-					style={{ flexDirection: 'row', alignItems: 'center', gap: space.lg, padding: space.md }}
-				>
-					{data.budget.items.length > 0 ? (
-						<>
-							<View style={{ flex: 1 }}>
-								<Text style={type.faint}>{copy.preparation.tripTotal}</Text>
-								<Text style={type.head}>{fmt(grand)}</Text>
-							</View>
-							<View style={{ flex: 1 }}>
-								<Text style={type.faint}>
-									{viewAs ? shareLabel(data.members, viewAs, data.me) : copy.preparation.perPerson}
-								</Text>
-								<Text style={type.head}>{fmt(viewAs ? shownTotal : perPerson)}</Text>
-							</View>
-						</>
-					) : (
-						<View style={{ flex: 1 }} />
-					)}
-					<AddText onPress={onAdd} />
+			<InsetSection>
+				<View style={styles.stats}>
+					<Stat label={copy.preparation.tripTotal} value={fmt(grand)} />
+					<Stat
+						label={viewAs ? shareLabel(data.members, viewAs, data.me) : copy.preparation.perPerson}
+						value={fmt(viewAs ? shownTotal : perPerson)}
+					/>
 				</View>
 			</InsetSection>
-			{data.budget.items.length > 0 ? (
-				<ViewAs members={data.members} me={data.me} value={viewAs} onChange={onViewAs} />
-			) : null}
+			<ViewAs members={data.members} me={data.me} value={viewAs} onChange={onViewAs} />
 			<InsetSection>
-				{data.budget.items.length === 0 ? (
-					<EmptyState message={copy.common.nothingAdded} />
-				) : (
-					<View>
-						{data.categories.map((category) => {
-							const rows = shown.filter((item) => item.category === category);
-							const subtotal = rows.reduce(
-								(sum, item) => sum + amountFor(item, viewAs, data.memberCount),
-								0
-							);
-							const expanded = rows.length > 0 && (open[category] ?? true);
-							return (
-								<View
-									key={category}
-									style={{
-										borderTopWidth: 1,
-										borderTopColor: color.line,
-										paddingVertical: space.sm
-									}}
-								>
-									<Pressable
-										onPress={() => rows.length && setOpen((o) => ({ ...o, [category]: !expanded }))}
-										style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}
-									>
-										<View style={{ width: 14 }}>
-											{rows.length ? (
-												<AppSymbol
-													name={expanded ? 'chevron.down' : 'chevron.right'}
-													fallback={expanded ? 'chevron-down' : 'chevron-forward'}
-													size={13}
-													color={color.inkFaint}
-												/>
-											) : null}
-										</View>
-										<Text style={{ ...type.body, fontWeight: '600', flex: 1 }}>
-											{cap(category)}
-										</Text>
-										<Text style={type.small}>{fmt(subtotal)}</Text>
-									</Pressable>
-									{expanded
-										? rows.map((item) => (
-												<CostRow
-													key={item.id}
-													item={item}
-													home={data.currency}
-													viewAs={viewAs}
-													memberCount={data.memberCount}
-													fmt={fmt}
-													onPress={() => onEdit(item)}
-												/>
-											))
-										: null}
-								</View>
-							);
-						})}
-						<View style={{ flexDirection: 'row', paddingTop: space.md }}>
-							<Text style={{ ...type.body, fontWeight: '700', flex: 1 }}>
-								{viewAs
-									? shareLabel(data.members, viewAs, data.me)
-									: copy.preparation.costTable.total}
-							</Text>
-							<Text style={{ ...type.body, fontWeight: '700' }}>{fmt(shownTotal)}</Text>
+				{data.categories.map((category) => {
+					const rows = shown.filter((item) => item.category === category);
+					const subtotal = rows.reduce(
+						(sum, item) => sum + amountFor(item, viewAs, data.memberCount),
+						0
+					);
+					const expanded = rows.length > 0 && (open[category] ?? true);
+					return (
+						<View key={category}>
+							<GroupedRow
+								leading={
+									<View style={{ width: 14 }}>
+										{rows.length ? (
+											<AppSymbol
+												name={expanded ? 'chevron.down' : 'chevron.right'}
+												fallback={expanded ? 'chevron-down' : 'chevron-forward'}
+												size={13}
+												color={color.inkFaint}
+											/>
+										) : null}
+									</View>
+								}
+								trailing={<Text style={type.subhead}>{fmt(subtotal)}</Text>}
+								onPress={
+									rows.length ? () => setOpen((o) => ({ ...o, [category]: !expanded })) : undefined
+								}
+								accessibilityLabel={`${cap(category)}, ${fmt(subtotal)}`}
+								accessibilityState={rows.length ? { expanded } : undefined}
+							>
+								<Text style={type.head}>{cap(category)}</Text>
+							</GroupedRow>
+							{expanded
+								? rows.map((item) => (
+										<CostRow
+											key={item.id}
+											item={item}
+											home={data.currency}
+											viewAs={viewAs}
+											memberCount={data.memberCount}
+											fmt={fmt}
+											onPress={() => onEdit(item)}
+										/>
+									))
+								: null}
 						</View>
-					</View>
-				)}
+					);
+				})}
+				<GroupedRow
+					last
+					trailing={<Text style={type.head}>{fmt(shownTotal)}</Text>}
+					accessible
+					accessibilityLabel={`${
+						viewAs ? shareLabel(data.members, viewAs, data.me) : copy.preparation.costTable.total
+					}, ${fmt(shownTotal)}`}
+				>
+					<Text style={type.head}>
+						{viewAs ? shareLabel(data.members, viewAs, data.me) : copy.preparation.costTable.total}
+					</Text>
+				</GroupedRow>
 			</InsetSection>
 		</>
+	);
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+	return (
+		<View style={{ flex: 1, gap: 2 }}>
+			<Text style={type.footnote}>{label}</Text>
+			<Text style={type.title3}>{value}</Text>
+		</View>
 	);
 }
 
@@ -537,40 +524,36 @@ function CostRow({
 }) {
 	const converted = !!item.currency && item.currency !== home;
 	return (
-		<Pressable
+		<GroupedRow
+			leading={<View style={{ width: 14 }} />}
 			onPress={onPress}
-			style={{
-				flexDirection: 'row',
-				alignItems: 'center',
-				gap: space.md,
-				paddingVertical: space.sm
-			}}
 			accessibilityLabel={copy.common.editLabel(item.label)}
+			accessory="chevron"
+			trailing={
+				<View style={{ alignItems: 'flex-end' }}>
+					{viewAs ? (
+						<>
+							<Text style={type.subhead}>{fmt(amountFor(item, viewAs, memberCount))}</Text>
+							<Text style={type.faint}>
+								{copy.preparation.costTable.ofTotal(fmt(item.homeCents))}
+							</Text>
+						</>
+					) : (
+						<>
+							<Text style={type.subhead}>
+								{formatMoney(item.amountCents, item.currency || home, { whole: true })}
+							</Text>
+							{converted ? <Text style={type.faint}>≈ {fmt(item.homeCents)}</Text> : null}
+						</>
+					)}
+				</View>
+			}
 		>
-			<View style={{ flex: 1 }}>
-				<Text style={type.body}>{item.label}</Text>
-				<Text style={type.faint}>
-					{item.people.length ? item.people.map((p) => p.name).join(', ') : copy.viewAs.everyone}
-				</Text>
-			</View>
-			<View style={{ alignItems: 'flex-end', justifyContent: 'center' }}>
-				{viewAs ? (
-					<>
-						<Text style={type.small}>{fmt(amountFor(item, viewAs, memberCount))}</Text>
-						<Text style={type.faint}>
-							{copy.preparation.costTable.ofTotal(fmt(item.homeCents))}
-						</Text>
-					</>
-				) : (
-					<>
-						<Text style={type.small}>
-							{formatMoney(item.amountCents, item.currency || home, { whole: true })}
-						</Text>
-						{converted ? <Text style={type.faint}>≈ {fmt(item.homeCents)}</Text> : null}
-					</>
-				)}
-			</View>
-		</Pressable>
+			<Text style={type.body}>{item.label}</Text>
+			<Text style={type.faint}>
+				{item.people.length ? item.people.map((p) => p.name).join(', ') : copy.viewAs.everyone}
+			</Text>
+		</GroupedRow>
 	);
 }
 
@@ -587,8 +570,10 @@ function ViewAs({
 }) {
 	if (members.length < 2) return null;
 	return (
-		<InsetSection title={copy.viewAs.label}>
+		<View style={{ gap: 7 }}>
+			<SectionHeader>{copy.viewAs.label}</SectionHeader>
 			<Picker
+				bleed
 				options={[
 					{ key: '', label: copy.viewAs.everyone },
 					...members.map((m) => ({
@@ -599,17 +584,7 @@ function ViewAs({
 				value={value}
 				onPick={onChange}
 			/>
-		</InsetSection>
-	);
-}
-
-function AddText({ onPress }: { onPress: () => void }) {
-	return (
-		<Pressable onPress={onPress} hitSlop={8}>
-			<Text style={{ ...type.body, color: color.accent, fontWeight: '600' }}>
-				{copy.preparation.add}
-			</Text>
-		</Pressable>
+		</View>
 	);
 }
 
@@ -618,3 +593,12 @@ function shareLabel(members: Member[], id: string, me: string): string {
 		? copy.viewAs.yourShare
 		: copy.viewAs.share(members.find((m) => m.id === id)?.name ?? '');
 }
+
+const styles = {
+	stats: {
+		flexDirection: 'row' as const,
+		gap: space.lg,
+		paddingHorizontal: rowInset,
+		paddingVertical: space.md
+	}
+};

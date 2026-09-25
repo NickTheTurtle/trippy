@@ -9,6 +9,7 @@ import {
 	Button,
 	EmptyState,
 	FormError,
+	GroupedRow,
 	InsetSection,
 	ListRow,
 	Loading,
@@ -19,7 +20,7 @@ import { Sheet } from '../../../src/ui/Sheet';
 import { useTripHeaderAction } from '../../../src/ui/TripHeaderAction';
 import { useSheetHandoff } from '../../../src/ui/useSheetHandoff';
 import { AppSymbol } from '../../../src/ui/Symbol';
-import { color, hairline, radius, space, type } from '../../../src/theme';
+import { color, radius, space, type } from '../../../src/theme';
 import { DayBoard } from '../../../src/screens/schedule/DayBoard';
 import { DayMap } from '../../../src/screens/schedule/DayMap';
 import { EventSheet } from '../../../src/screens/schedule/EventSheet';
@@ -183,7 +184,10 @@ export default function Calendar() {
 						style={{
 							backgroundColor: color.surface,
 							borderRadius: radius.section,
-							overflow: 'hidden'
+							overflow: 'hidden',
+							paddingLeft: space.md,
+							paddingRight: space.sm,
+							paddingTop: space.md
 						}}
 					>
 						<DayBoard
@@ -488,25 +492,15 @@ function StayBand({
 	return (
 		<InsetSection title={copy.schedule.mobile.stays}>
 			{stays.map((stay, index) => (
-				<Pressable
+				<ListRow
 					key={stay.id}
-					accessibilityRole="button"
+					title={stay.title}
+					subtitle={stay.end_day ? rangeLabel(stay.day, stay.end_day) : dayLabel(stay.day)}
+					symbol={{ name: 'bed.double', fallback: 'bed-outline' }}
 					accessibilityLabel={locked ? `View ${stay.title}` : copy.common.editLabel(stay.title)}
 					onPress={() => onOpenEvent(stay.id)}
-					style={({ pressed }) => ({
-						minHeight: 44,
-						paddingHorizontal: space.md,
-						paddingVertical: space.sm,
-						opacity: pressed ? 0.75 : 1,
-						borderBottomWidth: index === stays.length - 1 ? 0 : hairline,
-						borderBottomColor: color.line
-					})}
-				>
-					<Text style={type.body}>{stay.title}</Text>
-					<Text style={type.faint}>
-						{stay.end_day ? rangeLabel(stay.day, stay.end_day) : dayLabel(stay.day)}
-					</Text>
-				</Pressable>
+					last={index === stays.length - 1}
+				/>
 			))}
 		</InsetSection>
 	);
@@ -535,25 +529,27 @@ function Agenda({
 				...entry.events.map((event) => ({
 					key: event.id,
 					start: event.start_min,
-					node: (
+					render: (last: boolean) => (
 						<EventCard
 							event={event}
 							memberName={memberName}
 							locked={locked}
 							onPress={() => onOpenEvent(event.id)}
+							last={last}
 						/>
 					)
 				})),
 				...entry.legs.map((leg) => ({
 					key: `leg:${leg.key}`,
 					start: leg.startMin,
-					node: (
+					render: (last: boolean) => (
 						<JourneyCard
 							leg={leg}
 							from={eventById.get(leg.fromEventId)}
 							to={eventById.get(leg.toEventId)}
 							peopleLabel={peopleLabel}
 							onPress={() => onOpenLeg(leg)}
+							last={last}
 						/>
 					)
 				}))
@@ -562,23 +558,13 @@ function Agenda({
 	);
 	if (!rows.length) {
 		return (
-			<InsetSection>
-				<EmptyState message={copy.common.nothingAdded} hint={copy.schedule.mobile.freeDay} />
-			</InsetSection>
+			<EmptyState graphic message={copy.common.nothingAdded} hint={copy.schedule.mobile.freeDay} />
 		);
 	}
 	return (
 		<InsetSection title={dayLabel(entry.day)}>
 			{rows.map((row, index) => (
-				<View
-					key={row.key}
-					style={{
-						borderBottomWidth: index === rows.length - 1 ? 0 : hairline,
-						borderBottomColor: color.line
-					}}
-				>
-					{row.node}
-				</View>
+				<View key={row.key}>{row.render(index === rows.length - 1)}</View>
 			))}
 		</InsetSection>
 	);
@@ -587,51 +573,36 @@ function Agenda({
 function EventCard({
 	event,
 	memberName,
-	locked,
-	onPress
+	onPress,
+	last
 }: {
 	event: EventRow;
 	memberName: Map<string, string>;
 	locked: boolean;
 	onPress: () => void;
+	last: boolean;
 }) {
 	return (
-		<Pressable
-			accessibilityRole="button"
+		<GroupedRow
 			onPress={onPress}
-			style={({ pressed }) => ({ opacity: pressed ? 0.75 : 1 })}
+			last={last}
+			accessory="chevron"
+			leading={<Text style={styles.agendaTime}>{clockRange(event.start_min, event.end_min)}</Text>}
 		>
-			<View
-				style={{
-					minHeight: 56,
-					flexDirection: 'row',
-					alignItems: 'center',
-					gap: space.md,
-					paddingHorizontal: space.md,
-					paddingVertical: space.sm
-				}}
-			>
-				<Text style={{ ...type.footnote, color: color.inkSoft, width: 76 }}>
-					{clockRange(event.start_min, event.end_min)}
-				</Text>
-				<View style={{ flex: 1 }}>
-					<Text style={{ ...type.body, fontWeight: '600' }} numberOfLines={2}>
-						{event.title}
-					</Text>
-					<Text style={type.faint} numberOfLines={1}>
-						{[
-							event.place_text,
-							event.people.length === 0
-								? copy.common.everyone
-								: event.people.map((id) => memberName.get(id) ?? '?').join(', ')
-						]
-							.filter(Boolean)
-							.join(' · ')}
-					</Text>
-				</View>
-				<Text style={{ color: color.inkFaint, fontSize: 28, lineHeight: 28 }}>›</Text>
-			</View>
-		</Pressable>
+			<Text style={{ ...type.body, fontWeight: '600' }} numberOfLines={2}>
+				{event.title}
+			</Text>
+			<Text style={type.faint} numberOfLines={1}>
+				{[
+					event.place_text,
+					event.people.length === 0
+						? copy.common.everyone
+						: event.people.map((id) => memberName.get(id) ?? '?').join(', ')
+				]
+					.filter(Boolean)
+					.join(' · ')}
+			</Text>
+		</GroupedRow>
 	);
 }
 
@@ -640,63 +611,52 @@ function JourneyCard({
 	from,
 	to,
 	peopleLabel,
-	onPress
+	onPress,
+	last
 }: {
 	leg: LegRow;
 	from?: EventRow;
 	to?: EventRow;
 	peopleLabel: (ids: string[]) => string;
 	onPress: () => void;
+	last: boolean;
 }) {
 	const mode = modeLabel(leg.resolvedMode);
 	const name =
 		leg.title ?? (from ? `${mode} from ${from.title}` : to ? `${mode} to ${to.title}` : mode);
 	const detail = `${clockRange(leg.startMin, leg.endMin)}. ${mode}, ${leg.resolvedMins} min, ${peopleLabel(leg.people)}${leg.tight ? `. ${copy.viewAs.travelWarning}` : ''}`;
 	return (
-		<Pressable
-			accessibilityRole="button"
-			accessibilityLabel={`${name}. ${detail}`}
+		<GroupedRow
 			onPress={onPress}
-			style={({ pressed }) => ({ opacity: pressed ? 0.75 : 1 })}
-		>
-			<View
-				style={{
-					minHeight: 44,
-					flexDirection: 'row',
-					alignItems: 'center',
-					gap: space.md,
-					paddingLeft: space.md,
-					paddingRight: space.md,
-					paddingVertical: space.sm
-				}}
-			>
-				<Text style={{ ...type.footnote, color: color.inkSoft, width: 76 }}>
-					{clockRange(leg.startMin, leg.endMin)}
-				</Text>
-				<AppSymbol
-					name={symbolForMode(leg.resolvedMode)}
-					fallback="navigate-outline"
-					size={15}
-					color={leg.tight ? color.warn : color.inkFaint}
-				/>
-				<View style={{ flex: 1 }}>
-					<Text style={type.subhead} numberOfLines={1}>
-						{name}
-					</Text>
-					<Text style={type.faint} numberOfLines={1}>
-						{mode} · {leg.resolvedMins} min · {peopleLabel(leg.people)}
-					</Text>
-				</View>
-				{leg.tight ? (
+			last={last}
+			accessibilityLabel={`${name}. ${detail}`}
+			leading={<Text style={styles.agendaTime}>{clockRange(leg.startMin, leg.endMin)}</Text>}
+			trailing={
+				leg.tight ? (
 					<AppSymbol
 						name="exclamationmark.triangle.fill"
 						fallback="warning-outline"
 						size={14}
 						color={color.warn}
 					/>
-				) : null}
+				) : null
+			}
+		>
+			<View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
+				<AppSymbol
+					name={symbolForMode(leg.resolvedMode)}
+					fallback="navigate-outline"
+					size={13}
+					color={leg.tight ? color.warn : color.inkFaint}
+				/>
+				<Text style={[type.subhead, { flexShrink: 1 }]} numberOfLines={1}>
+					{name}
+				</Text>
 			</View>
-		</Pressable>
+			<Text style={type.faint} numberOfLines={1}>
+				{mode} · {leg.resolvedMins} min · {peopleLabel(leg.people)}
+			</Text>
+		</GroupedRow>
 	);
 }
 
@@ -725,3 +685,7 @@ function Tag({ label, tone = 'normal' }: { label: string; tone?: 'normal' | 'loc
 		</Text>
 	);
 }
+
+const styles = {
+	agendaTime: { ...type.footnote, color: color.inkSoft, width: 72 }
+};

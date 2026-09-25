@@ -45,6 +45,25 @@ export const controlHeight = 44;
 export const navBarHeight = Platform.OS === 'android' ? 56 : 44;
 export const rowHeight = 52;
 export const screenMargin = 16;
+/**
+ * Grouped-list geometry, the iOS inset-grouped numbers. Every row inside a
+ * section card starts its content `rowInset` from the card's edge, the section
+ * header above the card starts at the same x, and the hairline between rows
+ * starts where the row's text does. `rowPadY` is what lets a two- or three-line
+ * row breathe: the minimum height alone centres one line and leaves a taller
+ * row touching the card's edges.
+ */
+export const rowInset = 16;
+export const rowPadY = 11;
+export const rowMinHeight = 44;
+/** Space between blocks on a screen: sections, segmented controls, cards. */
+export const blockGap = 24;
+/**
+ * The right margin a custom header button needs. On iOS and Android the native
+ * stack's bar already insets its items; on web the stack falls back to a
+ * JavaScript header that puts them flush against the screen edge.
+ */
+export const headerEdge = Platform.OS === 'web' ? screenMargin : 0;
 export const hairline = Platform.select({ web: 1, default: 0.5 }) ?? 0.5;
 
 export const space = {

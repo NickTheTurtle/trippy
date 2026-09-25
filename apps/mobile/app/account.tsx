@@ -10,7 +10,7 @@ import { Field, InsetSection, ListRow, Loading, Screen } from '../src/ui';
 import { SearchablePicker } from '../src/ui/controls';
 import { Sheet } from '../src/ui/Sheet';
 import { useToast } from '../src/ui/Toast';
-import { color, space, type } from '../src/theme';
+import { color, headerEdge, rowInset, type } from '../src/theme';
 
 type AccountData = {
 	profile: { name: string; email: string; homeTz: string; pendingEmail?: string | null };
@@ -87,6 +87,7 @@ export default function Account() {
 							accessibilityState={{ disabled: !canSave, busy: saveProfile.busy }}
 							onPress={canSave ? () => void saveProfile.run() : undefined}
 							hitSlop={10}
+							style={{ marginRight: headerEdge }}
 						>
 							<Text
 								style={{
@@ -103,44 +104,50 @@ export default function Account() {
 				}}
 			/>
 			<Screen largeTitle={Platform.OS === 'web' ? copy.account.heading : undefined}>
-				<InsetSection title={copy.account.profile.heading} error={saveProfile.error}>
-					<Field
-						variant="row"
-						label={copy.account.profile.nameLabel}
-						value={name}
-						onChangeText={setName}
-					/>
-					<Field
-						variant="row"
-						label={copy.account.profile.emailLabel}
-						value={email}
-						onChangeText={setEmail}
-						autoCapitalize="none"
-						keyboardType="email-address"
-					/>
-					{changingEmail ? (
+				<View style={{ gap: 7 }}>
+					<InsetSection title={copy.account.profile.heading} error={saveProfile.error}>
 						<Field
 							variant="row"
-							label={copy.account.profile.currentPasswordLabel}
-							value={currentPassword}
-							onChangeText={setCurrentPassword}
-							secureTextEntry
-							autoComplete="current-password"
+							label={copy.account.profile.nameLabel}
+							value={name}
+							onChangeText={setName}
 						/>
+						<Field
+							variant="row"
+							label={copy.account.profile.emailLabel}
+							value={email}
+							onChangeText={setEmail}
+							autoCapitalize="none"
+							keyboardType="email-address"
+						/>
+						{changingEmail ? (
+							<Field
+								variant="row"
+								label={copy.account.profile.currentPasswordLabel}
+								value={currentPassword}
+								onChangeText={setCurrentPassword}
+								secureTextEntry
+								autoComplete="current-password"
+							/>
+						) : null}
+						<SearchablePicker
+							variant="row"
+							label={copy.account.profile.timeZoneLabel}
+							value={homeTz}
+							options={zoneOptions}
+							onPick={setHomeTz}
+							noMatches={copy.account.profile.timeZoneNoMatches}
+							last
+						/>
+					</InsetSection>
+					{/* Outside the section's footer slot, which gives way to a save
+					    error: the pending address is still pending when a save fails. */}
+					{pending ? (
+						<Text style={{ ...type.footnote, marginHorizontal: rowInset }}>
+							{copy.account.profile.emailPending(pending)}
+						</Text>
 					) : null}
-					<SearchablePicker
-						variant="row"
-						label={copy.account.profile.timeZoneLabel}
-						value={homeTz}
-						options={zoneOptions}
-						onPick={setHomeTz}
-						noMatches={copy.account.profile.timeZoneNoMatches}
-						last
-					/>
-				</InsetSection>
-				{pending ? (
-					<Text style={type.footnote}>{copy.account.profile.emailPending(pending)}</Text>
-				) : null}
+				</View>
 				<InsetSection title={copy.account.password.heading}>
 					<ListRow
 						title={copy.account.password.change}

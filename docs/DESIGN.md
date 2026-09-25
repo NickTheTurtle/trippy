@@ -3767,6 +3767,40 @@ rows plus confirmations. Serif type remains available for auth and expressive ow
 moments, but data screens use the system iOS scale so lists and sheets read like Home,
 Settings and Calendar rather than like a small web page.
 
+**Every native row shares one geometry.** The first device pass showed the grouped
+language in name only: a task's tick sat on the card's left edge, cost lines ran edge to
+edge, a crew or balance row with two or three lines touched the card top and bottom, and
+separators ran under icon tiles. Each screen had drawn its own row with its own padding,
+so they disagreed. `GroupedRow` in `src/ui` is now the one row: content starts 16pt in from
+the card (`rowInset`, the same x as the section header), the body carries 11pt of vertical
+padding so any number of lines keeps the same margin, and the hairline is drawn on the
+body rather than the row, so it starts where the text does, as iOS draws it. `ListRow`,
+`ChecklistRow`, the task, cost, expense, balance, transfer and agenda rows are all built on
+it; the four copies of the checklist row that had drifted apart are one shared control.
+Blocks on a screen sit 24pt apart (`blockGap`) rather than 16, because a section header
+16pt under the card above reads as belonging to that card. Segmented controls sit on the
+page rather than inside a white card, and the View as chips scroll to the screen edge
+rather than being cut off inside a card, both because that is where iOS puts them.
+
+**A native empty state is a calm page, not a small white box.** An empty tab used to draw
+a white card with "Nothing added yet" in it, which on an otherwise blank phone screen
+looked like a failed render. `EmptyState` now sits on the page background, centred in the
+space the list would have used, with the web's fly drawing above the caption for a list
+you fill by adding to it and the caption alone for an answer the app computed ("Everyone
+is even"), the same split the web component makes. The drawing is the web's own paths in
+`react-native-svg` (Expo Go ships it, pinned to its bundled 15.15.4) so an empty list looks
+the same on the phone and on the phone-sized web page. Discover's first-run page keeps its
+own pin mark, heading and single Add city button, centred the same way. The estimated
+costs card no longer carries its own Add link, since the header plus already adds a cost
+on that tab as it does on every other.
+
+**The trip's name leads the header.** Three buttons on the right left a centred iOS title
+about a third of the bar, which truncated most trip names. The trip tabs align the title to
+the leading edge so the name gets whatever the buttons leave, which is also where the web
+puts it. That needs the header's flex rules turned round as well: by default its right
+side only takes what the title leaves, so a long name ran under the buttons. The buttons
+now keep their natural width and the title shrinks to an ellipsis.
+
 **Currency search labels are shared with the domain package.** The supported codes already
 come from `@trippy/core/currency`; the English names used to search those codes now travel
 beside them in `@trippy/core/currency-names`. They are still just data, not presentation

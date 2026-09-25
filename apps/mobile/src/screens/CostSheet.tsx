@@ -1,15 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { View } from 'react-native';
 import { copy } from '@trippy/copy';
 import { cap } from '@trippy/copy/format';
 import { api, ApiError } from '../lib/api';
 import { useMutation } from '../hooks/useMutation';
-import { DestructiveRow, Field, InsetSection, ListRow } from '../ui';
-import { SearchablePicker, SegmentedControl } from '../ui/controls';
+import { DestructiveRow, Field, InsetSection, ListRow, SectionHeader } from '../ui';
+import { ChecklistRow, SearchablePicker, SegmentedControl } from '../ui/controls';
 import { Sheet } from '../ui/Sheet';
 import { ConfirmSheet } from '../ui/ConfirmSheet';
-import { AppSymbol } from '../ui/Symbol';
-import { color, hairline, space, type } from '../theme';
 import { currencyName } from '@trippy/core/currency-names';
 import { parseAmount } from '../lib/amount';
 
@@ -130,15 +128,14 @@ export function CostSheet({
 						noMatches={copy.ui.currencyPicker.noMatches}
 					/>
 				</InsetSection>
-				<InsetSection title={copy.preparation.costDialog.categoryLabel}>
-					<View style={{ padding: space.md }}>
-						<SegmentedControl
-							items={categories.map((c) => ({ key: c, label: cap(c) }))}
-							active={category}
-							onPick={setCategory}
-						/>
-					</View>
-				</InsetSection>
+				<View style={{ gap: 7 }}>
+					<SectionHeader>{copy.preparation.costDialog.categoryLabel}</SectionHeader>
+					<SegmentedControl
+						items={categories.map((c) => ({ key: c, label: cap(c) }))}
+						active={category}
+						onPick={setCategory}
+					/>
+				</View>
 				<AssigneePicker
 					members={members}
 					crews={crews}
@@ -214,57 +211,5 @@ function AssigneePicker({
 				);
 			})}
 		</InsetSection>
-	);
-}
-
-function ChecklistRow({
-	label,
-	checked,
-	onPress,
-	last
-}: {
-	label: string;
-	checked: boolean;
-	onPress: () => void;
-	last: boolean;
-}) {
-	return (
-		<Pressable
-			accessibilityRole="checkbox"
-			accessibilityState={{ checked }}
-			accessibilityLabel={label}
-			onPress={onPress}
-			style={{
-				minHeight: 52,
-				flexDirection: 'row',
-				alignItems: 'center',
-				gap: space.md,
-				paddingHorizontal: space.md,
-				borderBottomWidth: last ? 0 : hairline,
-				borderBottomColor: color.line
-			}}
-		>
-			<CheckboxGlyph checked={checked} />
-			<Text style={type.body}>{label}</Text>
-		</Pressable>
-	);
-}
-
-function CheckboxGlyph({ checked }: { checked: boolean }) {
-	return (
-		<View
-			style={{
-				width: 24,
-				height: 24,
-				borderRadius: 12,
-				borderWidth: 1.5,
-				borderColor: checked ? color.accent : color.line,
-				backgroundColor: checked ? color.accent : color.surface,
-				alignItems: 'center',
-				justifyContent: 'center'
-			}}
-		>
-			{checked ? <AppSymbol name="checkmark" fallback="checkmark" size={15} color="#fff" /> : null}
-		</View>
 	);
 }

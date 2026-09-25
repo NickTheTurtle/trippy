@@ -12,6 +12,7 @@ import {
 	Button,
 	EmptyState,
 	FormError,
+	GroupedRow,
 	InsetSection,
 	ListRow,
 	Loading,
@@ -23,7 +24,7 @@ import type { Expense, ExpensesData, Transfer } from '../../../src/screens/Expen
 import { useTripHeaderAction } from '../../../src/ui/TripHeaderAction';
 import { AppSymbol } from '../../../src/ui/Symbol';
 import { Sheet } from '../../../src/ui/Sheet';
-import { color, hairline, radius, space, type } from '../../../src/theme';
+import { color, radius, rowInset, space, type } from '../../../src/theme';
 
 const SECTIONS = ['expenses', 'balances', 'settle'] as const;
 type Section = (typeof SECTIONS)[number];
@@ -131,16 +132,16 @@ export default function Expenses() {
 					<>
 						{data.expenses.length > 0 ? (
 							<InsetSection>
-								<View style={{ flexDirection: 'row', gap: space.lg, padding: space.md }}>
-									<View style={{ flex: 1 }}>
-										<Text style={type.faint}>{copy.expenses.tripTotal}</Text>
-										<Text style={type.head}>{fmt(spent)}</Text>
+								<View style={styles.stats}>
+									<View style={{ flex: 1, gap: 2 }}>
+										<Text style={type.footnote}>{copy.expenses.tripTotal}</Text>
+										<Text style={type.title3}>{fmt(spent)}</Text>
 									</View>
-									<View style={{ flex: 1 }}>
-										<Text style={type.faint}>
+									<View style={{ flex: 1, gap: 2 }}>
+										<Text style={type.footnote}>
 											{viewAs ? shareLabel(data.members, viewAs, data.me) : copy.expenses.perPerson}
 										</Text>
-										<Text style={type.head}>{fmt(viewAs ? mine : perPerson)}</Text>
+										<Text style={type.title3}>{fmt(viewAs ? mine : perPerson)}</Text>
 									</View>
 								</View>
 							</InsetSection>
@@ -161,19 +162,18 @@ export default function Expenses() {
 							</InsetSection>
 						) : null}
 						{shown.length === 0 ? (
-							<InsetSection>
-								<EmptyState
-									message={
-										data.expenses.length === 0
-											? copy.common.nothingAdded
-											: copy.expenses.noneForMember(
-													viewAs === data.me
-														? copy.expenses.youTag
-														: (data.members.find((m) => m.id === viewAs)?.name ?? '')
-												)
-									}
-								/>
-							</InsetSection>
+							<EmptyState
+								graphic={data.expenses.length === 0}
+								message={
+									data.expenses.length === 0
+										? copy.common.nothingAdded
+										: copy.expenses.noneForMember(
+												viewAs === data.me
+													? copy.expenses.youTag
+													: (data.members.find((m) => m.id === viewAs)?.name ?? '')
+											)
+								}
+							/>
 						) : (
 							[...byDay.entries()].map(([day, rows]) => (
 								<InsetSection key={day} title={formatSpentOn(day)}>
@@ -196,43 +196,46 @@ export default function Expenses() {
 				) : null}
 
 				{section === 'balances' ? (
-					<InsetSection>
-						{unsettled.length === 0 ? (
-							<EmptyState message={copy.expenses.allEven} />
-						) : (
-							<View>
-								{unsettled
-									.sort((a, b) => b.netCents - a.netCents)
-									.map((b) => (
-										<BalanceRow key={b.id} balance={b} me={data.me} fmt={fmt} />
-									))}
-							</View>
-						)}
-					</InsetSection>
+					unsettled.length === 0 ? (
+						<EmptyState message={copy.expenses.allEven} />
+					) : (
+						<InsetSection>
+							{unsettled
+								.sort((a, b) => b.netCents - a.netCents)
+								.map((b, index) => (
+									<BalanceRow
+										key={b.id}
+										balance={b}
+										me={data.me}
+										fmt={fmt}
+										last={index === unsettled.length - 1}
+									/>
+								))}
+						</InsetSection>
+					)
 				) : null}
 
 				{section === 'settle' ? (
-					<InsetSection>
-						{data.settlement.length === 0 ? (
-							<EmptyState message={copy.expenses.nothingToSettle} />
-						) : (
-							<View style={{ paddingHorizontal: space.md }}>
-								{data.settlement.map((transfer) => {
-									const busy = settleBusy.current.has(transfer.token);
-									void settleNonce;
-									return (
-										<TransferRow
-											key={`${transfer.fromId}-${transfer.toId}`}
-											transfer={transfer}
-											fmt={fmt}
-											busy={busy}
-											onSettle={() => void settle.run(transfer)}
-										/>
-									);
-								})}
-							</View>
-						)}
-					</InsetSection>
+					data.settlement.length === 0 ? (
+						<EmptyState message={copy.expenses.nothingToSettle} />
+					) : (
+						<InsetSection>
+							{data.settlement.map((transfer, index) => {
+								const busy = settleBusy.current.has(transfer.token);
+								void settleNonce;
+								return (
+									<TransferRow
+										key={`${transfer.fromId}-${transfer.toId}`}
+										transfer={transfer}
+										fmt={fmt}
+										busy={busy}
+										onSettle={() => void settle.run(transfer)}
+										last={index === data.settlement.length - 1}
+									/>
+								);
+							})}
+						</InsetSection>
+					)
 				) : null}
 			</Screen>
 
@@ -298,20 +301,10 @@ function ExpenseLine({
 	const credit = expense.amount_cents < 0;
 	const settled = expense.settlement === 1;
 	return (
-		<Pressable
-			accessibilityRole="button"
+		<GroupedRow
 			onPress={onOpen}
-			style={{
-				minHeight: 58,
-				flexDirection: 'row',
-				alignItems: 'center',
-				gap: space.md,
-				paddingVertical: space.sm,
-				paddingLeft: space.md,
-				paddingRight: space.sm,
-				borderBottomWidth: last ? 0 : hairline,
-				borderBottomColor: color.line
-			}}
+			last={last}
+			accessory="chevron"
 			accessibilityLabel={[
 				settled
 					? copy.expenses.row.openLabel(expense.description)
@@ -322,89 +315,90 @@ function ExpenseLine({
 			]
 				.filter(Boolean)
 				.join('. ')}
-		>
-			<View style={styles.symbolTile}>
-				<AppSymbol
-					name={settled ? 'arrow.left.arrow.right' : credit ? 'arrow.down.circle' : 'creditcard'}
-					fallback={
-						settled
-							? 'swap-horizontal-outline'
-							: credit
-								? 'arrow-down-circle-outline'
-								: 'card-outline'
-					}
-					size={17}
-					color={color.accentInk}
-				/>
-			</View>
-			<View style={{ flex: 1 }}>
-				<View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
-					<Text style={{ ...type.body, fontWeight: '600', flexShrink: 1 }}>
-						{expense.description}
-					</Text>
-					{expense.needsReview ? (
-						<View
-							accessible
-							accessibilityLabel={copy.expenses.row.reviewTitle}
-							style={{
-								flexDirection: 'row',
-								alignItems: 'center',
-								gap: 3,
-								backgroundColor: color.warnSoft,
-								borderRadius: radius.sm,
-								paddingHorizontal: 5,
-								paddingVertical: 1
-							}}
-						>
-							<AppSymbol
-								name="exclamationmark.triangle.fill"
-								fallback="warning-outline"
-								size={12}
-								color={color.warn}
-							/>
-							<Text style={{ ...type.footnote, color: color.warn }}>
-								{copy.expenses.row.reviewShort}
-							</Text>
-						</View>
-					) : null}
+			leading={
+				<View style={styles.symbolTile}>
+					<AppSymbol
+						name={settled ? 'arrow.left.arrow.right' : credit ? 'arrow.down.circle' : 'creditcard'}
+						fallback={
+							settled
+								? 'swap-horizontal-outline'
+								: credit
+									? 'arrow-down-circle-outline'
+									: 'card-outline'
+						}
+						size={17}
+						color={color.accentInk}
+					/>
 				</View>
-				<Text style={type.faint}>
-					{settled
-						? formatSpentOn(expense.spent_on)
-						: `${credit ? copy.expenses.addDialog.receivedByLabel : copy.expenses.addDialog.paidByLabel} ${expense.payer_name} · ${copy.expenses.row.splitLabel(expense.split_mode, expense.participants)}`}
-				</Text>
-			</View>
-			<View style={{ alignItems: 'flex-end' }}>
-				{net === undefined ? (
-					<>
-						<Text style={{ ...type.small, color: credit ? color.accentInk : color.inkSoft }}>
-							{formatMoney(expense.amount_cents, expense.currency)}
-						</Text>
-						{expense.converted ? (
-							<Text style={type.faint}>≈ {formatMoney(expense.home_cents, home)}</Text>
-						) : null}
-					</>
-				) : (
-					<>
-						<Text
-							style={{
-								...type.small,
-								color: net > 0 ? color.accentInk : net < 0 ? color.dangerInk : color.inkSoft
-							}}
-						>
-							{net > 0 ? '+' : ''}
-							{formatMoney(net, home)}
-						</Text>
-						{!settled ? (
-							<Text style={type.faint}>
-								{copy.expenses.row.ofTotal(formatMoney(expense.home_cents, home))}
+			}
+			trailing={
+				<View style={{ alignItems: 'flex-end' }}>
+					{net === undefined ? (
+						<>
+							<Text style={{ ...type.subhead, color: credit ? color.accentInk : color.inkSoft }}>
+								{formatMoney(expense.amount_cents, expense.currency)}
 							</Text>
-						) : null}
-					</>
-				)}
+							{expense.converted ? (
+								<Text style={type.faint}>≈ {formatMoney(expense.home_cents, home)}</Text>
+							) : null}
+						</>
+					) : (
+						<>
+							<Text
+								style={{
+									...type.subhead,
+									color: net > 0 ? color.accentInk : net < 0 ? color.dangerInk : color.inkSoft
+								}}
+							>
+								{net > 0 ? '+' : ''}
+								{formatMoney(net, home)}
+							</Text>
+							{!settled ? (
+								<Text style={type.faint}>
+									{copy.expenses.row.ofTotal(formatMoney(expense.home_cents, home))}
+								</Text>
+							) : null}
+						</>
+					)}
+				</View>
+			}
+		>
+			<View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
+				<Text style={{ ...type.body, fontWeight: '600', flexShrink: 1 }}>
+					{expense.description}
+				</Text>
+				{expense.needsReview ? (
+					<View
+						accessible
+						accessibilityLabel={copy.expenses.row.reviewTitle}
+						style={{
+							flexDirection: 'row',
+							alignItems: 'center',
+							gap: 3,
+							backgroundColor: color.warnSoft,
+							borderRadius: radius.sm,
+							paddingHorizontal: 5,
+							paddingVertical: 1
+						}}
+					>
+						<AppSymbol
+							name="exclamationmark.triangle.fill"
+							fallback="warning-outline"
+							size={12}
+							color={color.warn}
+						/>
+						<Text style={{ ...type.footnote, color: color.warn }}>
+							{copy.expenses.row.reviewShort}
+						</Text>
+					</View>
+				) : null}
 			</View>
-			<Text style={{ color: color.inkFaint, fontSize: 28, lineHeight: 28 }}>›</Text>
-		</Pressable>
+			<Text style={type.faint}>
+				{settled
+					? formatSpentOn(expense.spent_on)
+					: `${credit ? copy.expenses.addDialog.receivedByLabel : copy.expenses.addDialog.paidByLabel} ${expense.payer_name} · ${copy.expenses.row.splitLabel(expense.split_mode, expense.participants)}`}
+			</Text>
+		</GroupedRow>
 	);
 }
 
@@ -456,46 +450,42 @@ function shareLabel(members: { id: string; name: string }[], id: string, me: str
 function BalanceRow({
 	balance,
 	me,
-	fmt
+	fmt,
+	last
 }: {
 	balance: { id: string; name: string; netCents: number; former: boolean };
 	me: string;
 	fmt: (cents: number) => string;
+	last: boolean;
 }) {
+	const tags = [
+		balance.id === me ? copy.expenses.youTag : null,
+		balance.former ? copy.expenses.formerTag : null
+	]
+		.filter(Boolean)
+		.join(' · ');
+	const amount = `${balance.netCents > 0 ? '+' : ''}${fmt(balance.netCents)}`;
 	return (
-		<View
-			style={{
-				minHeight: 52,
-				flexDirection: 'row',
-				alignItems: 'center',
-				gap: space.md,
-				paddingHorizontal: space.md,
-				paddingVertical: space.sm
-			}}
-		>
-			<Avatar name={balance.name} />
-			<View style={{ flex: 1 }}>
-				<Text style={type.body}>{balance.name}</Text>
-				<Text style={type.faint}>
-					{[
-						balance.id === me ? copy.expenses.youTag : null,
-						balance.former ? copy.expenses.formerTag : null
-					]
-						.filter(Boolean)
-						.join(' · ')}
+		<GroupedRow
+			last={last}
+			leading={<Avatar name={balance.name} />}
+			accessible
+			accessibilityLabel={[balance.name, tags, amount].filter(Boolean).join(', ')}
+			trailing={
+				<Text
+					style={{
+						...type.body,
+						fontWeight: '600',
+						color: balance.netCents > 0 ? color.accentInk : color.dangerInk
+					}}
+				>
+					{amount}
 				</Text>
-			</View>
-			<Text
-				style={{
-					...type.body,
-					fontWeight: '600',
-					color: balance.netCents > 0 ? color.accentInk : color.dangerInk
-				}}
-			>
-				{balance.netCents > 0 ? '+' : ''}
-				{fmt(balance.netCents)}
-			</Text>
-		</View>
+			}
+		>
+			<Text style={type.body}>{balance.name}</Text>
+			{tags ? <Text style={type.faint}>{tags}</Text> : null}
+		</GroupedRow>
 	);
 }
 
@@ -503,44 +493,51 @@ function TransferRow({
 	transfer,
 	fmt,
 	busy,
-	onSettle
+	onSettle,
+	last
 }: {
 	transfer: Transfer;
 	fmt: (cents: number) => string;
 	busy: boolean;
 	onSettle: () => void;
+	last: boolean;
 }) {
 	const amount = fmt(transfer.amountCents);
 	return (
-		<View style={{ gap: space.xs, paddingVertical: space.sm }}>
-			<View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
-				<Text style={{ ...type.body, flex: 1, fontWeight: '600' }}>
-					{transfer.from} {copy.expenses.settleRow.pays} {transfer.to}
-				</Text>
-				<Text style={type.body}>{amount}</Text>
-				<Pressable
-					disabled={busy}
-					accessibilityRole="button"
-					accessibilityLabel={copy.expenses.settleRow.markPaidLabel(
-						transfer.from,
-						transfer.to,
-						amount
-					)}
-					onPress={onSettle}
-					style={{
-						borderRadius: radius.button,
-						backgroundColor: color.accentSoft,
-						paddingHorizontal: space.md,
-						paddingVertical: 7,
-						opacity: busy ? 0.45 : 1
-					}}
-				>
-					<Text style={{ ...type.footnote, color: color.accentInk, fontWeight: '600' }}>
-						{busy ? copy.expenses.settleRow.busyLabel : copy.expenses.settleRow.markPaid}
-					</Text>
-				</Pressable>
-			</View>
-		</View>
+		<GroupedRow
+			last={last}
+			trailing={
+				<>
+					<Text style={type.body}>{amount}</Text>
+					<Pressable
+						disabled={busy}
+						accessibilityRole="button"
+						accessibilityLabel={copy.expenses.settleRow.markPaidLabel(
+							transfer.from,
+							transfer.to,
+							amount
+						)}
+						onPress={onSettle}
+						style={{
+							borderRadius: 999,
+							backgroundColor: color.accentSoft,
+							paddingHorizontal: space.md,
+							paddingVertical: 6,
+							marginLeft: space.xs,
+							opacity: busy ? 0.45 : 1
+						}}
+					>
+						<Text style={{ ...type.footnote, color: color.accentInk, fontWeight: '600' }}>
+							{busy ? copy.expenses.settleRow.busyLabel : copy.expenses.settleRow.markPaid}
+						</Text>
+					</Pressable>
+				</>
+			}
+		>
+			<Text style={type.body}>
+				{transfer.from} {copy.expenses.settleRow.pays} {transfer.to}
+			</Text>
+		</GroupedRow>
 	);
 }
 
@@ -555,9 +552,15 @@ function Avatar({ name }: { name: string }) {
 }
 
 const styles = {
+	stats: {
+		flexDirection: 'row' as const,
+		gap: space.lg,
+		paddingHorizontal: rowInset,
+		paddingVertical: space.md
+	},
 	symbolTile: {
-		width: 32,
-		height: 32,
+		width: 30,
+		height: 30,
 		borderRadius: radius.icon,
 		alignItems: 'center' as const,
 		justifyContent: 'center' as const,

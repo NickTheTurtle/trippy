@@ -32,7 +32,7 @@ import {
 	useCurrentTripHeaderAction
 } from '../../../src/ui/TripHeaderAction';
 import { useSheetHandoff } from '../../../src/ui/useSheetHandoff';
-import { color, space, type } from '../../../src/theme';
+import { color, screenMargin, space, type } from '../../../src/theme';
 
 type Trip = {
 	id: string;
@@ -178,13 +178,26 @@ function TripTabsInner({
 							headerTintColor: color.accent,
 							headerTitleStyle: type.head,
 							headerTitle: trip.name,
+							// Three header buttons leave a centred title about a third of
+							// the bar, which cut most trip names off. Leading-aligned, the
+							// name gets everything the buttons do not use, as on web.
+							headerTitleAlign: 'left',
+							// The title may shrink, and the buttons keep their natural
+							// width. The header's own flex rules do the reverse (the right
+							// side takes only what the title leaves), which let a long name
+							// run under the three buttons.
+							headerTitleContainerStyle: { flexGrow: 1, flexShrink: 1 },
+							headerRightContainerStyle: {
+								paddingRight: screenMargin,
+								flexGrow: 0,
+								flexBasis: 'auto'
+							},
 							headerRight: () => (
 								<View
 									style={{
 										flexDirection: 'row',
 										alignItems: 'center',
-										gap: space.md,
-										marginRight: space.sm
+										gap: space.lg
 									}}
 								>
 									{headerAdd ? (

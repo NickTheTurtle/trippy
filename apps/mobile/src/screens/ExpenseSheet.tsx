@@ -6,12 +6,18 @@ import { copy } from '@trippy/copy';
 import { formatMoney } from '@trippy/copy/format';
 import { api, ApiError } from '../lib/api';
 import { useMutation } from '../hooks/useMutation';
-import { DestructiveRow, Field, InsetGroupedList, InsetSection, ListRow } from '../ui';
-import { DateField, SearchablePicker, SegmentedControl } from '../ui/controls';
+import {
+	DestructiveRow,
+	Field,
+	InsetGroupedList,
+	InsetSection,
+	ListRow,
+	SectionHeader
+} from '../ui';
+import { CheckboxGlyph, DateField, SearchablePicker, SegmentedControl } from '../ui/controls';
 import { Sheet } from '../ui/Sheet';
 import { ConfirmSheet } from '../ui/ConfirmSheet';
-import { AppSymbol } from '../ui/Symbol';
-import { color, hairline, space, type } from '../theme';
+import { color, hairline, rowInset, space, type } from '../theme';
 import { parseAmount } from '../lib/amount';
 
 export type Member = { id: string; name: string };
@@ -324,15 +330,11 @@ export function ExpenseSheet({
 						last
 					/>
 				</InsetSection>
-				<InsetSection>
-					<View style={{ padding: space.md }}>
-						<SegmentedControl
-							items={[...KINDS]}
-							active={expenseKind}
-							onPick={(key) => setExpenseKind(key as ExpenseKind)}
-						/>
-					</View>
-				</InsetSection>
+				<SegmentedControl
+					items={[...KINDS]}
+					active={expenseKind}
+					onPick={(key) => setExpenseKind(key as ExpenseKind)}
+				/>
 				<RowPicker
 					label={
 						income ? copy.expenses.addDialog.receivedByLabel : copy.expenses.addDialog.paidByLabel
@@ -341,18 +343,23 @@ export function ExpenseSheet({
 					options={payerOptions(data.members, expense)}
 					onPick={setPayerId}
 				/>
-				<Text style={{ ...type.faint, color: income ? color.accentInk : color.inkFaint }}>
+				<Text
+					style={{
+						...type.faint,
+						color: income ? color.accentInk : color.inkFaint,
+						marginHorizontal: rowInset
+					}}
+				>
 					{income ? copy.expenses.addDialog.incomeNote : copy.expenses.addDialog.mobileExpenseNote}
 				</Text>
-				<InsetSection title={copy.expenses.addDialog.splitLabel}>
-					<View style={{ padding: space.md }}>
-						<SegmentedControl
-							items={MODES}
-							active={mode}
-							onPick={(key) => pickMode(key as SplitMode)}
-						/>
-					</View>
-				</InsetSection>
+				<View style={{ gap: 7 }}>
+					<SectionHeader>{copy.expenses.addDialog.splitLabel}</SectionHeader>
+					<SegmentedControl
+						items={MODES}
+						active={mode}
+						onPick={(key) => pickMode(key as SplitMode)}
+					/>
+				</View>
 				<ParticipantSection
 					members={data.members}
 					chosen={chosen}
@@ -586,7 +593,7 @@ function ParticipantSection({
 					flexDirection: 'row',
 					alignItems: 'center',
 					gap: space.md,
-					marginHorizontal: space.lg
+					marginHorizontal: rowInset
 				}}
 			>
 				<Text
@@ -620,7 +627,8 @@ function ParticipantSection({
 								flexDirection: 'row',
 								alignItems: 'center',
 								gap: space.md,
-								paddingHorizontal: space.md,
+								marginLeft: rowInset,
+								paddingRight: rowInset,
 								borderBottomWidth: index === members.length - 1 ? 0 : hairline,
 								borderBottomColor: color.line
 							}}
@@ -672,27 +680,8 @@ function ParticipantSection({
 				})}
 			</InsetGroupedList>
 			{footer ? (
-				<Text style={{ ...type.footnote, marginHorizontal: space.lg }}>{footer}</Text>
+				<Text style={{ ...type.footnote, marginHorizontal: rowInset }}>{footer}</Text>
 			) : null}
-		</View>
-	);
-}
-
-function CheckboxGlyph({ checked }: { checked: boolean }) {
-	return (
-		<View
-			style={{
-				width: 24,
-				height: 24,
-				borderRadius: 12,
-				borderWidth: 1.5,
-				borderColor: checked ? color.accent : color.line,
-				backgroundColor: checked ? color.accent : color.surface,
-				alignItems: 'center',
-				justifyContent: 'center'
-			}}
-		>
-			{checked ? <AppSymbol name="checkmark" fallback="checkmark" size={15} color="#fff" /> : null}
 		</View>
 	);
 }

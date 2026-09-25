@@ -11,19 +11,30 @@ import {
 	View
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import type { RefreshControlProps, TextInputProps, ViewStyle } from 'react-native';
+import type {
+	AccessibilityRole,
+	RefreshControlProps,
+	StyleProp,
+	TextInputProps,
+	ViewStyle
+} from 'react-native';
 import type { AccessibilityState } from 'react-native';
 import {
+	blockGap,
 	card,
 	color,
 	controlHeight,
 	fieldLabel,
 	hairline,
 	radius,
+	rowInset,
+	rowMinHeight,
+	rowPadY,
 	screenMargin,
 	space,
 	type
 } from '../theme';
+import { EmptyMark } from './EmptyMark';
 import { LiveOff } from './LiveOff';
 import { AppSymbol, type AppSymbolName } from './Symbol';
 
@@ -166,11 +177,52 @@ export function FormError({ message }: { message: string }) {
 	);
 }
 
-export function EmptyState({ message, hint }: { message: string; hint?: string }) {
+/**
+ * The shared "there is nothing here" state, drawn the iOS way: no card, centred
+ * in the space the list would have used, so an empty tab reads as a calm page
+ * rather than as a white box with one grey sentence in it.
+ *
+ * It follows the web component's two shapes (see apps/web EmptyState). With
+ * `graphic`, the fly drawing then the caption, for a list you fill by adding to
+ * it. Without it, the caption alone, for a state the app computed ("Everyone is
+ * even"), which is an answer rather than an absence. `action` is for the one
+ * screen whose empty state has a single thing to do next.
+ */
+export function EmptyState({
+	message,
+	hint,
+	graphic = false,
+	symbol,
+	title,
+	action
+}: {
+	message: string;
+	hint?: string;
+	graphic?: boolean;
+	/** A first-run page's own mark, in a soft tile, instead of the fly. */
+	symbol?: SymbolSpec;
+	title?: string;
+	action?: ReactNode;
+}) {
 	return (
 		<View style={s.empty}>
-			<Text style={{ ...type.body, color: color.inkSoft, textAlign: 'center' }}>{message}</Text>
-			{hint ? <Text style={{ ...type.footnote, textAlign: 'center' }}>{hint}</Text> : null}
+			{graphic ? <EmptyMark /> : null}
+			{symbol ? (
+				<View style={s.emptyTile}>
+					<AppSymbol
+						name={symbol.name}
+						fallback={symbol.fallback}
+						size={26}
+						color={color.accentInk}
+					/>
+				</View>
+			) : null}
+			<View style={{ gap: space.xs, alignItems: 'center' }}>
+				{title ? <Text style={{ ...type.title3, textAlign: 'center' }}>{title}</Text> : null}
+				<Text style={{ ...type.body, color: color.inkSoft, textAlign: 'center' }}>{message}</Text>
+				{hint ? <Text style={{ ...type.footnote, textAlign: 'center' }}>{hint}</Text> : null}
+			</View>
+			{action ? <View style={{ marginTop: space.sm }}>{action}</View> : null}
 		</View>
 	);
 }
@@ -278,6 +330,15 @@ export function InsetGroupedList({ children, style }: { children: ReactNode; sty
 	return <View style={[s.group, style]}>{children}</View>;
 }
 
+export function SectionHeader({ children, action }: { children: string; action?: ReactNode }) {
+	return (
+		<View style={s.sectionHeader}>
+			<Text style={[s.sectionTitle, { flex: 1, marginLeft: 0 }]}>{children}</Text>
+			{action}
+		</View>
+	);
+}
+
 export function InsetSection({
 	title,
 	children,
@@ -293,11 +354,90 @@ export function InsetSection({
 }) {
 	return (
 		<View style={[{ gap: 7 }, style]}>
-			{title ? <Text style={s.sectionTitle}>{title}</Text> : null}
+			{title ? <SectionHeader>{title}</SectionHeader> : null}
 			<InsetGroupedList>{children}</InsetGroupedList>
 			{error ? <Text style={[s.sectionFooter, { color: color.dangerInk }]}>{error}</Text> : null}
 			{footer && !error ? <Text style={s.sectionFooter}>{footer}</Text> : null}
 		</View>
+	);
+}
+
+/** The iOS disclosure chevron: a small, light glyph, not a large text character. */
+export function Chevron() {
+	return (
+		<AppSymbol name="chevron.right" fallback="chevron-forward" size={14} color={color.inkFaint} />
+	);
+}
+
+/**
+ * One row of an inset-grouped list, and the geometry every row shares.
+ *
+ * The row's leading item (an icon tile, avatar or checkbox) sits in the row's
+ * own inset; the hairline below the row is drawn on the body beside it, so it
+ * starts where the text does, the way iOS lists draw it. The body carries the
+ * vertical padding, so a row of any number of lines keeps the same margin
+ * above and below its text instead of touching the card.
+ */
+export function GroupedRow({
+	leading,
+	children,
+	trailing,
+	accessory = 'none',
+	onPress,
+	last = false,
+	accessible,
+	accessibilityRole,
+	accessibilityLabel,
+	accessibilityState,
+	bodyStyle,
+	alignTop = false
+}: {
+	leading?: ReactNode;
+	children: ReactNode;
+	trailing?: ReactNode;
+	accessory?: 'chevron' | 'none';
+	onPress?: () => void;
+	last?: boolean;
+	accessible?: boolean;
+	accessibilityRole?: AccessibilityRole;
+	accessibilityLabel?: string;
+	accessibilityState?: AccessibilityState;
+	bodyStyle?: StyleProp<ViewStyle>;
+	/**
+	 * Pin the leading item to the first line rather than centring it, for rows
+	 * that grow downwards (a task with its people under it), the way Reminders
+	 * keeps its circle beside the title.
+	 */
+	alignTop?: boolean;
+}) {
+	const content = (
+		<View
+			style={[s.row, alignTop && { alignItems: 'flex-start' }]}
+			accessible={onPress ? undefined : accessible}
+			accessibilityLabel={onPress ? undefined : accessibilityLabel}
+			accessibilityState={onPress ? undefined : accessibilityState}
+		>
+			{leading ? (
+				<View style={[s.rowLeading, alignTop && { marginTop: rowPadY - 1 }]}>{leading}</View>
+			) : null}
+			<View style={[s.rowBody, !last && s.rowSeparator, bodyStyle]}>
+				<View style={{ flex: 1, gap: 2 }}>{children}</View>
+				{trailing}
+				{accessory === 'chevron' ? <Chevron /> : null}
+			</View>
+		</View>
+	);
+	if (!onPress) return content;
+	return (
+		<Pressable
+			accessibilityRole={accessibilityRole ?? 'button'}
+			accessibilityLabel={accessibilityLabel}
+			accessibilityState={accessibilityState}
+			onPress={onPress}
+			style={({ pressed }) => ({ opacity: pressed ? 0.62 : 1 })}
+		>
+			{content}
+		</Pressable>
 	);
 }
 
@@ -333,66 +473,60 @@ export function ListRow({
 	accessibilityState?: AccessibilityState;
 }) {
 	const destructive = tone === 'destructive';
-	const content = (
-		<View
-			accessible={!onPress && accessory !== 'switch'}
-			accessibilityLabel={
-				accessibilityLabel ?? rowAccessibilityLabel(title, subtitle, detail, value)
-			}
-			accessibilityState={accessibilityState}
-			style={[s.row, !last && s.rowSeparator]}
-		>
-			{leading ?? null}
-			{!leading && symbol ? (
-				<View style={[s.symbolTile, destructive && { backgroundColor: color.dangerSoft }]}>
-					<AppSymbol
-						name={symbol.name}
-						fallback={symbol.fallback}
-						size={17}
-						color={destructive ? color.dangerInk : color.accentInk}
-					/>
-				</View>
-			) : null}
-			<View style={{ flex: 1, gap: 2 }}>
-				<Text style={[type.body, destructive && { color: color.dangerInk }]}>{title}</Text>
-				{subtitle ? <Text style={type.subhead}>{subtitle}</Text> : null}
-				{detail ? (
-					<Text style={type.subhead} numberOfLines={1}>
-						{detail}
-					</Text>
-				) : null}
+	const label = accessibilityLabel ?? rowAccessibilityLabel(title, subtitle, detail, value);
+	const lead =
+		leading ??
+		(symbol ? (
+			<View style={[s.symbolTile, destructive && { backgroundColor: color.dangerSoft }]}>
+				<AppSymbol
+					name={symbol.name}
+					fallback={symbol.fallback}
+					size={17}
+					color={destructive ? color.dangerInk : color.accentInk}
+				/>
 			</View>
-			{typeof value === 'string' ? <Text style={type.subhead}>{value}</Text> : value}
-			{accessory === 'chevron' ? (
-				<Text style={s.chevron}>›</Text>
-			) : accessory === 'checkmark' ? (
+		) : null);
+	const trailing = (
+		<>
+			{typeof value === 'string' ? (
+				<Text style={s.rowValue} numberOfLines={2}>
+					{value}
+				</Text>
+			) : (
+				value
+			)}
+			{accessory === 'checkmark' ? (
 				<AppSymbol name="checkmark" fallback="checkmark" size={18} color={color.accent} />
 			) : accessory === 'switch' ? (
 				<Switch
-					accessibilityLabel={
-						accessibilityLabel ?? rowAccessibilityLabel(title, subtitle, detail, value)
-					}
+					accessibilityLabel={label}
 					value={!!switchValue}
 					onValueChange={onSwitch}
 					trackColor={{ false: color.line, true: color.accentSoft }}
 					thumbColor={switchValue ? color.accent : color.surface}
 				/>
 			) : null}
-		</View>
+		</>
 	);
-	if (!onPress) return content;
 	return (
-		<Pressable
-			accessibilityRole="button"
-			accessibilityLabel={
-				accessibilityLabel ?? rowAccessibilityLabel(title, subtitle, detail, value)
-			}
-			accessibilityState={accessibilityState}
+		<GroupedRow
+			leading={lead}
+			trailing={trailing}
+			accessory={accessory === 'chevron' ? 'chevron' : 'none'}
 			onPress={onPress}
-			style={({ pressed }) => ({ opacity: pressed ? 0.62 : 1 })}
+			last={last}
+			accessible={accessory !== 'switch'}
+			accessibilityLabel={label}
+			accessibilityState={accessibilityState}
 		>
-			{content}
-		</Pressable>
+			<Text style={[type.body, destructive && { color: color.dangerInk }]}>{title}</Text>
+			{subtitle ? <Text style={type.subhead}>{subtitle}</Text> : null}
+			{detail ? (
+				<Text style={type.subhead} numberOfLines={1}>
+					{detail}
+				</Text>
+			) : null}
+		</GroupedRow>
 	);
 }
 
@@ -455,9 +589,10 @@ export function Row({
 const s = StyleSheet.create({
 	screen: { flex: 1, backgroundColor: color.bg },
 	screenContent: {
+		flexGrow: 1,
 		paddingHorizontal: screenMargin,
 		paddingTop: space.lg,
-		gap: space.lg,
+		gap: blockGap,
 		paddingBottom: space.xxl
 	},
 	centre: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: color.bg },
@@ -483,12 +618,14 @@ const s = StyleSheet.create({
 		minHeight: controlHeight,
 		flexDirection: 'row',
 		alignItems: 'center',
-		paddingHorizontal: space.md,
+		marginLeft: rowInset,
+		paddingRight: rowInset,
 		gap: space.md
 	},
 	formRowStacked: {
 		minHeight: controlHeight,
-		paddingHorizontal: space.md,
+		marginLeft: rowInset,
+		paddingRight: rowInset,
 		paddingVertical: space.sm,
 		gap: space.xs
 	},
@@ -526,42 +663,67 @@ const s = StyleSheet.create({
 		paddingVertical: 0
 	},
 	empty: {
+		flexGrow: 1,
 		alignItems: 'center',
 		justifyContent: 'center',
-		padding: space.xl,
-		gap: space.sm
+		paddingHorizontal: space.xl,
+		paddingVertical: 48,
+		gap: space.md
+	},
+	emptyTile: {
+		width: 56,
+		height: 56,
+		borderRadius: radius.section,
+		alignItems: 'center',
+		justifyContent: 'center',
+		backgroundColor: color.accentSoft
 	},
 	group: {
 		backgroundColor: color.surface,
 		borderRadius: radius.section,
 		overflow: 'hidden'
 	},
+	sectionHeader: {
+		flexDirection: 'row',
+		alignItems: 'center',
+		gap: space.md,
+		marginHorizontal: rowInset
+	},
 	sectionTitle: {
 		...type.caption,
-		marginLeft: space.lg,
+		marginLeft: rowInset,
 		textTransform: 'uppercase',
 		letterSpacing: 0.35
 	},
 	sectionFooter: {
 		...type.footnote,
-		marginHorizontal: space.lg
+		marginHorizontal: rowInset
 	},
 	row: {
-		minHeight: 52,
 		flexDirection: 'row',
 		alignItems: 'center',
-		gap: space.md,
-		paddingLeft: space.md,
-		paddingRight: space.sm
+		paddingLeft: rowInset
+	},
+	rowLeading: { marginRight: space.md },
+	rowBody: {
+		flex: 1,
+		minHeight: rowMinHeight,
+		flexDirection: 'row',
+		alignItems: 'center',
+		gap: space.sm,
+		paddingVertical: rowPadY,
+		paddingRight: rowInset
 	},
 	rowSeparator: { borderBottomWidth: hairline, borderBottomColor: color.line },
+	// A long value (a picked place, a journey name) wraps within its share of
+	// the row rather than squeezing the row's label down to a sliver.
+	rowValue: { ...type.subhead, flexShrink: 1, maxWidth: '60%', textAlign: 'right' },
 	symbolTile: {
-		width: 32,
-		height: 32,
+		width: 30,
+		height: 30,
 		borderRadius: radius.icon,
 		alignItems: 'center',
 		justifyContent: 'center',
 		backgroundColor: color.accentSoft
-	},
-	chevron: { color: color.inkFaint, fontSize: 28, lineHeight: 28 }
+	}
 });
