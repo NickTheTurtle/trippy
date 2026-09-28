@@ -13,9 +13,9 @@
 		"@hono/node-server": "^2.1.1",
 		"@trippy/core": "*",
 		"@trippy/server": "*",
-		"hono": "^4.13.8"
+		"hono": "^4.13.9"
 	},
 	"devDependencies": {
-		"tsx": "^4.23.13"
+		"tsx": "^4.23.15"
 	}
 }
