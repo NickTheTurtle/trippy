@@ -89,11 +89,17 @@ export const space = {
 } as const;
 
 /**
- * The serif remains available for auth and owner-approved expressive moments.
- * Data screens use the system font so rows, sheets and tabs read as native iOS.
+ * Display type is the web's: Fraunces, the serif every web heading (h1 to h3)
+ * is set in, loaded at the root from @expo-google-fonts. It is what makes the
+ * phone read as the same product as web mobile, so it carries the titles a
+ * reader lands on: large titles, the trip's name, trip card names, a day's
+ * date, first-run headings. Place card names stay sans, as the web sets them. Rows, fields, tabs and sheets keep the
+ * system font, so the working surface still reads as native iOS. The web sets
+ * headings at weight 560; SemiBold (600) is the nearest shipped cut.
  */
+export const serif = 'Fraunces_600SemiBold';
 export const font = {
-	heading: { fontFamily: 'Georgia', fontWeight: '600' as const },
+	heading: { fontFamily: serif },
 	body: {}
 };
 
@@ -107,6 +113,17 @@ export const iosType = {
 	subhead: { fontSize: 15, lineHeight: 20, color: color.inkSoft },
 	footnote: { fontSize: 13, lineHeight: 18, color: color.inkSoft },
 	caption: { fontSize: 12, lineHeight: 16, color: color.inkFaint, fontWeight: '600' as const }
+} as const;
+
+/**
+ * The serif scale. No fontWeight: the weight is in the family name, and asking
+ * iOS to embolden a custom face again either does nothing or fakes a bolder cut.
+ */
+export const displayType = {
+	largeTitle: { fontFamily: serif, fontSize: 34, lineHeight: 41, color: color.ink },
+	title2: { fontFamily: serif, fontSize: 24, lineHeight: 29, color: color.ink },
+	title3: { fontFamily: serif, fontSize: 20, lineHeight: 25, color: color.ink },
+	headline: { fontFamily: serif, fontSize: 18, lineHeight: 23, color: color.ink }
 } as const;
 
 export const type = {

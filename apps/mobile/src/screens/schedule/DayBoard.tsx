@@ -47,6 +47,22 @@ const EVENT_COLORS: Record<EventType, string> = {
 	freetime: '#8a8578'
 };
 
+/**
+ * The block's fill: its type colour at 10% over white, the web's
+ * `color-mix(in srgb, var(--c) 10%, white)`. Every block had been the same
+ * mint whatever its type, so a day read as one wash with coloured edges rather
+ * than the web's scannable colour per type.
+ */
+function tint(hex: string, amount = 0.1): string {
+	const n = parseInt(hex.slice(1), 16);
+	const mix = (c: number) => Math.round(c * amount + 255 * (1 - amount));
+	const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map(mix);
+	return `#${((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1)}`;
+}
+const EVENT_FILLS = Object.fromEntries(
+	Object.entries(EVENT_COLORS).map(([key, value]) => [key, tint(value)])
+) as Record<EventType, string>;
+
 type ActiveLabel = { id: string; kind: 'move' | 'resize'; minute: number } | null;
 
 export function DayBoard({
@@ -546,7 +562,7 @@ const EventBlock = memo(function EventBlock({
 							height,
 							minHeight: MIN_LEG_H,
 							borderRadius: radius.md,
-							backgroundColor: color.accentSoft,
+							backgroundColor: EVENT_FILLS[event.type],
 							paddingLeft: 10,
 							paddingRight: 7,
 							paddingVertical: 4,

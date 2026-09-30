@@ -18,6 +18,7 @@ export function useDiscoverVotes({
 	const [stays, setStays] = useState<Record<string, string | null>>({});
 	const [busy, setBusy] = useState<ReadonlySet<string>>(new Set());
 	const busyRef = useRef(new Set<string>());
+	const votingStay = useRef<Record<string, string>>({});
 	const settled = useRef(new Set<string>());
 
 	useEffect(() => {
@@ -59,15 +60,21 @@ export function useDiscoverVotes({
 		};
 	};
 
-	const stay = (cityId: string, s: Stay): Stay & { voteBusy: boolean } => {
-		const voteBusy = busy.has(`city:${cityId}`);
-		if (!(cityId in stays)) return { ...s, voteBusy };
+	const stay = (cityId: string, s: Stay): Stay & { voteBusy: boolean; voteLocked: boolean } => {
+		const cityBusy = busy.has(`city:${cityId}`);
+		// One stay vote per city, so a vote on one stay holds every stay in that
+		// city. Only the stay being voted is "busy" (it already shows where it
+		// will land); the others are locked, which the pill shows by dimming.
+		const voteBusy = cityBusy && votingStay.current[cityId] === s.id;
+		const voteLocked = cityBusy && !voteBusy;
+		if (!(cityId in stays)) return { ...s, voteBusy, voteLocked };
 		const mine = stays[cityId] === s.id;
 		return {
 			...s,
 			you_voted: mine ? 1 : 0,
 			votes: s.votes - (s.you_voted ? 1 : 0) + (mine ? 1 : 0),
-			voteBusy
+			voteBusy,
+			voteLocked
 		};
 	};
 
@@ -84,6 +91,7 @@ export function useDiscoverVotes({
 	function toggleStay(cityId: string, s: Stay) {
 		const key = `city:${cityId}`;
 		if (busyRef.current.has(key)) return;
+		votingStay.current[cityId] = s.id;
 		const shown = stay(cityId, s);
 		setStays((m) => ({ ...m, [cityId]: shown.you_voted ? null : s.id }));
 		void track(key, `${base}/stays/${s.id}/vote`, copy.discover.errors.voteStay, () =>

@@ -13,7 +13,7 @@ import { DestructiveRow, Field, InsetSection, ListRow, SectionHeader } from '../
 import { Sheet } from '../../ui/Sheet';
 import { ConfirmSheet, confirmOverlays } from '../../ui/ConfirmSheet';
 import { SearchablePicker, SegmentedControl } from '../../ui/controls';
-import { CoverImage } from './CoverImage';
+import { Cover } from '../../ui/Cover';
 import { color, rowInset, space, type } from '../../theme';
 
 const MIN_QUERY = 3;
@@ -449,9 +449,13 @@ export function AddDiscoverSheet({
 						title={hit.name}
 						subtitle={hit.address ?? null}
 						leading={
-							<View style={{ width: 52 }}>
-								<CoverImage photo={hit.photo} seed={hit.name} category={hit.category} height={40} />
-							</View>
+							<Cover
+								photo={hit.photo}
+								seed={hit.name}
+								category={hit.category}
+								height={40}
+								style={{ width: 40, borderRadius: 8 }}
+							/>
 						}
 						accessory="none"
 					/>

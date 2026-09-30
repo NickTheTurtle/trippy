@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { RefreshControl, Text, View } from 'react-native';
+import { RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { copy } from '@trippy/copy';
 import { useTripId } from '../../../src/trip-id';
 import { useApi } from '../../../src/hooks/useApi';
@@ -10,13 +10,15 @@ import {
 	Button,
 	EmptyState,
 	FormError,
+	GroupedRow,
 	InsetSection,
 	ListRow,
 	Loading,
 	Screen
 } from '../../../src/ui';
 import { SegmentedControl } from '../../../src/ui/controls';
-import { color, space, type } from '../../../src/theme';
+import { Avatar, Tag } from '../../../src/ui/marks';
+import { type } from '../../../src/theme';
 import {
 	AddPersonSheet,
 	CrewSheet,
@@ -112,7 +114,7 @@ function People() {
 									title={crew.name}
 									subtitle={count}
 									detail={subtitle}
-									leading={<Avatar name={crew.name} />}
+									leading={<Avatar name={crew.name} size={AVATAR_SIZE} />}
 									accessory={crew.locked ? 'none' : 'chevron'}
 									onPress={crew.locked ? undefined : () => setCrewDraft(crew)}
 									accessibilityLabel={
@@ -172,29 +174,15 @@ function People() {
 	);
 }
 
-function initials(name: string): string {
-	return name.trim().slice(0, 1).toUpperCase();
-}
+/** The web's `lg` avatar: a roster row leads with a face a touch larger than a list icon. */
+const AVATAR_SIZE = 34;
 
-function Avatar({ name }: { name: string }) {
-	return (
-		<View
-			style={{
-				width: 32,
-				height: 32,
-				borderRadius: 16,
-				backgroundColor: color.accentSoft,
-				alignItems: 'center',
-				justifyContent: 'center'
-			}}
-		>
-			<Text style={{ ...type.footnote, color: color.accentInk, fontWeight: '700' }}>
-				{initials(name)}
-			</Text>
-		</View>
-	);
-}
-
+/**
+ * One member of the roster, drawn as web MemberRow is: the status tags sit on
+ * the name's own line (wrapping beneath only when the name leaves no room),
+ * and one secondary line carries the address, so a row is two lines rather
+ * than three.
+ */
 function MemberRow({
 	person,
 	me,
@@ -208,13 +196,19 @@ function MemberRow({
 	onOpen: () => void;
 	last: boolean;
 }) {
-	const tags = [
-		person.id === me ? copy.people.row.youTag : null,
-		person.role === 'organizer' ? copy.people.row.organizerTag : null,
-		person.placeholder && person.invitedEmail ? copy.people.row.invitedTag : null,
-		!person.placeholder && person.seeded ? copy.people.row.sampleTag : null
-	].filter(Boolean) as string[];
-	const status = tags.join(' · ');
+	// Tones follow web MemberRow's Tag kinds. "Invited" only when an invite is
+	// out: somebody added by name alone is waiting for no mail.
+	const tags: { key: string; label: string; tone: 'accent' | 'neutral'; outline: boolean }[] = [];
+	if (person.id === me)
+		tags.push({ key: 'you', label: copy.people.row.youTag, tone: 'neutral', outline: false });
+	if (person.role === 'organizer')
+		tags.push({ key: 'org', label: copy.people.row.organizerTag, tone: 'accent', outline: false });
+	if (person.placeholder) {
+		if (person.invitedEmail)
+			tags.push({ key: 'inv', label: copy.people.row.invitedTag, tone: 'accent', outline: true });
+	} else if (person.seeded) {
+		tags.push({ key: 'seed', label: copy.people.row.sampleTag, tone: 'neutral', outline: true });
+	}
 	const editable = person.placeholder || person.seeded || person.id === me;
 	const detail = person.seeded
 		? copy.people.row.sampleCompanion
@@ -222,21 +216,47 @@ function MemberRow({
 			? (person.invitedEmail ?? person.email)
 			: person.email;
 	return (
-		<ListRow
-			title={person.name}
-			subtitle={status || null}
-			detail={detail || null}
-			leading={<Avatar name={person.name} />}
+		<GroupedRow
+			leading={<Avatar name={person.name} size={AVATAR_SIZE} />}
+			// Top-aligned like web: when the tags wrap, the face stays beside the name.
+			alignTop
 			accessory={canOpen ? 'chevron' : 'none'}
 			onPress={canOpen ? onOpen : undefined}
+			accessible
 			accessibilityLabel={
 				canOpen
 					? editable
 						? copy.common.editLabel(person.name)
 						: copy.common.deleteLabel(person.name)
-					: undefined
+					: [person.name, ...tags.map((tag) => tag.label), detail].filter(Boolean).join(', ')
 			}
 			last={last}
-		/>
+		>
+			<View style={styles.nameLine}>
+				<Text style={[type.body, styles.name]} numberOfLines={1}>
+					{person.name}
+				</Text>
+				{tags.map((tag) => (
+					<Tag key={tag.key} label={tag.label} tone={tag.tone} outline={tag.outline} />
+				))}
+			</View>
+			{detail ? (
+				<Text style={type.subhead} numberOfLines={1}>
+					{detail}
+				</Text>
+			) : null}
+		</GroupedRow>
 	);
 }
+
+const styles = StyleSheet.create({
+	nameLine: {
+		flexDirection: 'row',
+		flexWrap: 'wrap',
+		alignItems: 'center',
+		columnGap: 6,
+		rowGap: 4
+	},
+	// Shrinks so a long name truncates before it pushes its tags off the row.
+	name: { flexShrink: 1 }
+});

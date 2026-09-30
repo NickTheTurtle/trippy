@@ -1,14 +1,20 @@
 import { Platform } from 'react-native';
 import { Stack } from 'expo-router';
+import { Fraunces_600SemiBold, useFonts } from '@expo-google-fonts/fraunces';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider } from '../src/auth';
 import { ToastProvider } from '../src/ui/Toast';
 import { copy } from '@trippy/copy';
-import { color, type } from '../src/theme';
+import { color, displayType, type } from '../src/theme';
 
 export default function RootLayout() {
+	// The web's heading face. Held back until it has loaded (or failed, when the
+	// system font stands in) so the first titles do not reflow from one face to
+	// the other; it ships inside the bundle, so this is a local read.
+	const [fontsLoaded, fontError] = useFonts({ Fraunces_600SemiBold });
+	if (!fontsLoaded && !fontError) return null;
 	return (
 		<SafeAreaProvider>
 			<GestureHandlerRootView style={{ flex: 1 }}>
@@ -22,7 +28,11 @@ export default function RootLayout() {
 								headerTintColor: color.accent,
 								headerTitleStyle: type.head,
 								headerLargeTitle: true,
-								headerLargeTitleStyle: type.largeTitle,
+								headerLargeTitleStyle: {
+									fontFamily: displayType.largeTitle.fontFamily,
+									fontSize: displayType.largeTitle.fontSize,
+									color: displayType.largeTitle.color
+								},
 								contentStyle: { backgroundColor: color.bg }
 							}}
 						>

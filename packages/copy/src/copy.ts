@@ -295,6 +295,8 @@ export const copy = {
 
 	// Native Discover helpers
 	mobileDiscover: {
+		/** The open-link icon's name. The web's says "opens in a new tab"; a phone opens the browser. */
+		openLabel: (name: string) => `Open ${name} in the browser`,
 		editCityTitle: 'Edit city',
 		editCityButton: 'Edit city',
 		deleteCityMessage: (linked: number) =>
@@ -330,6 +332,10 @@ export const copy = {
 				`${done ? 'Mark not done for everyone' : 'Mark done for everyone'}: ${label}`,
 			doneSummary: (done: number, total: number) => `${done}/${total} done`,
 			doneMenuLabel: (label: string) => `Who has finished: ${label}`,
+			/** The native sheet behind the "13/20 done" button; its subtitle names the task. */
+			doneSheetTitle: 'Who has finished',
+			/** Every tick in that sheet saves as it is made, so its one action only closes it. */
+			doneSheetClose: 'Done',
 			editLabel: (kind: string, label: string) => `Edit ${kind}: ${label}`
 		},
 		taskDialog: {
