@@ -25,6 +25,7 @@ import {
 	card,
 	color,
 	controlHeight,
+	displayType,
 	fieldLabel,
 	hairline,
 	radius,
@@ -305,7 +306,7 @@ export function LargeTitle({
 		<View style={s.largeTitleRow}>
 			<View style={{ flex: 1 }}>
 				{subtitle ? <Text style={s.kicker}>{subtitle}</Text> : null}
-				<Text style={type.largeTitle} numberOfLines={2}>
+				<Text style={displayType.largeTitle} numberOfLines={2}>
 					{title}
 				</Text>
 			</View>

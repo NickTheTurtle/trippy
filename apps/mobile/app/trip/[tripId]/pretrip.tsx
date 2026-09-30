@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, RefreshControl, Text, View } from 'react-native';
 import { copy } from '@trippy/copy';
 import { cap, formatMoney } from '@trippy/copy/format';
@@ -21,6 +21,8 @@ import {
 import { CheckBox, Picker, SegmentedControl } from '../../../src/ui/controls';
 import { TaskSheet } from '../../../src/screens/TaskSheet';
 import { CostSheet } from '../../../src/screens/CostSheet';
+import { DoneSheet } from '../../../src/screens/DoneSheet';
+import { Tag } from '../../../src/ui/marks';
 import { useToast } from '../../../src/ui/Toast';
 import { useTripHeaderAction } from '../../../src/ui/TripHeaderAction';
 import { color, rowInset, space, type } from '../../../src/theme';
@@ -196,6 +198,14 @@ function Tasks({
 }) {
 	const list = kind === 'packing' ? data.packing : data.tasks;
 	const toast = useToast();
+	// The "who has finished" sheet. The id stays set after it closes so the
+	// list does not empty while the sheet slides away; the task itself is read
+	// from the live list, so ticks made elsewhere show in it as they land.
+	const [doneId, setDoneId] = useState<string | null>(null);
+	const [doneOpen, setDoneOpen] = useState(false);
+	const doneOpenRef = useRef(false);
+	doneOpenRef.current = doneOpen;
+	const doneTask = doneId ? (list.find((task) => task.id === doneId) ?? null) : null;
 	const toggle = useMutation(
 		async (steps: { taskId: string; userId?: string; done: boolean }[]) => {
 			try {
@@ -215,8 +225,26 @@ function Tasks({
 		{ fallback: copy.preparation.saveFallback }
 	);
 	useEffect(() => {
-		if (toggle.error) toast.error(toggle.error);
+		// While the sheet is up the refusal is pinned in it instead: the toast
+		// renders under the Modal on iOS.
+		if (toggle.error && !doneOpenRef.current) toast.error(toggle.error);
 	}, [toggle.error, toast]);
+	const doneChain = useRef<Promise<void>>(Promise.resolve());
+	const openDone = (task: Task) => {
+		toggle.reset();
+		setDoneId(task.id);
+		setDoneOpen(true);
+	};
+	const closeDone = () => {
+		setDoneOpen(false);
+		toggle.reset();
+	};
+	// A task deleted or cleared of its people while its sheet is up takes the
+	// sheet with it, and the toasts come back.
+	const doneGone = !doneTask || doneTask.people.length === 0;
+	useEffect(() => {
+		if (doneOpen && doneGone) setDoneOpen(false);
+	}, [doneOpen, doneGone]);
 
 	const mine =
 		kind === 'tasks' ? list.filter((task) => task.people.some((p) => p.id === data.me)) : [];
@@ -230,11 +258,11 @@ function Tasks({
 				<TaskCard
 					title={copy.preparation.myTasks.title}
 					items={mine}
-					me={data.me}
 					kind="tasks"
 					onAdd={others.length === 0 ? onAdd : undefined}
 					onToggle={(steps) => void toggle.run(steps)}
 					onEdit={onEdit}
+					onDone={openDone}
 				/>
 			) : null}
 			{others.length > 0 || mine.length === 0 ? (
@@ -243,13 +271,32 @@ function Tasks({
 						mine.length > 0 ? copy.preparation.myTasks.othersTitle : copy.preparation.sections[kind]
 					}
 					items={others}
-					me={data.me}
 					kind={kind}
 					onAdd={onAdd}
 					onToggle={(steps) => void toggle.run(steps)}
 					onEdit={onEdit}
+					onDone={openDone}
 				/>
 			) : null}
+			{/* Mounted for as long as the list is, and shown by `open`, so the
+			    Modal is presented by flipping `visible` rather than by mounting
+			    one already visible. */}
+			<DoneSheet
+				open={doneOpen && !doneGone}
+				task={doneTask}
+				me={data.me}
+				error={doneOpen ? toggle.error : null}
+				onToggle={(userId, done) => {
+					if (!doneTask) return;
+					const step = { taskId: doneTask.id, userId, done };
+					// One chain of writes, each started after the last has answered.
+					// `useMutation` does not queue, so two quick taps on one name sent
+					// both at once and the server could apply them out of order, leaving
+					// the saved state opposite to the last tick shown.
+					doneChain.current = doneChain.current.then(() => toggle.run([step]).then(() => {}));
+				}}
+				onClose={closeDone}
+			/>
 		</>
 	);
 }
@@ -257,19 +304,18 @@ function Tasks({
 function TaskCard({
 	title,
 	items,
-	me,
 	kind,
-	onAdd,
 	onToggle,
-	onEdit
+	onEdit,
+	onDone
 }: {
 	title: string;
 	items: Task[];
-	me: string;
 	kind: 'tasks' | 'packing';
 	onAdd?: () => void;
 	onToggle: (steps: { taskId: string; userId?: string; done: boolean }[]) => void;
 	onEdit: (task: Task) => void;
+	onDone: (task: Task) => void;
 }) {
 	return (
 		<InsetSection title={title}>
@@ -282,10 +328,10 @@ function TaskCard({
 							key={task.id}
 							task={task}
 							last={index === items.length - 1}
-							me={me}
 							kind={kind}
 							onToggle={onToggle}
 							onEdit={() => onEdit(task)}
+							onDone={() => onDone(task)}
 						/>
 					))}
 				</>
@@ -294,19 +340,30 @@ function TaskCard({
 	);
 }
 
+/**
+ * One task on one line: the box, the label, any flag, then "13/20 done".
+ *
+ * Who has finished lives behind that count, in a sheet, rather than as a name
+ * per person under the label. The names said everything at a glance on a
+ * small trip, but twenty of them wrapped each row over four lines and buried
+ * the label; the count is the part that gets read (web TaskList.tsx, same
+ * reasoning). The row is not itself pressable: the box, the label and the
+ * count are three sibling controls, so each keeps its own accessibility
+ * element and a press on the count never also opens the edit sheet.
+ */
 function TaskRow({
 	task,
-	me,
 	kind,
 	onToggle,
 	onEdit,
+	onDone,
 	last
 }: {
 	task: Task;
-	me: string;
 	kind: 'tasks' | 'packing';
 	onToggle: (steps: { taskId: string; userId?: string; done: boolean }[]) => void;
 	onEdit: () => void;
+	onDone: () => void;
 	last: boolean;
 }) {
 	const assigned = task.people.length > 0;
@@ -316,7 +373,6 @@ function TaskRow({
 		: null;
 	return (
 		<GroupedRow
-			alignTop
 			last={last}
 			leading={
 				<CheckBox
@@ -340,17 +396,42 @@ function TaskRow({
 					}}
 				/>
 			}
+			trailing={
+				task.flag || summary ? (
+					<View style={styles.trailing}>
+						{task.flag ? <Tag label={task.flag} tone="warn" /> : null}
+						{summary ? (
+							<Pressable
+								accessibilityRole="button"
+								accessibilityLabel={`${copy.preparation.taskList.doneMenuLabel(task.label)}, ${summary}`}
+								onPress={onDone}
+								hitSlop={{ top: 10, bottom: 10, left: 6, right: 8 }}
+								style={({ pressed }) => [styles.summary, { opacity: pressed ? 0.5 : 1 }]}
+							>
+								<Text style={type.faint}>{summary}</Text>
+								<AppSymbol
+									name="chevron.up.chevron.down"
+									fallback="chevron-expand"
+									size={11}
+									color={color.inkFaint}
+								/>
+							</Pressable>
+						) : null}
+					</View>
+				) : undefined
+			}
 		>
 			<Pressable
 				onPress={onEdit}
 				hitSlop={6}
+				accessibilityRole="button"
 				accessibilityLabel={copy.preparation.taskList.editLabel(
 					kind === 'packing' ? 'packing' : 'task',
 					task.label
 				)}
-				style={{ gap: 2 }}
 			>
 				<Text
+					numberOfLines={2}
 					style={{
 						...type.body,
 						color: task.done ? color.inkFaint : color.ink,
@@ -359,42 +440,7 @@ function TaskRow({
 				>
 					{task.label}
 				</Text>
-				{summary ? <Text style={type.faint}>{summary}</Text> : null}
 			</Pressable>
-			{task.flag ? <Text style={{ ...type.faint, color: color.warn }}>{task.flag}</Text> : null}
-			{assigned ? (
-				<View
-					style={{
-						flexDirection: 'row',
-						flexWrap: 'wrap',
-						columnGap: space.sm,
-						rowGap: 2,
-						marginTop: space.xs
-					}}
-				>
-					{task.people.map((p) => (
-						<Pressable
-							key={p.id}
-							accessibilityRole="checkbox"
-							accessibilityState={{ checked: p.done }}
-							accessibilityLabel={p.name + (p.id === me ? copy.preparation.youSuffix : '')}
-							onPress={() => onToggle([{ taskId: task.id, userId: p.id, done: !p.done }])}
-							hitSlop={4}
-						>
-							<Text
-								style={{
-									...type.faint,
-									color: p.done ? color.accentInk : color.inkFaint,
-									textDecorationLine: p.done ? 'line-through' : 'none'
-								}}
-							>
-								{p.name}
-								{p.id === me ? copy.preparation.youSuffix : ''}
-							</Text>
-						</Pressable>
-					))}
-				</View>
-			) : null}
 		</GroupedRow>
 	);
 }
@@ -598,6 +644,17 @@ function shareLabel(members: Member[], id: string, me: string): string {
 }
 
 const styles = {
+	trailing: {
+		flexDirection: 'row' as const,
+		alignItems: 'center' as const,
+		gap: space.sm,
+		flexShrink: 0
+	},
+	summary: {
+		flexDirection: 'row' as const,
+		alignItems: 'center' as const,
+		gap: 4
+	},
 	stats: {
 		flexDirection: 'row' as const,
 		gap: space.lg,

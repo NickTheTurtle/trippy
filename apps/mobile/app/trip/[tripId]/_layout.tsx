@@ -35,7 +35,7 @@ import {
 } from '../../../src/ui/TripHeaderAction';
 import { useSheetHandoff } from '../../../src/ui/useSheetHandoff';
 import { showActionMenu } from '../../../src/ui/actionMenu';
-import { color, screenMargin, space, type } from '../../../src/theme';
+import { color, displayType, screenMargin, space, type } from '../../../src/theme';
 
 type Trip = {
 	id: string;
@@ -56,6 +56,13 @@ const TAB_ICONS: Record<string, TabIcon> = {
 	expenses: { sf: 'creditcard', ion: 'card-outline' },
 	people: { sf: 'person.2', ion: 'people-outline' }
 };
+/** The trip's name is a title, set in the web's serif as the web sets it. */
+const tripTitleStyle = {
+	fontFamily: displayType.headline.fontFamily,
+	fontSize: displayType.headline.fontSize,
+	color: displayType.headline.color
+};
+
 const TAB_ORDER = ['discover', 'pretrip', 'calendar', 'expenses', 'people'] as const;
 const TAB_LABELS: Record<(typeof TAB_ORDER)[number], () => string> = {
 	discover: () => copy.nav.discover,
@@ -262,7 +269,13 @@ function TripTabsInner({
 				    button to Your trips, and the system tab bar under Liquid Glass.
 				    Native tabs draw no header of their own, so the bar is the parent
 				    stack's, configured from here. */}
-				<Stack.Screen options={{ title: trip.name, headerRight: renderActions }} />
+				<Stack.Screen
+					options={{
+						title: trip.name,
+						headerTitleStyle: tripTitleStyle,
+						headerRight: renderActions
+					}}
+				/>
 				{bareTripPath ? (
 					// The trip itself, with no tab: native tabs cannot show the hidden
 					// index route (the dev build throws trying). System links are
@@ -298,7 +311,7 @@ function TripTabsInner({
 								headerStyle: { backgroundColor: color.bg },
 								headerShadowVisible: false,
 								headerTintColor: color.accent,
-								headerTitleStyle: type.head,
+								headerTitleStyle: tripTitleStyle,
 								headerTitle: trip.name,
 								// Three header buttons leave a centred title about a third of
 								// the bar, which cut most trip names off. Leading-aligned, the

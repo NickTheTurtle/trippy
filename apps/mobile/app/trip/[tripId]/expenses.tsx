@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, RefreshControl, Text, View } from 'react-native';
+import { Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { copy } from '@trippy/copy';
 import { formatDay, formatMoney } from '@trippy/copy/format';
 import { api, ApiError } from '../../../src/lib/api';
@@ -24,7 +24,8 @@ import type { Expense, ExpensesData, Transfer } from '../../../src/screens/Expen
 import { useTripHeaderAction } from '../../../src/ui/TripHeaderAction';
 import { AppSymbol } from '../../../src/ui/Symbol';
 import { Sheet } from '../../../src/ui/Sheet';
-import { color, radius, rowInset, space, type } from '../../../src/theme';
+import { Avatar, Tag } from '../../../src/ui/marks';
+import { color, rowInset, space, type } from '../../../src/theme';
 import { lazyTab } from '../../../src/ui/nativeTabs';
 
 const SECTIONS = ['expenses', 'balances', 'settle'] as const;
@@ -303,104 +304,85 @@ function ExpenseLine({
 }) {
 	const credit = expense.amount_cents < 0;
 	const settled = expense.settlement === 1;
+	const c = copy.expenses.row;
+	const tag = settled ? c.paymentTag : credit ? c.incomeTag : null;
 	return (
 		<GroupedRow
 			onPress={onOpen}
 			last={last}
 			accessory="chevron"
 			accessibilityLabel={[
-				settled
-					? copy.expenses.row.openLabel(expense.description)
-					: copy.common.editLabel(expense.description),
-				// The chip is folded into the row on iOS, so its meaning has to be in
-				// the row's own label to be heard at all.
-				expense.needsReview ? copy.expenses.row.reviewTitle : null
+				settled ? c.openLabel(expense.description) : copy.common.editLabel(expense.description),
+				// The tag and the warning mark are folded into the row on iOS, so what
+				// they mean has to be in the row's own label to be heard at all.
+				tag,
+				expense.needsReview ? c.reviewTitle : null
 			]
 				.filter(Boolean)
 				.join('. ')}
-			leading={
-				<View style={styles.symbolTile}>
-					<AppSymbol
-						name={settled ? 'arrow.left.arrow.right' : credit ? 'arrow.down.circle' : 'creditcard'}
-						fallback={
-							settled
-								? 'swap-horizontal-outline'
-								: credit
-									? 'arrow-down-circle-outline'
-									: 'card-outline'
-						}
-						size={17}
-						color={color.accentInk}
-					/>
-				</View>
-			}
+			leading={<Avatar name={expense.payer_name} tone={credit ? 'muted' : 'accent'} />}
 			trailing={
-				<View style={{ alignItems: 'flex-end' }}>
+				<View style={styles.amount}>
 					{net === undefined ? (
 						<>
-							<Text style={{ ...type.subhead, color: credit ? color.accentInk : color.inkSoft }}>
+							<Text style={[styles.amountText, { color: credit ? color.accentInk : color.ink }]}>
 								{formatMoney(expense.amount_cents, expense.currency)}
 							</Text>
 							{expense.converted ? (
-								<Text style={type.faint}>≈ {formatMoney(expense.home_cents, home)}</Text>
+								<Text style={styles.micro}>≈ {formatMoney(expense.home_cents, home)}</Text>
 							) : null}
 						</>
 					) : (
 						<>
 							<Text
-								style={{
-									...type.subhead,
-									color: net > 0 ? color.accentInk : net < 0 ? color.dangerInk : color.inkSoft
-								}}
+								style={[
+									styles.amountText,
+									{ color: net > 0 ? color.accentInk : net < 0 ? color.dangerInk : color.ink }
+								]}
 							>
 								{net > 0 ? '+' : ''}
 								{formatMoney(net, home)}
 							</Text>
 							{!settled ? (
-								<Text style={type.faint}>
-									{copy.expenses.row.ofTotal(formatMoney(expense.home_cents, home))}
-								</Text>
+								<Text style={styles.micro}>{c.ofTotal(formatMoney(expense.home_cents, home))}</Text>
 							) : null}
 						</>
 					)}
 				</View>
 			}
 		>
-			<View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
-				<Text style={{ ...type.body, fontWeight: '600', flexShrink: 1 }}>
+			{/* As on web, the marks are siblings of the description rather than inline
+			    in its text, so a long description wraps (to two lines) instead of
+			    pushing the thing that flags the row out of view. Each mark sits in a
+			    box one text line tall, so it centres on the first line, not the pair. */}
+			<View style={styles.titleLine}>
+				<Text style={styles.title} numberOfLines={2}>
 					{expense.description}
 				</Text>
+				{tag ? (
+					<View style={styles.mark}>
+						<Tag label={tag} tone="accent" outline />
+					</View>
+				) : null}
 				{expense.needsReview ? (
-					<View
-						accessible
-						accessibilityLabel={copy.expenses.row.reviewTitle}
-						style={{
-							flexDirection: 'row',
-							alignItems: 'center',
-							gap: 3,
-							backgroundColor: color.warnSoft,
-							borderRadius: radius.sm,
-							paddingHorizontal: 5,
-							paddingVertical: 1
-						}}
-					>
+					<View style={styles.mark} accessible accessibilityLabel={c.reviewTitle}>
 						<AppSymbol
 							name="exclamationmark.triangle.fill"
 							fallback="warning-outline"
-							size={12}
+							size={15}
 							color={color.warn}
 						/>
-						<Text style={{ ...type.footnote, color: color.warn }}>
-							{copy.expenses.row.reviewShort}
-						</Text>
 					</View>
 				) : null}
 			</View>
-			<Text style={type.faint}>
-				{settled
-					? formatSpentOn(expense.spent_on)
-					: `${credit ? copy.expenses.addDialog.receivedByLabel : copy.expenses.addDialog.paidByLabel} ${expense.payer_name} · ${copy.expenses.row.splitLabel(expense.split_mode, expense.participants)}`}
-			</Text>
+			{/* Web ends this line with the date; here the day's section header above
+			    already says it, so it is left off. That leaves a settlement, whose
+			    description already names both sides, with no second line at all. */}
+			{settled ? null : (
+				<Text style={type.faint}>
+					{`${expense.payer_name} ${credit ? c.received : c.paid} · ${c.splitLabel(expense.split_mode, expense.participants)}`}
+				</Text>
+			)}
 		</GroupedRow>
 	);
 }
@@ -544,37 +526,19 @@ function TransferRow({
 	);
 }
 
-function Avatar({ name }: { name: string }) {
-	return (
-		<View style={styles.avatar}>
-			<Text style={{ ...type.footnote, color: color.accentInk, fontWeight: '700' }}>
-				{name.trim().slice(0, 1).toUpperCase()}
-			</Text>
-		</View>
-	);
-}
-
-const styles = {
+const styles = StyleSheet.create({
 	stats: {
-		flexDirection: 'row' as const,
+		flexDirection: 'row',
 		gap: space.lg,
 		paddingHorizontal: rowInset,
 		paddingVertical: space.md
 	},
-	symbolTile: {
-		width: 30,
-		height: 30,
-		borderRadius: radius.icon,
-		alignItems: 'center' as const,
-		justifyContent: 'center' as const,
-		backgroundColor: color.accentSoft
-	},
-	avatar: {
-		width: 32,
-		height: 32,
-		borderRadius: 16,
-		alignItems: 'center' as const,
-		justifyContent: 'center' as const,
-		backgroundColor: color.accentSoft
-	}
-};
+	titleLine: { flexDirection: 'row', alignItems: 'flex-start', gap: space.xs + 2 },
+	title: { ...type.body, fontWeight: '600', flexShrink: 1 },
+	// One body line tall, so a mark centres on the description's first line.
+	mark: { height: type.body.lineHeight, justifyContent: 'center' },
+	amount: { alignItems: 'flex-end', marginLeft: space.xs },
+	amountText: { ...type.body, fontWeight: '600', fontVariant: ['tabular-nums'] },
+	// The web's text-micro (0.72rem) in ink-faint, medium weight.
+	micro: { fontSize: 12, lineHeight: 16, fontWeight: '500', color: color.inkFaint }
+});

@@ -21,7 +21,7 @@ import { useTripHeaderAction } from '../../../src/ui/TripHeaderAction';
 import { useSheetHandoff } from '../../../src/ui/useSheetHandoff';
 import { showActionMenu } from '../../../src/ui/actionMenu';
 import { AppSymbol } from '../../../src/ui/Symbol';
-import { color, radius, space, type } from '../../../src/theme';
+import { color, displayType, radius, space, type } from '../../../src/theme';
 import { DayBoard } from '../../../src/screens/schedule/DayBoard';
 import { DayMap } from '../../../src/screens/schedule/DayMap';
 import { EventSheet } from '../../../src/screens/schedule/EventSheet';
@@ -141,7 +141,7 @@ function Calendar() {
 							onPress={schedule.stepPrev}
 						/>
 						<View style={{ flex: 1, alignItems: 'center' }}>
-							<Text style={type.title2}>{dayLabel(data.day)}</Text>
+							<Text style={displayType.title2}>{dayLabel(data.day)}</Text>
 							<Text style={type.faint}>
 								{[
 									!data.prevDay ? copy.schedule.mobile.firstDay : null,

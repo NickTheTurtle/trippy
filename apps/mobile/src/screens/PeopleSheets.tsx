@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Text } from 'react-native';
 import { copy } from '@trippy/copy';
 import { api } from '../lib/api';
 import { useMutation } from '../hooks/useMutation';
@@ -8,7 +7,6 @@ import { DestructiveRow, Field, InsetSection, ListRow } from '../ui';
 import { ChecklistRow } from '../ui/controls';
 import { Sheet } from '../ui/Sheet';
 import { ConfirmSheet, confirmOverlays } from '../ui/ConfirmSheet';
-import { color, radius, type } from '../theme';
 
 export type Person = {
 	id: string;
@@ -333,24 +331,5 @@ function MemberMultiSelect({
 				/>
 			))}
 		</InsetSection>
-	);
-}
-
-export function Tag({ label }: { label: string }) {
-	return (
-		<Text
-			style={{
-				...type.faint,
-				color: color.accentInk,
-				backgroundColor: color.accentSoft,
-				borderRadius: radius.sm,
-				paddingHorizontal: 6,
-				paddingVertical: 1,
-				overflow: 'hidden',
-				fontSize: 11
-			}}
-		>
-			{label}
-		</Text>
 	);
 }

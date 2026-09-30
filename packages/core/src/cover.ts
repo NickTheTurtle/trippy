@@ -56,14 +56,46 @@ export interface Cover {
 	glyph: string;
 }
 
-export function coverArt(seed: string, category?: string | null): Cover {
+/**
+ * The same gradient as `coverArt`, as parts rather than CSS: the native client
+ * draws it with a gradient view that takes colours and an angle, not a string.
+ */
+export interface CoverGradient {
+	from: string;
+	to: string;
+	/** CSS convention: 0 points up, 90 points right. */
+	angle: number;
+}
+
+export function coverGradient(seed: string): CoverGradient {
 	const h = hash(seed || 'place');
-	const [a, b] = PALETTES[h % PALETTES.length];
-	const angle = 100 + ((h >> 8) % 80);
+	const [from, to] = PALETTES[h % PALETTES.length];
+	return { from, to, angle: 100 + ((h >> 8) % 80) };
+}
+
+export function coverGlyph(category?: string | null): string {
+	return GLYPHS[(category ?? '').trim().toLowerCase()] ?? '📍';
+}
+
+export function coverArt(seed: string, category?: string | null): Cover {
+	const { from, to, angle } = coverGradient(seed);
 	return {
-		background: `linear-gradient(${angle}deg, ${a}, ${b})`,
-		glyph: GLYPHS[(category ?? '').trim().toLowerCase()] ?? '📍'
+		background: `linear-gradient(${angle}deg, ${from}, ${to})`,
+		glyph: coverGlyph(category)
 	};
+}
+
+/**
+ * A stored two-stop `linear-gradient(<deg>, <from>, <to>)` (a trip's cover) as
+ * parts, or null for anything else. The web hands the string to CSS; the native
+ * client needs the colours and the angle separately.
+ */
+export function parseCoverGradient(css: string | null | undefined): CoverGradient | null {
+	const m =
+		/^\s*linear-gradient\(\s*(-?\d+(?:\.\d+)?)deg\s*,\s*(#[0-9a-f]{3,8})\s*,\s*(#[0-9a-f]{3,8})\s*\)\s*$/i.exec(
+			css ?? ''
+		);
+	return m ? { angle: Number(m[1]), from: m[2], to: m[3] } : null;
 }
 
 /**

@@ -3763,9 +3763,9 @@ separators, one green accent, and SF Symbol leading tiles with Ionicons as the A
 web fallback. The reason is that the feature-complete port had started to look assembled
 from bordered cards, chips and buttons. A phone screen needs fewer visual voices, so rows
 carry values and chevrons, groups carry the structure, and destructive work moves into red
-rows plus confirmations. Serif type remains available for auth and expressive owner-edited
-moments, but data screens use the system iOS scale so lists and sheets read like Home,
-Settings and Calendar rather than like a small web page.
+rows plus confirmations. Rows, fields, tabs and sheets use the system iOS scale so lists and
+sheets read like Home, Settings and Calendar rather than like a small web page; display
+titles are the exception and use the web's serif (see "Native follows web mobile" below).
 
 **Every native row shares one geometry.** The first device pass showed the grouped
 language in name only: a task's tick sat on the card's left edge, cost lines ran edge to
@@ -3817,6 +3817,34 @@ second footer toolbar. Destructive actions are not primary buttons. They are red
 the bottom of the sheet content, and still open a confirmation sheet before anything is
 removed. The web app keeps its own phone footer rule because it is a browser dialog system,
 not a native form sheet.
+
+**Native follows web mobile screen by screen, drawn in iOS idioms.** The owner's direction:
+sleek, minimal, Apple-like, and very similar to web mobile, differing only where the platform
+has its own answer (native navigation and tab bars instead of the web's top tabs, Apple Maps,
+sheets instead of dialogs, the system date and time pickers). The first native pass had kept
+the information but drawn it its own way, so the two read as different products: every
+place card had the same flat mint cover and pin, trips were settings rows, tasks listed all
+twenty names under each row, and no title used the web's face. Three shared pieces close
+most of that gap. Display text (large titles, the trip's name, trip cards, the schedule's
+date) is set in Fraunces, the face every web heading uses, loaded from
+`@expo-google-fonts/fraunces` and held at the root until ready so titles do not reflow;
+rows, fields, tabs and sheets keep the system font so the working surface stays native.
+`Cover` draws the web's card art: the photo, else the same deterministic gradient and
+faded category emoji, with the parts coming from `@trippy/core/cover` (`coverGradient`,
+`coverGlyph`, and `parseCoverGradient` for a trip's stored CSS cover) so both clients pick
+the same colours for the same place. `Avatar` and `Tag` are the web's person marks, one
+copy each instead of one per screen. `expo-linear-gradient` is an Expo Go SDK 57 native module,
+pinned to its bundled version; the font package is only font files and a hook, loaded
+through `expo-font`, which Expo Go ships. Schedule blocks take the web's fill too, their
+type colour at 10% over white, where every block had been the same mint.
+
+A task no longer lists everyone assigned to it. With twenty people the names ran to three
+lines under every row, so, as on the web, a task is one line: its box, its label, and a
+"13/20 done" button that opens a sheet of who has finished. Each tick there saves at once,
+so there is nothing to confirm and Cancel and Done both only close. The sheet's writes go
+out one at a time: the mutation does not queue, and two quick taps on one name, sent
+together, could reach the server in either order and leave the saved state opposite to
+the last tick shown.
 
 **A native large title needs four things, and had none.** On iPhone the Your Trips title
 vanished, collapsed at rest and jumped back. iOS tracks a large title against the scroll
@@ -3877,16 +3905,16 @@ refused swipe still arrives as a close request, so the sheet ignores the request
 while anything is running. Android and web keep the drawer sheet, with the confirmation
 replacing the edit sheet as before.
 
-**Native planning lists are grouped lists before they are cards.** Discover, Preparation
-and People use the same inset-section row system as Trips and Account rather than each
-feature inventing its own card stack. Discover keeps the existing city, type and vote model,
-but type is a segmented control and votes are trailing tinted pills so the place name and
-photo stay primary. Preparation keeps the same Tasks / Packing / Costs sections and budget
-math, but rows are grouped like Reminders and Settings so assignee progress reads as row
-metadata rather than as a cluster of badges. People keeps roster and crew behavior unchanged,
-with avatar initials and role/status metadata in the row instead of separate chips. This is
-not a new feature layer. It is the same data flow and live-update behavior drawn with one
-native hierarchy.
+**Native planning lists are grouped lists; the things you browse are cards.** Preparation,
+Expenses and People use the same inset-section row system as Account rather than each
+feature inventing its own card stack, while Your Trips and Discover are cards, as on the
+web, because a trip and a place are things you pick by eye and a cover is how you do that.
+Discover keeps the existing city, type and vote model; type is a segmented control and a
+card's footer is the web's: the vote pill, the open link and the edit pencil. Preparation
+keeps the same Tasks / Packing / Costs sections and budget math, with rows grouped like
+Reminders and Settings. People keeps roster and crew behavior unchanged, with the web's
+status tags (you, organizer, invited, sample) beside the name. This is not a new feature
+layer. It is the same data flow and live-update behavior drawn with one native hierarchy.
 
 **Native People keeps roster-owned edits separate from account-owned identities.** The
 organizer may create stand-ins, attach an invite email to them and remove non-organizers,
