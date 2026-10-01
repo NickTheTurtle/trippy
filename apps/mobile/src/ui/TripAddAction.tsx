@@ -1,14 +1,14 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useState, type ReactNode } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import { useFocusEffect } from 'expo-router';
 
 type AddAction = (() => void) | null;
-type AddActionContextValue = {
-	action: AddAction;
-	setAction: Dispatch<SetStateAction<AddAction>>;
-};
 
-const AddActionContext = createContext<AddActionContextValue | null>(null);
+// Two contexts: tabs only set the action, and the setter never changes, so a
+// new action (every tab switch, every schedule reload) redraws the button that
+// reads it and not every tab that sets one.
+const SetAddActionContext = createContext<Dispatch<SetStateAction<AddAction>> | null>(null);
+const AddActionContext = createContext<AddAction>(null);
 
 /**
  * What the trip's Add button does, set by whichever tab is showing: a place on
@@ -18,20 +18,23 @@ const AddActionContext = createContext<AddActionContextValue | null>(null);
  */
 export function TripAddActionProvider({ children }: { children: ReactNode }) {
 	const [action, setAction] = useState<AddAction>(null);
-	const value = useMemo(() => ({ action, setAction }), [action]);
-	return <AddActionContext.Provider value={value}>{children}</AddActionContext.Provider>;
+	return (
+		<SetAddActionContext.Provider value={setAction}>
+			<AddActionContext.Provider value={action}>{children}</AddActionContext.Provider>
+		</SetAddActionContext.Provider>
+	);
 }
 
 export function useTripAddAction(action: AddAction) {
-	const ctx = useContext(AddActionContext);
+	const setAction = useContext(SetAddActionContext);
 	useFocusEffect(
 		useCallback(() => {
-			ctx?.setAction(() => action);
-			return () => ctx?.setAction((cur) => (cur === action ? null : cur));
-		}, [ctx, action])
+			setAction?.(() => action);
+			return () => setAction?.((cur) => (cur === action ? null : cur));
+		}, [setAction, action])
 	);
 }
 
 export function useCurrentTripAddAction(): AddAction {
-	return useContext(AddActionContext)?.action ?? null;
+	return useContext(AddActionContext);
 }
