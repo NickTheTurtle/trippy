@@ -14,19 +14,23 @@ import {
 	FormError,
 	GroupedRow,
 	InsetSection,
-	ListRow,
 	Loading,
 	Screen
 } from '../../../src/ui';
 import { SegmentedControl } from '../../../src/ui/controls';
+import { PullDown } from '../../../src/ui/PullDown';
+import {
+	viewAsAccessibilityLabel,
+	viewAsButtonLabel,
+	viewAsChoices
+} from '../../../src/lib/viewAs';
 import { ExpenseSheet, PaymentSheet } from '../../../src/screens/ExpenseSheet';
 import type { Expense, ExpensesData, Transfer } from '../../../src/screens/ExpenseSheet';
-import { useTripHeaderAction } from '../../../src/ui/TripHeaderAction';
+import { useTripAddAction } from '../../../src/ui/TripAddAction';
 import { AppSymbol } from '../../../src/ui/Symbol';
-import { Sheet } from '../../../src/ui/Sheet';
 import { Avatar, Tag } from '../../../src/ui/marks';
 import { color, rowInset, space, type } from '../../../src/theme';
-import { lazyTab } from '../../../src/ui/nativeTabs';
+import { tripTab } from '../../../src/ui/nativeTabs';
 
 const SECTIONS = ['expenses', 'balances', 'settle'] as const;
 type Section = (typeof SECTIONS)[number];
@@ -40,7 +44,7 @@ function netFor(expense: Expense, userId: string): number {
 	return (expense.payer_id === userId ? expense.home_cents : 0) - (expense.shares[userId] ?? 0);
 }
 
-export default lazyTab(Expenses);
+export default tripTab(Expenses);
 
 function Expenses() {
 	const tripId = useTripId();
@@ -52,11 +56,10 @@ function Expenses() {
 	const [adding, setAdding] = useState(false);
 	const [payment, setPayment] = useState<Expense | null>(null);
 	const [viewAs, setViewAs] = useState('');
-	const [viewAsOpen, setViewAsOpen] = useState(false);
 	const settleBusy = useRef(new Set<string>());
 	const [settleNonce, setSettleNonce] = useState(0);
 	const addExpenseAction = useCallback(() => setAdding(true), []);
-	useTripHeaderAction(data && section === 'expenses' ? addExpenseAction : null);
+	useTripAddAction(data && section === 'expenses' ? addExpenseAction : null);
 
 	const settle = useMutation(
 		async (transfer: Transfer) => {
@@ -137,32 +140,34 @@ function Expenses() {
 						{data.expenses.length > 0 ? (
 							<InsetSection>
 								<View style={styles.stats}>
-									<View style={{ flex: 1, gap: 2 }}>
+									<View style={styles.stat}>
 										<Text style={type.footnote}>{copy.expenses.tripTotal}</Text>
-										<Text style={type.title3}>{fmt(spent)}</Text>
+										<Text style={type.title3} numberOfLines={1} adjustsFontSizeToFit>
+											{fmt(spent)}
+										</Text>
 									</View>
-									<View style={{ flex: 1, gap: 2 }}>
-										<Text style={type.footnote}>
+									<View style={styles.stat}>
+										<Text style={type.footnote} numberOfLines={1}>
 											{viewAs ? shareLabel(data.members, viewAs, data.me) : copy.expenses.perPerson}
 										</Text>
-										<Text style={type.title3}>{fmt(viewAs ? mine : perPerson)}</Text>
+										<Text style={type.title3} numberOfLines={1} adjustsFontSizeToFit>
+											{fmt(viewAs ? mine : perPerson)}
+										</Text>
 									</View>
+									{/* Beside the figure it changes: reading as one person turns
+									    Per person into their share and filters the ledger below. */}
+									{data.members.length >= 2 ? (
+										<PullDown
+											variant="pill"
+											label={viewAsButtonLabel(viewAs, data.members, data.me)}
+											accessibilityLabel={viewAsAccessibilityLabel(viewAs, data.members, data.me)}
+											title={copy.viewAs.label}
+											options={viewAsChoices(data.members, data.me)}
+											value={viewAs}
+											onPick={setViewAs}
+										/>
+									) : null}
 								</View>
-							</InsetSection>
-						) : null}
-						{data.expenses.length > 0 && data.members.length >= 2 ? (
-							<InsetSection>
-								<ListRow
-									title={copy.viewAs.label}
-									value={
-										viewAs
-											? (data.members.find((member) => member.id === viewAs)?.name ??
-												shareLabel(data.members, viewAs, data.me))
-											: copy.viewAs.everyone
-									}
-									onPress={() => setViewAsOpen(true)}
-									last
-								/>
 							</InsetSection>
 						) : null}
 						{shown.length === 0 ? (
@@ -274,17 +279,6 @@ function Expenses() {
 					}}
 				/>
 			) : null}
-			<ViewAsSheet
-				open={viewAsOpen}
-				members={data.members}
-				me={data.me}
-				value={viewAs}
-				onClose={() => setViewAsOpen(false)}
-				onPick={(value) => {
-					setViewAs(value);
-					setViewAsOpen(false);
-				}}
-			/>
 		</>
 	);
 }
@@ -384,45 +378,6 @@ function ExpenseLine({
 				</Text>
 			)}
 		</GroupedRow>
-	);
-}
-
-function ViewAsSheet({
-	open,
-	members,
-	me,
-	value,
-	onClose,
-	onPick
-}: {
-	open: boolean;
-	members: { id: string; name: string }[];
-	me: string;
-	value: string;
-	onClose: () => void;
-	onPick: (value: string) => void;
-}) {
-	return (
-		<Sheet open={open} title={copy.viewAs.label} onClose={onClose}>
-			<InsetSection>
-				{[
-					{ key: '', label: copy.viewAs.everyone },
-					...members.map((m) => ({
-						key: m.id,
-						label: m.name + (m.id === me ? copy.preparation.youSuffix : '')
-					}))
-				].map((option, index, options) => (
-					<ListRow
-						key={option.key}
-						title={option.label}
-						accessory={option.key === value ? 'checkmark' : 'none'}
-						accessibilityState={{ selected: option.key === value }}
-						onPress={() => onPick(option.key)}
-						last={index === options.length - 1}
-					/>
-				))}
-			</InsetSection>
-		</Sheet>
 	);
 }
 
@@ -527,9 +482,11 @@ function TransferRow({
 }
 
 const styles = StyleSheet.create({
+	stat: { flex: 1, gap: 2, minWidth: 0 },
 	stats: {
-		flexDirection: 'row',
-		gap: space.lg,
+		flexDirection: 'row' as const,
+		alignItems: 'center' as const,
+		gap: space.md,
 		paddingHorizontal: rowInset,
 		paddingVertical: space.md
 	},

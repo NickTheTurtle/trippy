@@ -5,7 +5,7 @@ import { useTripId } from '../../../src/trip-id';
 import { useApi } from '../../../src/hooks/useApi';
 import { useLiveSection } from '../../../src/hooks/useTripEvents';
 import { useToast } from '../../../src/ui/Toast';
-import { useTripHeaderAction } from '../../../src/ui/TripHeaderAction';
+import { useTripAddAction } from '../../../src/ui/TripAddAction';
 import {
 	Button,
 	EmptyState,
@@ -26,13 +26,13 @@ import {
 	type Crew,
 	type Person
 } from '../../../src/screens/PeopleSheets';
-import { lazyTab } from '../../../src/ui/nativeTabs';
+import { tripTab } from '../../../src/ui/nativeTabs';
 
 type Data = { me: string; organizer: boolean; people: Person[]; crews: Crew[] };
 const SECTIONS = ['members', 'crews'] as const;
 type Section = (typeof SECTIONS)[number];
 
-export default lazyTab(People);
+export default tripTab(People);
 
 function People() {
 	const tripId = useTripId();
@@ -48,7 +48,7 @@ function People() {
 		if (section === 'crews') setCrewDraft(null);
 		else if (data?.organizer) setAdding(true);
 	}, [data?.organizer, section]);
-	useTripHeaderAction(canAdd ? headerAction : null);
+	useTripAddAction(canAdd ? headerAction : null);
 
 	useEffect(() => {
 		if (error) toast.error(error);

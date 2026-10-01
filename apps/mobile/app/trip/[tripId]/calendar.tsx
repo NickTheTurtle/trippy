@@ -15,13 +15,16 @@ import {
 	Loading,
 	Screen
 } from '../../../src/ui';
-import { DateField, SegmentedControl } from '../../../src/ui/controls';
+import { SegmentedControl } from '../../../src/ui/controls';
+import { PullDown } from '../../../src/ui/PullDown';
+import { DayTitle } from '../../../src/screens/schedule/DayTitle';
+import { viewAsAccessibilityLabel, viewAsButtonLabel } from '../../../src/lib/viewAs';
 import { Sheet } from '../../../src/ui/Sheet';
-import { useTripHeaderAction } from '../../../src/ui/TripHeaderAction';
+import { useTripAddAction } from '../../../src/ui/TripAddAction';
 import { useSheetHandoff } from '../../../src/ui/useSheetHandoff';
 import { showActionMenu } from '../../../src/ui/actionMenu';
 import { AppSymbol } from '../../../src/ui/Symbol';
-import { color, displayType, radius, space, type } from '../../../src/theme';
+import { color, radius, space, type } from '../../../src/theme';
 import { DayBoard } from '../../../src/screens/schedule/DayBoard';
 import { DayMap } from '../../../src/screens/schedule/DayMap';
 import { EventSheet } from '../../../src/screens/schedule/EventSheet';
@@ -34,11 +37,11 @@ import {
 	typeLabel
 } from '../../../src/screens/schedule/shared';
 import type { BoardDay, EventRow, LegRow, ScheduleData } from '../../../src/screens/schedule/types';
-import { lazyTab } from '../../../src/ui/nativeTabs';
+import { tripTab } from '../../../src/ui/nativeTabs';
 
 type TripData = { trip: { schedule_locked: number } };
 
-export default lazyTab(Calendar);
+export default tripTab(Calendar);
 
 function Calendar() {
 	const tripId = useTripId();
@@ -58,8 +61,6 @@ function Calendar() {
 	const [mapFocusId, setMapFocusId] = useState<string | null>(null);
 	const [mapFocusKey, setMapFocusKey] = useState(0);
 	const [addMenuOpen, setAddMenuOpen] = useState(false);
-	const [jumpOpen, setJumpOpen] = useState(false);
-	const [viewAsOpen, setViewAsOpen] = useState(false);
 	const openedRef = useRef<ScheduleData | null>(null);
 	openedRef.current = data;
 	const memberName = useMemo(
@@ -101,7 +102,7 @@ function Calendar() {
 		]);
 		if (!shown) setAddMenuOpen(true);
 	}, [data, locked]);
-	useTripHeaderAction(!locked && data ? headerAdd : null);
+	useTripAddAction(!locked && data ? headerAdd : null);
 	const addHandoff = useSheetHandoff({
 		event: () => data && setAdding({ day: data.day }),
 		stay: () => data && setAdding({ day: data.day, type: 'stay' })
@@ -116,6 +117,8 @@ function Calendar() {
 			</Screen>
 		);
 	}
+
+	const viewAsLabel = viewAsButtonLabel(schedule.readAs, data.members, data.me);
 
 	const refresh = () => {
 		schedule.reload();
@@ -141,7 +144,13 @@ function Calendar() {
 							onPress={schedule.stepPrev}
 						/>
 						<View style={{ flex: 1, alignItems: 'center' }}>
-							<Text style={displayType.title2}>{dayLabel(data.day)}</Text>
+							<DayTitle
+								day={data.day}
+								days={data.days}
+								firstDay={data.firstDay}
+								lastDay={data.lastDay}
+								onPick={schedule.setDay}
+							/>
 							<Text style={type.faint}>
 								{[
 									!data.prevDay ? copy.schedule.mobile.firstDay : null,
@@ -159,30 +168,36 @@ function Calendar() {
 							onPress={schedule.stepNext}
 						/>
 					</View>
-					<SegmentedControl
-						items={[
-							{ key: 'day', label: copy.schedule.views.day },
-							{ key: 'agenda', label: copy.schedule.views.agenda }
-						]}
-						active={schedule.view}
-						onPick={(view) => schedule.setView(view as 'day' | 'agenda')}
-					/>
-					<InsetSection>
-						<ListRow
-							title={copy.schedule.nav.jumpToDate}
-							value={dayLabel(data.day)}
-							onPress={() => setJumpOpen(true)}
-						/>
-						<ListRow
-							title={copy.viewAs.label}
-							value={
-								schedule.viewAsOptions.find((option) => option.key === schedule.readAs)?.label ??
-								copy.viewAs.everyone
-							}
-							onPress={() => setViewAsOpen(true)}
-							last
-						/>
-					</InsetSection>
+					<View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+						<View style={{ flex: 1 }}>
+							<SegmentedControl
+								items={[
+									{ key: 'day', label: copy.schedule.views.day },
+									{ key: 'agenda', label: copy.schedule.views.agenda }
+								]}
+								active={schedule.view}
+								onPick={(view) => schedule.setView(view as 'day' | 'agenda')}
+							/>
+						</View>
+						{schedule.viewAsOptions.length > 1 ? (
+							<PullDown
+								variant="pill"
+								title={copy.viewAs.label}
+								label={viewAsLabel}
+								accessibilityLabel={viewAsAccessibilityLabel(
+									schedule.readAs,
+									data.members,
+									data.me
+								)}
+								options={schedule.viewAsOptions.map((option) => ({
+									key: option.key,
+									label: option.warn ? `${option.label} (!)` : option.label
+								}))}
+								value={schedule.readAs}
+								onPick={schedule.setViewAs}
+							/>
+						) : null}
+					</View>
 					{locked ? (
 						<Text style={{ ...type.footnote, color: color.warn, marginHorizontal: space.lg }}>
 							{copy.schedule.lock.hint}
@@ -311,32 +326,6 @@ function Calendar() {
 				onEvent={() => addHandoff.queue('event', () => setAddMenuOpen(false))}
 				onStay={() => addHandoff.queue('stay', () => setAddMenuOpen(false))}
 			/>
-			<JumpSheet
-				open={jumpOpen}
-				value={data.day}
-				days={data.days}
-				firstDay={data.firstDay}
-				lastDay={data.lastDay}
-				onClose={() => setJumpOpen(false)}
-				onPick={(next) => {
-					schedule.setDay(next);
-					setJumpOpen(false);
-				}}
-			/>
-			<OptionSheet
-				open={viewAsOpen}
-				title={copy.viewAs.label}
-				value={schedule.readAs}
-				options={schedule.viewAsOptions.map((option) => ({
-					key: option.key,
-					label: option.warn ? `${option.label} (!)` : option.label
-				}))}
-				onClose={() => setViewAsOpen(false)}
-				onPick={(next) => {
-					schedule.setViewAs(next);
-					setViewAsOpen(false);
-				}}
-			/>
 		</>
 	);
 }
@@ -407,85 +396,6 @@ function AddMenuSheet({
 					onPress={onStay}
 					last
 				/>
-			</InsetSection>
-		</Sheet>
-	);
-}
-
-function JumpSheet({
-	open,
-	value,
-	days,
-	firstDay,
-	lastDay,
-	onClose,
-	onPick
-}: {
-	open: boolean;
-	value: string;
-	days: string[];
-	firstDay: string;
-	lastDay: string;
-	onClose: () => void;
-	onPick: (day: string) => void;
-}) {
-	const [draft, setDraft] = useState(value);
-	useEffect(() => {
-		if (open) setDraft(value);
-	}, [open, value]);
-	return (
-		<Sheet
-			open={open}
-			title={copy.schedule.nav.jumpToDate}
-			onClose={onClose}
-			onPrimary={() => onPick(draft)}
-			primaryLabel={copy.common.save}
-			// Only a day the trip offers can be jumped to, and Save says so by
-			// being unavailable rather than by closing without a word.
-			primaryDisabled={!days.includes(draft)}
-		>
-			<InsetSection>
-				<DateField
-					label={copy.schedule.fields.date}
-					value={draft}
-					onChange={setDraft}
-					minimum={firstDay}
-					maximum={lastDay}
-					last
-				/>
-			</InsetSection>
-		</Sheet>
-	);
-}
-
-function OptionSheet({
-	open,
-	title,
-	value,
-	options,
-	onClose,
-	onPick
-}: {
-	open: boolean;
-	title: string;
-	value: string;
-	options: { key: string; label: string }[];
-	onClose: () => void;
-	onPick: (key: string) => void;
-}) {
-	return (
-		<Sheet open={open} title={title} onClose={onClose}>
-			<InsetSection>
-				{options.map((option, index) => (
-					<ListRow
-						key={option.key}
-						title={option.label}
-						accessory={option.key === value ? 'checkmark' : 'none'}
-						accessibilityState={{ selected: option.key === value }}
-						onPress={() => onPick(option.key)}
-						last={index === options.length - 1}
-					/>
-				))}
 			</InsetSection>
 		</Sheet>
 	);

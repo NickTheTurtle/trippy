@@ -1,4 +1,4 @@
-import { forwardRef } from 'react';
+import { forwardRef, useContext } from 'react';
 import type { ElementRef, ReactNode } from 'react';
 import {
 	ActivityIndicator,
@@ -39,6 +39,7 @@ import {
 import { EmptyMark } from './EmptyMark';
 import { LiveOff } from './LiveOff';
 import { useInNativeTabs } from './nativeTabs';
+import { FabClearanceContext, fabClearance } from './Fab';
 import { AppSymbol, type AppSymbolName } from './Symbol';
 
 type SymbolSpec = {
@@ -261,6 +262,7 @@ export function Screen({
 }) {
 	const insets = useSafeAreaInsets();
 	const inTabs = useInNativeTabs();
+	const fab = useContext(FabClearanceContext);
 	const content = (
 		<>
 			<LiveOff />
@@ -279,6 +281,8 @@ export function Screen({
 				// large title collapsed. Under a native large title, short content
 				// keeps its own height and bounces back, so the title re-expands.
 				nativeLargeTitle && Platform.OS === 'ios' && { flexGrow: 0 },
+				// Room for the last row to scroll clear of the floating Add button.
+				fab && { paddingBottom: space.xxl + fabClearance },
 				(safeTop || topOffset > 0) && {
 					paddingTop: (safeTop ? insets.top + space.lg : space.lg) + topOffset
 				}

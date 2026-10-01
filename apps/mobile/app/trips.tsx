@@ -6,7 +6,7 @@ import { parseCoverGradient } from '@trippy/core/cover';
 import { useAuth } from '../src/auth';
 import { useApi } from '../src/hooks/useApi';
 import { EmptyState, FormError, Loading, Screen } from '../src/ui';
-import { AppSymbol } from '../src/ui/Symbol';
+import { Fab, FabClearanceContext, useFabOffset } from '../src/ui/Fab';
 import { EmptyMark } from '../src/ui/EmptyMark';
 import { AccountMenu } from '../src/ui/AccountMenu';
 import { Cover } from '../src/ui/Cover';
@@ -42,6 +42,7 @@ export default function Trips() {
 	const { user, loading: authLoading } = useAuth();
 	const { data, error, loading, reload } = useApi<{ trips: Trip[] }>(user ? '/trips' : null);
 	const [creating, setCreating] = useState(false);
+	const fabOffset = useFabOffset(true);
 
 	if (authLoading) return <Loading />;
 	if (!user) return <Redirect href={{ pathname: '/login', params: { next: '/trips' } }} />;
@@ -56,58 +57,46 @@ export default function Trips() {
 					headerLargeTitle: true,
 					headerStyle: largeTitleHeaderStyle,
 					headerRight: () => (
-						<View
-							style={{
-								flexDirection: 'row',
-								alignItems: 'center',
-								gap: space.lg,
-								marginRight: headerEdge
-							}}
-						>
-							<Pressable
-								accessibilityRole="button"
-								accessibilityLabel={copy.common.add}
-								onPress={() => setCreating(true)}
-								hitSlop={10}
-							>
-								<AppSymbol name="plus" fallback="add" size={22} color={color.accent} />
-							</Pressable>
+						<View style={{ marginRight: headerEdge }}>
 							<AccountMenu />
 						</View>
 					)
 				}}
 			/>
-			<Screen
-				nativeLargeTitle
-				largeTitle={Platform.OS === 'web' ? copy.trips.heading : undefined}
-				refreshControl={<RefreshControl refreshing={loading && !!data} onRefresh={reload} />}
-			>
-				{error ? <FormError message={error} /> : null}
-				{loading && !data ? (
-					<Loading />
-				) : trips.length === 0 ? (
-					<EmptyState graphic message={copy.common.nothingAdded} />
-				) : (
-					<>
-						{/* Its own stack: the screen spaces blocks 24pt apart, and cards
+			<FabClearanceContext.Provider value>
+				<Screen
+					nativeLargeTitle
+					largeTitle={Platform.OS === 'web' ? copy.trips.heading : undefined}
+					refreshControl={<RefreshControl refreshing={loading && !!data} onRefresh={reload} />}
+				>
+					{error ? <FormError message={error} /> : null}
+					{loading && !data ? (
+						<Loading />
+					) : trips.length === 0 ? (
+						<EmptyState graphic message={copy.common.nothingAdded} />
+					) : (
+						<>
+							{/* Its own stack: the screen spaces blocks 24pt apart, and cards
 						    that far apart read as unrelated rather than as one list. */}
-						<View style={{ gap: space.lg }}>
-							{trips.map((trip) => (
-								<TripCard key={trip.id} trip={trip} />
-							))}
-						</View>
-						{/* A lone card leaves the lower half of the phone bare, which read
+							<View style={{ gap: space.lg }}>
+								{trips.map((trip) => (
+									<TripCard key={trip.id} trip={trip} />
+								))}
+							</View>
+							{/* A lone card leaves the lower half of the phone bare, which read
 						    as unfinished. The fly fills that space, with no caption since
 						    the list is not empty. Cards are about 280pt tall, so two
 						    already fill most of the screen and do not need it. */}
-						{trips.length < SPARSE_TRIPS ? (
-							<View style={styles.sparse}>
-								<EmptyMark />
-							</View>
-						) : null}
-					</>
-				)}
-			</Screen>
+							{trips.length < SPARSE_TRIPS ? (
+								<View style={styles.sparse}>
+									<EmptyMark />
+								</View>
+							) : null}
+						</>
+					)}
+				</Screen>
+			</FabClearanceContext.Provider>
+			<Fab onPress={() => setCreating(true)} offset={fabOffset} />
 			<NewTrip
 				open={creating}
 				onClose={() => setCreating(false)}

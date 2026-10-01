@@ -3779,8 +3779,7 @@ body rather than the row, so it starts where the text does, as iOS draws it. `Li
 it; the four copies of the checklist row that had drifted apart are one shared control.
 Blocks on a screen sit 24pt apart (`blockGap`) rather than 16, because a section header
 16pt under the card above reads as belonging to that card. Segmented controls sit on the
-page rather than inside a white card, and the View as chips scroll to the screen edge
-rather than being cut off inside a card, both because that is where iOS puts them.
+page rather than inside a white card, because that is where iOS puts them.
 
 **A native empty state is a calm page, not a small white box.** An empty tab used to draw
 a white card with "Nothing added yet" in it, which on an otherwise blank phone screen
@@ -3875,7 +3874,7 @@ forms stay solid, as Apple's own apps keep them. Android and web keep the JavaSc
 Native tabs brought four consequences, each handled where it arises. They mount every tab
 as soon as the trip opens, which was five fetches, five live subscriptions and the Schedule
 tab's paid routing lookups on every visit, so each tab's content mounts on first focus
-(`lazyTab`), as the JavaScript tabs already did. They inset only the scroll view present
+(`tripTab`), as the JavaScript tabs already did. They inset only the scroll view present
 when a tab first mounts, which is the loading state, so `Screen` asks for the automatic
 inset itself inside them (`NativeTabsContext`) and nowhere else. They cannot show the
 trip's hidden index route, so a system link to a bare `/trip/{id}` is rewritten to its
@@ -3904,6 +3903,41 @@ the action sheet that asked has gone and nothing else says the delete is in flig
 refused swipe still arrives as a close request, so the sheet ignores the request itself
 while anything is running. Android and web keep the drawer sheet, with the confirmation
 replacing the edit sheet as before.
+
+**Add is one fixed floating button; choices are menus; the date opens a calendar.** The
+header's + sat among the trip's other bar buttons, small and far from the thumb, and its
+meaning changed with the tab. Add is now a round button at the bottom right of Your Trips
+and of every trip tab (`Fab`, rendered by `tripTab` from the tab's `useTripAddAction`). It
+never moves: inside iOS native tabs the safe-area bottom includes the floating tab bar and
+shrinks as the bar minimizes on scroll, so the button latches the largest inset it has seen
+rather than riding the bar up and down. It is glass tinted with the accent where Liquid
+Glass exists and a solid accent disc elsewhere, and `Screen` pads its content by the
+button's height so the last row can scroll clear of it. Three controls that had grown
+their own shapes became the system's. The city on Discover is the page's heading and a
+pull-down menu ("Athens" with a chevron, as Photos titles a library): the cities with a
+checkmark on the current one, then Add, Edit and Delete city for organizers, where a
+scrolling chip strip had hidden cities off the edge and put their commands elsewhere.
+View as is a small capsule pull-down that says who (Everyone, You, or a first name, with
+the full name in the menu and in its accessible name); on Schedule it sits beside the
+Day and Agenda control, and on Expenses and Costs it sits in the totals card, beside the
+figure it changes, so the section control above keeps its width as sections change. And
+the schedule's date is the jump: tapping it opens the system calendar in a popover
+spanning the trip's dates (a date with no trip day, which a stranded event on a shortened
+trip can leave, is refused and the picker returns to the current day), with the arrows
+either side still stepping one day. These use
+SwiftUI through `@expo/ui` (Expo Go SDK 57 ships it; pinned to its bundled 57.0.18), so
+the menu, the capsule and the calendar are UIKit's own and pick up Liquid Glass. The
+package registers its native views when imported, which crashes a client without the
+module, so it is required lazily from `.ios.tsx` files only, behind `hasSwiftUI`; Android,
+web and such a client get the same trigger opening a sheet of choices. SwiftUI names a font
+by its PostScript name, so the serif is `Fraunces-SemiBold` there, not the React Native
+alias. Segment labels are the short ones a phone has room for: Tasks, Packing, Costs, and
+All, Sights, Food, Stays, where the long web labels were squeezed until they truncated;
+the same short type names label the place sheet's type control, so a place is called the
+same thing where it is filtered and where it is edited. The pull-down's title host takes
+its width from the row, not from its text, so a long city or a large text size truncates
+the name before the chevron rather than pushing it off the screen; the View as capsule
+cuts a long first name for the same reason.
 
 **Native planning lists are grouped lists; the things you browse are cards.** Preparation,
 Expenses and People use the same inset-section row system as Account rather than each
@@ -3935,10 +3969,11 @@ helpers therefore live in `@trippy/core/pretrip-shares` rather than being copied
 native screen; the web file remains a shim so existing imports keep working.
 
 **Native Discover keeps the web's list model and stays list-first.** Cities stay
-the standing axis, filters stay All / Attractions / Food & Drinks / Stays, and one
+the standing axis, filters stay the web's four (on a phone labelled All / Sights / Food /
+Stays), and one
 vote-sorted list mixes stays and places with stays first on ties just like web. The native
-screen uses horizontal city chips instead of the web sidebar because a permanent side rail
-would consume the whole phone width. The web no longer has a Discover map, so native does
+screen makes the city its heading and a menu instead of the web sidebar, because a
+permanent side rail would consume the whole phone width. The web no longer has a Discover map, so native does
 not add one either; Schedule is the map-owning surface.
 
 **Native cover photos go through the same proxy when they are used.** A stored Google photo
