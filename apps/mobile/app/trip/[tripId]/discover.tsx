@@ -11,22 +11,12 @@ import { useApi } from '../../../src/hooks/useApi';
 import { useMutation } from '../../../src/hooks/useMutation';
 import { useLiveSection } from '../../../src/hooks/useTripEvents';
 import { useToast } from '../../../src/ui/Toast';
-import {
-	Button,
-	EmptyState,
-	FormError,
-	InsetSection,
-	ListRow,
-	Loading,
-	Screen,
-	SectionHeader
-} from '../../../src/ui';
+import { Button, EmptyState, FormError, Loading, Screen } from '../../../src/ui';
 import { SegmentedControl } from '../../../src/ui/controls';
+import { PullDown, type PullDownAction } from '../../../src/ui/PullDown';
 import { color, radius, space, type } from '../../../src/theme';
 import { AppSymbol } from '../../../src/ui/Symbol';
-import { Sheet } from '../../../src/ui/Sheet';
-import { useTripHeaderAction } from '../../../src/ui/TripHeaderAction';
-import { useSheetHandoff } from '../../../src/ui/useSheetHandoff';
+import { useTripAddAction } from '../../../src/ui/TripAddAction';
 import { Cover } from '../../../src/ui/Cover';
 import {
 	CitySheet,
@@ -39,7 +29,7 @@ import {
 	EditStaySheet
 } from '../../../src/screens/discover/PlaceSheets';
 import { useDiscoverVotes } from '../../../src/screens/discover/useDiscoverVotes';
-import { lazyTab } from '../../../src/ui/nativeTabs';
+import { tripTab } from '../../../src/ui/nativeTabs';
 
 type TripData = {
 	trip: {
@@ -67,7 +57,7 @@ type VotedStay = Stay & { voteBusy?: boolean; voteLocked?: boolean };
 type GridItem =
 	{ key: string; votes: number; stay: VotedStay } | { key: string; votes: number; poi: VotedPoi };
 
-export default lazyTab(Discover);
+export default tripTab(Discover);
 
 function Discover() {
 	const tripId = useTripId();
@@ -117,7 +107,7 @@ function Discover() {
 	}, [cities, cityId]);
 	const canAddDiscover = !!data && !!current;
 	const addDiscoverAction = useCallback(() => setAdding(true), []);
-	useTripHeaderAction(canAddDiscover ? addDiscoverAction : null);
+	useTripAddAction(canAddDiscover ? addDiscoverAction : null);
 	useEffect(() => {
 		if (!canAddDiscover && adding) setAdding(false);
 	}, [adding, canAddDiscover]);
@@ -214,38 +204,69 @@ function Discover() {
 		...cityPlaces.map((poi) => ({ key: `poi:${poi.id}`, votes: poi.votes, poi }))
 	].sort((a, b) => b.votes - a.votes);
 
-	const rows = cities.map((city) => {
-		const places =
-			filter === STAY ? 0 : city.pois.filter((poi) => filter === ALL || poi.kind === filter).length;
-		const stays = showStays ? (data.stays[city.id]?.length ?? 0) : 0;
-		return { city, badge: places + stays };
-	});
+	const cityName = (city: TripCity) =>
+		copy.discover.cityList.cityLabel(city.name, ambiguous.has(city.id) ? city.region : null);
+	// Adding, editing and removing cities is the organizer's; a member's menu
+	// only switches city.
+	const cityActions: PullDownAction[] = isOrganizer
+		? [
+				{
+					key: 'add',
+					label: copy.discover.cityList.addCity,
+					symbol: 'plus',
+					fallback: 'add',
+					onPress: () => setCitySheet('add')
+				},
+				{
+					key: 'edit',
+					label: copy.mobileDiscover.editCityButton,
+					symbol: 'pencil',
+					fallback: 'pencil-outline',
+					onPress: () => setCitySheet(current)
+				},
+				...(cities.length > 1
+					? [
+							{
+								key: 'delete',
+								label: copy.mobileDiscover.deleteCityButton,
+								symbol: 'trash',
+								fallback: 'trash-outline' as const,
+								destructive: true,
+								onPress: () => setDeleteCity(current)
+							}
+						]
+					: [])
+			]
+		: [];
 
 	return (
 		<>
 			<Screen refreshControl={<RefreshControl refreshing={loading && !!data} onRefresh={reload} />}>
 				{error ? <FormError message={error} /> : null}
 
-				<CityStrip
-					rows={rows.map(({ city, badge }) => ({
-						id: city.id,
-						name: city.name,
-						region: ambiguous.has(city.id) ? city.region : null,
-						badge
-					}))}
-					active={current.id}
-					isOrganizer={isOrganizer}
-					canDelete={cities.length > 1}
+				{/* The city is the page's heading and its switch, as Photos heads its
+				    library: pressing it opens the cities, the current one ticked,
+				    with adding and editing below them. */}
+				<PullDown
+					variant="title"
+					label={cityName(current)}
+					accessibilityLabel={copy.mobileDiscover.cityMenuLabel(cityName(current))}
+					title={copy.discover.cityList.navLabel}
+					options={cities.map((city) => ({ key: city.id, label: cityName(city) }))}
+					value={current.id}
 					onPick={setCityId}
-					onAdd={() => setCitySheet('add')}
-					onEdit={() => setCitySheet(current)}
-					onDelete={() => setDeleteCity(current)}
+					actions={cityActions}
 				/>
 
 				<SegmentedControl
 					items={FILTERS.map((f) => ({
 						key: f.key,
-						label: f.key === 'food' ? copy.mobileDiscover.shortTypes.food : f.label
+						label:
+							f.key === 'food'
+								? copy.mobileDiscover.shortTypes.food
+								: f.key === 'attraction'
+									? copy.mobileDiscover.shortTypes.attraction
+									: f.label
 					}))}
 					active={filter}
 					onPick={(key) => setFilter(key as Filter)}
@@ -254,36 +275,28 @@ function Discover() {
 				{items.length === 0 ? (
 					<EmptyState graphic message={copy.common.nothingAdded} />
 				) : (
-					<View style={{ gap: 7 }}>
-						<SectionHeader>
-							{copy.discover.cityList.cityLabel(
-								current.name,
-								ambiguous.has(current.id) ? current.region : null
-							)}
-						</SectionHeader>
-						<View style={{ gap: space.md }}>
-							{items.map((item) =>
-								'stay' in item ? (
-									<StayCard
-										key={item.key}
-										stay={item.stay}
-										currency={data.currency}
-										pct={pct(item.stay.votes, data.memberCount)}
-										onEdit={() => setEditStay(item.stay)}
-										onVote={() => votes.toggleStay(current.id, item.stay)}
-									/>
-								) : (
-									<PlaceCard
-										key={item.key}
-										poi={item.poi}
-										tz={current.tz}
-										pct={pct(item.poi.votes, data.memberCount)}
-										onEdit={() => setEditPoi(item.poi)}
-										onVote={() => votes.togglePlace(item.poi)}
-									/>
-								)
-							)}
-						</View>
+					<View style={{ gap: space.md }}>
+						{items.map((item) =>
+							'stay' in item ? (
+								<StayCard
+									key={item.key}
+									stay={item.stay}
+									currency={data.currency}
+									pct={pct(item.stay.votes, data.memberCount)}
+									onEdit={() => setEditStay(item.stay)}
+									onVote={() => votes.toggleStay(current.id, item.stay)}
+								/>
+							) : (
+								<PlaceCard
+									key={item.key}
+									poi={item.poi}
+									tz={current.tz}
+									pct={pct(item.poi.votes, data.memberCount)}
+									onEdit={() => setEditPoi(item.poi)}
+									onVote={() => votes.togglePlace(item.poi)}
+								/>
+							)
+						)}
 					</View>
 				)}
 			</Screen>
@@ -364,96 +377,6 @@ function Discover() {
 					}}
 				/>
 			) : null}
-		</>
-	);
-}
-
-function CityStrip({
-	rows,
-	active,
-	isOrganizer,
-	canDelete,
-	onPick,
-	onAdd,
-	onEdit,
-	onDelete
-}: {
-	rows: { id: string; name: string; region?: string | null; badge: number }[];
-	active: string;
-	isOrganizer: boolean;
-	canDelete: boolean;
-	onPick: (id: string) => void;
-	onAdd: () => void;
-	onEdit: () => void;
-	onDelete: () => void;
-}) {
-	const [open, setOpen] = useState(false);
-	const current = rows.find((row) => row.id === active) ?? rows[0];
-	const handoff = useSheetHandoff({
-		add: onAdd,
-		edit: onEdit,
-		delete: onDelete
-	});
-	return (
-		<>
-			<InsetSection>
-				<ListRow
-					title={current?.name ?? copy.discover.cityList.navLabel}
-					subtitle={current?.region ?? null}
-					value={current?.badge ? String(current.badge) : undefined}
-					symbol={{ name: 'mappin.and.ellipse', fallback: 'location-outline' }}
-					onPress={() => setOpen(true)}
-					last
-				/>
-			</InsetSection>
-			<Sheet
-				open={open}
-				title={copy.discover.cityList.navLabel}
-				onClose={() => setOpen(false)}
-				onDismiss={handoff.flush}
-			>
-				<InsetSection>
-					{rows.map((row, index) => (
-						<ListRow
-							key={row.id}
-							title={row.name}
-							subtitle={row.region ?? null}
-							value={row.badge ? String(row.badge) : undefined}
-							accessory={row.id === active ? 'checkmark' : 'none'}
-							accessibilityState={{ selected: row.id === active }}
-							onPress={() => {
-								onPick(row.id);
-								setOpen(false);
-							}}
-							last={index === rows.length - 1 && !isOrganizer}
-						/>
-					))}
-					{isOrganizer ? (
-						<>
-							<ListRow
-								title={copy.discover.cityList.addCity}
-								symbol={{ name: 'plus', fallback: 'add' }}
-								onPress={() => handoff.queue('add', () => setOpen(false))}
-							/>
-							<ListRow
-								title={copy.mobileDiscover.editCityButton}
-								symbol={{ name: 'pencil', fallback: 'create-outline' }}
-								onPress={() => handoff.queue('edit', () => setOpen(false))}
-							/>
-							{canDelete ? (
-								<ListRow
-									title={copy.common.delete}
-									tone="destructive"
-									symbol={{ name: 'trash', fallback: 'trash-outline' }}
-									accessory="none"
-									onPress={() => handoff.queue('delete', () => setOpen(false))}
-									last
-								/>
-							) : null}
-						</>
-					) : null}
-				</InsetSection>
-			</Sheet>
 		</>
 	);
 }

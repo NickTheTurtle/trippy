@@ -299,14 +299,19 @@ export const copy = {
 		openLabel: (name: string) => `Open ${name} in the browser`,
 		editCityTitle: 'Edit city',
 		editCityButton: 'Edit city',
+		/** In the city menu, beside Add and Edit city, with no title to name the city for it. */
+		deleteCityButton: 'Delete city',
 		deleteCityMessage: (linked: number) =>
 			linked > 0
 				? `This also deletes the city's places and stays, plus ${linked} linked calendar item${linked === 1 ? '' : 's'}.`
 				: `This also deletes the city's places and stays.`,
+		/** Phone labels for the type control: four segments must fit a 390pt screen. */
 		shortTypes: {
-			attraction: 'Attractions',
+			attraction: 'Sights',
 			food: 'Food'
 		},
+		/** The city pull-down's name, read with the current city. */
+		cityMenuLabel: (city: string) => `City: ${city}`,
 		ratingLabel: (rating: string, count?: number | null) =>
 			count ? `Rating ${rating} (${count})` : `Rating ${rating}`,
 		openLink: 'Open'
@@ -316,6 +321,8 @@ export const copy = {
 	preparation: {
 		navAriaLabel: 'Preparation sections',
 		sections: { tasks: 'Tasks', packing: 'Packing', costs: 'Estimated costs' },
+		/** The phone's section control, where three segments share 358pt. */
+		mobileSections: { tasks: 'Tasks', packing: 'Packing', costs: 'Costs' },
 		add: 'Add',
 		tripTotal: 'Trip total',
 		perPerson: 'Per person',
@@ -689,6 +696,10 @@ export const copy = {
 	viewAs: {
 		label: 'View as',
 		everyone: EVERYONE,
+		/** The phone's View as button, when it is reading as you. */
+		you: 'You',
+		/** The phone's View as button, read with who it is set to. */
+		buttonLabel: (who: string) => `View as: ${who}`,
 		yourShare: 'Your share',
 		share: (name: string) => `${name}'s share`,
 		/**

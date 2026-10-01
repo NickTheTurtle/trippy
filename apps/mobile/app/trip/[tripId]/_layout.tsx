@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Platform, Pressable, Text, View } from 'react-native';
+import { Platform, Pressable, View } from 'react-native';
 import { Stack, Tabs, router, useLocalSearchParams, useNavigation, usePathname } from 'expo-router';
 import { NativeTabs } from 'expo-router/unstable-native-tabs';
 import { NativeTabsContext } from '../../../src/ui/nativeTabs';
@@ -29,13 +29,10 @@ import { Sheet } from '../../../src/ui/Sheet';
 import { DateField, SearchablePicker } from '../../../src/ui/controls';
 import { useToast } from '../../../src/ui/Toast';
 import { AppSymbol, type AppSymbolName } from '../../../src/ui/Symbol';
-import {
-	TripHeaderActionProvider,
-	useCurrentTripHeaderAction
-} from '../../../src/ui/TripHeaderAction';
+import { TripAddActionProvider } from '../../../src/ui/TripAddAction';
 import { useSheetHandoff } from '../../../src/ui/useSheetHandoff';
 import { showActionMenu } from '../../../src/ui/actionMenu';
-import { color, displayType, screenMargin, space, type } from '../../../src/theme';
+import { color, displayType, screenMargin, space } from '../../../src/theme';
 
 type Trip = {
 	id: string;
@@ -132,7 +129,7 @@ export default function TripTabs() {
 		);
 	const canEdit = trip.role === 'organizer';
 	return (
-		<TripHeaderActionProvider>
+		<TripAddActionProvider>
 			<TripTabsInner
 				id={id}
 				trip={trip}
@@ -149,7 +146,7 @@ export default function TripTabs() {
 				destroy={destroy}
 				reload={reload}
 			/>
-		</TripHeaderActionProvider>
+		</TripAddActionProvider>
 	);
 }
 
@@ -184,7 +181,6 @@ function TripTabsInner({
 	destroy: ReturnType<typeof useMutation>;
 	reload: () => void;
 }) {
-	const headerAdd = useCurrentTripHeaderAction();
 	const pathname = usePathname();
 	const bareTripPath = Platform.OS === 'ios' && /^\/trip\/[^/]+\/?$/.test(pathname);
 	const stack = useNavigation();
@@ -211,16 +207,6 @@ function TripTabsInner({
 				gap: space.lg
 			}}
 		>
-			{headerAdd ? (
-				<Pressable
-					accessibilityRole="button"
-					accessibilityLabel={copy.common.add}
-					onPress={headerAdd}
-					hitSlop={8}
-				>
-					<AppSymbol name="plus" fallback="add" size={24} color={color.accent} />
-				</Pressable>
-			) : null}
 			<Pressable
 				accessibilityRole="button"
 				accessibilityLabel={copy.common.more}

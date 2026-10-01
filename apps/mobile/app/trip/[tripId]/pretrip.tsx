@@ -15,19 +15,24 @@ import {
 	GroupedRow,
 	InsetSection,
 	Loading,
-	Screen,
-	SectionHeader
+	Screen
 } from '../../../src/ui';
-import { CheckBox, Picker, SegmentedControl } from '../../../src/ui/controls';
+import { CheckBox, SegmentedControl } from '../../../src/ui/controls';
+import { PullDown } from '../../../src/ui/PullDown';
+import {
+	viewAsAccessibilityLabel,
+	viewAsButtonLabel,
+	viewAsChoices
+} from '../../../src/lib/viewAs';
 import { TaskSheet } from '../../../src/screens/TaskSheet';
 import { CostSheet } from '../../../src/screens/CostSheet';
 import { DoneSheet } from '../../../src/screens/DoneSheet';
 import { Tag } from '../../../src/ui/marks';
 import { useToast } from '../../../src/ui/Toast';
-import { useTripHeaderAction } from '../../../src/ui/TripHeaderAction';
+import { useTripAddAction } from '../../../src/ui/TripAddAction';
 import { color, rowInset, space, type } from '../../../src/theme';
 import { AppSymbol } from '../../../src/ui/Symbol';
-import { lazyTab } from '../../../src/ui/nativeTabs';
+import { tripTab } from '../../../src/ui/nativeTabs';
 
 type Member = { id: string; name: string };
 type Crew = { id: string; name: string; members: string[]; locked?: boolean };
@@ -70,7 +75,7 @@ type Data = {
 const SECTIONS = ['tasks', 'packing', 'costs'] as const;
 type Section = (typeof SECTIONS)[number];
 
-export default lazyTab(Pretrip);
+export default tripTab(Pretrip);
 
 function Pretrip() {
 	const tripId = useTripId();
@@ -82,7 +87,7 @@ function Pretrip() {
 	const [editingCost, setEditingCost] = useState<CostItem | null>(null);
 	const [addingCost, setAddingCost] = useState(false);
 	const [viewAs, setViewAs] = useState('');
-	useTripHeaderAction(
+	useTripAddAction(
 		useCallback(() => {
 			if (section === 'costs') setAddingCost(true);
 			else setAddingTask(true);
@@ -108,7 +113,7 @@ function Pretrip() {
 			<Screen refreshControl={<RefreshControl refreshing={loading && !!data} onRefresh={reload} />}>
 				{error ? <FormError message={error} /> : null}
 				<SegmentedControl
-					items={SECTIONS.map((key) => ({ key, label: copy.preparation.sections[key] }))}
+					items={SECTIONS.map((key) => ({ key, label: copy.preparation.mobileSections[key] }))}
 					active={section}
 					onPick={(key) => setSection(key as Section)}
 				/>
@@ -479,9 +484,21 @@ function Costs({
 						label={viewAs ? shareLabel(data.members, viewAs, data.me) : copy.preparation.perPerson}
 						value={fmt(viewAs ? shownTotal : perPerson)}
 					/>
+					{/* Beside the figure it changes, as on Expenses: reading as one
+					    person turns Per person into their share and filters the list. */}
+					{data.members.length >= 2 ? (
+						<PullDown
+							variant="pill"
+							label={viewAsButtonLabel(viewAs, data.members, data.me)}
+							accessibilityLabel={viewAsAccessibilityLabel(viewAs, data.members, data.me)}
+							title={copy.viewAs.label}
+							options={viewAsChoices(data.members, data.me)}
+							value={viewAs}
+							onPick={onViewAs}
+						/>
+					) : null}
 				</View>
 			</InsetSection>
-			<ViewAs members={data.members} me={data.me} value={viewAs} onChange={onViewAs} />
 			<InsetSection>
 				{data.categories.map((category) => {
 					const rows = shown.filter((item) => item.category === category);
@@ -549,9 +566,13 @@ function Costs({
 
 function Stat({ label, value }: { label: string; value: string }) {
 	return (
-		<View style={{ flex: 1, gap: 2 }}>
-			<Text style={type.footnote}>{label}</Text>
-			<Text style={type.title3}>{value}</Text>
+		<View style={{ flex: 1, gap: 2, minWidth: 0 }}>
+			<Text style={type.footnote} numberOfLines={1}>
+				{label}
+			</Text>
+			<Text style={type.title3} numberOfLines={1} adjustsFontSizeToFit>
+				{value}
+			</Text>
 		</View>
 	);
 }
@@ -606,37 +627,6 @@ function CostRow({
 	);
 }
 
-function ViewAs({
-	members,
-	me,
-	value,
-	onChange
-}: {
-	members: Member[];
-	me: string;
-	value: string;
-	onChange: (id: string) => void;
-}) {
-	if (members.length < 2) return null;
-	return (
-		<View style={{ gap: 7 }}>
-			<SectionHeader>{copy.viewAs.label}</SectionHeader>
-			<Picker
-				bleed
-				options={[
-					{ key: '', label: copy.viewAs.everyone },
-					...members.map((m) => ({
-						key: m.id,
-						label: m.name + (m.id === me ? copy.preparation.youSuffix : '')
-					}))
-				]}
-				value={value}
-				onPick={onChange}
-			/>
-		</View>
-	);
-}
-
 function shareLabel(members: Member[], id: string, me: string): string {
 	return id === me
 		? copy.viewAs.yourShare
@@ -657,7 +647,8 @@ const styles = {
 	},
 	stats: {
 		flexDirection: 'row' as const,
-		gap: space.lg,
+		alignItems: 'center' as const,
+		gap: space.md,
 		paddingHorizontal: rowInset,
 		paddingVertical: space.md
 	}
