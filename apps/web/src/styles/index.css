@@ -870,7 +870,14 @@ select.input.compact {
 .seltrigger:hover {
 	border-color: var(--color-accent);
 }
+/* The label takes the room, as a menu row's does, so anything after it (a
+   warning mark, then the caret) sits at the right edge in the same column as
+   the marks in the open menu. With `space-between` alone a third child was
+   spread into the middle of the gap, beside nothing. */
 .sellabel {
+	flex: 1 1 auto;
+	min-width: 0;
+	text-align: left;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
