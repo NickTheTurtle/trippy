@@ -77,7 +77,11 @@ afterAll(() => {
 
 // The trip runs 2026-10-10 to 2026-10-15.
 function fixture(): Fixture {
-	const organizer = auth.createUser(`org-${crypto.randomUUID()}@example.test`, 'ZZ Org', 'pw123456');
+	const organizer = auth.createUser(
+		`org-${crypto.randomUUID()}@example.test`,
+		'ZZ Org',
+		'pw123456'
+	);
 	const member = auth.createUser(`mem-${crypto.randomUUID()}@example.test`, 'ZZ Mem', 'pw123456');
 	const tripId = trips.createTrip(organizer.id, {
 		name: 'ZZ Review Trip',
@@ -174,6 +178,68 @@ describe('organizer refusals are 403, not a 400 that reads like a bad value', ()
 	});
 });
 
+describe('several cities are added together, all or none', () => {
+	const delphi = { name: 'Delphi', country: 'Greece', tz: 'Europe/Athens', lat: 38.48, lng: 22.5 };
+	const nafplio = { name: 'Nafplio', country: 'Greece', tz: 'Europe/Athens' };
+
+	function cityNames(tripId: string): string[] {
+		return (
+			db.prepare(`SELECT name FROM cities WHERE trip_id = ? ORDER BY sort`).all(tripId) as {
+				name: string;
+			}[]
+		).map((r) => r.name);
+	}
+
+	it('adds them in the order given, after the cities already there', async () => {
+		const f = fixture();
+		const res = await send(f.cookie, 'POST', `/trips/${f.tripId}/cities`, {
+			cities: [delphi, nafplio]
+		});
+		expect(res.status).toBe(201);
+		const json = (await res.json()) as { added: string[] };
+		expect(json.added).toHaveLength(2);
+		expect(cityNames(f.tripId)).toEqual(['Athens', 'Delphi', 'Nafplio']);
+	});
+
+	it('adds none when one is already on the trip, and names it', async () => {
+		const f = fixture();
+		const res = await send(f.cookie, 'POST', `/trips/${f.tripId}/cities`, {
+			cities: [delphi, { name: 'Athens', country: 'Greece', tz: 'Europe/Athens' }]
+		});
+		expect(await error(res)).toBe('Athens is already on this trip.');
+		expect(cityNames(f.tripId)).toEqual(['Athens']);
+	});
+
+	it('refuses the same city picked twice', async () => {
+		const f = fixture();
+		const res = await send(f.cookie, 'POST', `/trips/${f.tripId}/cities`, {
+			cities: [delphi, { ...delphi, name: ' delphi' }]
+		});
+		expect(await error(res)).toBe('delphi is already on this trip.');
+		expect(cityNames(f.tripId)).toEqual(['Athens']);
+	});
+
+	it('refuses an empty list, a malformed entry and an oversized list', async () => {
+		const f = fixture();
+		const cities = `/trips/${f.tripId}/cities`;
+		expect((await send(f.cookie, 'POST', cities, { cities: [] })).status).toBe(400);
+		expect((await send(f.cookie, 'POST', cities, { cities: [delphi, 'Sparta'] })).status).toBe(400);
+		const many = Array.from({ length: 21 }, (_, i) => ({ ...nafplio, name: `ZZ Town ${i}` }));
+		expect(await error(await send(f.cookie, 'POST', cities, { cities: many }))).toBe(
+			'Add up to 20 cities at a time.'
+		);
+		expect(cityNames(f.tripId)).toEqual(['Athens']);
+	});
+
+	it('refuses a member adding several with 403', async () => {
+		const f = fixture();
+		const res = await send(f.memberCookie, 'POST', `/trips/${f.tripId}/cities`, {
+			cities: [delphi]
+		});
+		expect(await error(res, 403)).toBe('Only the organizer can change the cities on this trip.');
+	});
+});
+
 describe('city time zones are asked of Intl', () => {
 	it('refuses a zone-shaped string that is not a zone, and takes UTC', async () => {
 		const f = fixture();
@@ -184,7 +250,11 @@ describe('city time zones are asked of Intl', () => {
 			tz: 'Mars/Olympus_Mons'
 		});
 		expect(bad.status).toBe(400);
-		const utc = await send(f.cookie, 'POST', cities, { name: 'Null Island', country: 'Sea', tz: 'UTC' });
+		const utc = await send(f.cookie, 'POST', cities, {
+			name: 'Null Island',
+			country: 'Sea',
+			tz: 'UTC'
+		});
 		expect(utc.status).toBe(201);
 	});
 });
@@ -193,15 +263,17 @@ describe('the schedule lock survives an edit that does not mention it', () => {
 	it('keeps the stored lock when scheduleLocked is omitted', async () => {
 		const f = fixture();
 		const path = `/trips/${f.tripId}`;
-		expect((await send(f.cookie, 'PATCH', path, { ...TRIP_EDIT, scheduleLocked: true })).status).toBe(
+		expect(
+			(await send(f.cookie, 'PATCH', path, { ...TRIP_EDIT, scheduleLocked: true })).status
+		).toBe(200);
+		expect(lockState(f.tripId)).toBe(1);
+		expect((await send(f.cookie, 'PATCH', path, { ...TRIP_EDIT, name: 'Renamed' })).status).toBe(
 			200
 		);
 		expect(lockState(f.tripId)).toBe(1);
-		expect((await send(f.cookie, 'PATCH', path, { ...TRIP_EDIT, name: 'Renamed' })).status).toBe(200);
-		expect(lockState(f.tripId)).toBe(1);
-		expect((await send(f.cookie, 'PATCH', path, { ...TRIP_EDIT, scheduleLocked: false })).status).toBe(
-			200
-		);
+		expect(
+			(await send(f.cookie, 'PATCH', path, { ...TRIP_EDIT, scheduleLocked: false })).status
+		).toBe(200);
 		expect(lockState(f.tripId)).toBe(0);
 	});
 });
@@ -216,7 +288,10 @@ describe('currencies are held to the offline table at every write', () => {
 			homeCurrency: 'AFN'
 		});
 		expect(await error(create)).toBe('Pick a currency from the list.');
-		const edit = await send(f.cookie, 'PATCH', `/trips/${f.tripId}`, { ...TRIP_EDIT, currency: 'XYZ' });
+		const edit = await send(f.cookie, 'PATCH', `/trips/${f.tripId}`, {
+			...TRIP_EDIT,
+			currency: 'XYZ'
+		});
 		expect(await error(edit)).toBe('Pick a currency from the list.');
 	});
 
@@ -246,7 +321,9 @@ describe('currencies are held to the offline table at every write', () => {
 		const lower = await send(f.cookie, 'POST', path, { ...expense, currency: 'eur' });
 		expect(lower.status).toBe(201);
 		const { id } = (await lower.json()) as { id: string };
-		const row = db.prepare(`SELECT currency FROM expenses WHERE id = ?`).get(id) as { currency: string };
+		const row = db.prepare(`SELECT currency FROM expenses WHERE id = ?`).get(id) as {
+			currency: string;
+		};
 		expect(row.currency).toBe('EUR');
 		// And the ledger still reads.
 		expect((await send(f.cookie, 'GET', path)).status).toBe(200);
@@ -268,7 +345,9 @@ describe('currencies are held to the offline table at every write', () => {
 		expect(await error(await send(f.cookie, 'POST', path, { ...item, currency: 'AFN' }))).toBe(
 			'Pick a currency from the list.'
 		);
-		expect((await send(f.cookie, 'POST', path, { ...item, label: 'x'.repeat(201) })).status).toBe(400);
+		expect((await send(f.cookie, 'POST', path, { ...item, label: 'x'.repeat(201) })).status).toBe(
+			400
+		);
 		expect((await send(f.cookie, 'POST', path, { ...item, currency: 'jpy' })).status).toBe(201);
 		expect((await send(f.cookie, 'POST', path, item)).status).toBe(201);
 	});
@@ -283,7 +362,10 @@ describe('currencies are held to the offline table at every write', () => {
 		const ok = await send(f.cookie, 'POST', path, { ...stay, currency: 'eur' });
 		expect(ok.status).toBe(201);
 		const { id } = (await ok.json()) as { id: string };
-		const edit = await send(f.cookie, 'PATCH', `${path}/${id}`, { name: 'ZZ Hotel', currency: 'XYZ' });
+		const edit = await send(f.cookie, 'PATCH', `${path}/${id}`, {
+			name: 'ZZ Hotel',
+			currency: 'XYZ'
+		});
 		expect(await error(edit)).toBe('Pick a currency from the list.');
 	});
 });
@@ -343,7 +425,9 @@ describe('unbounded numbers on places and stays', () => {
 		expect((await add({ hours: ['x'.repeat(201)] })).status).toBe(400);
 		expect((await add({ photo: 'https://evil.example/x.png' })).status).toBe(400);
 		expect((await add({ photo: `places/abc/photos/${'a'.repeat(1100)}` })).status).toBe(400);
-		expect(await error(await add({ category: 'x'.repeat(201) }))).toBe('Keep it under 200 characters.');
+		expect(await error(await add({ category: 'x'.repeat(201) }))).toBe(
+			'Keep it under 200 characters.'
+		);
 
 		const good = await add({
 			rating: 4.6,
@@ -393,16 +477,22 @@ describe('creating an event is held to the same rules as editing one', () => {
 			travelMode: 'teleport'
 		});
 		expect(await error(res)).toBe('Pick a travel mode.');
-		const ok = await send(f.cookie, 'POST', events(f), { ...base, type: 'travel', travelMode: 'walk' });
+		const ok = await send(f.cookie, 'POST', events(f), {
+			...base,
+			type: 'travel',
+			travelMode: 'walk'
+		});
 		expect(ok.status).toBe(201);
 	});
 
-	it("refuses a city that is not on this trip", async () => {
+	it('refuses a city that is not on this trip', async () => {
 		const f = fixture();
 		const other = fixture();
 		const res = await send(f.cookie, 'POST', events(f), { ...base, cityId: other.cityId });
 		expect(await error(res)).toBe('Pick a city on this trip.');
-		expect((await send(f.cookie, 'POST', events(f), { ...base, cityId: f.cityId })).status).toBe(201);
+		expect((await send(f.cookie, 'POST', events(f), { ...base, cityId: f.cityId })).status).toBe(
+			201
+		);
 	});
 });
 

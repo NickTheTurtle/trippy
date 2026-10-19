@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { isValidEmail } from '@trippy/core';
 import { isNameLength, nameTooLong } from '@trippy/core/validate';
-import { issueSession, clearSession, requireUser, sessionId, wantsToken } from '../middleware';
+import { grant, clearSession, requireUser, sessionId } from '../middleware';
 import { clientIp } from '../client-ip';
 import { body, rawStr, str } from '../parse';
 import { fail, ok } from '../respond';
@@ -12,7 +12,6 @@ import {
 	findUserByEmail,
 	hashPassword,
 	verifyPassword,
-	createSession,
 	deleteSession,
 	startRegistration,
 	completeRegistration,
@@ -60,18 +59,6 @@ function throttleKeys(c: Context<Env>, email: string): string[] {
 /** The longest wait any of these keys is currently serving. */
 function blockedFor(keys: string[]): number {
 	return Math.max(0, ...keys.map((k) => retryAfterMs(k)));
-}
-
-/**
- * Hands the caller its session however it asked for it: a cookie for the
- * browser, a token in the body for a native client. Never both, so a browser
- * session id is never exposed to script.
- */
-function grant(c: Parameters<typeof issueSession>[0], userId: string) {
-	const id = createSession(userId);
-	if (wantsToken(c)) return { token: id };
-	issueSession(c, id);
-	return {};
 }
 
 /**

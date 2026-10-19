@@ -209,6 +209,18 @@ h6 {
 	opacity: 0.6;
 	cursor: not-allowed;
 }
+/* Sign in with Apple, in Apple's own black button: white mark, white label.
+   The Google button is the plain `.btn` (white, light border), which is
+   already Google's light-theme button, so it has no rule of its own. */
+.btn.apple {
+	background: #000;
+	border-color: #000;
+	color: #fff;
+}
+.btn.apple:hover {
+	background: #000;
+	opacity: 0.88;
+}
 
 .chip {
 	display: inline-block;

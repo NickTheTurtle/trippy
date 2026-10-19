@@ -128,7 +128,7 @@ function Discover() {
 			await api(`/trips/${tripId}/cities/${deleteCity.id}`, { method: 'DELETE' });
 		},
 		{
-			fallback: copy.addCity.addFallback,
+			fallback: copy.mobileDiscover.deleteCityFallback,
 			onSuccess: () => {
 				const deletedId = deleteCity?.id;
 				if (deletedId && deletedId === current?.id) {
@@ -144,6 +144,16 @@ function Discover() {
 	useEffect(() => {
 		if (deleteCity) deleteCityMutation.reset();
 	}, [deleteCity]);
+
+	// An add lands on the first city it added, so the heading shows what was
+	// just added rather than staying where it was; until the reload brings the
+	// new city in, `current` falls back to the first city as it always has.
+	const citySaved = (added?: string[]) => {
+		if (added?.[0]) setCityId(added[0]);
+		setCitySheet(null);
+		reload();
+		reloadTrip();
+	};
 
 	if (loading && !data) return <Loading />;
 
@@ -171,11 +181,7 @@ function Discover() {
 						tripName={trip.name}
 						cities={trip.cities}
 						onClose={() => setCitySheet(null)}
-						onSaved={() => {
-							setCitySheet(null);
-							reload();
-							reloadTrip();
-						}}
+						onSaved={citySaved}
 					/>
 				) : null}
 			</>
@@ -309,11 +315,7 @@ function Discover() {
 					cities={trip.cities}
 					city={citySheet !== 'add' ? citySheet : null}
 					onClose={() => setCitySheet(null)}
-					onSaved={() => {
-						setCitySheet(null);
-						reload();
-						reloadTrip();
-					}}
+					onSaved={citySaved}
 				/>
 			) : null}
 			{deleteCity ? (

@@ -32,24 +32,24 @@ idempotent and never contain a secret.
 
 AWS Console -> EC2 -> Launch instance:
 
-| Setting | Value |
-| --- | --- |
-| Name | `trippy` |
-| AMI | Ubuntu Server 24.04 LTS |
+| Setting       | Value                                                      |
+| ------------- | ---------------------------------------------------------- |
+| Name          | `trippy`                                                   |
+| AMI           | Ubuntu Server 24.04 LTS                                    |
 | Instance type | `t4g.micro` (Arm, free-tier eligible), or `t3.micro` (x86) |
-| Key pair | Create or select one so you can SSH in |
-| Storage | 20 GiB gp3 (within the 30 GiB free-tier allowance) |
+| Key pair      | Create or select one so you can SSH in                     |
+| Storage       | 20 GiB gp3 (within the 30 GiB free-tier allowance)         |
 
 Both architectures work; the setup script detects what it is on. Arm
 (`t4g.micro`) is cheaper after the free year.
 
 Security group, inbound rules:
 
-| Type | Port | Source |
-| --- | --- | --- |
-| SSH | 22 | My IP |
-| HTTP | 80 | `0.0.0.0/0` and `::/0` |
-| HTTPS | 443 | `0.0.0.0/0` and `::/0` |
+| Type  | Port | Source                 |
+| ----- | ---- | ---------------------- |
+| SSH   | 22   | My IP                  |
+| HTTP  | 80   | `0.0.0.0/0` and `::/0` |
+| HTTPS | 443  | `0.0.0.0/0` and `::/0` |
 
 Port 80 must be open: Caddy uses it for the Let's Encrypt challenge and to
 redirect to HTTPS.
@@ -292,26 +292,29 @@ safe to re-run after a failure at any stage. What a re-run does at each point:
 
 The server never crashes on a missing key; each feature simply degrades.
 
-| Variable | Enables | Without it |
-| --- | --- | --- |
-| `GOOGLE_SERVER_KEY` | Server-side Google Places search, autocomplete, details, photos, and Routes travel times | Falls back to keyless OpenStreetMap / Photon search and OSRM routing; `/api/health` reports `"provider":"osm"` |
-| `GOOGLE_PLACES_KEY` | Deprecated compatibility fallback for `GOOGLE_SERVER_KEY` | Existing deploys keep working during migration; new deploys should leave it unset |
-| `GOOGLE_MAPS_KEY` | Public browser Maps JavaScript key for the interactive map | No interactive Google map; the Leaflet fallback still works |
-| `MAIL_FROM` (+ SES or Resend creds) | Email verification and password reset | Registration completes instantly with no email step; password reset cannot send |
-| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `SES_REGION` | Amazon SES as the mail provider (preferred) | Mail via Resend if that key is set, otherwise mail is off |
-| `RESEND_API_KEY` | Resend as the mail provider | Used only when SES creds are absent |
-| `SES_SNS_TOPIC_ARN` | The SNS topic ARN(s), comma-separated, whose SES bounce and complaint notifications `/api/ses/notifications` will act on. A valid SNS signature only proves AWS wrote a message, and any AWS account can subscribe the URL to a topic of its own, so the topic is what ties a notification to this deployment | Every notification (subscription confirmations included) is refused and a warning is logged once, so bounces and complaints never reach the suppression list |
-| `APP_URL` | The origin used in emailed links | Defaults to `http://localhost:5174`, which is wrong in production, so set it |
-| `TRIPPY_DB` | Database file path | Defaults to `/opt/trippy/data/app.db`; the setup script pins it to `/var/lib/trippy/app.db` |
-| `PORT` | API loopback port | Defaults to `5175` |
-| `HOST` | Interface the API binds | Unset binds every interface (fine for local dev, where a phone on the LAN may need it). The setup script sets `127.0.0.1`, because Caddy runs on the same host and proxies to loopback, so the API is not reachable around it |
-| `TRIPPY_REGISTER_LIMIT` | Signups per client IP before exponential backoff | Defaults to `20` (loose, meant for the test suite); the setup script sets `5` |
-| `TRIPPY_TRUSTED_PROXIES` | Number of trusted reverse proxy hops for `X-Forwarded-For` client IP parsing | Defaults to `0` in the app; the setup script sets `1` because Caddy sits directly in front of the API |
-| `TRIPPY_PROVIDER_LIMIT` | Paid provider calls per user before exponential backoff | Defaults to `60` |
-| `TRIPPY_PROVIDER_IP_LIMIT` | Paid provider calls per client IP before exponential backoff | Defaults to `240` |
-| `TRIPPY_ROUTING_LIMIT` | Paid routing calls per user before fallback to the free path | Defaults to `300` |
-| `NODE_ENV=production` | Secure cookie flag, disables dev CORS, skips the demo seed | Set by the setup script |
-| `TRIPPY_OFFLINE_PROVIDERS` | Nothing. Set to `1` it *forbids* paid providers: all Google keys read as unset, search serves keyless OpenStreetMap / Photon, routing takes the straight-line estimate, and the FX refresh is skipped | Unset in production, which is what you want; the test harnesses set it for themselves |
+| Variable                                                     | Enables                                                                                                                                                                                                                                                                                                       | Without it                                                                                                                                                                                                                    |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GOOGLE_SERVER_KEY`                                          | Server-side Google Places search, autocomplete, details, photos, and Routes travel times                                                                                                                                                                                                                      | Falls back to keyless OpenStreetMap / Photon search and OSRM routing; `/api/health` reports `"provider":"osm"`                                                                                                                |
+| `GOOGLE_PLACES_KEY`                                          | Deprecated compatibility fallback for `GOOGLE_SERVER_KEY`                                                                                                                                                                                                                                                     | Existing deploys keep working during migration; new deploys should leave it unset                                                                                                                                             |
+| `GOOGLE_MAPS_KEY`                                            | Public browser Maps JavaScript key for the interactive map                                                                                                                                                                                                                                                    | No interactive Google map; the Leaflet fallback still works                                                                                                                                                                   |
+| `MAIL_FROM` (+ SES or Resend creds)                          | Email verification and password reset                                                                                                                                                                                                                                                                         | Registration completes instantly with no email step; password reset cannot send                                                                                                                                               |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `SES_REGION` | Amazon SES as the mail provider (preferred)                                                                                                                                                                                                                                                                   | Mail via Resend if that key is set, otherwise mail is off                                                                                                                                                                     |
+| `RESEND_API_KEY`                                             | Resend as the mail provider                                                                                                                                                                                                                                                                                   | Used only when SES creds are absent                                                                                                                                                                                           |
+| `SES_SNS_TOPIC_ARN`                                          | The SNS topic ARN(s), comma-separated, whose SES bounce and complaint notifications `/api/ses/notifications` will act on. A valid SNS signature only proves AWS wrote a message, and any AWS account can subscribe the URL to a topic of its own, so the topic is what ties a notification to this deployment | Every notification (subscription confirmations included) is refused and a warning is logged once, so bounces and complaints never reach the suppression list                                                                  |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`                  | Continue with Google. A "Web application" OAuth client whose authorized redirect URI is `${APP_URL}/api/auth/google/callback`                                                                                                                                                                                 | No Google button                                                                                                                                                                                                              |
+| `APPLE_SERVICES_ID`                                          | Continue with Apple on the web. A Services ID whose return URL is `${APP_URL}/api/auth/apple/callback` (https only)                                                                                                                                                                                           | No Apple button on the web                                                                                                                                                                                                    |
+| `APPLE_BUNDLE_IDS` | Sign in with Apple in the iOS app: the bundle ids (comma-separated, e.g. `com.trippy.app`) whose identity tokens are accepted. Set it wherever Google is set: App Store guideline 4.8 requires an app that offers Google sign-in to offer Sign in with Apple too | No Apple button in the app. Production never accepts Expo Go's own id unless it is listed here |
+| `APP_URL`                                                    | The origin used in emailed links and in the Google and Apple callback URLs                                                                                                                                                                                                                                    | Defaults to `http://localhost:5174`, which is wrong in production, so set it                                                                                                                                                  |
+| `TRIPPY_DB`                                                  | Database file path                                                                                                                                                                                                                                                                                            | Defaults to `/opt/trippy/data/app.db`; the setup script pins it to `/var/lib/trippy/app.db`                                                                                                                                   |
+| `PORT`                                                       | API loopback port                                                                                                                                                                                                                                                                                             | Defaults to `5175`                                                                                                                                                                                                            |
+| `HOST`                                                       | Interface the API binds                                                                                                                                                                                                                                                                                       | Unset binds every interface (fine for local dev, where a phone on the LAN may need it). The setup script sets `127.0.0.1`, because Caddy runs on the same host and proxies to loopback, so the API is not reachable around it |
+| `TRIPPY_REGISTER_LIMIT`                                      | Signups per client IP before exponential backoff                                                                                                                                                                                                                                                              | Defaults to `20` (loose, meant for the test suite); the setup script sets `5`                                                                                                                                                 |
+| `TRIPPY_TRUSTED_PROXIES`                                     | Number of trusted reverse proxy hops for `X-Forwarded-For` client IP parsing                                                                                                                                                                                                                                  | Defaults to `0` in the app; the setup script sets `1` because Caddy sits directly in front of the API                                                                                                                         |
+| `TRIPPY_PROVIDER_LIMIT`                                      | Paid provider calls per user before exponential backoff                                                                                                                                                                                                                                                       | Defaults to `60`                                                                                                                                                                                                              |
+| `TRIPPY_PROVIDER_IP_LIMIT`                                   | Paid provider calls per client IP before exponential backoff                                                                                                                                                                                                                                                  | Defaults to `240`                                                                                                                                                                                                             |
+| `TRIPPY_ROUTING_LIMIT`                                       | Paid routing calls per user before fallback to the free path                                                                                                                                                                                                                                                  | Defaults to `300`                                                                                                                                                                                                             |
+| `NODE_ENV=production`                                        | Secure cookie flag, disables dev CORS, skips the demo seed                                                                                                                                                                                                                                                    | Set by the setup script                                                                                                                                                                                                       |
+| `TRIPPY_OFFLINE_PROVIDERS`                                   | Nothing. Set to `1` it _forbids_ paid providers: all Google keys read as unset, search serves keyless OpenStreetMap / Photon, routing takes the straight-line estimate, and the FX refresh is skipped                                                                                                         | Unset in production, which is what you want; the test harnesses set it for themselves                                                                                                                                         |
 
 Foreign-exchange rates use a keyless public endpoint, so there is no FX key to
 set. All provider results are cached (`cache.ts`); the caches start cold on a
@@ -470,22 +473,22 @@ Do these steps in the AWS account that owns the instance.
 
    ```json
    {
-     "Version": "2012-10-17",
-     "Statement": [
-       {
-         "Effect": "Allow",
-         "Principal": {
-           "Federated": "arn:aws:iam::790873127952:oidc-provider/token.actions.githubusercontent.com"
-         },
-         "Action": "sts:AssumeRoleWithWebIdentity",
-         "Condition": {
-           "StringEquals": {
-             "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-             "token.actions.githubusercontent.com:sub": "repo:NickTheTurtle@12247846/trippy@1361960349:ref:refs/heads/main"
-           }
-         }
-       }
-     ]
+   	"Version": "2012-10-17",
+   	"Statement": [
+   		{
+   			"Effect": "Allow",
+   			"Principal": {
+   				"Federated": "arn:aws:iam::790873127952:oidc-provider/token.actions.githubusercontent.com"
+   			},
+   			"Action": "sts:AssumeRoleWithWebIdentity",
+   			"Condition": {
+   				"StringEquals": {
+   					"token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+   					"token.actions.githubusercontent.com:sub": "repo:NickTheTurtle@12247846/trippy@1361960349:ref:refs/heads/main"
+   				}
+   			}
+   		}
+   	]
    }
    ```
 
@@ -516,24 +519,24 @@ Do these steps in the AWS account that owns the instance.
 
    ```json
    {
-     "Version": "2012-10-17",
-     "Statement": [
-       {
-         "Sid": "SendDeployCommandToTrippyInstance",
-         "Effect": "Allow",
-         "Action": "ssm:SendCommand",
-         "Resource": [
-           "arn:aws:ec2:us-east-2:790873127952:instance/<instance-id>",
-           "arn:aws:ssm:us-east-2::document/AWS-RunShellScript"
-         ]
-       },
-       {
-         "Sid": "ReadDeployCommandResult",
-         "Effect": "Allow",
-         "Action": "ssm:GetCommandInvocation",
-         "Resource": "*"
-       }
-     ]
+   	"Version": "2012-10-17",
+   	"Statement": [
+   		{
+   			"Sid": "SendDeployCommandToTrippyInstance",
+   			"Effect": "Allow",
+   			"Action": "ssm:SendCommand",
+   			"Resource": [
+   				"arn:aws:ec2:us-east-2:790873127952:instance/<instance-id>",
+   				"arn:aws:ssm:us-east-2::document/AWS-RunShellScript"
+   			]
+   		},
+   		{
+   			"Sid": "ReadDeployCommandResult",
+   			"Effect": "Allow",
+   			"Action": "ssm:GetCommandInvocation",
+   			"Resource": "*"
+   		}
+   	]
    }
    ```
 
@@ -570,11 +573,11 @@ Do these steps in the AWS account that owns the instance.
 
 Create these repository-level settings before expecting deploys to succeed:
 
-| Type | Name | Value |
-| --- | --- | --- |
-| Variable | `AWS_REGION` | `us-east-2` |
-| Variable | `EC2_INSTANCE_ID` | The production instance ID |
-| Secret | `AWS_DEPLOY_ROLE_ARN` | The ARN of the deploy IAM role |
+| Type     | Name                  | Value                          |
+| -------- | --------------------- | ------------------------------ |
+| Variable | `AWS_REGION`          | `us-east-2`                    |
+| Variable | `EC2_INSTANCE_ID`     | The production instance ID     |
+| Secret   | `AWS_DEPLOY_ROLE_ARN` | The ARN of the deploy IAM role |
 
 The workflow job does not declare an `environment:`, so environment-level
 variables and secrets are not visible to it. Put these values in the repository
@@ -679,7 +682,7 @@ for self-healing and for leaving a trail in the journal, not for paging.
 
 - **API watchdog** (`trippy-health.timer`, every minute). Curls
   `http://127.0.0.1:5175/api/health` on loopback and, after 3 consecutive
-  failures, restarts `trippy.service`. This catches a *wedged* API (alive but
+  failures, restarts `trippy.service`. This catches a _wedged_ API (alive but
   not serving), which `Restart=on-failure` does not. It does **not** catch Caddy,
   TLS, DNS, or the box being gone.
 
@@ -723,7 +726,7 @@ security-group mistake.
      page, 3-minute checks; more product than a hobby box needs.
    - **Healthchecks.io**: a **dead-man's switch**, not a poller. It does not
      check the site; it alerts when an expected ping stops. That is the right
-     tool for *backup* freshness (below), less so for uptime.
+     tool for _backup_ freshness (below), less so for uptime.
    - **CloudWatch alarm on the EC2 instance status check**: no third party, but
      it only sees "instance/system impaired", not "the app returns errors", and
      wiring SNS email is more setup. Good as a second signal, weak as the only
@@ -752,12 +755,12 @@ Trippy keeps everything in one SQLite file, so backups are the whole safety
 story. There are four layers here, each covering a failure the one before it
 does not:
 
-| Layer | Protects against | Does not cover | RPO | RTO |
-| --- | --- | --- | --- | --- |
-| Litestream -> S3 (continuous) | Losing the volume, the instance, or the whole AZ; a bad delete you catch within the retention window | The S3 bucket itself being lost or the account being compromised | Seconds | 5 to 20 min (install app, `restore.sh`) |
-| Daily snapshot (`backup.sh` + timer), copied to S3 | Same as above, plus a portable single-file copy anyone can restore without Litestream | Anything written since the last daily run | Up to 24 h | 5 to 20 min |
-| EBS snapshots (DLM, see below) | Whole-volume loss and instance-level mistakes, at the block level | Sub-day granularity; app-consistent point-in-time | Up to 24 h | 20 to 60 min (new volume/instance) |
-| Separate data volume, delete-on-termination off | Terminating the instance taking the database with it | Volume corruption or an AZ loss (still need the S3 layers) | n/a | Minutes (reattach) |
+| Layer                                              | Protects against                                                                                     | Does not cover                                                   | RPO        | RTO                                     |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- | ---------- | --------------------------------------- |
+| Litestream -> S3 (continuous)                      | Losing the volume, the instance, or the whole AZ; a bad delete you catch within the retention window | The S3 bucket itself being lost or the account being compromised | Seconds    | 5 to 20 min (install app, `restore.sh`) |
+| Daily snapshot (`backup.sh` + timer), copied to S3 | Same as above, plus a portable single-file copy anyone can restore without Litestream                | Anything written since the last daily run                        | Up to 24 h | 5 to 20 min                             |
+| EBS snapshots (DLM, see below)                     | Whole-volume loss and instance-level mistakes, at the block level                                    | Sub-day granularity; app-consistent point-in-time                | Up to 24 h | 20 to 60 min (new volume/instance)      |
+| Separate data volume, delete-on-termination off    | Terminating the instance taking the database with it                                                 | Volume corruption or an AZ loss (still need the S3 layers)       | n/a        | Minutes (reattach)                      |
 
 The honest summary: **Litestream is the one that matters** for "the box is
 gone." The daily snapshot is the independent belt to its braces (a bug or a bad
@@ -879,28 +882,24 @@ to the one bucket and prefix; replace both names:
 
 ```json
 {
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Sid": "TrippyBackupBucketList",
-      "Effect": "Allow",
-      "Action": ["s3:ListBucket"],
-      "Resource": "arn:aws:s3:::my-trippy-backups",
-      "Condition": {
-        "StringLike": { "s3:prefix": ["trippy/app.db/*"] }
-      }
-    },
-    {
-      "Sid": "TrippyBackupObjectRW",
-      "Effect": "Allow",
-      "Action": [
-        "s3:GetObject",
-        "s3:PutObject",
-        "s3:DeleteObject"
-      ],
-      "Resource": "arn:aws:s3:::my-trippy-backups/trippy/app.db/*"
-    }
-  ]
+	"Version": "2012-10-17",
+	"Statement": [
+		{
+			"Sid": "TrippyBackupBucketList",
+			"Effect": "Allow",
+			"Action": ["s3:ListBucket"],
+			"Resource": "arn:aws:s3:::my-trippy-backups",
+			"Condition": {
+				"StringLike": { "s3:prefix": ["trippy/app.db/*"] }
+			}
+		},
+		{
+			"Sid": "TrippyBackupObjectRW",
+			"Effect": "Allow",
+			"Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+			"Resource": "arn:aws:s3:::my-trippy-backups/trippy/app.db/*"
+		}
+	]
 }
 ```
 
@@ -979,14 +978,14 @@ behind the SQLite-aware layers above.
 EBS volume has **delete-on-termination = true**, so terminating the instance
 deletes `/var/lib/trippy` with it. Two options, in increasing order of safety:
 
-- *Quick:* turn delete-on-termination **off** for the root volume (EC2 ->
+- _Quick:_ turn delete-on-termination **off** for the root volume (EC2 ->
   instance -> Storage -> the volume, or via `aws ec2
-  modify-instance-attribute --block-device-mappings ...`). The volume then
+modify-instance-attribute --block-device-mappings ...`). The volume then
   survives termination. Tradeoff: the database still shares the root volume, so
   a rebuild means detaching and reattaching the whole root disk, which is
   awkward.
 
-- *Better: put `/var/lib/trippy` on its own EBS volume.* It survives instance
+- _Better: put `/var/lib/trippy` on its own EBS volume._ It survives instance
   termination, and you can detach it and reattach it to a replacement instance
   in minutes. Steps (adjust the device name; Nitro instances expose NVMe as
   `/dev/nvme1n1`):

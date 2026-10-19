@@ -529,12 +529,15 @@ food, stay, travel and free time close enough together that a green and a blue
 teal, or a brown and a mauve, were a guess at arm's length. The colours are now
 pulled apart around the wheel while staying muted enough to sit behind black text
 and read as one app: activity green, food a warmer orange, stay a clear violet,
-travel a colder blue, and free time the same warm grey it was, kept as the one
-hatched fill so it still reads as "unclaimed" rather than a sixth category. The
+travel a colder blue, and free time a bluer violet. Free time was a warm grey with
+a hatched fill, meant to read as "unclaimed"; the owner found the stripes noisy
+next to the flat blocks, so it now takes the same flat tint as the others, in a
+violet pulled toward blue so it stays apart from a stay's redder violet. The
 hexes live in two places, `schedule.css` for the CSS variables and `EVENT_COLORS`
 in `Schedule.tsx` for the map markers, because there is no build step that could
 hand one source to both a stylesheet and a canvas-drawn pin; each carries a
-comment pointing at the other so a future edit changes both.
+comment pointing at the other so a future edit changes both. The native board
+(`DayBoard.tsx`) and its map (`mapModel.ts`) carry the same values.
 
 **A journey borrows the colour of the event it feeds.** A leg is drawn directly
 above the event it arrives at, bottom-anchored to that event's top edge, so the
@@ -2597,6 +2600,88 @@ a throw and never re-decide what `res.ok` means. The login failure text stays
 deliberately vague, because the API refuses to distinguish a wrong password from
 an unknown account.
 
+**Google and Apple sign-in are full-page navigations, drawn only when configured.**
+`ProviderButtons` asks `GET /auth/providers` once per page load (shared by log in
+and create account) and draws nothing for a provider that is off, so a deployment
+without keys looks exactly as before; the form never waits for that answer. A
+button is `window.location.assign` to `/api/auth/{apple|google}/start`, not a
+fetch, because the consent screen is the provider's site; the server sets the
+session cookie and redirects back, and the ordinary `/auth/me` on boot picks it
+up. Here the deep link has to travel in the query (`next`), since history state
+does not survive leaving the origin; only a same-origin path is sent. A failure
+comes back as `/login?authError=<code>`, shown (as the code's own sentence) in the same corner as a wrong password
+and then removed with a `replace` navigation so a reload does not repeat it.
+Apple is first because its guidelines require it to be at least as prominent as
+any other option; the logos are inline SVG so nothing loads from a third-party host.
+
+**The server owns every provider round trip, and checks the token itself.**
+Google and Apple both run as a browser flow through the API
+(`/api/auth/{provider}/start`, then the provider's own callback to us) rather
+than through each provider's JavaScript SDK in the page. One code path then
+serves the web and the app, no third-party script needs a CSP exception, and
+the session cookie is set by the same response that proves who signed in. An ID
+token is trusted only after `jwt.ts` has checked it against the provider's
+published keys, its issuer, our client id as audience, its expiry, and a nonce
+this server issued for this sign-in; it accepts RS256 only, so a token naming
+`none` or an HMAC algorithm cannot choose its own key. `state` ties a callback to
+a start this server made, and a short-lived cookie ties it to this browser, so
+nobody can finish their own sign-in in someone else's browser and leave them
+signed in as the attacker. Google also gets PKCE. Apple posts its callback
+cross-site, which is why that cookie is `SameSite=None` in production. Apple's
+browser flow asks for the ID token with the code (`response_type=code id_token`),
+so no Apple client secret, a JWT signed with a private key that expires every six
+months, has to be kept or rotated.
+
+**A provider sign-in links to the account with that verified email, if that
+account's own claim to it is proven.** The owner chose linking: someone who
+signed up with a password and later taps Continue with Google expects their trips,
+not a second empty account. It needs both halves of the proof. The provider's is
+the token's `email_verified`; an unverified address never links and never creates
+an account. The account's is `users.email_verified_at`, set by the emailed
+sign-up link, the emailed email-change link, a password reset and a provider
+sign-in, and cleared by an email change made without a link. Without it, a
+deployment with no mail provider (where sign-up takes an address on trust) would
+let someone register a stranger's address with a password and wait: the stranger's
+first Continue with Google would land them in an account the squatter still
+controls. Such an account is refused with "Log in with your password" instead, and
+a password reset, which proves the address, lets the next provider sign-in link.
+Existing accounts were backfilled once as proven when the deployment had mail at
+the time, since its sign-ups had all come through the emailed link; the owner
+confirmed production has sent that link since its first user, so its accounts
+link straight away. From then on
+the provider's stable `sub` (in `oauth_identities`) is the link, not the email, so
+the account is still found after the email changes at Google, and an Apple
+private-relay address works even though it matches nothing. A new account picks up
+the trip invites waiting for its address, like an emailed sign-up. It has no
+password: `users.password_hash` is NOT NULL, so it holds `''`, which no password
+can match. Checking one still costs a full derivation, or a fast 401 would say
+which accounts have no password. Asked for a current password (changing the
+password or the email), such an account is told to set one with Forgot password,
+rather than that it typed the wrong one; letting a session set a first password
+with no proof would turn a stolen session into a permanent one.
+
+**A failed sign-in comes back as a code, not a sentence.** The callback redirects
+to `/login?authError=expired` (or the app's link with `error=`), and each client
+shows its own copy for the code (`providerError`), falling back to a general
+failure for anything else. Text read from a URL and drawn on our login page would
+be text anyone could put there with a link. A refusal goes back to whichever
+client started the sign-in, even when its state has expired or arrived in another
+browser, so an app's sign-in always ends in the app rather than on the website's
+login page inside the browser sheet. Starts and Apple nonces each write a row, so
+a caller gets 30 before backoff, which a person retrying never meets.
+
+**The app gets a one-time code, never a token in a URL.** The iOS app runs
+Google in the system browser sheet, which returns to the app's own URL; that URL
+carries a two-minute, single-use code, which the app trades for its session token
+over the API (`/auth/exchange`). Return URLs are limited to the app's `trippy://`
+scheme, plus Expo Go's `exp://` outside production: any Expo Go project can be
+reached by such a URL, so in production it could deliver a victim's code to
+someone else. Apple in the iOS app skips the browser: the system sheet returns an
+identity token for the app's bundle id with a nonce the server issued and spends
+on use. Expo Go's own bundle id is accepted outside production for the same
+reason as its scheme, and refused in production unless listed in
+`APPLE_BUNDLE_IDS`, because every Expo Go project shares it.
+
 ### 5.0.2 Route shape, the trip shell and data loading
 
 **The tab list was rebuilt from the running app, not from the scaffold.** The
@@ -3512,6 +3597,17 @@ So the organizer types a city name and never sees a time zone field, which
 matters because the zone is what the whole calendar renders through and is the
 single field a human is most likely to get wrong.
 
+**Several cities are picked, then added in one request.** Each pick joins an
+ordered list under the search (the box empties and keeps focus for the next
+one), and the footer posts `{ cities: [...] }` once. One request rather than a
+loop of single adds because the server applies it all or nothing: a refusal
+names the city, the list stays put, and the user removes that one and retries
+instead of working out which of the rest landed. A hit already on the trip
+reads "Added" and one already in the list reads "Picked", both by the same
+folded name, country and region key the server compares, and both unpickable
+since either would sink the whole request. The picker stops at 20, the server's
+per-request cap, rather than building a list it would refuse.
+
 **Cities are dateless places, not schedule spans.** `cities.arrive` and
 `cities.depart` were removed because an itinerary city answers "where", while
 `trips.start_date` / `trips.end_date` answer "when". Keeping per-city dates made
@@ -3938,6 +4034,25 @@ same thing where it is filtered and where it is edited. The pull-down's title ho
 its width from the row, not from its text, so a long city or a large text size truncates
 the name before the chevron rather than pushing it off the screen; the View as capsule
 cuts a long first name for the same reason.
+
+**The add sheet collects cities; the edit sheet replaces one.** Adding works as on the
+web (5.0.8): picks join a list headed "3 cities to add", each with the iOS edit-mode
+minus to take it out, and the sheet's action counts them ("Add 3 cities"), so the nav
+bar's trailing side widens for it rather than wrapping. After the add, Discover switches
+to the first city added, so the heading shows what just changed. Edit keeps the single
+pick it always had, because an edit replaces one city and a list would suggest otherwise.
+
+**Apple is the system sheet on an iPhone; everything else is the provider's page.** On
+iOS, Continue with Apple is Apple's own button (`expo-apple-authentication`), which is
+what Apple's guidelines ask for and brings Face ID with no browser at all. Google, and
+Apple off iOS, open the provider's page in an auth session (`expo-web-browser`); the
+server hands back to the app's own link with a one-time code (see 5.0.1), and the
+`auth` route exists only so that link, routed into the app on Android, lands somewhere
+sensible. The buttons wait for both answers (which providers the server has, and whether
+this device has the Apple sheet) before drawing, so Apple never arrives a moment later
+and pushes Google down, and a server with no keys leaves the screens as they were. In
+the Expo web preview the return link is `http://`, which the server refuses, so the
+browser flow is tried on a device.
 
 **Native planning lists are grouped lists; the things you browse are cards.** Preparation,
 Expenses and People use the same inset-section row system as Account rather than each

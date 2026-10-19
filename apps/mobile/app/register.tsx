@@ -4,11 +4,13 @@ import { Redirect, router } from 'expo-router';
 import { copy } from '@trippy/copy';
 import { useAuth } from '../src/auth';
 import { useMutation } from '../src/hooks/useMutation';
+import type { ProviderFlow } from '../src/lib/oauth';
 import { Button, Field, InsetSection, Loading, Screen } from '../src/ui';
+import { AuthProviders } from '../src/ui/AuthProviders';
 import { color, space, type, navBarHeight } from '../src/theme';
 
 export default function Register() {
-	const { user, loading, register } = useAuth();
+	const { user, loading, register, signInWith } = useAuth();
 	const [name, setName] = useState('');
 	const [email, setEmail] = useState('');
 	const [password, setPassword] = useState('');
@@ -19,6 +21,12 @@ export default function Register() {
 		onSuccess: (result) => {
 			if (result === 'pending') setPending(true);
 			else router.replace('/trips');
+		}
+	});
+	const provider = useMutation((flow: ProviderFlow) => signInWith(flow), {
+		fallback: copy.auth.providers.fallback,
+		onSuccess: (signedIn) => {
+			if (signedIn) router.replace('/trips');
 		}
 	});
 
@@ -48,7 +56,17 @@ export default function Register() {
 				largeTitle={copy.auth.register.title}
 			>
 				<Text style={type.subhead}>{copy.auth.register.blurb}</Text>
-				<InsetSection footer={copy.auth.register.passwordHint} error={submit.error}>
+				<AuthProviders
+					busy={provider.busy || submit.busy}
+					onSignIn={(flow) => {
+						submit.reset();
+						void provider.run(flow);
+					}}
+				/>
+				<InsetSection
+					footer={copy.auth.register.passwordHint}
+					error={submit.error || provider.error}
+				>
 					<Field
 						variant="row"
 						label={copy.auth.register.nameLabel}
@@ -80,7 +98,10 @@ export default function Register() {
 				</InsetSection>
 				<Button
 					label={copy.auth.register.submitLabel}
-					onPress={() => void submit.run()}
+					onPress={() => {
+						provider.reset();
+						void submit.run();
+					}}
 					busy={submit.busy}
 				/>
 				<View style={{ flexDirection: 'row', gap: space.xs, justifyContent: 'center' }}>

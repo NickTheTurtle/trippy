@@ -44,7 +44,7 @@ const EVENT_COLORS: Record<EventType, string> = {
 	food: '#c15a25',
 	stay: '#7b4fa6',
 	travel: '#2f6d9e',
-	freetime: '#8a8578'
+	freetime: '#6b5bd2'
 };
 
 /**

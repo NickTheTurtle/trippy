@@ -4,19 +4,33 @@ import { Redirect, router, useLocalSearchParams } from 'expo-router';
 import { copy } from '@trippy/copy';
 import { useAuth } from '../src/auth';
 import { useMutation } from '../src/hooks/useMutation';
+import type { ProviderFlow } from '../src/lib/oauth';
 import { Button, Field, InsetSection, Loading, Screen } from '../src/ui';
+import { AuthProviders } from '../src/ui/AuthProviders';
 import { color, space, type } from '../src/theme';
 
 export default function Login() {
-	const { user, loading, logIn } = useAuth();
+	const { user, loading, logIn, signInWith } = useAuth();
 	const { next } = useLocalSearchParams<{ next?: string }>();
 	const [email, setEmail] = useState('');
 	const [password, setPassword] = useState('');
+	const done = () => router.replace(next && next.startsWith('/') ? next : '/trips');
 
 	const submit = useMutation(() => logIn(email, password), {
 		fallback: copy.auth.login.fallback,
-		onSuccess: () => router.replace(next && next.startsWith('/') ? next : '/trips')
+		onSuccess: done
 	});
+	const provider = useMutation((flow: ProviderFlow) => signInWith(flow), {
+		fallback: copy.auth.providers.fallback,
+		onSuccess: (signedIn) => {
+			if (signedIn) done();
+		}
+	});
+	// One error slot for both ways in: starting either clears the other's.
+	const logInWithEmail = () => {
+		provider.reset();
+		void submit.run();
+	};
 
 	if (loading) return <Loading />;
 	if (user) return <Redirect href="/trips" />;
@@ -28,7 +42,14 @@ export default function Login() {
 		>
 			<Screen safeTop largeTitle={copy.auth.login.title}>
 				<Text style={type.subhead}>{copy.auth.login.blurb}</Text>
-				<InsetSection error={submit.error}>
+				<AuthProviders
+					busy={provider.busy || submit.busy}
+					onSignIn={(flow) => {
+						submit.reset();
+						void provider.run(flow);
+					}}
+				/>
+				<InsetSection error={submit.error || provider.error}>
 					<Field
 						variant="row"
 						label={copy.auth.login.emailLabel}
@@ -48,14 +69,10 @@ export default function Login() {
 						secureTextEntry
 						autoComplete="current-password"
 						textContentType="password"
-						onSubmitEditing={() => void submit.run()}
+						onSubmitEditing={logInWithEmail}
 					/>
 				</InsetSection>
-				<Button
-					label={copy.auth.login.submitLabel}
-					onPress={() => void submit.run()}
-					busy={submit.busy}
-				/>
+				<Button label={copy.auth.login.submitLabel} onPress={logInWithEmail} busy={submit.busy} />
 				<Pressable onPress={() => router.push('/forgot')} style={{ alignSelf: 'center' }}>
 					<Text style={{ ...type.footnote, color: color.accent, fontWeight: '600' }}>
 						{copy.auth.forgot.link}

@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { api, ApiError } from '../lib/api';
 import Modal, { ModalFooter } from './ui/Modal';
 import SearchDropdown from './ui/SearchDropdown';
+import { IconButton } from './ui/buttons';
+import { CloseIcon } from './ui/icons';
 import type { Trip } from '../pages/TripShell';
 import { copy } from '../copy';
 
@@ -12,9 +14,9 @@ const c = copy.addCity;
  *
  * `region` is optional there and optional here for the same reason: city-states
  * have none, and the server omits the field rather than sending `''`. It is
- * carried on this type (not just rendered from it) because `pick` spreads the
- * whole suggestion into the POST body, so a field the type does not know about
- * is a field the client silently drops.
+ * carried on this type (not just rendered from it) because the picked
+ * suggestions go into the POST body whole, so a field the type does not know
+ * about is a field the client silently drops.
  */
 type Suggestion = {
 	name: string;
@@ -26,6 +28,14 @@ type Suggestion = {
 };
 
 const MIN_QUERY = 2;
+
+/**
+ * The most cities one request may add. The server's `MAX_CITIES_PER_ADD`, which
+ * cannot be imported here (it lives beside SQLite), so it is repeated: past
+ * this the picker stops taking more rather than letting the user build a list
+ * the server will refuse whole.
+ */
+const MAX_PICKED = 20;
 
 /**
  * Joins the parts of a city's secondary line, dropping the ones it has not got.
@@ -49,16 +59,26 @@ function key(c: { name: string; country: string; region?: string | null }): stri
 }
 
 /**
- * The add-city dialog.
+ * The add-cities dialog.
  *
  * Cities are what every other section is scoped to, so until this existed a
  * freshly created trip was a dead end: Discover told you to add a city and
  * nothing in the app could.
  *
- * It adds, and does not list. The sidebar behind it already shows every city
- * with its own delete button, so repeating that list here was the same data
- * twice, one of the two copies stale the moment the other changed. Kept out of
- * the Edit trip dialog on purpose, since this takes effect immediately and that
+ * Several cities go in at once. Each pick joins a list under the search, in
+ * the order picked, and the footer adds the whole list in one request. A trip
+ * is usually planned as a route, so one dialog per stop was the wrong unit,
+ * and the search box that stayed put after a pick already looked like it took
+ * more than one. The request is all or nothing on the server, so a refusal
+ * (one of them is already on the trip) leaves the list here intact: the user
+ * removes that one and presses Add again, rather than working out which of
+ * the rest landed.
+ *
+ * It adds, and does not list what the trip has. The sidebar behind it already
+ * shows every city with its own delete button, so repeating that list here was
+ * the same data twice, one of the two copies stale the moment the other
+ * changed. The list here is only what is about to be added. Kept out of the
+ * Edit trip dialog on purpose, since this takes effect immediately and that
  * form saves on submit; putting both in one place makes it impossible to tell
  * which is which.
  */
@@ -72,47 +92,122 @@ export default function AddCityDialog({
 	onChanged: () => void;
 }) {
 	const [error, setError] = useState('');
-	const [picked, setPicked] = useState<Suggestion | null>(null);
+	const [picked, setPicked] = useState<Suggestion[]>([]);
 	const [busy, setBusy] = useState(false);
+	const searchRef = useRef<HTMLDivElement>(null);
 
 	async function add() {
-		if (!picked) return;
+		if (picked.length === 0) return;
 		setBusy(true);
 		setError('');
 		try {
-			await api(`/trips/${trip.id}/cities`, { method: 'POST', body: picked });
+			await api<{ trip: Trip; added: string[] }>(`/trips/${trip.id}/cities`, {
+				method: 'POST',
+				body: { cities: picked }
+			});
 			onChanged();
 			onClose();
 		} catch (err) {
+			// The server names the city it refused, so the list stays as it was
+			// for that one to be taken out and the rest retried.
 			setError(err instanceof ApiError ? err.message : c.addFallback);
 		} finally {
 			setBusy(false);
 		}
 	}
 
+	function remove(k: string) {
+		setPicked((list) => list.filter((s) => key(s) !== k));
+		// The button that had focus is gone with its row; the search box is where
+		// the next thing happens, whether that is another pick or Add.
+		searchRef.current?.querySelector('input')?.focus();
+	}
+
+	const pickedKeys = new Set(picked.map(key));
+
 	return (
 		<Modal open title={c.title} subtitle={trip.name} onClose={onClose}>
 			<div className="mbody flex flex-col gap-4">
-				{/* The search stays put once a city is chosen, so changing your mind
-				    is another search rather than a button to undo the last one. */}
-				<CitySearch
-					picked={picked}
-					onPick={setPicked}
-					// Same rule the server enforces, so a city the trip already has is
-					// visibly unavailable instead of failing on Add.
-					onTrip={new Set(trip.cities.map(key))}
-				/>
+				<div ref={searchRef}>
+					<CitySearch
+						onPick={(s) => {
+							setPicked((list) => [...list, s]);
+							// Clicking a row does not take focus from the box, but a tap on a
+							// touch screen can; either way the next city is typed here.
+							searchRef.current?.querySelector('input')?.focus();
+						}}
+						// Same rule the server enforces, so a city the trip already has is
+						// visibly unavailable instead of failing on Add.
+						onTrip={new Set(trip.cities.map(key))}
+						picked={pickedKeys}
+						full={picked.length >= MAX_PICKED}
+					/>
+				</div>
+
+				{picked.length > 0 && <PickedList picked={picked} onRemove={remove} />}
 			</div>
 			<ModalFooter
 				onClose={onClose}
 				onSubmit={() => void add()}
 				busy={busy}
-				disabled={!picked}
+				disabled={picked.length === 0}
 				error={error}
 				busyLabel={copy.common.adding}
-				submitLabel={copy.common.add}
+				submitLabel={c.submit(picked.length)}
 			/>
 		</Modal>
+	);
+}
+
+/**
+ * What the footer will add, in the order it will be added. Laid out like the
+ * search row each one came from (name and region, then country and zone), in
+ * the tinted card the single pick used to sit in, one ruled row per city so a
+ * list of several still reads as one thing about to happen.
+ */
+function PickedList({
+	picked,
+	onRemove
+}: {
+	picked: Suggestion[];
+	onRemove: (key: string) => void;
+}) {
+	const names = picked.map((s) => s.name.trim().toLowerCase());
+	const headingId = useId();
+	return (
+		<section aria-labelledby={headingId} className="flex min-w-0 flex-col gap-1.5">
+			{/* A label in the field labels' own style rather than a heading, which
+			    would draw in the display face and outweigh the dialog's title. */}
+			<p id={headingId} className="flabel m-0">
+				{c.pickedHeading(picked.length)}
+			</p>
+			<ul className="m-0 flex min-w-0 list-none flex-col divide-y divide-accent-soft rounded-md border border-accent-soft bg-accent-soft/40 p-0">
+				{picked.map((s, i) => {
+					// Two Nashvilles in one list need different names on their remove
+					// buttons; one Kyoto does not need its prefecture read out.
+					const label =
+						names.indexOf(names[i]) !== names.lastIndexOf(names[i]) && s.region
+							? `${s.name}, ${s.region}`
+							: s.name;
+					return (
+						<li key={key(s)} className="flex min-w-0 items-center gap-2 py-1.5 pr-1.5 pl-3">
+							<span className="flex min-w-0 flex-1 flex-col">
+								<span className="flex min-w-0 items-baseline gap-1.5">
+									<span className="truncate font-medium">{s.name}</span>
+									{s.region && <span className="muted min-w-0 truncate text-meta">{s.region}</span>}
+								</span>
+								<span className="muted truncate text-meta">
+									{detail(s.country, s.tz.replace(/_/g, ' '))}
+								</span>
+							</span>
+							<IconButton label={c.remove(label)} onClick={() => onRemove(key(s))}>
+								<CloseIcon />
+							</IconButton>
+						</li>
+					);
+				})}
+			</ul>
+		</section>
 	);
 }
 
@@ -124,15 +219,23 @@ export default function AddCityDialog({
  * The search is the geocoder behind `/citysearch`, which returns the country,
  * the coordinates and the IANA zone with the name, so the organizer never types
  * a time zone.
+ *
+ * A pick empties the box and leaves the caret in it, so the next city is typed
+ * straight after the last one is chosen.
  */
 function CitySearch({
-	picked,
 	onPick,
-	onTrip
+	onTrip,
+	picked,
+	full
 }: {
-	picked: Suggestion | null;
 	onPick: (v: Suggestion) => void;
+	/** Identity keys of the cities the trip already has. */
 	onTrip: Set<string>;
+	/** Identity keys of the cities already in the list to add. */
+	picked: Set<string>;
+	/** The list is at the most one request may add; nothing more can be picked. */
+	full: boolean;
 }) {
 	const [query, setQuery] = useState('');
 	const [hits, setHits] = useState<Suggestion[]>([]);
@@ -195,70 +298,63 @@ function CitySearch({
 
 	function pick(s: Suggestion) {
 		onPick(s);
+		// A search still pending for the old query has nothing left to answer.
+		clearTimeout(timer.current);
+		inflight.current?.abort();
+		inflight.current = undefined;
+		setSearching(false);
 		setQuery('');
 		setHits([]);
 		setOpen(false);
 	}
 
 	return (
-		<>
-			<SearchDropdown
-				// The dialog's title already says "Add city", so the field is named for
-				// what it holds rather than repeating the action. The placeholder does
-				// the rest: what the box wants is examples, not a format.
-				label={c.searchLabel}
-				placeholder={c.searchPlaceholder}
-				value={query}
-				onChange={onQuery}
-				open={open}
-				onOpenChange={setOpen}
-				busy={searching}
-				// The results overlay rather than pushing the dialog's own controls
-				// down, which is what typing here used to do on every keystroke.
-				items={hits.slice(0, 6)}
-				itemKey={(s) => `${s.name}|${s.country}|${s.lat}`}
-				onPick={pick}
-				// The region is what tells two same-named hits apart, so it goes on the
-				// row itself rather than only on the card after the pick: choosing
-				// between two Springfields is the moment it is needed. It joins the
-				// country through `detail`, so a city-state with no region renders as
-				// the country alone, exactly as every row did before.
-				renderItem={(s) => (
+		<SearchDropdown
+			// The dialog's title already says "Add cities", so the field is named
+			// for what it holds rather than repeating the action. The placeholder
+			// does the rest: what the box wants is examples, not a format.
+			label={c.searchLabel}
+			placeholder={c.searchPlaceholder}
+			value={query}
+			onChange={onQuery}
+			open={open}
+			onOpenChange={setOpen}
+			busy={searching}
+			// The results overlay rather than pushing the dialog's own controls
+			// down, which is what typing here used to do on every keystroke.
+			items={hits.slice(0, 6)}
+			itemKey={(s) => `${s.name}|${s.country}|${s.lat}`}
+			onPick={pick}
+			// The region is what tells two same-named hits apart, so it goes on the
+			// row itself rather than only on the list after the pick: choosing
+			// between two Springfields is the moment it is needed. It joins the
+			// country through `detail`, so a city-state with no region renders as
+			// the country alone, exactly as every row did before.
+			renderItem={(s) => {
+				// On the trip outranks in the list: the list could drop it again, the
+				// trip will not.
+				const tag = onTrip.has(key(s)) ? c.alreadyAdded : picked.has(key(s)) ? c.picked : '';
+				return (
 					<span className="flex items-baseline gap-2">
 						<span className="min-w-0 truncate font-medium">{s.name}</span>
 						<span className="muted min-w-0 truncate text-meta">{detail(s.region, s.country)}</span>
-						{onTrip.has(key(s)) && (
-							<span className="muted ml-auto shrink-0 text-micro">{c.alreadyAdded}</span>
-						)}
+						{tag && <span className="muted ml-auto shrink-0 text-micro">{tag}</span>}
 					</span>
-				)}
-				itemDisabled={(s) => onTrip.has(key(s))}
-				// Nothing to say yet on one letter, so the popup stays shut until the
-				// query is long enough to have searched.
-				empty={
-					query.trim().length < MIN_QUERY
-						? null
-						: searching
-							? c.searching
-							: searchError || c.noMatches
-				}
-			/>
-
-			{picked && (
-				<div className="flex min-w-0 flex-col rounded-md border border-accent-soft bg-accent-soft/40 px-3 py-2.5">
-					{/* Laid out like the search result it came from, so what you are
-					    about to add reads the same as the row you picked. */}
-					<span className="flex items-baseline gap-1.5">
-						<span className="truncate font-medium">{picked.name}</span>
-						{picked.region && (
-							<span className="muted min-w-0 truncate text-meta">{picked.region}</span>
-						)}
-					</span>
-					<span className="muted truncate text-meta">
-						{detail(picked.country, picked.tz.replace(/_/g, ' '))}
-					</span>
-				</div>
-			)}
-		</>
+				);
+			}}
+			// Both are refused by the server (the whole request with them), so
+			// neither can be picked. A full list takes nothing more, unlabelled:
+			// the count above the list already says why.
+			itemDisabled={(s) => full || onTrip.has(key(s)) || picked.has(key(s))}
+			// Nothing to say yet on one letter, so the popup stays shut until the
+			// query is long enough to have searched.
+			empty={
+				query.trim().length < MIN_QUERY
+					? null
+					: searching
+						? c.searching
+						: searchError || c.noMatches
+			}
+		/>
 	);
 }

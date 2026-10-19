@@ -9,7 +9,8 @@
 		"newArchEnabled": true,
 		"ios": {
 			"supportsTablet": false,
-			"bundleIdentifier": "com.trippy.app"
+			"bundleIdentifier": "com.trippy.app",
+			"usesAppleSignIn": true
 		},
 		"android": {
 			"package": "com.trippy.app",
@@ -19,6 +20,12 @@
 			"bundler": "metro",
 			"output": "single"
 		},
-		"plugins": ["expo-router", "expo-secure-store", "expo-status-bar", "expo-font"]
+		"plugins": [
+			"expo-router",
+			"expo-secure-store",
+			"expo-status-bar",
+			"expo-font",
+			"expo-apple-authentication"
+		]
 	}
 }

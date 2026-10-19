@@ -23,7 +23,13 @@ export function hashPassword(password: string): string {
 
 export function verifyPassword(password: string, stored: string): boolean {
 	const [saltHex, keyHex] = stored.split(':');
-	if (!saltHex || !keyHex) return false;
+	// An account made with Google or Apple stores '' and can never match. It
+	// still costs a derivation, or a quick 401 would say which accounts have
+	// no password (see `burnPasswordCheck`).
+	if (!saltHex || !keyHex) {
+		burnPasswordCheck(password);
+		return false;
+	}
 	const derived = scryptSync(password, Buffer.from(saltHex, 'hex'), 64);
 	const expected = Buffer.from(keyHex, 'hex');
 	return derived.length === expected.length && timingSafeEqual(derived, expected);
@@ -171,7 +177,10 @@ export function applyEmailChange(
 	if (problem) return { ok: false, error: problem };
 	const before = findUserById(userId);
 	if (!before) return { ok: false, error: 'That link is no longer valid. Ask for a new one.' };
-	db.prepare(`UPDATE users SET email = ? WHERE id = ?`).run(clean, userId);
+	db.prepare(`UPDATE users SET email = ?, email_verified_at = NULL WHERE id = ?`).run(
+		clean,
+		userId
+	);
 	// An invite is addressed to an email, not to an account, so one sent to an
 	// address you add later is waiting for you and nothing would ever pick it
 	// up: registration was the only place that looked. Someone invited at their
@@ -198,7 +207,13 @@ export function startEmailChange(userId: string, email: string): { token: string
 		   token_hash = excluded.token_hash,
 		   expires_at = excluded.expires_at,
 		   created_at = excluded.created_at`
-	).run(userId, email.trim().toLowerCase(), hashToken(token), Date.now() + VERIFY_TTL_MS, Date.now());
+	).run(
+		userId,
+		email.trim().toLowerCase(),
+		hashToken(token),
+		Date.now() + VERIFY_TTL_MS,
+		Date.now()
+	);
 	return { token };
 }
 
@@ -231,8 +246,23 @@ export function completeEmailChange(
 	if (row.expires_at < Date.now()) return invalid;
 	const applied = applyEmailChange(row.user_id, row.email);
 	if (!applied.ok) return applied;
+	markEmailProven(row.user_id);
 	return { ok: true, userId: row.user_id, email: row.email };
 }
+
+/** Record that this account's current address has just been proven. */
+export function markEmailProven(userId: string): void {
+	db.prepare(`UPDATE users SET email_verified_at = ? WHERE id = ?`).run(Date.now(), userId);
+}
+
+/** Whether this account has a password, as opposed to Google or Apple only. */
+export function hasPassword(userId: string): boolean {
+	return !!findUserById(userId)?.password_hash;
+}
+
+/** The answer to asking a passwordless account for its current password. */
+export const NO_PASSWORD_YET =
+	'This account signs in with Google or Apple. Set a password with Forgot password on the log in page.';
 
 /** Change a user's password after verifying their current one. */
 export function changePassword(
@@ -242,6 +272,7 @@ export function changePassword(
 ): { ok: true } | { ok: false; error: string } {
 	const user = findUserById(userId);
 	if (!user) return { ok: false, error: 'Account not found.' };
+	if (!user.password_hash) return { ok: false, error: NO_PASSWORD_YET };
 	if (!verifyPassword(currentPassword, user.password_hash))
 		return { ok: false, error: 'Your current password is incorrect.' };
 	if (newPassword.length < 8)
@@ -378,15 +409,15 @@ export function completeRegistration(
 
 	// The address can have been taken since the link was sent, by somebody who
 	// proved it first. The pending row is already gone, so this is terminal.
-	if (findUserByEmail(row.email))
-		return { ok: false, error: 'That email is already registered.' };
+	if (findUserByEmail(row.email)) return { ok: false, error: 'That email is already registered.' };
 
 	const id = randomUUID();
 	const zone = startingZone(row.home_tz);
+	// The link was opened, so the address is proven from the start.
 	db.prepare(
-		`INSERT INTO users (id, email, name, password_hash, home_tz, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?)`
-	).run(id, row.email, row.name, row.password_hash, zone, Date.now());
+		`INSERT INTO users (id, email, name, password_hash, home_tz, created_at, email_verified_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`
+	).run(id, row.email, row.name, row.password_hash, zone, Date.now(), Date.now());
 	consumeInvites(id, row.email);
 	return { ok: true, user: { id, email: row.email, name: row.name, homeTz: zone } };
 }
@@ -443,8 +474,10 @@ export function completePasswordReset(
 	if (row.expires_at < Date.now())
 		return { ok: false, error: 'That link is no longer valid. Ask for a new one.' };
 
-	db.prepare(`UPDATE users SET password_hash = ? WHERE id = ?`).run(
+	db.prepare(`UPDATE users SET password_hash = ?, email_verified_at = ? WHERE id = ?`).run(
 		hashPassword(newPassword),
+		// The reset link went to this address and was opened, which proves it.
+		Date.now(),
 		row.user_id
 	);
 	// Any other reset already in flight for this account is void now, and every

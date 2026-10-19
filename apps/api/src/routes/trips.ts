@@ -8,7 +8,8 @@ import {
 	getTripForUser,
 	createTrip,
 	updateTrip,
-	addCityResult,
+	addCitiesResult,
+	MAX_CITIES_PER_ADD,
 	updateCityResult,
 	removeCityResult,
 	deleteTrip,
@@ -138,12 +139,22 @@ function cityRefusal(c: Context<Env>, reason: CityRefusal, input?: CityInput) {
 	}
 }
 
+/**
+ * Adds one city, or several picked together as `{ cities: [...] }`, all or
+ * none (see `addCitiesResult`). A refusal names the city it was about.
+ */
 trips.post('/:tripId/cities', requireMember, async (c) => {
 	const b = await body(c);
-	const input = cityInput(b);
-	const res = addCityResult(c.get('trip').id, c.get('user').id, input);
-	if (!res.ok) return cityRefusal(c, res.reason, input);
-	return c.json({ trip: getTripForUser(c.get('trip').id, c.get('user').id) }, 201);
+	const list = Array.isArray(b.cities) ? (b.cities as unknown[]) : null;
+	if (list && list.length > MAX_CITIES_PER_ADD) {
+		return fail(c, 400, `Add up to ${MAX_CITIES_PER_ADD} cities at a time.`);
+	}
+	const inputs = list
+		? list.map((v) => cityInput(v && typeof v === 'object' ? (v as Record<string, unknown>) : {}))
+		: [cityInput(b)];
+	const res = addCitiesResult(c.get('trip').id, c.get('user').id, inputs);
+	if (!res.ok) return cityRefusal(c, res.reason, inputs[res.index ?? 0]);
+	return c.json({ trip: getTripForUser(c.get('trip').id, c.get('user').id), added: res.ids }, 201);
 });
 
 trips.patch('/:tripId/cities/:cityId', requireMember, async (c) => {
