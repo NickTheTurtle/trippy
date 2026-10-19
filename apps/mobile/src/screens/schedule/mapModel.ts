@@ -1,6 +1,7 @@
 import { copy } from '@trippy/copy';
+import { coversDay, lastDayOf, segmentOn, type ZoneOf } from '@trippy/core/span';
 import type { Cell, EventRow, LegRow, SavedPoi } from './types';
-import { clockRange, modeLabel, typeLabel } from './shared';
+import { clockRange, modeLabel, segmentLabel, typeLabel } from './shared';
 
 export type MobileMapPinEntry = {
 	title: string;
@@ -51,6 +52,7 @@ export const EVENT_COLORS = {
 } as const;
 
 export function buildScheduleMapModel({
+	day,
 	events,
 	stays,
 	legs,
@@ -59,8 +61,11 @@ export function buildScheduleMapModel({
 	memberIds,
 	peopleLabel,
 	locked,
+	zoneOf,
 	singleViewer = memberIds.length === 1
 }: {
+	/** The day the map is of, which a multi-day event's part is read on. */
+	day?: string;
 	events: EventRow[];
 	stays: EventRow[];
 	legs: LegRow[];
@@ -69,14 +74,26 @@ export function buildScheduleMapModel({
 	memberIds: string[];
 	peopleLabel: (ids: string[]) => string;
 	locked: boolean;
+	zoneOf?: ZoneOf;
 	singleViewer?: boolean;
 }): MobileMapModel {
+	const segOf = (event: EventRow) => (day ? segmentOn(event, day, zoneOf) : null);
+	const startOn = (event: EventRow) => segOf(event)?.start ?? event.start_min;
+	const endOn = (event: EventRow) => segOf(event)?.end ?? event.end_min;
 	const locatedEvents = [...events]
-		.filter((event) => event.lat != null && event.lng != null)
-		.sort((a, b) => a.start_min - b.start_min || (a.id < b.id ? -1 : 1));
-	const numbered = singleViewer || isSingleSequence(locatedEvents);
+		.filter((event) => event.lat != null && event.lng != null && pinnedOn(event, day))
+		.sort((a, b) => startOn(a) - startOn(b) || (a.id < b.id ? -1 : 1));
+	const numbered = singleViewer || isSingleSequence(locatedEvents, startOn, endOn);
 	const eventPins = locatedEvents.map((event, index) =>
-		eventPin(event, index, numbered, legs, events, peopleLabel)
+		eventPin(
+			event,
+			index,
+			numbered,
+			legs,
+			events,
+			peopleLabel,
+			day ? segmentLabel(event, day, zoneOf) : clockRange(event.start_min, event.end_min)
+		)
 	);
 	const stayPins = stays
 		.filter((stay) => stay.lat != null && stay.lng != null)
@@ -138,9 +155,10 @@ function eventPin(
 	numbered: boolean,
 	legs: LegRow[],
 	events: EventRow[],
-	peopleLabel: (ids: string[]) => string
+	peopleLabel: (ids: string[]) => string,
+	when: string
 ): MobileMapPin {
-	const subtitle = `${typeLabel(event.type)} · ${clockRange(event.start_min, event.end_min)}`;
+	const subtitle = `${typeLabel(event.type)} · ${when}`;
 	const warn = legs.some((leg) => leg.toEventId === event.id && leg.tight)
 		? copy.viewAs.travelWarning
 		: undefined;
@@ -234,10 +252,26 @@ export function frameRegion(pins: MobileMapPin[], city: Cell | null) {
 	};
 }
 
-function isSingleSequence(events: EventRow[]): boolean {
+/**
+ * Whether an event's pin is on this day's map. A journey's place is where it
+ * lands, so its pin waits for the day it arrives rather than marking the
+ * destination on the days spent getting there. Anything else is somewhere for
+ * every day it is drawn on, an overnight hike's trailhead included.
+ */
+function pinnedOn(event: EventRow, day: string | undefined): boolean {
+	if (!day) return true;
+	if (!coversDay(event, day)) return false;
+	return event.type !== 'travel' || lastDayOf(event) === day;
+}
+
+function isSingleSequence(
+	events: EventRow[],
+	startOn: (event: EventRow) => number,
+	endOn: (event: EventRow) => number
+): boolean {
 	if (events.length < 2) return true;
 	for (let i = 1; i < events.length; i++) {
-		if (events[i].start_min < events[i - 1].end_min) return false;
+		if (startOn(events[i]) < endOn(events[i - 1])) return false;
 	}
 	const who = (event: EventRow) => (event.people.length ? [...event.people].sort().join(',') : '*');
 	return events.every((event) => who(event) === who(events[0]));

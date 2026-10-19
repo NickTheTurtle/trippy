@@ -19,6 +19,15 @@ import { formatDayRange } from '@trippy/core/tz';
 import { guessLeg, routeKey } from '@trippy/core/travel';
 import { daysBetween } from '@trippy/core/plan';
 import {
+	lastDayOf,
+	MAX_SPAN_DAYS,
+	normalizeSpan,
+	onOneClock,
+	spanProblem,
+	type SpanRow,
+	type ZoneOf
+} from '@trippy/core/span';
+import {
 	isNameLength,
 	isNotesLength,
 	isOutsideTrip,
@@ -32,8 +41,10 @@ import {
 	crewsForTrip,
 	currentPlaceName,
 	currentType,
+	dayCity,
 	deleteEvent,
 	editEvent,
+	editedSpan,
 	editLeg,
 	eventTrip,
 	eventVersion,
@@ -41,8 +52,11 @@ import {
 	incomingStays,
 	legsForDay,
 	moveEvent,
+	movable,
+	movedSpan,
 	movedStayCheckout,
 	plannedLegsForDay,
+	resizable,
 	resizeEvent,
 	saveAutoLeg,
 	scheduleDays,
@@ -430,12 +444,15 @@ schedule.get('/', async (c) => {
 	const prevDay = reach ? stepDay(trip.id, range, day, -1) : null;
 	const nextDay = reach ? stepDay(trip.id, range, day, 1) : null;
 
-	// Cities are dateless itinerary places, so the first city is the trip-wide
-	// default rather than a schedule. It frames the day view's map; the pins
-	// themselves come from the events, which do know where they are.
+	// Cities are dateless itinerary places, so a day is not assigned one. It is
+	// read off the one booking that says where somebody is on a date, a stay at
+	// a lodging option (`cityOfDay`), with the first city as the trip-wide
+	// default. It frames the day view's map and is the clock a block created on
+	// the day without a city of its own starts on; the pins themselves come from
+	// the events, which do know where they are.
 	const cell = (city: Trip['cities'][number] | null | undefined) =>
 		city ? { id: city.id, name: city.name, tz: city.tz, lat: city.lat, lng: city.lng } : null;
-	const defaultCity = trip.cities[0] ?? null;
+	const cityOn = (on: string) => trip.cities.find((x) => x.id === cityOfDay(trip, on)) ?? null;
 
 	/* The day being read, and the one either side of it.
 	 *
@@ -459,7 +476,7 @@ schedule.get('/', async (c) => {
 	const board = await Promise.all(
 		drawn.map(async (on) => ({
 			day: on,
-			city: cell(defaultCity),
+			city: cell(cityOn(on)),
 			events: eventsForDay(trip.id, on),
 			// The day's lodgings, drawn as a band rather than a block: a stay is a
 			// range of days, so it is on every day it covers, the morning of
@@ -670,6 +687,103 @@ function outsideTripMessage(trip: Trip): string {
 	return `That date is outside the trip, which runs ${trip.start_date} to ${trip.end_date}.`;
 }
 
+/*
+ * --- Events that run past their own day -------------------------------------
+ *
+ * The rules are core's (`packages/core/src/span.ts`): where the block sits on
+ * each day, how long it really is across days and zones, and what is wrong with
+ * it. This layer only has the trip to hand, so it supplies the trip's zones and
+ * dates and turns core's answer into a sentence. The sentences are the ones
+ * under `copy.schedule.span` that the dialogs show before a save is sent, so a
+ * refusal from here reads the same as one from the form.
+ */
+
+/** The zone of each of the trip's cities, which a span's two ends are read in. */
+function zonesOf(trip: Trip): ZoneOf {
+	const zones = new Map(trip.cities.map((city) => [city.id, city.tz]));
+	return (cityId) => (cityId ? zones.get(cityId) : null);
+}
+
+/**
+ * The city a day is spent in: the one its earliest stay's lodging belongs to
+ * (`dayCity`), else the trip's first. The same answer is `BoardDay.city` and
+ * the city a block created without one is stored in, so the clock a start is
+ * read on is the one the board showed the day on, and the arrival city of a
+ * journey is compared against the city it really leaves from.
+ */
+function cityOfDay(trip: Trip, day: string): string | null {
+	const booked = dayCity(trip.id, day);
+	const known = booked && trip.cities.some((city) => city.id === booked) ? booked : null;
+	return known ?? trip.cities[0]?.id ?? null;
+}
+
+const END_BEFORE_START = 'The end must be after the start.';
+const SPAN_TOO_LONG = `An event can run for at most ${MAX_SPAN_DAYS} days.`;
+const END_OUTSIDE_TRIP = 'Pick an end date within the trip.';
+const PICK_TRIP_CITY = 'Pick a city on this trip.';
+
+/** A span in its stored form, which is the form every check below judges. */
+function settled(trip: Trip, row: SpanRow): SpanRow {
+	return { ...row, ...normalizeSpan(row, zonesOf(trip)) };
+}
+
+/**
+ * Whether a span is a block on one clock on one day once it is in its stored
+ * form, which is when the old one-day rules (an end at least the shortest
+ * block after the start, a length that fits in the day) apply rather than
+ * `spanProblem`. Settled first, so a block that runs to 00:00 tomorrow is the
+ * one-day block ending at midnight it will be stored as.
+ */
+function oneClock(trip: Trip, row: SpanRow): boolean {
+	return onOneClock(settled(trip, row), zonesOf(trip));
+}
+
+/**
+ * What is wrong with a timed event's span, for a write about to store it, or
+ * null. A stay, and a block on one clock on one day, are judged elsewhere by
+ * the rules they always had.
+ *
+ * An end day before the start day is caught before the span is settled, which
+ * would otherwise read it as "its own day". An arrival city that is not one of
+ * the trip's is refused rather than dropped, as `cityId` is; it is only read
+ * on a journey, so any other type is not asked about it.
+ */
+function spanRefusal(trip: Trip, row: SpanRow): string | null {
+	if (row.type === 'stay') return null;
+	if (row.end_day && row.end_day < row.day) return END_BEFORE_START;
+	if (
+		row.type === 'travel' &&
+		row.end_city_id &&
+		!trip.cities.some((city) => city.id === row.end_city_id)
+	) {
+		return PICK_TRIP_CITY;
+	}
+	const span = settled(trip, row);
+	const zoneOf = zonesOf(trip);
+	if (onOneClock(span, zoneOf)) return null;
+	const problem = spanProblem(span, zoneOf);
+	if (problem === 'too-long') return SPAN_TOO_LONG;
+	if (problem) return END_BEFORE_START;
+	if (outsideTrip(trip, lastDayOf(span))) return END_OUTSIDE_TRIP;
+	return null;
+}
+
+/**
+ * The end day a body asked a non-stay block for: a day, null for "its own
+ * day" (sent as null or empty), or undefined when the body did not say.
+ */
+function sentEndDay(v: unknown): string | null | undefined {
+	if (v === undefined) return undefined;
+	if (v === null || v === '') return null;
+	return isoDay(v) ?? undefined;
+}
+
+/** The arrival city a body asked for: an id, null to clear, or undefined when silent. */
+function sentEndCity(v: unknown): string | null | undefined {
+	if (v === undefined) return undefined;
+	return str(v) || null;
+}
+
 /** What a participant list of nothing but strangers is told. */
 const STRANGERS_MESSAGE = "Nobody in that list is on this trip. Pick from the trip's members.";
 
@@ -746,6 +860,22 @@ schedule.post('/events', async (c) => {
 		return fail(c, 400, outsideTripMessage(trip));
 	}
 
+	// Anything else may end on a later day, and a journey may land in another
+	// city whose clock its end is read on. Absent or null is the old answer: it
+	// ends on its own day, on its own clock. A non-journey's arrival city is
+	// ignored rather than refused, because the dialog keeps the field's value
+	// while the type is switched back and forth.
+	const spanDay = stay ? undefined : sentEndDay(b.endDay);
+	if (!stay && b.endDay !== undefined && spanDay === undefined) {
+		return fail(c, 400, 'Pick an end date.');
+	}
+	const endCityId = type === 'travel' ? (sentEndCity(b.endCityId) ?? null) : null;
+	// Neither client used to send a city, and the first city was stored, so on
+	// a trip through Tokyo and Los Angeles a flight out of Tokyo had its start
+	// read on whichever city was listed first. The day's city is the answer the
+	// board gives for the day the block is on.
+	const cityId = sentCity || cityOfDay(trip, day);
+
 	// The name is optional on the wire: picking a place is how most things get
 	// added, so one is derived rather than demanded. A name that was typed is
 	// still checked, because that is a field the organiser can see and fix; a
@@ -763,26 +893,64 @@ schedule.post('/events', async (c) => {
 		: null;
 	const title = sentTitle || derivedTitle(type, placeName(place), notes);
 
-	// Every event, a stay included, occupies real time on its own day, so the
-	// end is always a length from the start. A length is asked for rather than
+	// Every event, a stay included, occupies real time, so the end is a length
+	// from the start for a block on one day. A length is asked for rather than
 	// an end time precisely so an end cannot land before its start, but the
 	// number still arrives from the network and a negative or absurd one would
 	// otherwise be quietly clamped into something the organiser never chose.
+	//
+	// A block that ends on a later day, or on another city's clock, has no
+	// length on one clock to give, so its end is read as a clock reading on its
+	// last day, in the arrival city's zone for a journey: `endMin` when sent,
+	// else `start + duration`, the same sum a one-day block has always been
+	// stored by (so a red-eye from 22:00 to 07:00 may send a duration of -900).
+	// A one-day block may send `endMin` too, and is then held to the same floor.
 	const duration = num(b.duration) ?? 60;
-	if (duration < MIN_EVENT_MINS) {
-		return fail(c, 400, `An event needs to run at least ${MIN_EVENT_MINS} minutes.`);
+	const endMin = num(b.endMin);
+	if (sent(b.endMin) && b.endMin !== null && endMin === null) {
+		return fail(c, 400, 'Pick an end time.');
 	}
-	if (!stay && start + duration > DAY_END_MIN) {
-		return fail(c, 400, 'That runs past the end of the day. Shorten it or start earlier.');
+	if (endMin !== null && (endMin < 0 || endMin > DAY_END_MIN)) {
+		return fail(c, 400, 'Pick an end time within the day.');
 	}
-	const end = stay ? DAY_END_MIN : start + duration;
+	const draft: SpanRow = {
+		type,
+		day,
+		end_day: spanDay ?? null,
+		start_min: start,
+		end_min: endMin ?? start + duration,
+		city_id: cityId,
+		end_city_id: endCityId
+	};
+	let end: number;
+	const onOneDay = stay || oneClock(trip, draft);
+	if (!onOneDay && (draft.end_min < 0 || draft.end_min > DAY_END_MIN)) {
+		return fail(c, 400, 'Pick an end time within the day.');
+	}
+	const refusal = spanRefusal(trip, draft);
+	if (refusal) return fail(c, 400, refusal);
+	if (onOneDay) {
+		const length = stay ? duration : settled(trip, draft).end_min - start;
+		if (length < MIN_EVENT_MINS) {
+			return fail(c, 400, `An event needs to run at least ${MIN_EVENT_MINS} minutes.`);
+		}
+		if (!stay && start + length > DAY_END_MIN) {
+			return fail(c, 400, 'That runs past the end of the day. Shorten it or start earlier.');
+		}
+		end = stay ? DAY_END_MIN : start + length;
+	} else {
+		end = draft.end_min;
+	}
 
 	const people = strList(b.people);
 	if (allStrangers(trip, people)) return fail(c, 400, STRANGERS_MESSAGE);
 
 	const id = createEvent(trip.id, c.get('user').id, {
 		day,
-		endDay,
+		// A stay's checkout; else the end day, which a block settled onto one
+		// day (one that runs to 00:00 tomorrow is one ending at 24:00) no longer has.
+		endDay: stay ? endDay : onOneDay ? null : (spanDay ?? null),
+		endCityId,
 		title,
 		type,
 		startMin: start,
@@ -790,7 +958,7 @@ schedule.post('/events', async (c) => {
 		poiId: place && 'poiId' in place ? place.poiId : null,
 		lodgingId: place && 'lodgingId' in place ? place.lodgingId : null,
 		placeText: place && 'text' in place ? place.text : null,
-		cityId: sentCity || trip.cities[0]?.id || null,
+		cityId,
 		lat: place?.lat ?? null,
 		lng: place?.lng ?? null,
 		notes: notes || null,
@@ -887,19 +1055,37 @@ function travelModeProblem(v: unknown): string | null {
  * `placeFor`), an empty travel mode, which hands the journey back to the
  * router, and an empty participant list, which means everyone. Those are
  * requests, not mistakes.
+ *
+ * `kind` is the type the block is ending up as, because `endDay` means two
+ * things: a stay's checkout, which must come after its check-in, and any other
+ * block's last day, which may be its own (null) and is judged with the rest of
+ * its span by `spanRefusal`. `oneDay` says whether the edit leaves a block on
+ * one clock on one day, the only shape the "end after start on the clock"
+ * rule here is about, and `settledEnd` is its end once stored (a block sent as
+ * ending at 00:00 tomorrow is stored as ending at 24:00 today).
  */
-function opProblem(op: string, b: Record<string, unknown>): string | null {
+function opProblem(
+	op: string,
+	b: Record<string, unknown>,
+	kind: EventType,
+	oneDay: boolean,
+	settledEnd?: number
+): string | null {
 	// Any op may name the day it is landing on. Absent leaves the block where it
 	// is; unreadable would have moved it to a day that is not a day.
 	if (sent(b.day) && !isoDay(b.day)) return 'Pick a day.';
-	if (sent(b.endDay) && !isoDay(b.endDay)) return 'Pick a checkout date.';
-	const from = isoDay(b.day);
-	const to = isoDay(b.endDay);
-	// Same rule create holds a stay to, and the same words the lodging form uses
-	// for it. The store clamps an inverted range into the shortest real stay,
-	// which is the right last resort and the wrong thing to tell somebody who
-	// typed two dates and got a third.
-	if (from && to && to <= from) return 'Check-out must be after check-in.';
+	if (kind !== 'stay') {
+		if (sent(b.endDay) && sentEndDay(b.endDay) === undefined) return 'Pick an end date.';
+	} else {
+		if (sent(b.endDay) && !isoDay(b.endDay)) return 'Pick a checkout date.';
+		const from = isoDay(b.day);
+		const to = isoDay(b.endDay);
+		// Same rule create holds a stay to, and the same words the lodging form uses
+		// for it. The store clamps an inverted range into the shortest real stay,
+		// which is the right last resort and the wrong thing to tell somebody who
+		// typed two dates and got a third.
+		if (from && to && to <= from) return 'Check-out must be after check-in.';
+	}
 
 	// The version the editor had on screen. A version that is not a whole number
 	// reads as "no version" and quietly turns the conflict check off, which is
@@ -937,8 +1123,9 @@ function opProblem(op: string, b: Record<string, unknown>): string | null {
 	}
 	if (end !== null && end > DAY_END_MIN) return 'That runs past the end of the day.';
 	// A dialog save carries both ends of the clock at once, so it is the one op
-	// that can describe an event that ends before it begins.
-	if (start !== null && end !== null && end - start < MIN_EVENT_MINS) {
+	// that can describe an event that ends before it begins. On one clock on
+	// one day that is these two minutes; anything else is judged as a span.
+	if (oneDay && start !== null && end !== null && (settledEnd ?? end) - start < MIN_EVENT_MINS) {
 		return `An event needs to run at least ${MIN_EVENT_MINS} minutes.`;
 	}
 
@@ -999,27 +1186,85 @@ schedule.post('/events/:eventId/op', async (c) => {
 	if (targetDay && outsideTrip(trip, targetDay)) {
 		return fail(c, 400, outsideTripMessage(trip));
 	}
+	const op = str(b.op);
+	// The type the block is ending up as, which decides what `endDay` means: a
+	// stay's checkout, or any other block's last day.
+	const kind = editedType(eventId, b.type);
 	const targetEnd = isoDay(b.endDay);
-	if (targetEnd && checkoutOutsideTrip(trip, targetEnd)) {
+	if (kind === 'stay' && targetEnd && checkoutOutsideTrip(trip, targetEnd)) {
 		return fail(c, 400, outsideTripMessage(trip));
 	}
 	// A drag carries only the day it lands on, and a stay keeps its length in
 	// nights, so the checkout it would end up with is not in the body at all.
 	// Checking only a sent `endDay` let a four-night stay dragged onto the last
 	// day check out three days after the trip, on days the board does not have.
-	if (str(b.op) === 'move' && targetDay) {
+	if (op === 'move' && targetDay) {
 		const checkout = movedStayCheckout(eventId, targetDay);
 		if (checkout && checkoutOutsideTrip(trip, checkout)) {
 			return fail(c, 400, outsideTripMessage(trip));
 		}
 	}
 
+	// The departure city of a block being edited: one of the trip's, like the
+	// arrival and like `cityId` on create. Refused rather than dropped, because
+	// a dropped one leaves the start read on the wrong clock with nothing said.
+	if (op === 'edit' && sent(b.cityId) && !trip.cities.some((city) => city.id === str(b.cityId))) {
+		return fail(c, 400, PICK_TRIP_CITY);
+	}
+	const sentCityId = op === 'edit' && sent(b.cityId) ? str(b.cityId) : undefined;
+
+	// The span this op would leave a timed block with, merged with the stored
+	// row by the same functions the store writes through, so what is judged
+	// here is what would be written. Null for a stay, and for an op that does
+	// not move either end.
+	const startAt = num(b.startMin);
+	const span =
+		kind === 'stay'
+			? null
+			: op === 'edit'
+				? editedSpan(eventId, {
+						type: b.type != null ? String(b.type) : undefined,
+						day: targetDay ?? undefined,
+						endDay: sentEndDay(b.endDay),
+						startMin: startAt ?? undefined,
+						endMin: num(b.endMin) ?? undefined,
+						cityId: sentCityId,
+						endCityId: sentEndCity(b.endCityId)
+					})
+				: op === 'move' && startAt !== null
+					? movedSpan(eventId, startAt, targetDay ?? undefined)
+					: null;
+	const spanOnOneDay = span === null || oneClock(trip, span);
+
 	// A dialog save carries both ends of the clock at once, a drag carries one
 	// minute, and either can arrive unreadable. Everything the switch below is
 	// about to read is checked here, in one place, while there is still
 	// somewhere to put the reason.
-	const problem = opProblem(str(b.op), b);
+	const problem = opProblem(
+		op,
+		b,
+		kind,
+		spanOnOneDay,
+		span && spanOnOneDay ? settled(trip, span).end_min : undefined
+	);
 	if (problem) return fail(c, 400, problem);
+	// The bottom edge of a block is a minute on the day being looked at, which
+	// for a block that ends on another day or another clock is not its end.
+	// The board does not offer the handle on one; its dialog is where the end
+	// of such a block is changed.
+	if (op === 'resize' && resizable(eventId) === false) {
+		return fail(c, 400, 'Open the event to change when it ends.');
+	}
+	// A journey between two clocks is not dragged either: the board draws it on
+	// the arrival clock and stores its start on the departure one, so the
+	// minute under the pointer is neither end. It is retimed in its dialog.
+	if (op === 'move' && movable(eventId) === false) {
+		return fail(c, 400, 'Open the event to change when it ends.');
+	}
+	if (span) {
+		const refusal = spanRefusal(trip, span);
+		if (refusal) return fail(c, 400, refusal);
+	}
 
 	// A drag and a resize are deliberately left unchecked. They carry exactly one
 	// field each, so there is nothing stale riding along to overwrite, and
@@ -1095,9 +1340,15 @@ schedule.post('/events/:eventId/op', async (c) => {
 								: String(b.travelMode),
 					startMin: sent(b.startMin) ? num(b.startMin)! : undefined,
 					endMin: sent(b.endMin) ? num(b.endMin)! : undefined,
-					// A stay moves and stretches by its dates instead.
+					// A stay moves and stretches by its dates instead. Anything else
+					// moves by `day` and ends on `endDay`: null is its own day, and
+					// absent keeps the end day it had, carried with a new `day`.
 					day: isoDay(b.day) ?? undefined,
-					endDay: isoDay(b.endDay) ?? undefined,
+					endDay: type === 'stay' ? (isoDay(b.endDay) ?? undefined) : sentEndDay(b.endDay),
+					// A journey's arrival city: absent leaves it, null clears it.
+					endCityId: sentEndCity(b.endCityId),
+					// The city it starts in (a journey's departure): absent leaves it.
+					cityId: sentCityId,
 					place
 				},
 				trip.id,

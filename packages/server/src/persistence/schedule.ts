@@ -18,6 +18,17 @@ import {
 	SUGGEST_SNAP,
 	type LegOverride
 } from '@trippy/core/plan';
+import {
+	isMultiDay,
+	lastDayOf,
+	MAX_SPAN_DAYS,
+	normalizeSpan,
+	onOneClock,
+	crossesZones,
+	reclock,
+	type SpanRow,
+	type ZoneOf
+} from '@trippy/core/span';
 import { publish, publishMany } from '../events';
 import { isMember } from './membership';
 import { conflict, isStale, missing, written, type WriteResult } from './versioning';
@@ -75,7 +86,11 @@ export { shiftDay } from '@trippy/core/plan';
 export interface EventRow {
 	id: string;
 	day: string;
-	/** Checkout morning for a stay, exclusive. Null for a block on one day. */
+	/**
+	 * For a stay, the checkout morning, exclusive. For anything else, the day
+	 * the block ends on, inclusive, or null when it ends on its own day. See
+	 * `packages/core/src/span.ts`, which every reader of the second meaning uses.
+	 */
 	end_day: string | null;
 	title: string;
 	type: EventType;
@@ -86,6 +101,8 @@ export interface EventRow {
 	/** A location typed by hand. Exclusive with the two links, and never mapped. */
 	place_text: string | null;
 	city_id: string | null;
+	/** A journey's arrival city, whose zone `end_min` is read in. Null for anything else. */
+	end_city_id: string | null;
 	lat: number | null;
 	lng: number | null;
 	notes: string | null;
@@ -121,7 +138,39 @@ export interface LegRow {
 	tight: boolean;
 }
 
-const EVENT_COLUMNS = `id, day, end_day, title, type, start_min, end_min, poi_id, lodging_id, place_text, city_id, lat, lng, notes, travel_mode, version`;
+const EVENT_COLUMNS = `id, day, end_day, title, type, start_min, end_min, poi_id, lodging_id, place_text, city_id, end_city_id, lat, lng, notes, travel_mode, version`;
+
+/**
+ * The last day a row is on, in SQL, for the questions that walk days.
+ *
+ * A timed block that runs past its own day is on every day to its `end_day`.
+ * A stay is not: its `end_day` is a checkout, and the day lists and arrows
+ * have always counted a stay by the day it is checked into, which this keeps.
+ * The `> day` guard reads a stray end day on or before the start as the start,
+ * which is what `lastDayOf` in core does.
+ */
+const LAST_DAY_SQL = `CASE WHEN type != 'stay' AND end_day > day THEN end_day ELSE day END`;
+
+/**
+ * How far back a row can start and still reach a given day, as a SQLite date
+ * modifier. A span runs at most `MAX_SPAN_DAYS` past its start (the route
+ * refuses anything longer), so the rows that can cover day D all start in
+ * `[D - MAX_SPAN_DAYS, D]`, and a query for D reads that window off the
+ * `(trip_id, day)` index rather than every row of the trip before D.
+ */
+const SPAN_REACH = `'-${MAX_SPAN_DAYS} days'`;
+
+/**
+ * Every day a trip's rows are on, as a recursive walk from each row's first day
+ * to its last. A span is at most fifteen days (`MAX_SPAN_DAYS` in core), so the
+ * walk is bounded by the rows rather than by the calendar.
+ */
+const COVERED_DAYS_SQL = `
+	WITH RECURSIVE covered(d, last) AS (
+		SELECT day, ${LAST_DAY_SQL} FROM events WHERE trip_id = ?
+		UNION
+		SELECT date(d, '+1 day'), last FROM covered WHERE d < last
+	)`;
 
 function attachPeople(rows: EventRow[]): EventRow[] {
 	const stmt = db.prepare(`SELECT user_id FROM event_people WHERE event_id = ?`);
@@ -137,14 +186,22 @@ function attachPeople(rows: EventRow[]): EventRow[] {
  * Stays are not among them. A stay runs over nights rather than sitting on a
  * clock, so the board draws it as a band above the day rather than as a block
  * inside it, and `staysOnBoard` is what answers for it.
+ *
+ * A block that runs over several days is on each day it covers, as the same
+ * row: the client asks `segmentOn` in core where it sits on the day, so the
+ * row is never cut into per-day copies that could disagree. "Earliest" is by
+ * that segment's start, which for a block carried in from yesterday is
+ * midnight, so it leads the day the way the board draws it.
  */
 export function eventsForDay(tripId: string, day: string): EventRow[] {
 	const rows = db
 		.prepare(
 			`SELECT ${EVENT_COLUMNS} FROM events
-			 WHERE trip_id = ? AND day = ? AND type != 'stay' ORDER BY start_min, id`
+			 WHERE trip_id = ? AND day <= ? AND day >= date(?, ${SPAN_REACH})
+			   AND type != 'stay' AND ? <= ${LAST_DAY_SQL}
+			 ORDER BY CASE WHEN day < ? THEN 0 ELSE start_min END, day, start_min, id`
 		)
-		.all(tripId, day) as unknown as EventRow[];
+		.all(tripId, day, day, day, day) as unknown as EventRow[];
 	return attachPeople(rows);
 }
 
@@ -212,10 +269,47 @@ export function incomingStays(tripId: string, day: string): EventRow[] {
 	return staysCovering(tripId, shiftDay(day, -1));
 }
 
-/** Distinct days carrying anything, ordered. */
+/**
+ * The city a day is spent in, as far as the schedule says, or null when it
+ * does not say.
+ *
+ * Cities are dateless (DESIGN 5.0.8), so this does not slice the trip across
+ * them. It reads the one booking that does say where somebody is on a date: a
+ * stay at a lodging option, which belongs to a city. The earliest stay drawn on
+ * the day wins, which is the one woken up in when there is one (its checkout
+ * morning is a day of it) and tonight's otherwise. Waking up is the reading a
+ * day's first clock needs: a flight out of Tokyo on the morning the group
+ * leaves the Tokyo hotel departs on Tokyo's clock, whatever city it lands in.
+ *
+ * The board answers `BoardDay.city` with this, and `POST /events` stores it as
+ * the city of a block created without one, so the zone a start is read in is
+ * the one the board showed the day in. The caller falls back to the trip's
+ * first city, as both did before.
+ */
+export function dayCity(tripId: string, day: string): string | null {
+	const row = db
+		.prepare(
+			`SELECT l.city_id AS city_id
+			   FROM events e JOIN lodging_options l ON l.id = e.lodging_id
+			  WHERE e.trip_id = ? AND e.type = 'stay'
+			    AND e.day <= ? AND ? <= COALESCE(e.end_day, date(e.day, '+1 day'))
+			  ORDER BY e.day, e.start_min, e.id
+			  LIMIT 1`
+		)
+		.get(tripId, day, day) as unknown as { city_id: string } | undefined;
+	return row?.city_id ?? null;
+}
+
+/**
+ * Distinct days carrying anything, ordered.
+ *
+ * A block that runs over several days carries each of them, so the strip and
+ * the arrows reach its middle and its last day even when nothing else is on
+ * them. A stay still counts by the day it is checked into, as it always has.
+ */
 export function scheduleDays(tripId: string): string[] {
 	const rows = db
-		.prepare(`SELECT DISTINCT day FROM events WHERE trip_id = ? ORDER BY day`)
+		.prepare(`${COVERED_DAYS_SQL} SELECT DISTINCT d AS day FROM covered ORDER BY d`)
 		.all(tripId) as unknown as { day: string }[];
 	return rows.map((r) => r.day);
 }
@@ -230,39 +324,95 @@ export function scheduleDays(tripId: string): string[] {
  * edges used to walk the calendar to find them, and a walk needs a stopping
  * rule that is always wrong at some trip length.
  *
- * These four answer the same questions in SQL, in constant time, so the reach
- * of a trip no longer depends on anything being listed first.
+ * These four answer the same questions in SQL without walking the calendar,
+ * so the reach of a trip no longer depends on anything being listed first.
+ *
+ * Each reads a row as covering `day` through its last day (`LAST_DAY_SQL`), so
+ * a block that runs over several days carries every one of them, and a stay
+ * still carries only its own. A span reaches at most `MAX_SPAN_DAYS` past its
+ * start, so each question about one day reads a window that wide off the
+ * `(trip_id, day)` index (`SPAN_REACH`) rather than every row before it.
  */
 
-/** Whether anything starts on `day`. The cheap form of `scheduleDays().includes`. */
+/** Whether anything is on `day`. The cheap form of `scheduleDays().includes`. */
 export function dayHasEvents(tripId: string, day: string): boolean {
 	const row = db
-		.prepare(`SELECT 1 AS hit FROM events WHERE trip_id = ? AND day = ? LIMIT 1`)
-		.get(tripId, day) as unknown as { hit: number } | undefined;
+		.prepare(
+			`SELECT 1 AS hit FROM events
+			  WHERE trip_id = ? AND day <= ? AND day >= date(?, ${SPAN_REACH})
+			    AND ? <= ${LAST_DAY_SQL} LIMIT 1`
+		)
+		.get(tripId, day, day, day) as unknown as { hit: number } | undefined;
 	return row !== undefined;
 }
 
-/** Earliest and latest day carrying anything, or nulls for an empty schedule. */
+/**
+ * Earliest and latest day carrying anything, or nulls for an empty schedule.
+ *
+ * The latest is the indexed `MAX(day)` or the end of a span starting at most
+ * `MAX_SPAN_DAYS` before it, whichever is later: a span that ends past every
+ * start has to start within that reach of the last one.
+ */
 export function scheduledDayEdges(tripId: string): { first: string | null; last: string | null } {
-	const row = db
+	const edge = db
 		.prepare(`SELECT MIN(day) AS first, MAX(day) AS last FROM events WHERE trip_id = ?`)
 		.get(tripId) as unknown as { first: string | null; last: string | null } | undefined;
-	return { first: row?.first ?? null, last: row?.last ?? null };
+	if (!edge?.first || !edge.last) return { first: null, last: null };
+	const reach = db
+		.prepare(
+			`SELECT MAX(${LAST_DAY_SQL}) AS last FROM events
+			  WHERE trip_id = ? AND day >= date(?, ${SPAN_REACH})`
+		)
+		.get(tripId, edge.last) as unknown as { last: string | null } | undefined;
+	const last = reach?.last && reach.last > edge.last ? reach.last : edge.last;
+	return { first: edge.first, last };
 }
 
-/** The nearest day before `day` that carries something, or null. */
+/**
+ * The nearest day before `day` that carries something, or null.
+ *
+ * A row that starts before `day` carries the day before it if it is still
+ * going then, and otherwise its own last day, so the answer per row is the
+ * earlier of the two, and the nearest is the latest of those.
+ *
+ * The latest start before `day` (indexed) is always a candidate, and a row can
+ * only beat it by ending after it, which means starting at most
+ * `MAX_SPAN_DAYS` before it. So only that window is read for the rest.
+ */
 export function scheduledDayBefore(tripId: string, day: string): string | null {
-	const row = db
+	const latest = db
 		.prepare(`SELECT MAX(day) AS d FROM events WHERE trip_id = ? AND day < ?`)
 		.get(tripId, day) as unknown as { d: string | null } | undefined;
-	return row?.d ?? null;
+	if (!latest?.d) return null;
+	const row = db
+		.prepare(
+			`SELECT MAX(MIN(${LAST_DAY_SQL}, date(?, '-1 day'))) AS d
+			   FROM events WHERE trip_id = ? AND day < ? AND day >= date(?, ${SPAN_REACH})`
+		)
+		.get(day, tripId, day, latest.d) as unknown as { d: string | null } | undefined;
+	return row?.d && row.d > latest.d ? row.d : latest.d;
 }
 
-/** The nearest day after `day` that carries something, or null. */
+/**
+ * The nearest day after `day` that carries something, or null.
+ *
+ * A span still going past `day` makes the answer the very next day, and such a
+ * span started at most `MAX_SPAN_DAYS` before `day`; otherwise it is the
+ * earliest start after `day`, which the index answers.
+ */
 export function scheduledDayAfter(tripId: string, day: string): string | null {
 	const row = db
-		.prepare(`SELECT MIN(day) AS d FROM events WHERE trip_id = ? AND day > ?`)
-		.get(tripId, day) as unknown as { d: string | null } | undefined;
+		.prepare(
+			`SELECT CASE
+			   WHEN EXISTS (
+			     SELECT 1 FROM events
+			      WHERE trip_id = ? AND day <= ? AND day >= date(?, ${SPAN_REACH})
+			        AND ${LAST_DAY_SQL} > ?
+			   ) THEN date(?, '+1 day')
+			   ELSE (SELECT MIN(day) FROM events WHERE trip_id = ? AND day > ?)
+			 END AS d`
+		)
+		.get(tripId, day, day, day, day, tripId, day) as unknown as { d: string | null } | undefined;
 	return row?.d ?? null;
 }
 
@@ -272,13 +422,14 @@ export function scheduledDayAfter(tripId: string, day: string): string | null {
  * The count of days a trip offers is the length of its own range plus these:
  * the days inside the range are already offered whether or not anything is on
  * them, so only the stranded ones add to the total. Counted rather than listed
- * so the total costs the same on a trip of any length.
+ * so the total costs the same on a trip of any length; the walk over a span's
+ * days is bounded by the longest span, not by the trip.
  */
 export function strandedDayCount(tripId: string, start: string, end: string): number {
 	const row = db
 		.prepare(
-			`SELECT COUNT(DISTINCT day) AS n FROM events
-			 WHERE trip_id = ? AND (day < ? OR day > ?)`
+			`${COVERED_DAYS_SQL}
+			 SELECT COUNT(DISTINCT d) AS n FROM covered WHERE d < ? OR d > ?`
 		)
 		.get(tripId, start, end) as unknown as { n: number } | undefined;
 	return row?.n ?? 0;
@@ -299,21 +450,37 @@ function tripRoster(tripId: string): string[] {
 }
 
 /**
+ * The zone of each of the trip's cities, which is what a span's two ends are
+ * read in. One small read per plan, for the same reason the roster is read
+ * rather than copied: a city added or removed is in the next answer.
+ */
+export function tripZones(tripId: string): ZoneOf {
+	const rows = db.prepare(`SELECT id, tz FROM cities WHERE trip_id = ?`).all(tripId) as unknown as {
+		id: string;
+		tz: string;
+	}[];
+	const zones = new Map(rows.map((r) => [r.id, r.tz]));
+	return (cityId) => (cityId ? zones.get(cityId) : null);
+}
+
+/**
  * The day's plan: its blocks, with last night's lodging as the morning's
  * origin.
  *
  * All this layer does is read what a day is made of and hand it to `planDay` in
  * core, which owns every rule about what it means: the projection to a
- * `PlannerEvent`, "Everyone", and the midnight origin the morning leaves from.
- * The client replans the same day from the same function while a dialog is
- * open, so the two answers cannot differ.
+ * `PlannerEvent`, "Everyone", the midnight origin the morning leaves from, and
+ * where a block that runs over several days sits on this one. The client
+ * replans the same day from the same function while a dialog is open, so the
+ * two answers cannot differ.
  */
 function planFor(tripId: string, day: string): PlannedLeg[] {
 	return planDay(
 		{
 			day,
 			events: eventsForDay(tripId, day),
-			incoming: incomingStays(tripId, day)
+			incoming: incomingStays(tripId, day),
+			zoneOf: tripZones(tripId)
 		},
 		tripRoster(tripId)
 	);
@@ -354,10 +521,13 @@ function reflowDay(tripId: string, day: string): boolean {
 	);
 	if (!auto.size) return false;
 
+	// Read as their part of this day, so a block carried in from yesterday is
+	// what the morning follows; `reflowAutoTimes` never moves one of those.
 	const moved = reflowAutoTimes(
 		events.map((e) => ({ ...e, time_auto: auto.has(e.id) })),
 		legsForDay(tripId, day),
-		tripRoster(tripId)
+		tripRoster(tripId),
+		{ day, zoneOf: tripZones(tripId) }
 	);
 	if (!moved.length) return false;
 
@@ -455,14 +625,18 @@ function reconcileLegs(tripId: string, day: string, planned: readonly PlannedLeg
  */
 export function reconcileAllLegs(): number {
 	const rows = db
-		.prepare(`SELECT DISTINCT trip_id, day FROM events ORDER BY trip_id, day`)
-		.all() as unknown as { trip_id: string; day: string }[];
+		.prepare(
+			`SELECT DISTINCT trip_id, day, ${LAST_DAY_SQL} AS last FROM events ORDER BY trip_id, day`
+		)
+		.all() as unknown as { trip_id: string; day: string; last: string }[];
 	// The morning after a stay leaves it, so the day after one carrying events
-	// can have legs of its own even with nothing scheduled on it.
+	// can have legs of its own even with nothing scheduled on it. A block that
+	// runs over several days is planned on each of them, and the morning after
+	// its last is planned from it in the same way.
 	const pairs = new Set<string>();
 	for (const r of rows) {
-		pairs.add(`${r.trip_id}\u0000${r.day}`);
-		pairs.add(`${r.trip_id}\u0000${shiftDay(r.day, 1)}`);
+		for (let d = r.day; d <= r.last; d = shiftDay(d, 1)) pairs.add(`${r.trip_id}\u0000${d}`);
+		pairs.add(`${r.trip_id}\u0000${shiftDay(r.last, 1)}`);
 	}
 	for (const pair of pairs) {
 		const [tripId, day] = pair.split('\u0000');
@@ -659,7 +833,9 @@ export function legsForDay(tripId: string, day: string): LegRow[] {
 		// load routes it again it falls back to the straight-line guess, rather
 		// than planning the day around a drive to where the museum used to be.
 		// A row routed before `auto_key` existed has none and is trusted as before.
-		const stale = row.auto_key != null && row.auto_mode != null &&
+		const stale =
+			row.auto_key != null &&
+			row.auto_mode != null &&
 			row.auto_key !== routeKey(leg, row.auto_mode);
 		const override: LegOverride = {
 			title: row.title,
@@ -742,11 +918,17 @@ export function saveAutoLeg(
 
 export interface NewEvent {
 	day: string;
-	/** Checkout morning, for a stay. Ignored for anything else. */
+	/**
+	 * For a stay, the checkout morning. For anything else, the day it ends on
+	 * (inclusive), or null/absent for its own day.
+	 */
 	endDay?: string | null;
+	/** A journey's arrival city, whose zone `endMin` is read in. Ignored for anything else. */
+	endCityId?: string | null;
 	title: string;
 	type: EventType;
 	startMin: number;
+	/** On the last day's clock, in the arrival city's zone for a journey that names one. */
 	endMin: number;
 	poiId?: string | null;
 	lodgingId?: string | null;
@@ -804,6 +986,167 @@ export function movedStayCheckout(eventId: string, toDay: string): string | null
 	return shiftDay(toDay, nights(row));
 }
 
+/** An event's span as stored, with the trip it belongs to. */
+function storedSpan(eventId: string): (SpanRow & { trip_id: string }) | null {
+	const row = db
+		.prepare(
+			`SELECT trip_id, type, day, end_day, start_min, end_min, city_id, end_city_id
+			   FROM events WHERE id = ?`
+		)
+		.get(eventId) as unknown as (SpanRow & { trip_id: string }) | undefined;
+	return row ?? null;
+}
+
+/**
+ * The stored form of a timed event's span: clamped to the clock, then put in
+ * the one form `normalizeSpan` in core defines.
+ *
+ * Only a block on one clock on one day is held to "the end comes at least the
+ * shortest block after the start", by pushing the end out, as it always was.
+ * Anything else has its end on another day or another clock, where comparing
+ * the two minutes means nothing; the route refuses a span that ends before it
+ * starts (`spanProblem`) before it gets here, so nothing is clamped into a
+ * shape somebody did not ask for.
+ */
+function fitSpan(
+	row: SpanRow,
+	zoneOf: ZoneOf
+): { start_min: number; end_min: number; end_day: string | null; end_city_id: string | null } {
+	const start = Math.max(0, Math.min(Math.round(row.start_min), DAY_END_MIN - MIN_EVENT_MINS));
+	const raw = Math.max(0, Math.min(Math.round(row.end_min), DAY_END_MIN));
+	const span = normalizeSpan({ ...row, start_min: start, end_min: raw }, zoneOf);
+	const settled: SpanRow = { ...row, start_min: start, ...span };
+	const end = onOneClock(settled, zoneOf)
+		? Math.max(start + MIN_EVENT_MINS, Math.min(span.end_min, DAY_END_MIN))
+		: span.end_min;
+	return { start_min: start, end_min: end, end_day: span.end_day, end_city_id: span.end_city_id };
+}
+
+/**
+ * Where a drag would put a timed event, before it is stored. Null for a stay,
+ * which moves by nights (`movedStayCheckout`), or an event that does not exist.
+ *
+ * A block on one clock on one day keeps its length inside the day, clamped so
+ * it cannot be dragged off the end, exactly as before. A block whose end is on
+ * another day is moved as a whole instead: both ends shift by the same
+ * minutes, so a drag across days moves `end_day` by the same number of days
+ * and a drag along the clock keeps the real length, the way a phone calendar
+ * moves an overnight event. A journey whose ends are on two clocks is not
+ * dragged at all (`movable`). The route checks the answer against the
+ * trip and `spanProblem` before `moveEvent` writes it; both call this, so the
+ * check and the write cannot disagree.
+ */
+export function movedSpan(eventId: string, startMin: number, toDay?: string): SpanRow | null {
+	const row = storedSpan(eventId);
+	if (!row || row.type === 'stay') return null;
+	const zoneOf = tripZones(row.trip_id);
+	const day = toDay ?? row.day;
+	const snapped = Math.round(startMin / SNAP) * SNAP;
+	if (onOneClock(row, zoneOf)) {
+		const duration = row.end_min - row.start_min;
+		const start = Math.max(0, Math.min(snapped, DAY_END_MIN - duration));
+		return { ...row, day, end_day: null, start_min: start, end_min: start + duration };
+	}
+	const start = Math.max(0, Math.min(snapped, DAY_END_MIN - MIN_EVENT_MINS));
+	// Minutes from the old first day's midnight, so one sum carries both the
+	// day and the clock: the end lands wherever the start's shift takes it.
+	const shift = daysBetween(row.day, day) * DAY_END_MIN + (start - row.start_min);
+	const endAt = daysBetween(row.day, lastDayOf(row)) * DAY_END_MIN + row.end_min + shift;
+	const endIndex = Math.floor(endAt / DAY_END_MIN);
+	return {
+		...row,
+		day,
+		start_min: start,
+		end_day: shiftDay(row.day, endIndex),
+		end_min: endAt - endIndex * DAY_END_MIN
+	};
+}
+
+/** The fields of an edit that bear on where an event sits in time. */
+export interface SpanChange {
+	type?: string;
+	day?: string;
+	endDay?: string | null;
+	startMin?: number;
+	endMin?: number;
+	/** The city whose zone the start is read in. Absent keeps the stored one. */
+	cityId?: string;
+	endCityId?: string | null;
+}
+
+/**
+ * The span an edit would leave an event with, before it is clamped or stored.
+ * Null when the event does not exist.
+ *
+ * The route judges this (`spanProblem`, the trip's dates) and `editEvent`
+ * stores it, so both read the edit the same way. Absent fields keep what is
+ * stored, as everywhere in an edit, with two rules that are about the span:
+ *
+ * - A day change with no `endDay` carries the end day with it, so a two-day
+ *   hike moved to Friday still ends on Saturday rather than collapsing.
+ * - Leaving a stay leaves its checkout behind: a block that is no longer a
+ *   stay ends on its own day unless the edit says otherwise.
+ *
+ * `endDay: null` is "its own day". `endCityId` is only a journey's, and any
+ * other type has none whatever was sent.
+ */
+export function editedSpan(eventId: string, change: SpanChange): SpanRow | null {
+	const cur = storedSpan(eventId);
+	if (!cur) return null;
+	const type: EventType = change.type && isEventType(change.type) ? change.type : cur.type;
+	const day = change.day ?? cur.day;
+	const start_min = Number.isFinite(change.startMin) ? (change.startMin as number) : cur.start_min;
+	const end_min = Number.isFinite(change.endMin) ? (change.endMin as number) : cur.end_min;
+	const base = { type, day, start_min, end_min, city_id: change.cityId ?? cur.city_id ?? null };
+	// A stay's dates have rules of their own (`editEvent`); span checks pass it.
+	if (type === 'stay') return { ...base, end_day: cur.end_day, end_city_id: null };
+	let end_day: string | null;
+	if (change.endDay !== undefined) end_day = change.endDay;
+	else if (cur.type === 'stay') end_day = null;
+	else if (isMultiDay(cur)) end_day = shiftDay(cur.end_day!, daysBetween(cur.day, day));
+	else end_day = null;
+	const end_city_id =
+		type !== 'travel'
+			? null
+			: change.endCityId !== undefined
+				? change.endCityId
+				: (cur.end_city_id ?? null);
+	return { ...base, end_day, end_city_id };
+}
+
+/**
+ * Whether an event can be resized from its bottom edge, or null when it does
+ * not exist.
+ *
+ * Only a block on one clock on one day can. The edge under the pointer is a
+ * minute on the day being looked at, and for a block that ends on another day
+ * or on another city's clock that minute is not the stored end; turning one
+ * into the other from a drag is a guess, so the board does not offer the
+ * handle and the route refuses it. Such a block is changed in its dialog.
+ */
+export function resizable(eventId: string): boolean | null {
+	const row = storedSpan(eventId);
+	if (!row) return null;
+	return onOneClock(row, tripZones(row.trip_id));
+}
+
+/**
+ * Whether an event can be dragged, or null when it does not exist.
+ *
+ * Everything can but a journey whose two ends are on different clocks. Its
+ * departure is a minute on one city's clock and the board draws it on the
+ * arrival's (see `segmentOn`), so the minute a drag lands on is a reading of
+ * neither end; and shifting both ends by the same wall-clock minutes across a
+ * DST change in only one of the zones would change how long the flight is. A
+ * span on one clock (the two-day hike) still moves as a whole. Such a journey
+ * is changed in its dialog, as its end is.
+ */
+export function movable(eventId: string): boolean | null {
+	const row = storedSpan(eventId);
+	if (!row) return null;
+	return !crossesZones(row, tripZones(row.trip_id));
+}
+
 /**
  * True when this user may mutate this event, and which day it is on.
  *
@@ -835,8 +1178,10 @@ function mayEdit(
  *
  * A stay covers a range, so every night in it is a day whose plan may have
  * changed, and an edit that moves one has to cover where it was as well as
- * where it now is. Callers pass the widest span they touched; a block on one
- * day passes nothing and gets the two days it always got.
+ * where it now is. A block that runs over several days is planned on each of
+ * them and the morning after its last, so it is the same: callers pass its old
+ * and new `end_day` too. A block on one day passes nothing and gets the two
+ * days it always got.
  */
 function touched(tripId: string, day: string, ...alsoNulls: (string | null | undefined)[]): void {
 	settleDays(tripId, [day, ...alsoNulls.filter((d): d is string => !!d)]);
@@ -872,9 +1217,12 @@ function settleEach(tripId: string, days: readonly string[]): void {
  * Every day a set of event spans can have changed the plan of, each once.
  *
  * A span covers its own day through its checkout, plus the morning after,
- * which planned its first journey from the night. Spans overlap (every block
- * on a day is a span of that day and the next), so settling span by span did
- * most days two or three times over; this is the union, sorted.
+ * which planned its first journey from the night. A timed block's `end_day` is
+ * its last day rather than a checkout, and it is settled the same way: every
+ * day it is on, plus the morning after, whose people start from where it left
+ * them. Spans overlap (every block on a day is a span of that day and the
+ * next), so settling span by span did most days two or three times over; this
+ * is the union, sorted.
  */
 function daysOfSpans(spans: readonly { day: string; end_day: string | null }[]): string[] {
 	const days = new Set<string>();
@@ -976,11 +1324,112 @@ export function eventSpansWhere(
 		.all(tripId, ...ids) as unknown as { day: string; end_day: string | null }[];
 }
 
+/**
+ * Before a city is deleted: keep every journey it was a clock of true, and
+ * return the spans of every event that names it, for `settleEventSpans` once
+ * the city is gone. Call it inside the delete's transaction, while the city's
+ * zone can still be read.
+ *
+ * The delete nulls `city_id` and `end_city_id` (ON DELETE SET NULL), and a
+ * null city is read as UTC. For most blocks that changes nothing anybody sees:
+ * both ends were on one clock and still are. A journey whose ends were on two
+ * clocks is different: its stored minutes would silently become a different
+ * instant, and "depart 22:00 Athens, arrive 15:00 Tokyo" with Tokyo gone would
+ * read as a flight landing six hours later than the ticket says. So such a
+ * journey is re-read at the same instants onto the clock that remains:
+ *
+ * - arrival city deleted: the end is re-read on the departure clock (15:00
+ *   Tokyo becomes 09:00 Athens), and the journey is on one clock from then on
+ * - departure city deleted: the start is re-read on the arrival clock and the
+ *   arrival city becomes its city, which can move its `day` when the two
+ *   clocks are on different dates at that instant
+ *
+ * Either way the row stays readable and every check it passed still holds, and
+ * the version is bumped so a dialog opened before the delete cannot write the
+ * old clock back.
+ */
+export function releaseCity(
+	tripId: string,
+	cityId: string
+): { day: string; end_day: string | null }[] {
+	const rows = db
+		.prepare(
+			`SELECT id, type, day, end_day, start_min, end_min, city_id, end_city_id FROM events
+			  WHERE trip_id = ? AND (city_id = ? OR end_city_id = ?)`
+		)
+		.all(tripId, cityId, cityId) as unknown as (SpanRow & { id: string })[];
+	const zoneOf = tripZones(tripId);
+	const spans: { day: string; end_day: string | null }[] = rows.map((r) => ({
+		day: r.day,
+		end_day: r.end_day
+	}));
+	const write = db.prepare(
+		`UPDATE events SET day = ?, end_day = ?, start_min = ?, end_min = ?, city_id = ?,
+		        end_city_id = NULL, time_auto = 0, version = version + 1
+		  WHERE id = ?`
+	);
+	for (const row of rows) {
+		if (row.type !== 'travel' || !crossesZones(row, zoneOf)) continue;
+		const from = zoneOf(row.city_id);
+		const to = zoneOf(row.end_city_id);
+		let next: SpanRow;
+		if (row.end_city_id === cityId) {
+			const end = reclock(lastDayOf(row), row.end_min, to, from);
+			next = { ...row, end_day: end.day, end_min: end.minutes, end_city_id: null };
+		} else {
+			const start = reclock(row.day, row.start_min, from, to);
+			next = {
+				...row,
+				day: start.day,
+				start_min: start.minutes,
+				city_id: row.end_city_id,
+				end_city_id: null
+			};
+		}
+		const span = normalizeSpan(next, zoneOf);
+		write.run(next.day, span.end_day, next.start_min, span.end_min, next.city_id ?? null, row.id);
+		spans.push({ day: next.day, end_day: span.end_day });
+	}
+	return spans;
+}
+
 /** An event's current version, or null when it does not exist. */
 export function eventVersion(eventId: string): number | null {
 	const row = db.prepare(`SELECT version FROM events WHERE id = ?`).get(eventId) as
 		{ version: number } | undefined;
 	return row?.version ?? null;
+}
+
+/**
+ * The city a block linked to a place is in: the place's own, or null when it
+ * has no link (or is a journey, or free time).
+ *
+ * A block's `city_id` is the zone its start is read in, and the planner reads
+ * it to put a day on two clocks in real order (`dayInstants` in core). The day's
+ * city is a guess about the whole day; a saved place belongs to one city for
+ * certain. So a lunch linked to a Los Angeles place on the day a flight leaves
+ * Tokyo is in Los Angeles, whatever the dialog sent, and is walked after the
+ * flight rather than before it. A stay's link is its lodging option, anything
+ * else's its saved place.
+ *
+ * A journey keeps the city it is given: its place is where it lands, and its
+ * city is where it departs, which is the one thing a link cannot say.
+ */
+function linkedCity(
+	type: EventType,
+	poiId: string | null | undefined,
+	lodgingId: string | null | undefined
+): string | null {
+	if (type === 'travel' || type === 'freetime') return null;
+	const row =
+		type === 'stay'
+			? lodgingId
+				? db.prepare(`SELECT city_id FROM lodging_options WHERE id = ?`).get(lodgingId)
+				: undefined
+			: poiId
+				? db.prepare(`SELECT city_id FROM pois WHERE id = ?`).get(poiId)
+				: undefined;
+	return (row as { city_id: string } | undefined)?.city_id ?? null;
 }
 
 /** The checkout a stay is stored with: what was asked for, or the morning after. */
@@ -995,9 +1444,41 @@ export function createEvent(tripId: string, userId: string, e: NewEvent): string
 	if (!isMember(tripId, userId)) return null;
 	const type: EventType = isEventType(e.type) ? e.type : 'activity';
 	const located = isLocatedType(type);
-	const start = Math.max(0, Math.min(Math.round(e.startMin), DAY_END_MIN - MIN_EVENT_MINS));
-	const end = Math.max(start + MIN_EVENT_MINS, Math.min(Math.round(e.endMin), DAY_END_MIN));
-	const endDay = stayEnd(type, e.day, e.endDay);
+	// The place's city wins over whatever city was sent, for anything but a
+	// journey: see `linkedCity`.
+	const cityId =
+		linkedCity(
+			type,
+			located ? (e.poiId ?? null) : null,
+			type === 'stay' ? (e.lodgingId ?? null) : null
+		) ??
+		e.cityId ??
+		null;
+	let start = Math.max(0, Math.min(Math.round(e.startMin), DAY_END_MIN - MIN_EVENT_MINS));
+	let end = Math.max(start + MIN_EVENT_MINS, Math.min(Math.round(e.endMin), DAY_END_MIN));
+	let endDay = stayEnd(type, e.day, e.endDay);
+	let endCity: string | null = null;
+	// Whether the start can be the board's suggestion: only on one clock on one
+	// day, because the reflow that moves a suggestion only speaks one day.
+	let oneClock = type !== 'stay';
+	if (type !== 'stay') {
+		const zoneOf = tripZones(tripId);
+		const row: SpanRow = {
+			type,
+			day: e.day,
+			end_day: e.endDay ?? null,
+			start_min: e.startMin,
+			end_min: e.endMin,
+			city_id: cityId,
+			end_city_id: e.endCityId ?? null
+		};
+		const fit = fitSpan(row, zoneOf);
+		start = fit.start_min;
+		end = fit.end_min;
+		endDay = fit.end_day;
+		endCity = fit.end_city_id;
+		oneClock = onOneClock({ ...row, ...fit }, zoneOf);
+	}
 
 	const id = randomUUID();
 	// A typed location is only ever the answer when nothing was picked: a link
@@ -1006,8 +1487,8 @@ export function createEvent(tripId: string, userId: string, e: NewEvent): string
 	const linked = located && (e.poiId || (type === 'stay' && e.lodgingId));
 	db.prepare(
 		`INSERT INTO events
-		 (id, trip_id, day, end_day, title, type, start_min, end_min, poi_id, lodging_id, place_text, city_id, lat, lng, notes, travel_mode, time_auto, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		 (id, trip_id, day, end_day, title, type, start_min, end_min, poi_id, lodging_id, place_text, city_id, end_city_id, lat, lng, notes, travel_mode, time_auto, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	).run(
 		id,
 		tripId,
@@ -1020,13 +1501,16 @@ export function createEvent(tripId: string, userId: string, e: NewEvent): string
 		located ? (e.poiId ?? null) : null,
 		type === 'stay' ? (e.lodgingId ?? null) : null,
 		located && !linked ? e.placeText?.trim() || null : null,
-		e.cityId ?? null,
+		cityId,
+		endCity,
 		located ? (e.lat ?? null) : null,
 		located ? (e.lng ?? null) : null,
 		e.notes?.trim() || null,
 		type === 'travel' && e.travelMode && isTransportMode(e.travelMode) ? e.travelMode : null,
-		// A stay is not on a clock, so there is no suggested start to follow.
-		e.timeAuto && type !== 'stay' ? 1 : 0,
+		// A stay is not on a clock, so there is no suggested start to follow; nor
+		// is a block that ends on another day or another clock, whose start is
+		// the one fact about it nobody would want the board to move.
+		e.timeAuto && oneClock ? 1 : 0,
 		Date.now()
 	);
 	if (e.people?.length) writePeople(id, tripId, e.people);
@@ -1046,7 +1530,9 @@ export function deleteEvent(eventId: string, userId: string, tripId: string): bo
  * Move an event to a new start, keeping its length. Snaps and clamps to the day.
  *
  * Dragging a block is somebody choosing where it goes, so it stops being a
- * suggestion and stops following the day.
+ * suggestion and stops following the day. A block that runs over several days
+ * moves as a whole, its end day and end clock carried by the same shift; see
+ * `movedSpan`, which is also what the route checked.
  *
  * The version is bumped but never checked. A drag carries one field, so there
  * is nothing stale riding along for it to overwrite and no reason to refuse it;
@@ -1066,6 +1552,18 @@ export function moveEvent(
 	const ev = db.prepare(`SELECT start_min, end_min FROM events WHERE id = ?`).get(eventId) as
 		{ start_min: number; end_min: number } | undefined;
 	if (!ev) return false;
+
+	if (!movable(eventId)) return false;
+	const span = movedSpan(eventId, startMin, toDay);
+	if (span) {
+		const fit = fitSpan(span, tripZones(tripId));
+		db.prepare(
+			`UPDATE events SET start_min = ?, end_min = ?, day = ?, end_day = ?, time_auto = 0,
+			        version = version + 1 WHERE id = ?`
+		).run(fit.start_min, fit.end_min, span.day, fit.end_day, eventId);
+		touched(tripId, where.day, where.end_day, span.day, fit.end_day);
+		return true;
+	}
 
 	const snapped = Math.round(startMin / SNAP) * SNAP;
 	const duration = ev.end_min - ev.start_min;
@@ -1091,6 +1589,9 @@ function nights(where: { day: string; end_day: string | null }): number {
 /**
  * Resize an event by moving its end. Snaps and clamps to the day.
  *
+ * Refused (false) for a block that is not on one clock on one day: see
+ * `resizable`, which the route asks first so it can say why.
+ *
  * Bumps the version without checking it, for the reason `moveEvent` gives.
  */
 export function resizeEvent(
@@ -1101,6 +1602,7 @@ export function resizeEvent(
 ): boolean {
 	const where = mayEdit(eventId, userId, tripId);
 	if (!where) return false;
+	if (!resizable(eventId)) return false;
 	const ev = db.prepare(`SELECT start_min FROM events WHERE id = ?`).get(eventId) as
 		{ start_min: number } | undefined;
 	if (!ev) return false;
@@ -1126,11 +1628,26 @@ export interface EventEdit {
 	 *
 	 * A stay is the one block that is not on a clock: it is a range of nights,
 	 * so this pair is how it is moved and lengthened, and `startMin`/`endMin` do
-	 * not apply to it. Everything else owns a single day, and `day` moves it to
-	 * another one without touching its clock. Absent leaves the date alone.
+	 * not apply to it. Everything else starts on `day`, and a new `day` moves it
+	 * there without touching its clock, carrying its end day by the same number
+	 * of days. Absent leaves the date alone.
+	 *
+	 * For anything but a stay, `endDay` is the day it ends on (inclusive), null
+	 * for its own day, and absent to keep the end day it has (moved with `day`).
 	 */
 	day?: string;
-	endDay?: string;
+	endDay?: string | null;
+	/**
+	 * A journey's arrival city. Absent leaves it alone, null clears it, and any
+	 * other type has none whatever is sent.
+	 */
+	endCityId?: string | null;
+	/**
+	 * The city the block starts in, whose zone `startMin` is read in: for a
+	 * journey, where it departs from. Absent leaves it alone. The route checks
+	 * it is one of the trip's cities.
+	 */
+	cityId?: string;
 	/**
 	 * Where this event happens, already resolved by the caller.
 	 *
@@ -1257,62 +1774,123 @@ export function editEvent(
 		sets.push('travel_mode = ?');
 		args.push(edit.travelMode && isTransportMode(edit.travelMode) ? edit.travelMode : null);
 	}
-	// Both ends move together, because an event has to occupy real time on its
-	// own day: a stay used to be exempt, and is not any more. Whichever end the
-	// caller left out is read back from the row so a lone edit still cannot
-	// invert it.
-	if (
-		(edit.startMin !== undefined && Number.isFinite(edit.startMin)) ||
-		(edit.endMin !== undefined && Number.isFinite(edit.endMin))
-	) {
-		const cur = db.prepare(`SELECT start_min, end_min FROM events WHERE id = ?`).get(eventId) as
-			{ start_min: number; end_min: number } | undefined;
-		if (!cur) return missing;
-		const wanted = Number.isFinite(edit.startMin as number)
-			? (edit.startMin as number)
-			: cur.start_min;
-		const start = Math.max(0, Math.min(Math.round(wanted), DAY_END_MIN - MIN_EVENT_MINS));
-		const wantedEnd = Number.isFinite(edit.endMin as number)
-			? (edit.endMin as number)
-			: cur.end_min;
-		const end = Math.max(start + MIN_EVENT_MINS, Math.min(Math.round(wantedEnd), DAY_END_MIN));
-		sets.push('start_min = ?', 'end_min = ?');
-		args.push(start, end);
-		// Typing a time is choosing one, so the block stops following the day.
-		// Compared against the stored start rather than merely being present,
-		// because the edit dialog restates every field it shows: saving a change
-		// of place would otherwise pin a time the reader never looked at.
-		if (start !== cur.start_min) sets.push('time_auto = 0');
+	const storedType = currentType(eventId);
+	const nextType: EventType =
+		edit.type && isEventType(edit.type)
+			? edit.type
+			: isEventType(storedType)
+				? storedType
+				: 'activity';
+	// The city the block starts in. Every block made before the start city was
+	// the day's city carries the trip's first one, so a flight out of Tokyo can
+	// be stored as leaving Los Angeles, and its arrival in Los Angeles then reads
+	// as no arrival at all. This is how that is corrected; the span below is
+	// settled against the new city, so the arrival it is sent with survives.
+	//
+	// A block that is not a journey and is linked to a place is in that place's
+	// city instead, whatever was sent (`linkedCity`), and is re-derived whenever
+	// the edit touches the link or the type: relinking a lunch to a place in
+	// another city moves the clock its start is read on with it.
+	let cityId = edit.cityId;
+	if (edit.place !== undefined || edit.type !== undefined || edit.cityId !== undefined) {
+		const link =
+			edit.place !== undefined
+				? { poi: edit.place?.poiId ?? null, lodging: edit.place?.lodgingId ?? null }
+				: (() => {
+						const row = db
+							.prepare(`SELECT poi_id, lodging_id FROM events WHERE id = ?`)
+							.get(eventId) as { poi_id: string | null; lodging_id: string | null } | undefined;
+						return { poi: row?.poi_id ?? null, lodging: row?.lodging_id ?? null };
+					})();
+		cityId = linkedCity(nextType, link.poi, link.lodging) ?? cityId;
 	}
-	// A stay is moved by its dates rather than by its clock. Both ends are
-	// written together so a range can never invert: a checkout on or before the
-	// arrival becomes the morning after it, which is the shortest real stay.
+	if (cityId !== undefined) {
+		sets.push('city_id = ?');
+		args.push(cityId);
+	}
 	let movedTo: string | null = null;
 	let movedEnd: string | null = null;
-	const staying = (edit.type ?? currentType(eventId)) === 'stay';
-	if (staying && (edit.day || edit.endDay)) {
-		movedTo = edit.day || where.day;
-		movedEnd = stayEnd('stay', movedTo, edit.endDay ?? where.end_day) as string;
-		sets.push('day = ?', 'end_day = ?');
-		args.push(movedTo, movedEnd);
-	} else {
-		/* Every other block owns one day, so a date is a move and nothing more.
-		   The clock is deliberately left alone, and so is `time_auto`: choosing a
-		   date is not choosing a time, and a block still following its day should
-		   go on following the day it has moved to. */
-		if (!staying && edit.day && edit.day !== where.day) {
-			movedTo = edit.day;
-			sets.push('day = ?');
-			args.push(movedTo);
+	const timeSent =
+		(edit.startMin !== undefined && Number.isFinite(edit.startMin)) ||
+		(edit.endMin !== undefined && Number.isFinite(edit.endMin));
+	if (nextType === 'stay') {
+		// Both ends move together, because an event has to occupy real time on its
+		// own day: a stay used to be exempt, and is not any more. Whichever end the
+		// caller left out is read back from the row so a lone edit still cannot
+		// invert it.
+		if (timeSent) {
+			const cur = db.prepare(`SELECT start_min, end_min FROM events WHERE id = ?`).get(eventId) as
+				{ start_min: number; end_min: number } | undefined;
+			if (!cur) return missing;
+			const wanted = Number.isFinite(edit.startMin as number)
+				? (edit.startMin as number)
+				: cur.start_min;
+			const start = Math.max(0, Math.min(Math.round(wanted), DAY_END_MIN - MIN_EVENT_MINS));
+			const wantedEnd = Number.isFinite(edit.endMin as number)
+				? (edit.endMin as number)
+				: cur.end_min;
+			const end = Math.max(start + MIN_EVENT_MINS, Math.min(Math.round(wantedEnd), DAY_END_MIN));
+			sets.push('start_min = ?', 'end_min = ?');
+			args.push(start, end);
+			if (start !== cur.start_min) sets.push('time_auto = 0');
 		}
-		if (edit.type && edit.type !== 'stay') {
-			// Leaving the type behind leaves the range behind with it: a block that
-			// is no longer a stay occupies its own day like everything else.
-			sets.push('end_day = NULL');
+		// A stay is moved by its dates rather than by its clock. Both ends are
+		// written together so a range can never invert: a checkout on or before the
+		// arrival becomes the morning after it, which is the shortest real stay.
+		if (edit.day || edit.endDay) {
+			movedTo = edit.day || where.day;
+			movedEnd = stayEnd('stay', movedTo, edit.endDay ?? where.end_day) as string;
+			sets.push('day = ?', 'end_day = ?');
+			args.push(movedTo, movedEnd);
 		} else if (edit.type === 'stay' && !where.end_day) {
 			sets.push('end_day = ?');
 			args.push(shiftDay(where.day, 1));
 		}
+		// A block that becomes a stay keeps an end day it had as its checkout: a
+		// hike over Friday to Sunday becomes a stay drawn on the same three days,
+		// two nights, which is the nearest thing to what was on the board. Only
+		// a journey has an arrival city.
+		if (edit.type === 'stay') sets.push('end_city_id = NULL');
+	} else if (
+		timeSent ||
+		edit.type !== undefined ||
+		edit.day !== undefined ||
+		edit.endDay !== undefined ||
+		edit.endCityId !== undefined ||
+		cityId !== undefined
+	) {
+		/* Every other block is a span: a start on its day, an end on its end day,
+		   read on its own clock and, for a journey, the arrival city's. The edit
+		   is merged with the row by `editedSpan` (which the route has already
+		   judged) and settled into the one stored form, all five columns at once
+		   so they can never describe two different spans. */
+		const cur = storedSpan(eventId);
+		const span = editedSpan(eventId, {
+			type: edit.type,
+			day: edit.day,
+			endDay: edit.endDay,
+			startMin: edit.startMin,
+			endMin: edit.endMin,
+			cityId,
+			endCityId: edit.endCityId
+		});
+		if (!cur || !span) return missing;
+		const zoneOf = tripZones(tripId);
+		const fit = fitSpan(span, zoneOf);
+		sets.push('day = ?', 'end_day = ?', 'end_city_id = ?', 'start_min = ?', 'end_min = ?');
+		args.push(span.day, fit.end_day, fit.end_city_id, fit.start_min, fit.end_min);
+		// Typing a time is choosing one, so the block stops following the day.
+		// Compared against the stored start rather than merely being present,
+		// because the edit dialog restates every field it shows: saving a change
+		// of place would otherwise pin a time the reader never looked at. Choosing
+		// a date is not choosing a time either, so a block still following its day
+		// goes on following the day it has moved to. A block that now ends on
+		// another day or another clock is never a suggestion.
+		if (fit.start_min !== cur.start_min || !onOneClock({ ...span, ...fit }, zoneOf)) {
+			sets.push('time_auto = 0');
+		}
+		if (span.day !== where.day) movedTo = span.day;
+		movedEnd = fit.end_day;
 	}
 
 	if (!sets.length) return missing;

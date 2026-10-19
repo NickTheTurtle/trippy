@@ -652,7 +652,12 @@ test.describe('add event', () => {
 			// a block could only reach another day by being dragged there.
 			await page.getByRole('button', { name: '+ Add', exact: true }).click();
 			const dialog = page.getByRole('dialog');
-			await dialog.getByLabel(copy.schedule.fields.date).fill(tomorrow);
+			await dialog
+				.getByRole('textbox', {
+					name: `${copy.schedule.fields.start} ${copy.schedule.fields.date}`,
+					exact: true
+				})
+				.fill(tomorrow);
 			await page.getByRole('button', { name: copy.common.add, exact: true }).click();
 			await expect(dialog).toHaveCount(0);
 
@@ -755,16 +760,20 @@ test.describe('the peeking editor', () => {
 				await page.goto(`/trips/${fixture.tripId}/schedule?day=${day}&view=day`);
 				await page.getByRole('button', { name: 'Edit Museum' }).click();
 
-				const pair = page.locator('.tfpair');
-				await expect(pair).toBeVisible();
+				const pairs = page.locator('.tfpair');
+				await expect(pairs).toHaveCount(2);
 				await expect(page.locator('.modal.peek')).toBeVisible();
 
-				const rows = await pair
-					.locator('.tfield')
-					.evaluateAll((els) => [
-						...new Set(els.map((el) => Math.round(el.getBoundingClientRect().top)))
-					]);
-				expect(rows, `the end time wrapped at ${width}px`).toHaveLength(1);
+				// The start and the end are a row each now, a date and a clock, and
+				// neither row may break its clock onto a line of its own.
+				for (const pair of await pairs.all()) {
+					const rows = await pair
+						.locator('.tfield, .tfdate')
+						.evaluateAll((els) => [
+							...new Set(els.map((el) => Math.round(el.getBoundingClientRect().top)))
+						]);
+					expect(rows, `a date and its time wrapped at ${width}px`).toHaveLength(1);
+				}
 			}
 		} finally {
 			fixture.teardown();
@@ -1335,7 +1344,7 @@ test.describe('a suggested time', () => {
 		// The museum runs to 11:00, so that is where the next thing goes.
 		await page.getByRole('button', { name: '+ Add', exact: true }).click();
 		const dialog = page.getByRole('dialog').first();
-		await expect(dialog.getByLabel('Start').first()).toHaveText('11');
+		await expect(dialog.getByLabel('Start hour')).toHaveText('11');
 
 		await dialog.getByRole('combobox', { name: 'Activity' }).fill('Taverna');
 		await page.getByRole('option', { name: /Taverna/ }).click();
@@ -1538,7 +1547,8 @@ test.describe('the day strip', () => {
 			await page.getByRole('button', { name: 'Edit Museum' }).click();
 
 			const dialog = page.getByRole('dialog').first();
-			const date = dialog.getByLabel('Date');
+			// Named by its row's caption and its own word, so it says which date it is.
+			const date = dialog.getByRole('textbox', { name: 'Start Date', exact: true });
 			await expect(date).toHaveValue(startDate);
 			// Bounded by the trip, the same way the day arrows are.
 			await expect(date).toHaveAttribute('min', startDate);

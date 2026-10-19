@@ -20,6 +20,7 @@
  */
 import { guessLeg, placeLeg } from '@trippy/core/travel';
 import { planDay, stayBand, stayEndOf } from '@trippy/core/plan';
+import { coversDay, segmentOn, type ZoneOf } from '@trippy/core/span';
 import type { BoardDay, EventDraft, EventRow, LegRow } from './types';
 
 /**
@@ -38,44 +39,58 @@ import type { BoardDay, EventDraft, EventRow, LegRow } from './types';
  */
 export function applyDraft(
 	entry: BoardDay,
-	draft: EventDraft | null
+	draft: EventDraft | null,
+	cityOf?: (day: string) => string | null
 ): { events: EventRow[]; stays: EventRow[] } {
 	const events = entry.events.filter((e) => e.id !== draft?.id);
 	const stays = entry.stays.filter((s) => s.id !== draft?.id);
 	if (!draft) return { events: entry.events, stays: entry.stays };
 
+	const stored =
+		entry.events.find((e) => e.id === draft.id) ?? entry.stays.find((s) => s.id === draft.id);
 	const row: EventRow = {
 		poi_id: null,
 		lodging_id: null,
 		place_text: null,
-		city_id: entry.city?.id ?? null,
 		notes: null,
 		travel_mode: null,
 		// A draft that is not on the day yet has no stored row behind it, so it
 		// has no version either. This block is only ever drawn, never saved
 		// through here, so the placeholder is not a version anyone writes back.
 		version: 0,
-		...(entry.events.find((e) => e.id === draft.id) ?? entry.stays.find((s) => s.id === draft.id)),
-		...draft
+		...stored,
+		...draft,
+		// The dialog's departure when it has one; otherwise the city of the day
+		// the block starts on, not of this one: a block being added that runs
+		// into tomorrow is still leaving from today's city, and that is the
+		// clock its start is read on.
+		city_id: draft.city_id ?? stored?.city_id ?? cityOf?.(draft.day) ?? entry.city?.id ?? null
 	};
 
 	if (row.type === 'stay') {
 		const covers = row.day <= entry.day && entry.day <= stayEndOf(row);
 		return { events, stays: boardStays(covers ? [...stays, row] : stays, entry.day) };
 	}
-	if (row.day !== entry.day) return { events, stays };
+	// Every day the draft covers, the same rule the server lists a span by, so
+	// stretching the end date in the dialog draws the block onto the days it
+	// now reaches while the dialog is still open.
+	if (!coversDay(row, entry.day)) return { events, stays };
 	// The same total order the planner and the layout read days in, so a block
 	// being added sits where it will sit rather than on the end.
-	return { events: sorted([...events, row]), stays };
+	return { events: sorted([...events, row], entry.day), stays };
 }
 
-function sorted(rows: readonly EventRow[]): EventRow[] {
-	return [...rows].sort((a, b) => a.start_min - b.start_min || (a.id < b.id ? -1 : 1));
+/** By where each block sits on `day`, which for a span carried in from yesterday is midnight. */
+function sorted(rows: readonly EventRow[], day: string): EventRow[] {
+	const at = (r: EventRow) => segmentOn(r, day)?.start ?? r.start_min;
+	return [...rows].sort((a, b) => at(a) - at(b) || (a.id < b.id ? -1 : 1));
 }
 
 /** The bands a day draws, sorted the way the board reads them. */
 function boardStays(rows: EventRow[], day: string): EventRow[] {
-	return sorted(stayBand(rows, day));
+	return [...stayBand(rows, day)].sort(
+		(a, b) => a.start_min - b.start_min || (a.id < b.id ? -1 : 1)
+	);
 }
 
 /**
@@ -108,10 +123,14 @@ export function replanLegs(
 	entry: BoardDay,
 	draft: EventDraft | null,
 	roster: readonly string[],
-	known?: ReadonlyMap<string, LegRow>
+	known?: ReadonlyMap<string, LegRow>,
+	cityOf?: (day: string) => string | null,
+	zoneOf?: ZoneOf
 ): LegRow[] {
-	const { events } = applyDraft(entry, draft);
-	const planned = planDay({ day: entry.day, events, incoming: entry.incoming }, roster);
+	const { events } = applyDraft(entry, draft, cityOf);
+	// The zones are what place a same-day journey across clocks; a span is
+	// planned on this day by its part of it, which `planDay` reads off the rows.
+	const planned = planDay({ day: entry.day, events, incoming: entry.incoming, zoneOf }, roster);
 
 	const stored = new Map(entry.legs.map((l) => [l.key, l]));
 	return planned.map((leg) => {

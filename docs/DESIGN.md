@@ -3614,7 +3614,10 @@ per-request cap, rather than building a list it would refuse.
 the app pretend it knew which city every day belonged to. The board uses the first
 city as the trip-wide default and lets `events.city_id` be the only explicit
 override. It deliberately does not slice the trip range across cities in sort
-order, because that would fabricate the schedule this change removes.
+order, because that would fabricate the schedule this change removes. The one
+thing it does read is a booking: a day with a stay at a lodging option is that
+option's city, because a hotel booked for the night is a statement about where
+somebody is on a date (see "A journey between two clocks" in 5.0.15).
 
 **The last city cannot be removed** (`removeCity` refuses, and the button is
 disabled with a `title` saying why). Removing it would put the trip back into
@@ -4184,6 +4187,44 @@ header's own bottom edge.
 Calendar is deliberately an empty tab. A redesign is planned, and porting the
 board before that lands would be work done twice.
 
+**Events that run past midnight are drawn the way iOS Calendar draws them.** The
+native board, agenda and map all ask `@trippy/core/span` where an event sits on a
+day (`segmentOn`, with a `zoneOf` built from the trip's cities) and never place a
+block from its raw `start_min` and `end_min`, so they cannot disagree with the web
+board or the planner. The first day runs from the start to midnight, days between
+are whole, and the last day runs from midnight to the end; the corner on a cut
+edge is square, so a block reads as carrying on rather than stopping. Each part is
+worded "From 10:00 PM", "All day" or "Until 3:00 PM", and the agenda adds the whole
+range on the first day only, where the reader meets it. A journey that lands on
+another clock shows the arrival zone ("GMT+9") faintly beside its end time and
+nowhere else. Only a block on one clock on one day (`onOneClock`, the rule the
+server's move and resize hold to) can be dragged or resized; a part of a longer
+event, or a journey landing on another city's clock, opens the sheet instead.
+The sheet's Start and End rows each hold a day and a time as compact values, as
+Calendar's Starts and Ends do (`DateTimeField` in `src/ui/controls.tsx`), because
+two rows of two values read as one decision where a separate End date row read as
+an afterthought. Moving the start day moves the end day by the same amount, and
+moving the start time moves the end by the same minutes on its own clock, as the
+web dialog does. Neither is held to the trip: a three-day hike moved near the end
+stays three days and says "Pick an end date within the trip.", because quietly
+dropping a day is a change nobody asked for. The preview draws the span as
+`normalizeSpan` will store it, so an end at midnight leaves no sliver on the next
+day. An end stored at 24:00 reopens as 12:00 AM the next morning, the way web
+shows it, because "Sat 12:00 AM" for a block that runs to the end of Saturday
+reads as Saturday's first minute, and re-picking it would quietly drop a day; the
+end date may therefore reach the morning after the trip's last day, at 12:00 AM
+only. An impossible span strikes the End values through and refuses to save with
+the shared sentence. A new event sends its city only when it is known: the
+departure on a journey, else the chosen day's city if that day is loaded, and
+otherwise nothing, so the server works the day's city out rather than the sheet
+guessing. A journey gets "Departs from" and "Arrives in" rows only when the trip
+has more than one city (or the journey already lands somewhere else), since with
+one city there is nothing to choose; the arrival list leaves out the chosen
+departure, never the stored one, so a flight saved on the wrong clock can be
+turned round. On the map, a
+journey's pin waits for the day it lands, because its place is where it arrives;
+anything else is pinned on every day it is drawn on.
+
 ### 5.0.13 Live location on mobile (design only, not built)
 
 A phone is the only client that can answer "where is everyone right now", and
@@ -4364,6 +4405,123 @@ That rule lives in core and both ends call it. The client used to keep its own
 copy for the preview under an open dialog, so the board drew one set of journeys
 while the server stored another, and the two only agreed until somebody changed
 one of them. `replanLegs` is now a thin wrapper over `planDay`.
+
+**Events that run past their own day.** An overnight train, a red-eye or a
+two-day hike is one row: `events.end_day`, which for a stay is its checkout
+(exclusive), means for every other type the day the block ends on (inclusive),
+NULL for its own day. A journey may also carry `end_city_id`, its arrival city,
+and its `end_min` is read on that city's clock, so "depart 22:00 Athens, arrive
+15:00 Tokyo" is stored as the ticket says it and no client has to know the
+offset on that date. Reusing `end_day` rather than adding a column kept every
+existing row correct as it stood, and kept one range query for both kinds.
+
+The board draws such a block the way a phone calendar does, and every reader
+asks `segmentOn` in `packages/core/src/span.ts` where it sits rather than
+working it out: start to midnight on its first day, the whole of any day
+between, midnight to its end on its last. The server lists the same row on each
+day it covers (`day <= D <= end_day`) rather than cutting it into copies, so the
+web board, the native board, the agenda and the planner cannot disagree about a
+day's part of it. The day lists and arrows count every covered day; a stay
+still counts only by the day it is checked into, as it always has.
+
+Writes settle a span into one stored form (`normalizeSpan`): an end day of its
+own day is NULL, an arrival city equal to the departure city is NULL and only a
+journey has one, and 00:00 on any later day on the same clock is 24:00 on the
+day before it. So a hike from Friday 08:00 to Monday 00:00 is stored as ending
+Sunday at 24:00: it covers Friday to Sunday, Monday is not one of its days or
+in the day list, and nobody is "still on it" at Monday's midnight, so Monday's
+first journey still leaves the hotel. Without that, Monday carried a
+fifteen-minute sliver and lost its morning origin to a hike that had already
+ended. For a two-day span the same rule makes it a one-day block ending at
+24:00. The one-day rules (end at least fifteen minutes after start
+on the clock, a drag kept inside its day, a resize from the bottom edge, a
+suggested start the board may move) are about one day's minutes, so they apply
+only to a block on one clock on one day (`onOneClock`). A span is judged by its
+real length across days and zones instead (`spanProblem`), runs at most
+fourteen days, and must end on a trip day. A drag moves a span on one clock as
+a whole, both ends shifted by the same minutes, so a drag across days carries
+`end_day` with it; a resize is refused, because the minute under the pointer is
+not its end, and the dialog is where its end is changed. It is never
+`time_auto`: its start is a ticket, not a suggestion. The fourteen-day ceiling
+also bounds the reads: every question about one day (its blocks, whether it
+carries anything, the nearest day either side) only reads rows starting in the
+fourteen days before it, off the `(trip_id, day)` index.
+
+**A journey between two clocks.** A same-day flight west lands at an earlier
+local time than it left: "17:00 Tokyo, arrives 11:00 Los Angeles". It is drawn
+on the ARRIVAL clock, ending at 11:00 and starting its real length before that
+(01:00), held at midnight when the flight began the evening before on that
+clock. The rest of that day is lived in Los Angeles, and drawn from its
+departure (17:00 to midnight) the flight sat after a 13:00 lunch there, so the
+day read backwards and no journey was planned from the airport to the lunch.
+The trade-off is the departure city's morning: a museum at 12:00 in Tokyo is
+still drawn at 12:00 on its own clock, so on the board it sits beside or after
+the flight (01:00 to 11:00) it really comes before. One clock per day cannot
+place both halves of such a day, and the board keeps the one the rest of the
+day is lived on. Journeys do not inherit that compromise: on a day with a
+journey between two clocks, the planner orders the blocks by real instant
+(each block's start read in the zone of its `city_id`, the flight by its
+departure), so the chain runs museum, flight, lunch, and nothing is planned
+from the airport back to the museum. Where that city comes from is what makes
+the order right. A journey's is its departure, given explicitly ("Departs
+from"). Any other block linked to a place takes the place's city, on create
+and again whenever an edit relinks it, overriding whatever city the dialog
+sent: a lunch at a saved Los Angeles place is in Los Angeles, and a stay at a
+lodging option is in the option's city. A block with a typed place or none
+keeps the city it was given, which is the day's city (where the group woke
+up). That is the limitation: an unlinked lunch in Los Angeles on the day of a
+flight from Tokyo is read on Tokyo's clock, so it is walked before the
+departure; linking it to a saved place fixes its order. Rows written before
+this carry the trip's first city whatever they are linked to, and an existing
+trip can already hold a westward day (a flight edited to depart from Tokyo
+over blocks that were added months ago), which then planned backwards until
+each block was re-saved. So a one-off pass at boot (`backfillPlaceCities` in
+`db.ts`, under a `schema_backfills` marker) moves every linked non-journey
+block to its place's city: one UPDATE for saved places and one for stays,
+in one transaction, touching only `city_id` and only where it differs. It is
+safe on real data because the column was never a statement of where a block
+is (`removeCityResult` already relies on that), only of the zone its one clock
+is read in; no date, minute or version moves. A day on one clock is walked
+by its minutes exactly as before. Such a journey cannot be dragged or resized
+(the 400 says to open it), since the minute under the pointer is a reading of
+neither end. An arrival on an
+earlier calendar date than the departure, which crossing the date line west
+can produce, is still refused as an end before its start: `end_day` is a day
+on or after `day`, and one row cannot say "lands yesterday"; the reader is told
+the end must be after the start and can record the flight on one clock instead.
+
+The start of a block is read in its own city's zone, so that city has to be the
+one it starts in. Neither client sent one, and the server stored the trip's
+first city, so on a trip listed Los Angeles then Tokyo a flight out of Tokyo
+was read on Los Angeles's clock and refused. Cities are still dateless, but a
+stay at a lodging option says where somebody is on a date, so the city of a day
+is the lodging city of the earliest stay drawn on it (the one woken up in, else
+tonight's), falling back to the trip's first city. That one answer is
+`BoardDay.city` and the city a block created without `cityId` is stored in, so
+the board, the clients (which now send it) and the server read a start on the
+same clock. Every block made before this carries the trip's first city, so the
+`edit` op takes `cityId` too ("Departs from" in the dialogs, for a journey on a
+trip with more than one city): the span is settled against the new city, so an
+arrival in what used to be its stored city is kept rather than dropped as the
+departure named again. When a city is deleted, a journey whose other end is on
+another clock is re-read at the same instants onto the clock that remains (its
+end on the departure clock, or its start on the arrival one) rather than left
+with a time that now means another instant, and every day of every block that
+named the city is settled again.
+
+Planning reads each covering block as its part of the day, in core so the
+client's replan under an open dialog agrees (`planDay`). On its last day a span
+is the first thing its people do, so a journey that lands is the origin of the
+next leg through the existing `landsAt` rule, and a hike is where the walk to
+dinner starts. And the people still on a span at a day's midnight are dropped
+from that morning's origins: they spent the night on the train, and the board
+used to open its landing day with a walk out of a hotel they never reached.
+Every write settles each day of the span plus the morning after, as it does a
+stay's nights. The order the planner walks a day in is the board's minutes on
+a day on one clock, and real instants on a day with a journey between two
+clocks (`dayInstants` in `plan.ts`); so on such a day the board, which draws
+on the arrival clock, can show the departure city's morning beside the
+flight while the journeys follow what really happens first.
 
 **Journeys share the event columns.** Travel used to live in a fixed lane down
 the right-hand side, on the reasoning that it is a consequence of the day rather
@@ -4866,6 +5024,81 @@ filtered board would have defeated the point: the warning would vanish the momen
 you looked at somebody else, so it would only ever reach the person who already
 knew. The board memo is therefore split in two, `planned` before the "view as"
 filter and `board` after it, and the warning is read from `planned`.
+
+#### A block that runs past its day, on the web board and in its dialog
+
+**Drawn the way a phone calendar draws it.** A span is placed on each day by
+`segmentOn` from `@trippy/core/span`: from its start to midnight on its first
+day, the whole day in between, from midnight to its end on its last. The page
+never reads `start_min` and `end_min` to place a block, and the column layout
+is fed the same segment, so a span carried in from yesterday takes a column from
+midnight rather than from an hour on another day. The cut edge squares its
+corners and loses its shadow, and a block carrying on into tomorrow runs through
+the grid's 16px under midnight rather than stopping on the line, which is all
+that "continues" needs; there is no arrow or badge. The time on a segment is
+"From 10:00 PM", "Until 3:00 PM" or "All day", and a journey that changes clocks
+names the arrival zone (`zoneAbbr`) wherever its end is written out in full.
+
+**A span carried in from yesterday does not open the window to midnight.** The
+board starts at six unless something starts earlier. Counting a continuing
+segment's midnight start would open every day of a three-day hike to midnight,
+so it holds the window open only far enough to show the last hour of it: an
+overnight train arriving at 5:00 opens the board to 4:00, and one arriving at
+noon runs off the top edge, which its square corners already say.
+
+**A span is opened, not dragged.** A column shows one day, so a drag in it can
+only say "this day's part moved", and a span's parts are not separate things:
+moving the first day's start would move the last day's end too, off screen. The
+server refuses a resize of one for the same reason. So a span has no grip and
+cannot be picked up, and a click opens its dialog, the way a stay's band is
+edited, while still aiming the map as every click on a block does. A one-day
+block keeps the whole drag contract. A journey whose ends are on two clocks is
+treated the same way as a span, with no grip and no drag, even on one day: a
+same-day journey west is drawn on its arrival clock, ending at its arrival and
+starting its real length before, so its drawing is not its departure time and a
+drag of it would write a start nobody typed. The server refuses `move` and
+`resize` for both.
+
+**Midnight is shown as typed and stored as one day.** An end at 12:00 AM on the
+morning after, on one clock, is stored as 24:00 on the day before
+(`normalizeSpan`), so a hike to midnight leaves no sliver on the next day's
+board. The dialog draws its preview and sends its request from that normalized
+form, and judges `spanProblem` on what was typed, so the end date before the
+start is still caught. Reopened, such a block shows its end as 12:00 AM on the
+morning after rather than "12:00 AM" on its own last day, which would read as
+ending when that day begins, and its last segment reads "All day" for the same
+reason. The End date may therefore name the morning after the trip's last day.
+
+**Each row is a named group.** The Start and End rows are `role="group"` named
+by their caption, and each date field is named by the caption and its own word
+("Start Date", "End Date") through `aria-labelledby`, so neither the visible
+caption nor the field's name is lost. The clock segments already carry the
+caption ("Start hour").
+
+**The dialog asks Start and End as a date and a clock each.** Always both rows,
+like a phone calendar's Starts and Ends, rather than an end date revealed on
+demand: an overnight is common on a trip, and two rows of one shape read as one
+question. Moving the start date carries the end date with it, and on a span or
+a journey across zones moving the start time carries the end across midnight
+instead of clamping it, since a red-eye that leaves an hour later lands an hour
+later. The dialog checks with `spanProblem` and says the server's own sentence
+under the end, except for an end typed behind its start on one day and clock,
+which is usually a time half typed and is put right when focus leaves. A
+journey gets "Departs from" and "Arrives in" only when the trip has another city
+to name or the journey already arrives somewhere. Departure is a row of its own
+because the start's city is otherwise whatever the server derived, which on an
+[LA, Tokyo] trip is LA for a flight out of Tokyo, and the arrival LA is then
+dropped as the same city: the flight could not be corrected at all. The span and
+its zone labels are judged on the departure the row shows, "Arrives in" offers
+every city but that one, and `cityId` is sent on create and on edit whenever the
+row was on screen. Anything else sends `cityId` on create only when the board has
+the chosen day loaded and so knows its city; for a day it has not loaded the
+server derives it, rather than taking the city of the day the dialog opened on.
+It sends its end as `endMin`, the clock
+reading on its last day, rather than a length, since across a midnight or a zone
+a length on one clock is not what it means. `endDay` and `endCityId` are sent when set and
+sent as null only to clear one the event had, so an untouched block's save is
+the request it always was.
 
 #### The day scrolls inside the board, not the page
 

@@ -7,6 +7,17 @@ import {
 	type EventType,
 	type PoiKind
 } from '@trippy/core/types';
+import { copy } from '@trippy/copy';
+import {
+	crossesZones,
+	isMultiDay,
+	lastDayOf,
+	segmentOn,
+	type Segment,
+	type SpanRow,
+	type ZoneOf
+} from '@trippy/core/span';
+import { zoneAbbr, zonedMinutesToUtc } from '@trippy/core/tz';
 import type { Cell, SavedPoi } from './types';
 
 export const DAY_END = DAY_END_MIN;
@@ -81,6 +92,88 @@ export function heightPx(from: number, to: number, start: number): number {
 export function shiftDay(iso: string, delta: number): string {
 	const [y, m, d] = iso.split('-').map(Number);
 	return new Date(Date.UTC(y, m - 1, d + delta)).toISOString().slice(0, 10);
+}
+
+/** Whole days from `from` to `to`, negative when `to` is earlier. */
+export function dayDiff(from: string, to: string): number {
+	return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000);
+}
+
+/** The `ZoneOf` the span rules read clocks with, from the trip's cities. */
+export function zoneLookup(cities: readonly (Cell | null)[]): ZoneOf {
+	const zones = new Map(cities.filter((c): c is Cell => c != null).map((c) => [c.id, c.tz]));
+	return (id) => (id ? (zones.get(id) ?? null) : null);
+}
+
+/**
+ * The arrival zone's short name ("GMT+9") when a journey's end is read on
+ * another clock from its start, else null. Taken at the arrival instant so a
+ * daylight change between the two ends is named correctly.
+ */
+export function arrivalZone(row: SpanRow, zoneOf?: ZoneOf): string | null {
+	if (!crossesZones(row, zoneOf)) return null;
+	const tz = zoneOf?.(row.end_city_id);
+	if (!tz) return null;
+	return zoneAbbr(tz, new Date(zonedMinutesToUtc(lastDayOf(row), row.end_min, tz))) || null;
+}
+
+/**
+ * How one day's part of an event is worded: its own range on a one-day event,
+ * "From 10:00 PM" on the first day of a longer one, "All day" between and
+ * "Until 3:00 PM" on the last. `zone` is the arrival zone, set only where the
+ * end time is actually shown.
+ */
+export function segmentTime(
+	row: SpanRow,
+	seg: Segment,
+	zoneOf?: ZoneOf
+): { words: string; zone: string | null } {
+	const zone = seg.endsHere ? arrivalZone(row, zoneOf) : null;
+	if (seg.startsHere && seg.endsHere)
+		return { words: clockRange(row.start_min, row.end_min), zone };
+	if (seg.startsHere) return { words: copy.schedule.span.from(clock(row.start_min)), zone };
+	// A last day that runs to its own midnight is a whole day, not one that ends
+	// at the 12:00 AM it begins with (the web board says the same).
+	if (seg.endsHere && row.end_min < DAY_END) {
+		return { words: copy.schedule.span.until(clock(row.end_min)), zone };
+	}
+	return { words: copy.schedule.span.allDay, zone: null };
+}
+
+/** `segmentTime` on one string, for a map card or a screen reader. */
+export function segmentLabel(row: SpanRow, day: string, zoneOf?: ZoneOf): string {
+	const seg = segmentOn(row, day, zoneOf);
+	if (!seg) return clockRange(row.start_min, row.end_min);
+	const { words, zone } = segmentTime(row, seg, zoneOf);
+	return zone ? `${words} ${zone}` : words;
+}
+
+/**
+ * The whole of a multi-day event, "10:00 PM Sat to 3:00 PM Sun". A weekday
+ * names the day while the span is under a week; past that it would repeat, so
+ * the date is used instead. An end at midnight is named on the day it opens.
+ */
+export function spanRange(row: SpanRow, zoneOf?: ZoneOf): string | null {
+	if (!isMultiDay(row)) return null;
+	const last = lastDayOf(row);
+	const far = dayDiff(row.day, last) > 6;
+	const name = (iso: string) => (far ? shortDay(iso) : weekday(iso));
+	const endDay = row.end_min >= DAY_END ? shiftDay(last, 1) : last;
+	const zone = arrivalZone(row, zoneOf);
+	return copy.schedule.span.range(
+		`${clock(row.start_min)} ${name(row.day)}`,
+		`${clock(row.end_min)} ${name(endDay)}${zone ? ` ${zone}` : ''}`
+	);
+}
+
+function weekday(iso: string): string {
+	const [y, m, d] = iso.split('-').map(Number);
+	return WEEKDAYS[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
+}
+
+function shortDay(iso: string): string {
+	const [, m, d] = iso.split('-').map(Number);
+	return `${MONTHS[m - 1]} ${d}`;
 }
 
 export function typeLabel(t: string): string {

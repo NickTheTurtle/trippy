@@ -8,6 +8,7 @@ import {
 } from 'react-native-gesture-handler';
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import { copy } from '@trippy/copy';
+import { segmentOn, type Segment, type ZoneOf } from '@trippy/core/span';
 import { layoutBoard, legLaneId } from '@trippy/core/travel';
 import type { EventType } from '@trippy/core/types';
 import { api, ApiError } from '../../lib/api';
@@ -21,15 +22,21 @@ import {
 	MIN_EVENT_MINS,
 	PX_PER_MIN,
 	clock,
-	clockRange,
 	heightPx,
 	hourLabel,
 	hoursFrom,
 	modeLabel,
+	segmentTime,
 	topPx,
 	windowStart
 } from './shared';
-import { gripHeightForBlock, passedGestureSlop, snapMoveStart, snapResizeEnd } from './gesture';
+import {
+	boardGestures,
+	gripHeightForBlock,
+	passedGestureSlop,
+	snapMoveStart,
+	snapResizeEnd
+} from './gesture';
 import type { BoardDay, EventRow, LegRow } from './types';
 
 const GUTTER = 58;
@@ -71,6 +78,7 @@ export function DayBoard({
 	memberIds,
 	peopleLabel,
 	eventById,
+	zoneOf,
 	locked,
 	onOpen,
 	onGestureChange,
@@ -81,6 +89,7 @@ export function DayBoard({
 	memberIds: string[];
 	peopleLabel: (ids: string[]) => string;
 	eventById: Map<string, EventRow>;
+	zoneOf: ZoneOf;
 	locked: boolean;
 	onOpen: (id: string) => void;
 	onGestureChange: (active: boolean) => void;
@@ -121,32 +130,54 @@ export function DayBoard({
 		[onGestureChange]
 	);
 
+	/*
+	 * Where each event sits on this day, from the shared span rules: an event
+	 * that runs past midnight is drawn to the bottom of its first day, through
+	 * any day between, and from the top of its last. Nothing below reads
+	 * `start_min` or `end_min` for placement, so a block, the window, the lanes
+	 * and the journey bars all agree with the web board and the planner.
+	 */
+	const segments = useMemo(() => {
+		const out = new Map<string, Segment>();
+		for (const event of entry.events) {
+			const seg = segmentOn(event, entry.day, zoneOf);
+			if (seg) out.set(event.id, seg);
+		}
+		return out;
+	}, [entry, zoneOf]);
+	const drawn = useMemo(
+		() => entry.events.filter((event) => segments.has(event.id)),
+		[entry.events, segments]
+	);
+	const segStart = (event: EventRow) => segments.get(event.id)?.start ?? event.start_min;
+	const segEnd = (event: EventRow) => segments.get(event.id)?.end ?? event.end_min;
+
 	const baseStartFor = (event: EventRow) =>
-		pending?.id === event.id && pending.start != null ? pending.start : event.start_min;
+		pending?.id === event.id && pending.start != null ? pending.start : segStart(event);
 	const baseEndFor = (event: EventRow) =>
-		pending?.id === event.id && pending.end != null ? pending.end : event.end_min;
+		pending?.id === event.id && pending.end != null ? pending.end : segEnd(event);
 
 	const boardStart = useMemo(() => {
 		const mins = [
-			...entry.events.flatMap((event) => [baseStartFor(event), baseEndFor(event)]),
+			...drawn.flatMap((event) => [baseStartFor(event), baseEndFor(event)]),
 			...entry.legs.flatMap((leg) => [leg.startMin, leg.endMin])
 		];
 		return windowStart(mins.length ? mins : [DEFAULT_START]);
-	}, [entry, pending]);
+	}, [drawn, entry, pending, segments]);
 
 	const { layout, bars } = useMemo(() => {
-		const eventsForLayout = entry.events.map((event) => ({
+		const eventsForLayout = drawn.map((event) => ({
 			id: event.id,
-			start: event.start_min,
-			end: event.end_min,
+			start: segStart(event),
+			end: segEnd(event),
 			people: event.people.length ? event.people : memberIds
 		}));
 		const shiftedLegs = entry.legs.map((leg) => {
-			const to = entry.events.find((event) => event.id === leg.toEventId);
-			return to ? shiftLeg(leg, baseStartFor(to) - to.start_min) : leg;
+			const to = drawn.find((event) => event.id === leg.toEventId);
+			return to ? shiftLeg(leg, baseStartFor(to) - segStart(to)) : leg;
 		});
 		return layoutBoard(eventsForLayout, shiftedLegs);
-	}, [entry, memberIds, pending]);
+	}, [drawn, entry, memberIds, pending, segments]);
 
 	const maxCols = Math.max(1, ...[...layout.placed.values()].map((placed) => placed.cols));
 	const boardW = Math.max(boardOuterW, GUTTER + maxCols * LANE_MIN);
@@ -155,7 +186,7 @@ export function DayBoard({
 
 	useEffect(() => {
 		const starts = [
-			...entry.events.map((event) => baseStartFor(event)),
+			...drawn.map((event) => baseStartFor(event)),
 			...entry.legs.map((leg) => leg.startMin)
 		];
 		const first = starts.length ? Math.min(...starts) : DEFAULT_START;
@@ -177,7 +208,7 @@ export function DayBoard({
 		const bottom = topPx(bar.leg.endMin, boardStart);
 		const top =
 			bottom - Math.max(heightPx(bar.leg.startMin, bar.leg.endMin, boardStart), MIN_LEG_H);
-		for (const event of entry.events) {
+		for (const event of drawn) {
 			const placed = layout.placed.get(event.id);
 			if (!placed || placed.left >= bar.left + bar.width || bar.left >= placed.left + placed.width)
 				continue;
@@ -293,13 +324,16 @@ export function DayBoard({
 								peopleLabel={peopleLabel}
 							/>
 						))}
-						{entry.events.map((event) => {
+						{drawn.map((event) => {
 							const placed = layout.placed.get(event.id);
-							if (!placed) return null;
+							const seg = segments.get(event.id);
+							if (!placed || !seg) return null;
 							const drawnStart = baseStartFor(event);
 							const drawnEnd = baseEndFor(event);
 							const trimmedHeight =
 								heightPx(drawnStart, drawnEnd, boardStart) - (trims.get(event.id) ?? 0);
+							const can = boardGestures(event, seg, zoneOf);
+							const when = segmentTime(event, seg, zoneOf);
 							return (
 								<EventBlock
 									key={event.id}
@@ -310,6 +344,13 @@ export function DayBoard({
 									height={Math.max(MIN_LEG_H, trimmedHeight)}
 									drawnStart={drawnStart}
 									drawnEnd={drawnEnd}
+									length={Math.max(MIN_EVENT_MINS, seg.end - seg.start)}
+									startsHere={seg.startsHere}
+									endsHere={seg.endsHere}
+									timeWords={when.words}
+									timeZone={when.zone}
+									canMove={can.move}
+									canResize={can.resize}
 									peopleLabel={peopleLabel}
 									locked={locked}
 									onOpen={openBlock}
@@ -372,7 +413,14 @@ const EventBlock = memo(function EventBlock({
 	onCommitMove,
 	onCommitResize,
 	drawnStart,
-	drawnEnd
+	drawnEnd,
+	length,
+	startsHere,
+	endsHere,
+	timeWords,
+	timeZone,
+	canMove,
+	canResize
 }: {
 	event: EventRow;
 	left: number;
@@ -389,6 +437,18 @@ const EventBlock = memo(function EventBlock({
 	onCommitResize: (id: string, minute: number) => void;
 	drawnStart: number;
 	drawnEnd: number;
+	/** The block's drawn length, which a move keeps. */
+	length: number;
+	/** The event begins on this day; false squares the top corners off. */
+	startsHere: boolean;
+	/** The event ends on this day; false squares the bottom corners off. */
+	endsHere: boolean;
+	/** "9:00 - 11:00 AM", or "From 10:00 PM", "All day", "Until 3:00 PM" on a multi-day event. */
+	timeWords: string;
+	/** The arrival zone beside the end time, when a journey lands on another clock. */
+	timeZone: string | null;
+	canMove: boolean;
+	canResize: boolean;
 }) {
 	const translateY = useSharedValue(0);
 	const extraH = useSharedValue(0);
@@ -435,11 +495,7 @@ const EventBlock = memo(function EventBlock({
 				.onUpdate((gesture) => {
 					if (!moved.value && !passedGestureSlop(gesture.translationY, WRITE_SLOP)) return;
 					moved.value = true;
-					const next = snapMoveStart(
-						event.start_min,
-						gesture.translationY,
-						event.end_min - event.start_min
-					);
+					const next = snapMoveStart(event.start_min, gesture.translationY, length);
 					translateY.value = (next - event.start_min) * PX_PER_MIN;
 					if (next !== lastMoveMinute.value) {
 						lastMoveMinute.value = next;
@@ -458,10 +514,10 @@ const EventBlock = memo(function EventBlock({
 					panStarted.value = false;
 				}),
 		[
-			event.end_min,
 			event.id,
 			event.start_min,
 			lastMoveMinute,
+			length,
 			locked,
 			moved,
 			onBeginGesture,
@@ -473,9 +529,11 @@ const EventBlock = memo(function EventBlock({
 		]
 	);
 
+	const movable = !locked && canMove;
+	const resizable = !locked && canResize;
 	const blockGesture = useMemo(
-		() => (locked ? tapGesture : Gesture.Exclusive(moveGesture, tapGesture)),
-		[locked, moveGesture, tapGesture]
+		() => (movable ? Gesture.Exclusive(moveGesture, tapGesture) : tapGesture),
+		[movable, moveGesture, tapGesture]
 	);
 
 	const resizePan = useMemo(
@@ -547,7 +605,16 @@ const EventBlock = memo(function EventBlock({
 		height: Math.max(MIN_LEG_H, height + extraH.value)
 	}));
 
-	const accessibilityLabel = `${event.title}, ${clockRange(event.start_min, event.end_min)}. ${locked ? copy.schedule.block.openLabel : copy.schedule.block.mobileOpenLabel}`;
+	const timeText = timeZone ? `${timeWords} ${timeZone}` : timeWords;
+	const accessibilityLabel = `${event.title}, ${timeText}. ${movable ? copy.schedule.block.mobileOpenLabel : copy.schedule.block.openLabel}`;
+	// Like Calendar, a part cut at midnight has square corners on the cut edge,
+	// so a block reads as carrying on from the day before or into the next.
+	const corners = {
+		borderTopLeftRadius: startsHere ? radius.md : 0,
+		borderTopRightRadius: startsHere ? radius.md : 0,
+		borderBottomLeftRadius: endsHere ? radius.md : 0,
+		borderBottomRightRadius: endsHere ? radius.md : 0
+	};
 
 	return (
 		<View style={{ position: 'absolute', left, top, width, height }}>
@@ -561,7 +628,7 @@ const EventBlock = memo(function EventBlock({
 							width,
 							height,
 							minHeight: MIN_LEG_H,
-							borderRadius: radius.md,
+							...corners,
 							backgroundColor: EVENT_FILLS[event.type],
 							paddingLeft: 10,
 							paddingRight: 7,
@@ -578,7 +645,8 @@ const EventBlock = memo(function EventBlock({
 						{event.title}
 					</Text>
 					<Text style={{ color: color.inkSoft, fontSize: 10, lineHeight: 12 }}>
-						{clockRange(event.start_min, event.end_min)}
+						{timeWords}
+						{timeZone ? <Text style={{ color: color.inkFaint }}> {timeZone}</Text> : null}
 					</Text>
 					<Text numberOfLines={1} style={{ color: color.inkSoft, fontSize: 10, lineHeight: 12 }}>
 						{peopleLabel(event.people)}
@@ -595,7 +663,7 @@ const EventBlock = memo(function EventBlock({
 					/>
 				</Animated.View>
 			</GestureDetector>
-			{locked ? null : (
+			{resizable ? (
 				<GestureDetector gesture={resizeGesture}>
 					<Animated.View
 						accessible
@@ -631,7 +699,7 @@ const EventBlock = memo(function EventBlock({
 						/>
 					</Animated.View>
 				</GestureDetector>
-			)}
+			) : null}
 		</View>
 	);
 });

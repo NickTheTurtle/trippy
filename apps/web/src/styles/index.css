@@ -390,6 +390,11 @@ textarea.input {
 	font-size: var(--text-meta);
 	color: var(--color-ink-soft);
 }
+/* The date in a row beside its clock, sized to its own content rather than
+   stretched, so the start's and the end's clocks line up under each other. */
+.tfdate {
+	width: 10rem;
+}
 /* For number boxes and toolbar fields, sized to sit level with `.btn.small`. */
 .input.compact {
 	padding: 0.25rem 0.4rem;

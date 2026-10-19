@@ -18,12 +18,22 @@ import TripMap from '../components/TripMap';
 import { type Layout } from '@trippy/core/layout';
 import { layoutBoard, legLaneId } from '@trippy/core/travel';
 import { suggestStart } from '@trippy/core/plan';
+import { onOneClock, segmentOn, type Segment } from '@trippy/core/span';
 import type { EventType } from '@trippy/core/types';
 import { copy } from '../copy';
 import EventDialog from './schedule/EventDialog';
 import { applyDraft, replanLegs } from './schedule/replan';
 import {
+	arrivalZone,
+	endClock,
+	segmentFor,
+	segmentTime,
+	spanRange,
+	zoneLookup
+} from './schedule/span-text';
+import {
 	DAY_END,
+	DEFAULT_START,
 	DRAFT_ID,
 	MIN_EVENT_MINS,
 	PX_PER_MIN,
@@ -108,6 +118,15 @@ const TWO_LINE_H = 44;
  * the block it left gives up these pixels instead: see `dayBoard`.
  */
 const MIN_LEG_H = 15;
+
+/**
+ * The grid's room under midnight, for the last hour label to hang into.
+ *
+ * A block that carries on into tomorrow runs through it to the bottom of the
+ * column rather than stopping on the midnight line, so it leaves the day
+ * rather than ending at it.
+ */
+const GRID_TAIL_PX = 16;
 
 /**
  * The width below which a bar has to give up its padding to keep its duration.
@@ -312,6 +331,27 @@ type BlockProps = {
 	trim: number;
 	/** A frozen board draws no grip and no pencil: nothing here can be changed. */
 	locked: boolean;
+	/**
+	 * The block carries on past this day's edges: `top` from yesterday, `bottom`
+	 * into tomorrow. The cut edge squares off, the way a phone calendar draws
+	 * it, which is all it takes to read as "continues".
+	 */
+	cutTop: boolean;
+	cutBottom: boolean;
+	/** "From 10:00 PM", "Until 3:00 PM", "All day", or null for a one-day block. */
+	spanLabel: string | null;
+	/** The time in full: the range, with the arrival zone on a journey that changes clocks. */
+	fullTime: string;
+	/** The same, as the block's name is read out. */
+	ariaTime: string;
+	/**
+	 * Not picked up off the board and given no grip. A span runs across days a
+	 * single column cannot show, and a journey whose ends are on two clocks
+	 * is drawn on one of them, so neither can be moved or stretched by its
+	 * drawing. Both open their dialog on a click instead, the way a stay
+	 * does; see DESIGN.md.
+	 */
+	fixed: boolean;
 };
 
 const Block = memo(function Block({
@@ -341,7 +381,13 @@ const Block = memo(function Block({
 	onGripUp,
 	hasLegAbove,
 	trim,
-	locked
+	locked,
+	cutTop,
+	cutBottom,
+	spanLabel,
+	fullTime,
+	ariaTime,
+	fixed
 }: BlockProps) {
 	const bud = whoBudget(width, to - from - trim / PX_PER_MIN, ev.title, lanePx);
 	const cls = [
@@ -351,7 +397,10 @@ const Block = memo(function Block({
 		resizing ? 'resizing' : '',
 		editing ? 'editingnow' : '',
 		hasLegAbove ? 'joined' : '',
-		width < 0.34 ? 'narrow' : ''
+		width < 0.34 ? 'narrow' : '',
+		cutTop ? 'cuttop' : '',
+		cutBottom ? 'cutbottom' : '',
+		fixed ? 'fixed' : ''
 	]
 		.filter(Boolean)
 		.join(' ');
@@ -364,9 +413,14 @@ const Block = memo(function Block({
 	   box carries the geometry and the gesture, and the face fills it. */
 	const open = () => {
 		// Frozen, the block is the only way into its own details: there is no
-		// pencil to reach them through and nothing on the block to drag.
+		// pencil to reach them through and nothing on the block to drag. A span
+		// cannot be dragged either, so its click opens it too, and still aims
+		// the map on the way, which is what a click on a block has always done.
 		if (locked) onOpen(ev.id);
-		else onFocus(ev.id);
+		else if (fixed) {
+			onFocus(ev.id);
+			onOpen(ev.id);
+		} else onFocus(ev.id);
 	};
 
 	return (
@@ -376,7 +430,7 @@ const Block = memo(function Block({
 				left: `${left * 100}%`,
 				width: `calc(${width * 100}% - 6px)`,
 				top: `${topPx(from, boardStart)}px`,
-				height: `${Math.max(heightPx(from, to, boardStart) - trim, MIN_LEG_H)}px`,
+				height: `${Math.max(heightPx(from, to, boardStart) - trim, MIN_LEG_H) + (cutBottom ? GRID_TAIL_PX : 0)}px`,
 				...(dx ? { transform: `translateX(${dx}px)` } : null),
 				['--trows' as string]: bud.trows,
 				['--wrows' as string]: bud.wrows
@@ -415,8 +469,8 @@ const Block = memo(function Block({
 				className="bface"
 				role="button"
 				tabIndex={0}
-				aria-label={`${ev.title}, ${clock(ev.start_min)} to ${clock(ev.end_min)}. ${
-					locked ? cs.block.openLabel : cs.block.moveLabel
+				aria-label={`${ev.title}, ${ariaTime}. ${
+					locked || fixed ? cs.block.openLabel : cs.block.moveLabel
 				}`}
 				onKeyDown={(e) => {
 					if (e.key === 'Enter' || e.key === ' ') {
@@ -427,7 +481,7 @@ const Block = memo(function Block({
 			>
 				<div className="bt">{ev.title}</div>
 				<div className="bmeta">
-					{bud.showTime && <span>{bud.compact ? clock(from) : clockRange(from, to)}</span>}
+					{bud.showTime && <span>{spanLabel ?? (bud.compact ? clock(from) : fullTime)}</span>}
 				</div>
 				<div className="bwho">
 					{ev.people.length === 0 || ev.people.length === memberCount ? (
@@ -454,14 +508,16 @@ const Block = memo(function Block({
 			</div>
 			{!locked && (
 				<>
-					<div
-						className="bresize"
-						role="separator"
-						aria-label={cs.block.resizeLabel}
-						onPointerDown={(e) => onGripDown(e, ev)}
-						onPointerMove={onGripMove}
-						onPointerUp={onGripUp}
-					/>
+					{!fixed && (
+						<div
+							className="bresize"
+							role="separator"
+							aria-label={cs.block.resizeLabel}
+							onPointerDown={(e) => onGripDown(e, ev)}
+							onPointerMove={onGripMove}
+							onPointerUp={onGripUp}
+						/>
+					)}
 					<button
 						type="button"
 						className="bedit"
@@ -1170,6 +1226,38 @@ export default function Schedule() {
 		return new Set(readAs && roster.has(readAs) ? [readAs] : memberIds);
 	}, [readAs, memberIds]);
 
+	/** A city id to its IANA zone, which is what a span's two ends are read in. */
+	const zoneOf = useMemo(() => zoneLookup(data?.cities ?? []), [data?.cities]);
+
+	/**
+	 * Where a block sits on one day: `segmentOn`, never its raw minutes. A span
+	 * runs from its start to midnight on its first day, the whole of the days
+	 * between, and from midnight to its end on its last.
+	 */
+	const segOf = useCallback(
+		(ev: EventRow, day: string): Segment => segmentFor(ev, day, zoneOf),
+		[zoneOf]
+	);
+
+	/**
+	 * The minute a block holds open the top of its day's window.
+	 *
+	 * Its start where it starts. A span carried in from yesterday begins at
+	 * midnight, and opening every day it continues into back to midnight would
+	 * spend a third of the column on the hours it is merely passing through, so
+	 * it holds the window open only far enough to show an hour of it ending:
+	 * an overnight train arriving at 5:00 opens the board to 4:00, and one
+	 * arriving at noon leaves the board at six and runs off its top edge, which
+	 * its squared corners already say.
+	 */
+	const holdsOpen = useCallback(
+		(ev: EventRow, day: string) => {
+			const seg = segOf(ev, day);
+			return seg.startsHere ? seg.start : Math.min(DEFAULT_START, Math.max(0, seg.end - 60));
+		},
+		[segOf]
+	);
+
 	/**
 	 * The board with the edit in progress applied, before "view as".
 	 *
@@ -1193,16 +1281,20 @@ export default function Schedule() {
 		const known = new Map(
 			(data?.board ?? []).flatMap((entry) => entry.legs.map((l) => [l.key, l] as const))
 		);
+		// The city a draft starts in, which is the clock its start is read on on
+		// every day it reaches.
+		const cityOf = (day: string) =>
+			(data?.board ?? []).find((b) => b.day === day)?.city?.id ?? null;
 		return (data?.board ?? []).map((entry) => {
-			const { events, stays } = applyDraft(entry, preview);
+			const { events, stays } = applyDraft(entry, preview, cityOf);
 			return {
 				...entry,
 				events,
 				stays,
-				legs: preview ? replanLegs(entry, preview, memberIds, known) : entry.legs
+				legs: preview ? replanLegs(entry, preview, memberIds, known, cityOf, zoneOf) : entry.legs
 			};
 		});
-	}, [data, preview, memberIds]);
+	}, [data, preview, memberIds, zoneOf]);
 
 	/* The same board, through "view as". An event with nobody on it belongs to
 	   the whole group and is always shown; otherwise the chosen person has to be
@@ -1366,7 +1458,7 @@ export default function Schedule() {
 		openedOn.current = key;
 		const today = board.find((b) => b.day === data.day);
 		const firsts = [
-			...(today?.events.map((e) => e.start_min) ?? []),
+			...(today?.events.map((e) => holdsOpen(e, today.day)) ?? []),
 			...(today?.legs.map((l) => l.startMin) ?? [])
 		];
 		if (!firsts.length) return;
@@ -1478,11 +1570,11 @@ export default function Schedule() {
 		() =>
 			windowStart(
 				board.flatMap((entry) => [
-					...entry.events.map((e) => e.start_min),
+					...entry.events.map((e) => holdsOpen(e, entry.day)),
 					...entry.legs.map((l) => l.startMin)
 				])
 			),
-		[board]
+		[board, holdsOpen]
 	);
 
 	/**
@@ -1591,11 +1683,15 @@ export default function Schedule() {
 	 * The end of the day being added to, or 09:00 for a day with nothing on it.
 	 * The server refines it the moment the block is saved, adding the journey to
 	 * wherever the block turns out to be, which is a number the dialog cannot
-	 * know until a place has been picked.
+	 * know until a place has been picked. Read on the day, so a block carried
+	 * in from last night counts by where it ends this morning.
 	 */
 	const suggestedStart = useMemo(
-		() => (adding ? suggestStart(board.find((e) => e.day === adding.day)?.events ?? []) : 0),
-		[adding, board]
+		() =>
+			adding
+				? suggestStart(board.find((e) => e.day === adding.day)?.events ?? [], adding.day, zoneOf)
+				: 0,
+		[adding, board, zoneOf]
 	);
 
 	/* Opening an event: the pencil on a block, or a stay band, asks for the
@@ -1694,12 +1790,25 @@ export default function Schedule() {
 	 * would otherwise be out of view, and only as far as it has to. */
 	useEffect(() => {
 		if (!preview || !roomToDock) return;
+		const readingDay = reading?.day ?? preview.day;
 		const el = scrollRef.current;
-		const lane = document.querySelector('.sched .block.editingnow')?.closest('.lane');
+		// The copy on the day being read: a span is drawn on every day it
+		// covers, and the first one in the document may be a neighbour's.
+		const lane = (
+			document.querySelector(`.sched .daypanel[data-day="${readingDay}"] .block.editingnow`) ??
+			document.querySelector('.sched .block.editingnow')
+		)?.closest('.lane');
 		if (!el || !lane) return;
 		const laneTop = lane.getBoundingClientRect().top;
-		const top = laneTop + topPx(preview.start_min, boardStart);
-		const bottom = laneTop + topPx(preview.end_min, boardStart);
+		// The part of the draft on the day the block was found in, which for a
+		// span is not its own start and end minutes.
+		const onDay = lane.closest<HTMLElement>('.daypanel')?.dataset.day ?? preview.day;
+		const seg = segmentOn(preview, onDay, zoneOf) ?? {
+			start: preview.start_min,
+			end: preview.end_min
+		};
+		const top = laneTop + topPx(seg.start, boardStart);
+		const bottom = laneTop + topPx(seg.end, boardStart);
 		const box = el.getBoundingClientRect();
 		const margin = 56;
 		const over = bottom - (box.bottom - margin);
@@ -1708,7 +1817,7 @@ export default function Schedule() {
 		// the end of one is worth less than knowing where it begins.
 		const by = under < 0 ? under : over > 0 ? Math.min(over, under) : 0;
 		if (by) el.scrollBy({ top: by, behavior: 'smooth' });
-	}, [preview, roomToDock, boardStart]);
+	}, [preview, roomToDock, boardStart, zoneOf, reading?.day]);
 
 	const peopleLabel = useCallback(
 		(ids: string[]) => {
@@ -1765,10 +1874,12 @@ export default function Schedule() {
 		 * the rest of the group divides.
 		 */
 		const ordered = ((): boolean => {
-			const evs = [...dayPins].sort((a, b) => a.start_min - b.start_min);
+			const day = anchor?.day ?? '';
+			const at = (e: EventRow) => segOf(e, day);
+			const evs = [...dayPins].sort((a, b) => at(a).start - at(b).start);
 			if (evs.length < 2) return true;
 			for (let i = 1; i < evs.length; i++) {
-				if (evs[i].start_min < evs[i - 1].end_min) return false;
+				if (at(evs[i]).start < at(evs[i - 1]).end) return false;
 			}
 			if (readAs) return true;
 			const who = (e: EventRow) => (e.people.length ? [...e.people].sort().join(',') : '*');
@@ -1823,7 +1934,7 @@ export default function Schedule() {
 				name: dayLabel(data.day),
 				color: '#2f6d5e',
 				items: [...dayPins]
-					.sort((a, b) => a.start_min - b.start_min)
+					.sort((a, b) => segOf(a, anchor!.day).start - segOf(b, anchor!.day).start)
 					.map((e) => {
 						const legs = arrivals.get(e.id) ?? [];
 						/* Two routes at most. A day that splits can have a journey per
@@ -1843,7 +1954,7 @@ export default function Schedule() {
 							lat: e.lat,
 							lng: e.lng,
 							color: EVENT_COLORS[e.type],
-							subtitle: `${typeLabel(e.type)} · ${clockRange(e.start_min, e.end_min)}`,
+							subtitle: `${typeLabel(e.type)} · ${spanRange(e, zoneOf)}`,
 							detail: [peopleLabel(e.people), ...shown],
 							warn: legs.some((l) => l.tight) ? copy.viewAs.travelWarning : undefined
 						};
@@ -1874,7 +1985,7 @@ export default function Schedule() {
 			});
 		}
 		return tracks;
-	}, [anchor, data, readAs, eventById, peopleLabel, locked]);
+	}, [anchor, data, readAs, eventById, peopleLabel, locked, segOf, zoneOf]);
 
 	/* Clicking a block on the board aims the map at it, so the reader can see
 	   what is around the place they just selected. A click focuses; it does not
@@ -1996,15 +2107,20 @@ export default function Schedule() {
 
 	// --- Drag and resize ----------------------------------------------------
 
-	function startFor(ev: EventRow): number {
+	/* Where a block is drawn on a day: its segment there, moved by whatever
+	   gesture is holding it. Only a block that is all on one day is ever held,
+	   so a span is always simply its segment. */
+	function startFor(ev: EventRow, seg: Segment): number {
+		if (!seg.startsHere || !seg.endsHere) return seg.start;
 		if (drag && drag.id === ev.id) return drag.liveStart;
 		if (pending && pending.id === ev.id && pending.start !== undefined) return pending.start;
-		return ev.start_min;
+		return seg.start;
 	}
-	function endFor(ev: EventRow): number {
+	function endFor(ev: EventRow, seg: Segment): number {
+		if (!seg.startsHere || !seg.endsHere) return seg.end;
 		if (resize && resize.id === ev.id) return resize.liveEnd;
 		if (pending && pending.id === ev.id && pending.end !== undefined) return pending.end;
-		return startFor(ev) + (ev.end_min - ev.start_min);
+		return startFor(ev, seg) + (seg.end - seg.start);
 	}
 
 	/**
@@ -2103,9 +2219,14 @@ export default function Schedule() {
 			// look like the end of a drag, and nothing would open.
 			didDrag.current = false;
 			if (locked) return;
+			// A span, or a journey whose ends are on two clocks, is not picked up:
+			// its click opens it instead, and the server refuses to move one by
+			// its drawing. See `Block`.
+			if (!onOneClock(ev, zoneOf)) return;
 			// Let the resize grip through.
 			if ((e.target as HTMLElement).closest('.bresize')) return;
 			const { clientX: x, clientY: y } = e;
+			const seg = segOf(ev, day);
 			pressThen(e, () =>
 				putDrag({
 					id: ev.id,
@@ -2114,16 +2235,16 @@ export default function Schedule() {
 					pointerStartX: x,
 					pointerY: y,
 					pointerX: x,
-					origStart: ev.start_min,
-					mins: ev.end_min - ev.start_min,
+					origStart: seg.start,
+					mins: seg.end - seg.start,
 					creep: 0,
-					liveStart: ev.start_min,
+					liveStart: seg.start,
 					scrollLeft0: scrollRef.current?.scrollLeft ?? 0,
 					dx: 0
 				})
 			);
 		},
-		[putDrag, locked, pressThen]
+		[putDrag, locked, pressThen, segOf, zoneOf]
 	);
 
 	const onPointerMove = useCallback(
@@ -2434,6 +2555,18 @@ export default function Schedule() {
 	) {
 		const p = place.placed.get(ev.id);
 		if (!p) return null;
+		const seg = segOf(ev, day);
+		const from = startFor(ev, seg);
+		const to = endFor(ev, seg);
+		const spanLabel = segmentTime(ev, seg, zoneOf);
+		/* A journey that changes clocks is labelled as the ticket reads, its
+		   departure on its own clock and its arrival on the arrival clock, named.
+		   It is never under a hand, so the stored times are the times. */
+		const zone = arrivalZone(ev, zoneOf);
+		const fullTime = zone ? spanRange(ev, zoneOf) : clockRange(from, to);
+		const ariaTime = spanLabel
+			? `${spanLabel}, ${spanRange(ev, zoneOf)}`
+			: `${clock(ev.start_min)} to ${zone ? endClock(ev, zoneOf) : clock(ev.end_min)}`;
 
 		return (
 			<Block
@@ -2443,8 +2576,8 @@ export default function Schedule() {
 				lanePx={lanePx}
 				left={p.left}
 				width={p.width}
-				from={startFor(ev)}
-				to={endFor(ev)}
+				from={from}
+				to={to}
 				boardStart={boardStart}
 				dragging={drag?.id === ev.id}
 				dx={drag?.id === ev.id ? drag.dx : 0}
@@ -2465,6 +2598,12 @@ export default function Schedule() {
 				hasLegAbove={legTargets.has(ev.id)}
 				trim={trims.get(ev.id) ?? 0}
 				locked={locked}
+				cutTop={!seg.startsHere}
+				cutBottom={!seg.endsHere}
+				spanLabel={spanLabel}
+				fullTime={fullTime}
+				ariaTime={ariaTime}
+				fixed={!onOneClock(ev, zoneOf)}
 			/>
 		);
 	}
@@ -2559,10 +2698,14 @@ export default function Schedule() {
 		   columns are laid out from the stored times either way: re-packing them
 		   under the pointer would move every other block on the day while one is
 		   being nudged. */
+		const segs = new Map(entry.events.map((e) => [e.id, segOf(e, entry.day)] as const));
+		const segAt = (ev: EventRow) => segs.get(ev.id) ?? segOf(ev, entry.day);
 		const byId = new Map(entry.events.map((e) => [e.id, e]));
 		const legs = entry.legs.map((l) => {
 			const to = byId.get(l.toEventId);
-			return to ? shiftLeg(l, startFor(to) - to.start_min) : l;
+			if (!to) return l;
+			const seg = segAt(to);
+			return shiftLeg(l, startFor(to, seg) - seg.start);
 		});
 
 		const { layout: place, bars } = layoutBoard(
@@ -2570,9 +2713,11 @@ export default function Schedule() {
 				id: ev.id,
 				// The stored times, not the dragged ones: re-laying out the columns
 				// under the pointer would move every other block on the day while one
-				// is being nudged.
-				start: ev.start_min,
-				end: ev.end_min,
+				// is being nudged. Read as this day's segment, so a span carried in
+				// from yesterday takes a column from midnight and not from the hour
+				// it began at on another day.
+				start: segAt(ev).start,
+				end: segAt(ev).end,
 				// An event with nobody on it is the whole group, and saying so here is
 				// what keeps it from being ranked as a lane of its own.
 				people: ev.people.length ? ev.people : memberIds
@@ -2616,9 +2761,13 @@ export default function Schedule() {
 			for (const ev of entry.events) {
 				const p = place.placed.get(ev.id);
 				if (!p || p.left >= bar.left + bar.width || bar.left >= p.left + p.width) continue;
+				const seg = segAt(ev);
+				// A block that carries on into tomorrow keeps its whole bottom edge:
+				// that edge is midnight, and lifting it would read as an ending.
+				if (!seg.endsHere) continue;
 				const over =
-					Math.min(topPx(endFor(ev), boardStart), bottom) -
-					Math.max(topPx(startFor(ev), boardStart), top);
+					Math.min(topPx(endFor(ev, seg), boardStart), bottom) -
+					Math.max(topPx(startFor(ev, seg), boardStart), top);
 				if (over > 0) trims.set(ev.id, Math.max(trims.get(ev.id) ?? 0, over));
 			}
 		}
@@ -2626,7 +2775,7 @@ export default function Schedule() {
 		return (
 			<div
 				className={`daygrid${drag ? ' still' : ''}${drag && openedBy > 0 ? ' opening' : ''}`}
-				style={{ height: `${(DAY_END - boardStart) * PX_PER_MIN + 16}px` }}
+				style={{ height: `${(DAY_END - boardStart) * PX_PER_MIN + GRID_TAIL_PX}px` }}
 			>
 				<Axis boardStart={boardStart} />
 
@@ -2681,18 +2830,32 @@ export default function Schedule() {
 		return to ? `${named} to ${to}` : named;
 	}
 
+	/* A span is listed on every day it covers. Where it begins it reads as the
+	   whole range, so the one row says when it ends; on the days after, it
+	   reads as the part of it on that day, and has no start of its own to put
+	   in the time column. */
 	const agenda = [
-		...(anchor?.events ?? []).map((ev) => ({
-			key: ev.id,
-			start: ev.start_min,
-			title: ev.title,
-			meta: `${typeLabel(ev.type)} · ${clockRange(ev.start_min, ev.end_min)}`,
-			tight: false,
-			open: () => openBlock(ev.id)
-		})),
+		...(anchor?.events ?? []).map((ev) => {
+			const seg = segOf(ev, anchor!.day);
+			const part = seg.startsHere ? null : segmentTime(ev, seg, zoneOf);
+			return {
+				key: ev.id,
+				start: seg.start,
+				/* The start as it is on this day's clock. A part carried in from
+				   yesterday has none, and nor does a journey west drawn on its
+				   arrival clock, whose departure is on another; the meta line
+				   carries the whole of either. */
+				when: seg.startsHere && seg.start === ev.start_min ? clock(seg.start) : '',
+				title: ev.title,
+				meta: `${typeLabel(ev.type)} · ${part ?? spanRange(ev, zoneOf)}`,
+				tight: false,
+				open: () => openBlock(ev.id)
+			};
+		}),
 		...(anchor?.legs ?? []).map((leg) => ({
 			key: laneKey(leg),
 			start: leg.startMin,
+			when: clock(leg.startMin),
 			title: agendaLegName(leg),
 			meta: `${modeLabel(leg.resolvedMode)} · ${leg.resolvedMins}m`,
 			tight: leg.tight,
@@ -2712,7 +2875,7 @@ export default function Schedule() {
 								className={row.tight ? 'agendarow tight' : 'agendarow'}
 								onClick={row.open}
 							>
-								<span className="agendawhen">{clock(row.start)}</span>
+								<span className="agendawhen">{row.when}</span>
 								<span className="agendawhat">
 									<span className="agendatitle">{row.title}</span>
 									{/* Said in words under the name, not left to a triangle's
@@ -2847,6 +3010,7 @@ export default function Schedule() {
 					stays={data.stays}
 					cities={data.cities}
 					cityId={cityOfDay(adding.day)}
+					cityOf={cityOfDay}
 					firstDay={data.firstDay}
 					lastDay={data.lastDay}
 					provider={data.provider}

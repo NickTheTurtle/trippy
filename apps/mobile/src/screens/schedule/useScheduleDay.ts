@@ -4,7 +4,7 @@ import { suggestStart } from '@trippy/core/plan';
 import { useApi } from '../../hooks/useApi';
 import { useLiveSection } from '../../hooks/useTripEvents';
 import { applyDraft, replanLegs } from './replan';
-import { DRAFT_ID } from './shared';
+import { DRAFT_ID, zoneLookup } from './shared';
 import type { BoardDay, EventDraft, EventRow, LegRow, ScheduleData, ViewMode } from './types';
 
 export function useScheduleDay(tripId: string, paused = false) {
@@ -31,6 +31,7 @@ export function useScheduleDay(tripId: string, paused = false) {
 	const effectiveDay = day ?? data?.day ?? null;
 	const members = useMemo(() => data?.members ?? [], [data?.members]);
 	const memberIds = useMemo(() => members.map((m) => m.id), [members]);
+	const zoneOf = useMemo(() => zoneLookup(data?.cities ?? []), [data?.cities]);
 
 	const readAs = useMemo(() => {
 		if (view !== 'agenda') return viewAs;
@@ -50,15 +51,15 @@ export function useScheduleDay(tripId: string, paused = false) {
 			(data?.board ?? []).flatMap((entry) => entry.legs.map((l) => [l.key, l] as const))
 		);
 		return (data?.board ?? []).map((entry) => {
-			const { events, stays } = applyDraft(entry, preview);
+			const { events, stays } = applyDraft(entry, preview, zoneOf);
 			return {
 				...entry,
 				events,
 				stays,
-				legs: preview ? replanLegs(entry, preview, memberIds, known) : entry.legs
+				legs: preview ? replanLegs(entry, preview, memberIds, known, zoneOf) : entry.legs
 			};
 		});
-	}, [data?.board, memberIds, preview]);
+	}, [data?.board, memberIds, preview, zoneOf]);
 
 	const board: BoardDay[] = useMemo(() => {
 		const showEvent = (e: EventRow) =>
@@ -131,8 +132,10 @@ export function useScheduleDay(tripId: string, paused = false) {
 	}, []);
 
 	const suggestedStart = useCallback(
-		(on: string) => suggestStart(board.find((entry) => entry.day === on)?.events ?? []),
-		[board]
+		// The day, so a block carried in from last night is read by where it ends
+		// this morning rather than by its stored end time.
+		(on: string) => suggestStart(board.find((entry) => entry.day === on)?.events ?? [], on, zoneOf),
+		[board, zoneOf]
 	);
 
 	const legsTo = useCallback(
@@ -157,6 +160,7 @@ export function useScheduleDay(tripId: string, paused = false) {
 		anchor,
 		eventById,
 		locked: false,
+		zoneOf,
 		viewAsOptions,
 		peopleLabel,
 		setPreview,

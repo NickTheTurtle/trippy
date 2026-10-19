@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import NativeSegmentedControl from '@react-native-segmented-control/segmented-control';
@@ -300,6 +300,164 @@ export function TimeField({
 				<Text style={type.body}>{formatMinutes(value)}</Text>
 			</Pressable>
 			{field}
+		</View>
+	);
+}
+
+/**
+ * One Calendar row holding a day and a time, as iOS Calendar draws Starts and
+ * Ends: the label on the left and two compact values on the right, each
+ * opening its own picker under the row (the inline calendar for the day, the
+ * wheel for the time). Only one is open at a time, and the open value is
+ * tinted. `invalid` strikes the values through, the way Calendar marks an end
+ * that falls before its start.
+ *
+ * On web the pickers are text fields, and the day field commits only a real
+ * `YYYY-MM-DD`, so a half-typed date never reaches the caller's arithmetic.
+ */
+export function DateTimeField({
+	label,
+	dayLabel,
+	day,
+	minute,
+	onDay,
+	onMinute,
+	minimumDay,
+	maximumDay,
+	minimumMinute = 0,
+	maximumMinute = 24 * 60,
+	step = 5,
+	invalid = false,
+	last = false
+}: {
+	/** The row's label, also the time value's accessible name. */
+	label: string;
+	/** The day value's accessible name. */
+	dayLabel: string;
+	day: string;
+	minute: number;
+	onDay: (value: string) => void;
+	onMinute: (value: number) => void;
+	minimumDay?: string;
+	maximumDay?: string;
+	minimumMinute?: number;
+	maximumMinute?: number;
+	step?: number;
+	invalid?: boolean;
+	last?: boolean;
+}) {
+	const [open, setOpen] = useState<'day' | 'time' | null>(null);
+	const [webDay, setWebDay] = useState(day);
+	const [webTime, setWebTime] = useState(formatMinutes(minute));
+	useEffect(() => setWebDay(day), [day]);
+	useEffect(() => setWebTime(formatMinutes(minute)), [minute]);
+	const shownDay = formatDay(day, { year: true });
+	const shownTime = formatMinutes(minute);
+	const toggle = (which: 'day' | 'time') => setOpen((v) => (v === which ? null : which));
+
+	function commitWebDay(raw: string) {
+		setWebDay(raw);
+		const value = raw.trim();
+		if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !dayToDate(value)) return;
+		if (dateToDay(dayToDate(value)!) !== value) return;
+		onDay(clampDay(value, minimumDay, maximumDay));
+	}
+	function commitWebTime(raw: string) {
+		setWebTime(raw);
+		const next = parseClock(raw);
+		if (next !== null)
+			onMinute(normalizeTimePickerMinutes(next, minimumMinute, maximumMinute, step));
+	}
+
+	const pill = (which: 'day' | 'time', text: string, name: string) => (
+		<Pressable
+			accessibilityRole="button"
+			accessibilityLabel={`${name}, ${text}`}
+			accessibilityState={{ expanded: open === which }}
+			onPress={() => toggle(which)}
+			hitSlop={{ top: 6, bottom: 6 }}
+			style={({ pressed }) => [s.compactValue, pressed && { opacity: 0.6 }]}
+		>
+			<Text
+				numberOfLines={1}
+				style={[
+					type.body,
+					open === which && { color: color.accent },
+					invalid && { textDecorationLine: 'line-through', color: color.dangerInk }
+				]}
+			>
+				{text}
+			</Text>
+		</Pressable>
+	);
+
+	let picker: ReactNode = null;
+	if (open === 'day' && Platform.OS === 'web') {
+		picker = (
+			<TextInput
+				accessibilityLabel={dayLabel}
+				value={webDay}
+				onChangeText={commitWebDay}
+				placeholder="YYYY-MM-DD"
+				autoCapitalize="none"
+				style={[s.searchInput, s.inlineInput]}
+			/>
+		);
+	} else if (open === 'day') {
+		picker = (
+			<DateTimePicker
+				value={dayToDate(clampDay(day, minimumDay, maximumDay)) ?? new Date()}
+				mode="date"
+				display={Platform.OS === 'ios' ? 'inline' : 'default'}
+				minimumDate={minimumDay ? (dayToDate(minimumDay) ?? undefined) : undefined}
+				maximumDate={maximumDay ? (dayToDate(maximumDay) ?? undefined) : undefined}
+				onChange={(event, selected) => {
+					if (Platform.OS !== 'ios') setOpen(null);
+					if (Platform.OS !== 'ios' && event.type !== 'set') return;
+					if (event.type === 'dismissed') return;
+					if (selected) onDay(dateToDay(selected));
+				}}
+			/>
+		);
+	} else if (open === 'time' && Platform.OS === 'web') {
+		picker = (
+			<TextInput
+				accessibilityLabel={label}
+				value={webTime}
+				onChangeText={commitWebTime}
+				placeholder="9:00 AM"
+				autoCapitalize="characters"
+				style={[s.searchInput, s.inlineInput]}
+			/>
+		);
+	} else if (open === 'time') {
+		picker = (
+			<DateTimePicker
+				value={minutesToDate(minute)}
+				mode="time"
+				display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+				minuteInterval={step as never}
+				onChange={(event, selected) => {
+					if (Platform.OS !== 'ios') setOpen(null);
+					if (Platform.OS !== 'ios' && event.type !== 'set') return;
+					if (event.type === 'dismissed' || !selected) return;
+					const raw = selected.getHours() * 60 + selected.getMinutes();
+					onMinute(normalizeTimePickerMinutes(raw, minimumMinute, maximumMinute, step));
+				}}
+			/>
+		);
+	}
+
+	return (
+		<View>
+			<View style={[s.formRow, !last && !open && s.rowSeparator]}>
+				<Text style={[type.body, { flex: 1 }]} numberOfLines={1}>
+					{label}
+				</Text>
+				{pill('day', shownDay, dayLabel)}
+				{pill('time', shownTime, label)}
+			</View>
+			{picker ? <View style={!last ? s.rowSeparator : undefined}>{picker}</View> : null}
 		</View>
 	);
 }
@@ -649,5 +807,13 @@ const s = StyleSheet.create({
 		color: color.ink,
 		fontSize: 17
 	},
-	option: { paddingVertical: 10, paddingHorizontal: space.sm, borderRadius: radius.button }
+	option: { paddingVertical: 10, paddingHorizontal: space.sm, borderRadius: radius.button },
+	// iOS's compact date and time buttons: a grey capsule-ish fill around the value.
+	compactValue: {
+		paddingHorizontal: 11,
+		paddingVertical: 6,
+		borderRadius: 8,
+		backgroundColor: color.surface2
+	},
+	inlineInput: { marginLeft: rowInset, marginRight: rowInset, marginBottom: space.sm }
 });

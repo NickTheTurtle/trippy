@@ -21,13 +21,27 @@
  * 3. expanding an empty `people` list to the whole roster
  * 4. which stays are a night of the day, and which of them the board draws
  *
- * All four are here now, and the two call sites are two calls.
+ * A fifth arrived with events that run past their own day: such a block is
+ * planned on each day it covers by that day's part of it (`segmentOn` in
+ * `span.ts`), and the people still on it at a day's midnight do not start that
+ * day from last night's stay. That is the same kind of rule, so it is here too.
+ *
+ * All of them are here now, and the two call sites are two calls.
  *
  * Nothing here does I/O. It takes rows and a roster as arguments, which is what
  * lets the same code run in the API process and in a browser.
  */
 
 import { DAY_END_MIN, isLocatedType, type EventType } from './types';
+import {
+	carriesInto,
+	crossesZones,
+	onOneClock,
+	segmentOn,
+	type SpanRow,
+	type ZoneOf
+} from './span';
+import { zonedMinutesToUtc } from './tz';
 import {
 	guessLeg,
 	legKey,
@@ -56,6 +70,20 @@ export interface PlannableRow {
 	lng: number | null;
 	/** Trip member ids, or empty for the whole group. See `toPlannerEvent`. */
 	people: string[];
+	/*
+	 * Where the row sits in time beyond its own clock. All optional, so a caller
+	 * holding bare one-day rows still plans exactly as it always did; a row that
+	 * carries `day` is read through `segmentOn` on the day being planned, which
+	 * is what lets a block that runs over several days sit on each of them.
+	 */
+	/** The day the row starts on. */
+	day?: string;
+	/** For a timed event, the day it ends on (inclusive); for a stay, its checkout. */
+	end_day?: string | null;
+	/** The city whose zone `start_min` is read in. */
+	city_id?: string | null;
+	/** A journey's arrival city, whose zone `end_min` is read in. */
+	end_city_id?: string | null;
 }
 
 /** A stay is a range of nights rather than a point, so it carries both ends. */
@@ -76,7 +104,11 @@ export interface StayIdentity extends StayRange {
 }
 
 /** A stay as the planner sees it: a booking with a range and some travellers. */
-export interface PlannableStay extends PlannableRow, StayRange {}
+export interface PlannableStay extends PlannableRow, StayRange {
+	// Restated because the two bases disagree on optionality, and a stay always has both.
+	day: string;
+	end_day: string | null;
+}
 
 /**
  * Shift an ISO day, staying in UTC so a DST boundary cannot move it.
@@ -218,10 +250,54 @@ export function toPlannerEvent(row: PlannableRow, roster: readonly string[]): Pl
 /** Everything a day needs before it can be planned. */
 export interface DayRows<E extends PlannableRow, S extends PlannableStay> {
 	day: string;
-	/** The day's timed blocks. Stays are not among them. */
+	/**
+	 * The timed blocks on the day. Stays are not among them. A block that runs
+	 * over several days is listed on each day it covers, as the board lists it.
+	 */
 	events: readonly E[];
 	/** Last night's stays: where each group that slept somewhere starts. */
 	incoming: readonly S[];
+	/**
+	 * The zone of a city id, from the trip's cities.
+	 *
+	 * Optional, and only ever consulted for a same-day journey that lands on
+	 * another clock, whose part of the day is its real length rather than its
+	 * two clock readings. Without it such a journey is planned as the shortest
+	 * block, so both ends should pass it to agree about that one case.
+	 */
+	zoneOf?: ZoneOf;
+}
+
+/** A row's span fields, when the caller supplied them. */
+function spanOf(row: PlannableRow): SpanRow | null {
+	if (!row.day) return null;
+	return {
+		type: row.type,
+		day: row.day,
+		end_day: row.end_day ?? null,
+		start_min: row.start_min,
+		end_min: row.end_min,
+		city_id: row.city_id ?? null,
+		end_city_id: row.end_city_id ?? null
+	};
+}
+
+/**
+ * A row as it sits on `day`: its start and end replaced by that day's part of it.
+ *
+ * Everything that reads a day's minutes (the planner's order, a journey's
+ * departure, the reflow's "after whatever comes before") wants this rather
+ * than the stored pair, which for a block that runs over several days are two
+ * readings on two different days. `segmentOn` decides the part; this only
+ * writes it onto a copy. A row with no `day`, or one not on `day` at all, is
+ * returned as it came.
+ */
+export function rowOnDay<T extends PlannableRow>(row: T, day: string, zoneOf?: ZoneOf): T {
+	const span = spanOf(row);
+	if (!span || row.type === 'stay') return row;
+	const seg = segmentOn(span, day, zoneOf);
+	if (!seg || (seg.start === row.start_min && seg.end === row.end_min)) return row;
+	return { ...row, start_min: seg.start, end_min: seg.end };
 }
 
 /**
@@ -241,14 +317,81 @@ export interface DayRows<E extends PlannableRow, S extends PlannableStay> {
  * The roster is applied to the day's blocks and to last night's origins alike.
  * An incoming stay carries people too, and a stay left on "Everyone" is where
  * the whole group wakes up.
+ *
+ * A block that runs over several days is planned by its part of this day: from
+ * its start to midnight on its first, all day in between, and from midnight to
+ * its end on its last. On its last day it is therefore the first thing its
+ * people do, and the day goes on from it: a journey that lands is where the
+ * next leg leaves from (the `landsAt` rule in `travel.ts`), and a two-day hike
+ * is where the walk to dinner starts.
+ *
+ * The people on such a block when the day begins are not at last night's stay,
+ * whoever booked them into one: they spent the night on the train. So they are
+ * taken off this morning's origins, and a stay nobody is left on starts nothing.
+ * Without that, the overnight train's last day opened with a walk from a hotel
+ * its passengers never reached.
  */
 export function planDay<E extends PlannableRow, S extends PlannableStay>(
 	rows: DayRows<E, S>,
 	roster: readonly string[]
 ): PlannedLeg[] {
-	return planLegs(
-		rows.events.map((e) => toPlannerEvent(e, roster)),
-		rows.incoming.map((s) => toPlannerEvent(s, roster))
+	const events = rows.events.map((e) => toPlannerEvent(rowOnDay(e, rows.day, rows.zoneOf), roster));
+	const aboard = new Set<string>();
+	rows.events.forEach((e, i) => {
+		const span = spanOf(e);
+		if (span && carriesInto(span, rows.day)) for (const p of events[i].people) aboard.add(p);
+	});
+	const incoming = rows.incoming
+		.map((s) => toPlannerEvent(s, roster))
+		.map((o) => (aboard.size ? { ...o, people: o.people.filter((p) => !aboard.has(p)) } : o))
+		.filter((o) => o.people.length > 0);
+	return planLegs(events, incoming, dayInstants(rows));
+}
+
+/**
+ * The order a day's blocks happen in, as instants, when the day is on two
+ * clocks; undefined when it is on one, so the planner walks the clock minutes
+ * exactly as it always has.
+ *
+ * A day with a journey between two clocks on it cannot be put in order by any
+ * one clock. The board draws a same-day flight west on its arrival clock (see
+ * `segmentOn`), which places it right against the afternoon in the city it
+ * lands in, but the morning in the city it left is on the other clock: a
+ * museum at 12:00 in Tokyo before a 17:00 flight that lands in Los Angeles at
+ * 11:00 drew at 12:00, after the flight's 01:00 to 11:00, and the planner
+ * walking those minutes planned a journey from the airport back to the museum.
+ * So on such a day each block is placed by when it really starts: a block
+ * starting on the day at its start, read in its own city's zone (for the
+ * flight, its departure); a block carried in from yesterday at this day's
+ * midnight on the clock it is drawn on (a journey's arrival clock). Ties fall
+ * back to the id, as on any day. A block's city is only as good as the row's
+ * `city_id`: the server stores a linked place's own city for anything but a
+ * journey, and the day's city for a block with no saved place, which on such
+ * a day is the departure city (DESIGN 5.0.15, "A journey between two clocks").
+ *
+ * Only a day that has such a journey is ordered this way. A day on one clock
+ * keeps the minute order even where its blocks name different cities: rows
+ * created before the start city was the day's city carry the trip's first
+ * city, and reading each in its own zone would scramble a day that reads
+ * correctly on the board.
+ */
+function dayInstants<E extends PlannableRow, S extends PlannableStay>(
+	rows: DayRows<E, S>
+): Map<string, number> | undefined {
+	const zoneOf = rows.zoneOf;
+	if (!zoneOf) return undefined;
+	const spans = rows.events.map(spanOf);
+	if (!spans.some((s) => s && crossesZones(s, zoneOf))) return undefined;
+	return new Map(
+		rows.events.map((e, i): [string, number] => {
+			const span = spans[i];
+			if (!span) return [e.id, zonedMinutesToUtc(rows.day, e.start_min, zoneOf(e.city_id))];
+			if (span.day >= rows.day) {
+				return [e.id, zonedMinutesToUtc(span.day, span.start_min, zoneOf(span.city_id))];
+			}
+			const drawnIn = span.type === 'travel' && span.end_city_id ? span.end_city_id : span.city_id;
+			return [e.id, zonedMinutesToUtc(rows.day, 0, zoneOf(drawnIn))];
+		})
 	);
 }
 
@@ -320,13 +463,31 @@ export interface ReflowedTime {
  *
  * Pure, and returns only what changed, so the server can write the moves and
  * the client can preview them without either owning the rule.
+ *
+ * `on` names the day being reflowed. With it, every row is read as its part of
+ * that day (`rowOnDay`), so a block carried in from yesterday is "before"
+ * everything and ends where it ends today rather than where its stored pair
+ * says. A block that runs over several days, or lands on another clock, is
+ * never moved, whatever its flag says: its start is a ticket, not a
+ * suggestion, and the one-day arithmetic below has no meaning for it. Without
+ * `on`, rows are read as stored, which is what every caller before spans did.
  */
 export function reflowAutoTimes(
 	events: readonly AutoTimedRow[],
 	legs: readonly { toEventId: string; fromEventId: string; resolvedMins: number }[],
-	roster?: readonly string[]
+	roster?: readonly string[],
+	on?: { day: string; zoneOf?: ZoneOf }
 ): ReflowedTime[] {
-	const now = new Map(events.map((e) => [e.id, { start: e.start_min, end: e.end_min }]));
+	const fixed = new Set(
+		events
+			.filter((e) => {
+				const span = spanOf(e);
+				return span !== null && !onOneClock(span, on?.zoneOf);
+			})
+			.map((e) => e.id)
+	);
+	const rows = on ? events.map((e) => rowOnDay(e, on.day, on.zoneOf)) : events;
+	const now = new Map(rows.map((e) => [e.id, { start: e.start_min, end: e.end_min }]));
 	const arriving = new Map<string, typeof legs>();
 	const legMins = new Map<string, number>();
 	for (const leg of legs) {
@@ -339,10 +500,10 @@ export function reflowAutoTimes(
 	const lastOf = new Map<string, string>();
 
 	const moved: ReflowedTime[] = [];
-	const order = [...events].sort((a, b) => a.start_min - b.start_min || (a.id < b.id ? -1 : 1));
+	const order = [...rows].sort((a, b) => a.start_min - b.start_min || (a.id < b.id ? -1 : 1));
 	for (const e of order) {
 		const people = toPlannerEvent(e, members).people;
-		if (e.time_auto) {
+		if (e.time_auto && !fixed.has(e.id)) {
 			let earliest = -1;
 			for (const leg of arriving.get(e.id) ?? []) {
 				// An origin that is not on the day's clock is last night's stay, which
@@ -396,8 +557,22 @@ const EVERYONE_ELSE = '\u0000everyone-else';
  */
 export const DAY_START_MIN = 9 * 60;
 
-export function suggestStart(events: readonly PlannableRow[]): number {
-	const end = events.reduce((last, e) => Math.max(last, e.end_min), -1);
+/**
+ * `day` is the day the block is being added to. With it, each row is read as
+ * its part of that day (`rowOnDay`), so a block that runs on past midnight
+ * counts as filling the day to its end, and one carried in from yesterday
+ * counts only up to where it stops today. Without it rows are read as stored,
+ * which is right for a day of one-day blocks and what every caller did before.
+ */
+export function suggestStart(
+	events: readonly PlannableRow[],
+	day?: string,
+	zoneOf?: ZoneOf
+): number {
+	const end = events.reduce(
+		(last, e) => Math.max(last, (day ? rowOnDay(e, day, zoneOf) : e).end_min),
+		-1
+	);
 	return end < 0 ? DAY_START_MIN : Math.min(end, MIDNIGHT_MIN - SUGGEST_SNAP);
 }
 
