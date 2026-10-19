@@ -16,6 +16,7 @@ import { useDeleteAction } from '../../components/ui/useDeleteAction';
 import Select, { type Option } from '../../components/ui/Select';
 import TimeField from '../../components/ui/TimeField';
 import { FieldShell, Field, TextArea } from '../../components/ui/Field';
+import DayInput from '../../components/ui/DayInput';
 import FormError from '../../components/ui/FormError';
 import { LockIcon } from '../../components/ui/icons';
 import { copy } from '../../copy';
@@ -40,9 +41,6 @@ import type { Cell, Crew, EventDraft, EventRow, LegRow, SavedPoi } from './types
 
 const cf = copy.schedule.fields;
 const cs = copy.schedule;
-
-/** A typed date held to the trip, since `min` and `max` do not stop typing. */
-const clampDay = (v: string, lo: string, hi: string) => (v < lo ? lo : v > hi ? hi : v);
 
 /**
  * One event: describe it, retype it, retime it, re-people it, relocate it, set
@@ -750,7 +748,10 @@ export default function EventDialog({
 									    typed into it, and a typed 2027-05-16 on a trip that
 									    ends on the 15th left the field reading one day while
 									    the board read another, with nothing to say which the
-									    save would use. */}
+									    save would use. The clamp waits until the box is left
+									    (`DayInput`): applied on every keystroke, it snapped
+									    the first typed digit of a year to the trip and
+									    nothing could be typed at all. */}
 									<FieldShell
 										as="div"
 										labelId={startCapId}
@@ -762,8 +763,7 @@ export default function EventDialog({
 											    word, so the field says which date it is without
 											    the caption being said twice for the clock, whose
 											    segments already carry it ("Start hour"). */}
-											<input
-												type="date"
+											<DayInput
 												className="input tfdate"
 												id={startDateId}
 												aria-label={cf.date}
@@ -771,11 +771,7 @@ export default function EventDialog({
 												min={firstDay}
 												max={lastDay}
 												value={date}
-												onChange={(e) => {
-													const typed = e.target.value;
-													if (!typed) return;
-													moveDate(clampDay(typed, firstDay, lastDay));
-												}}
+												onDay={moveDate}
 											/>
 											<TimeField
 												value={startAt}
@@ -795,20 +791,16 @@ export default function EventDialog({
 									    midnight. */}
 									<FieldShell as="div" labelId={endCapId} label={cf.end} className="col-span-12">
 										<div className="tfpair">
-											<input
-												type="date"
+											<DayInput
 												className="input tfdate"
 												id={endDateId}
 												aria-label={cf.date}
 												aria-labelledby={`${endCapId} ${endDateId}`}
 												min={date}
+												floor={firstDay}
 												max={shiftDay(lastDay, 1)}
 												value={endDate}
-												onChange={(e) => {
-													const typed = e.target.value;
-													if (!typed) return;
-													setEndDate(clampDay(typed, firstDay, shiftDay(lastDay, 1)));
-												}}
+												onDay={setEndDate}
 											/>
 											<TimeField
 												value={endAt}

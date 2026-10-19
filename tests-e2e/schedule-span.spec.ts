@@ -105,10 +105,45 @@ test.describe('a block that runs past its day', () => {
 			// An end the day before the start is said under the end, in the
 			// server's own words, and the Add goes nowhere.
 			await end.fill(startDate);
+			await end.blur();
 			await expect(dialog.getByRole('alert')).toHaveText(copy.schedule.span.endBeforeStart);
 			await dialog.getByRole('button', { name: copy.common.add, exact: true }).click();
 			await expect(dialog).toBeVisible();
 			await expect(end).toHaveValue(startDate);
+		} finally {
+			fixture.teardown();
+		}
+	});
+
+	test('a date can be typed into, digit by digit, and is held to the trip once left', async ({
+		page,
+		request
+	}) => {
+		const fixture = await createApiFixture(request);
+		const { startDate } = fixture.tripBody;
+		try {
+			await signIn(page, fixture.sessionCookie);
+			await page.goto(`/trips/${fixture.tripId}/schedule?day=${startDate}&view=day`);
+
+			await page.getByRole('button', { name: '+ Add', exact: true }).click();
+			const dialog = page.getByRole('dialog').first();
+			const end = dialog.getByRole('textbox', { name: endDateName, exact: true });
+			const [y, m, d] = startDate.split('-');
+			const next = new Date(Date.UTC(+y, +m - 1, +d + 1)).toISOString().slice(0, 10);
+			const [ny, nm, nd] = next.split('-');
+
+			// Typed the way a person does: month, day, then the year a digit at a
+			// time. Each digit of the year is a real date on its way through
+			// (0002, 0020, 0202), which used to be snapped to the trip at once.
+			await end.click({ position: { x: 14, y: 12 } });
+			await page.keyboard.type(`${nm}${nd}${ny}`, { delay: 40 });
+			await expect(end).toHaveValue(next);
+
+			// A day far past the trip is kept while typing and held to it on leaving.
+			await end.click({ position: { x: 14, y: 12 } });
+			await page.keyboard.type(`12${nd}${+ny + 1}`, { delay: 40 });
+			await dialog.getByRole('heading').first().click();
+			await expect(end).not.toHaveValue(`${+ny + 1}-12-${nd}`);
 		} finally {
 			fixture.teardown();
 		}
