@@ -3,6 +3,7 @@ import { Link, Navigate, useSearchParams } from 'react-router';
 import { AuthNotice, AuthShell } from '../components/ui/AuthShell';
 import { Field } from '../components/ui/Field';
 import { useErrorSlot } from '../components/ui/Toast';
+import ProviderButtons from '../components/ProviderButtons';
 import { useAuth } from '../auth';
 import useDocumentTitle from '../hooks/useDocumentTitle';
 import { copy } from '../copy';
@@ -52,6 +53,8 @@ export default function Register() {
 			onSubmit={submit}
 			submitting={submitting}
 			submitLabel={c.submitLabel}
+			// No `next`: a new account always starts on /trips, here and there.
+			lead={<ProviderButtons />}
 			footer={
 				<>
 					{c.footerPrompt}{' '}

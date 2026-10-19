@@ -552,8 +552,7 @@
 	--c: #2f6d9e;
 }
 .sched .block.freetime {
-	--c: #8a8578;
-	background: repeating-linear-gradient(45deg, #f3f2ec, #f3f2ec 6px, #eceae2 6px, #eceae2 12px);
+	--c: #6b5bd2;
 }
 .sched .block.narrow {
 	padding: 0.3rem 0.35rem;

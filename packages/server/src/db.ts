@@ -1148,3 +1148,97 @@ db.exec(`
 		fail_count  INTEGER NOT NULL DEFAULT 0
 	);
 `);
+
+/**
+ * Sign in with Google and Apple.
+ *
+ * `oauth_identities` ties a provider's stable account id (the token's `sub`) to
+ * a Trippy user. The email is not the link: it can change at the provider, and
+ * Apple's relay addresses are per app. A user found by `sub` signs in even if
+ * their email has moved since; a first sign-in falls back to a verified email
+ * match and records the `sub` from then on (see `signInWithIdentity`).
+ *
+ * `oauth_states` holds one pending browser sign-in each: what the provider must
+ * echo back (`state`, and the `nonce` in its ID token), the PKCE verifier, and
+ * where the session goes afterwards. Only the state's SHA-256 is the key, like
+ * the emailed links. Apple's native nonces live here too, with no redirect.
+ *
+ * `oauth_codes` hands a finished sign-in to the native app: the browser comes
+ * back to the app's own URL with a one-time code, which the app trades for a
+ * session token over the API. The token itself never appears in a URL.
+ *
+ * New tables, so the migration is additive by construction. A user signed up
+ * this way has no password; `users.password_hash` is NOT NULL, so it holds ''
+ * there, which `verifyPassword` can never match. Forgot password sets one.
+ */
+db.exec(`
+	CREATE TABLE IF NOT EXISTS oauth_identities (
+		provider   TEXT NOT NULL,
+		subject    TEXT NOT NULL,
+		user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		email      TEXT,
+		created_at INTEGER NOT NULL,
+		PRIMARY KEY (provider, subject)
+	);
+	CREATE INDEX IF NOT EXISTS idx_oauth_identities_user ON oauth_identities(user_id);
+	CREATE TABLE IF NOT EXISTS oauth_states (
+		state_hash TEXT PRIMARY KEY,
+		provider   TEXT NOT NULL,
+		client     TEXT NOT NULL,
+		nonce      TEXT NOT NULL,
+		verifier   TEXT,
+		redirect   TEXT,
+		next_path  TEXT,
+		home_tz    TEXT,
+		expires_at INTEGER NOT NULL
+	);
+	CREATE TABLE IF NOT EXISTS oauth_codes (
+		code_hash  TEXT PRIMARY KEY,
+		user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		expires_at INTEGER NOT NULL
+	);
+`);
+
+/**
+ * When this account's address was last proven to belong to it, or null.
+ *
+ * Signing in with Google or Apple links to the account whose email the provider
+ * verified (see `signInWithIdentity`), which is only safe if this account's own
+ * claim to the address was proven too. Without mail, registration and email
+ * changes take an address on trust, so someone could register a stranger's
+ * address with a password and wait for the stranger to sign in with Google,
+ * landing in an account the squatter still controls. So the link is refused for
+ * an account whose address was never proven, and these set it: the emailed
+ * sign-up link, the emailed email-change link, a password reset (the link went
+ * to the mailbox) and a provider sign-in itself. Changing the address without a
+ * link clears it.
+ *
+ * Existing accounts are backfilled once. With mail on, every sign-up since mail
+ * was turned on came through the emailed link, so a deployment that has mail
+ * when this first runs marks its existing accounts proven from when they were
+ * made; one without mail leaves them unproven. The check is the same test as
+ * `mailProvider()`, repeated here because the mail module reads the database.
+ * Placeholders and seeded people are never accounts anyone signs into.
+ */
+addColumn('users', 'email_verified_at', 'INTEGER');
+const EMAIL_PROOF_BACKFILL = 'users.email_verified_at';
+if (!backfillDone(EMAIL_PROOF_BACKFILL)) {
+	const mailOn =
+		!!process.env.MAIL_FROM &&
+		(!!(process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) ||
+			!!process.env.RESEND_API_KEY);
+	if (mailOn) {
+		db.exec(
+			`UPDATE users SET email_verified_at = created_at
+			 WHERE email_verified_at IS NULL
+			   AND password_hash NOT LIKE 'placeholder:%'
+			   AND password_hash NOT LIKE 'seed:%'`
+		);
+	}
+	markBackfillDone(EMAIL_PROOF_BACKFILL);
+}
+
+db.exec(`
+	CREATE INDEX IF NOT EXISTS idx_oauth_states_expiry ON oauth_states(expires_at);
+	CREATE INDEX IF NOT EXISTS idx_oauth_codes_expiry ON oauth_codes(expires_at);
+`);

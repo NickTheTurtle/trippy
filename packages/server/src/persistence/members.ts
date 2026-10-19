@@ -591,6 +591,16 @@ export const UNABSORBED_USER_REFERENCES: readonly { table: string; column: strin
 			table: 'trip_invites',
 			column: 'placeholder_id',
 			why: 'ON DELETE SET NULL, and both callers delete the placeholder invite themselves'
+		},
+		{
+			table: 'oauth_identities',
+			column: 'user_id',
+			why: 'a placeholder cannot sign in with Google or Apple, so it never has one'
+		},
+		{
+			table: 'oauth_codes',
+			column: 'user_id',
+			why: 'a placeholder cannot sign in, and a one-time sign-in code is not trip history'
 		}
 	];
 

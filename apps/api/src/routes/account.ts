@@ -11,6 +11,8 @@ import {
 	deleteOtherSessions,
 	emailChangeProblem,
 	findUserById,
+	hasPassword,
+	NO_PASSWORD_YET,
 	pendingEmailChange,
 	pruneExpiredTokens,
 	startEmailChange,
@@ -130,6 +132,7 @@ account.patch('/profile', async (c) => {
 		const password = rawStr(b.currentPassword);
 		// A missing password is not a guess, so it is not counted.
 		if (!password) return fail(c, 400, 'Enter your current password to change your email.');
+		if (!hasPassword(u.id)) return fail(c, 400, NO_PASSWORD_YET);
 		if (!verifyUserPassword(u.id, password)) {
 			recordFailure(key);
 			return fail(c, 400, 'Your current password is incorrect.');
@@ -167,6 +170,8 @@ account.post('/password', async (c) => {
 	if (next !== rawStr(b.confirm)) {
 		return fail(c, 400, 'New passwords do not match.');
 	}
+	// Not a guess either, so it is answered before the throttle counts anything.
+	if (!hasPassword(c.get('user').id)) return fail(c, 400, NO_PASSWORD_YET);
 	// This endpoint verifies the current password, so it is a second place to
 	// guess one, reachable by anyone holding a stolen session. Throttled by
 	// account for the same reason login is.

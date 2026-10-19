@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import type { ReactNode } from 'react';
 import { router, usePathname } from 'expo-router';
 import { api, ApiError, onUnauthorized, type User } from './lib/api';
+import { signInWithAppleNative, signInWithBrowser, type ProviderFlow } from './lib/oauth';
 import { setToken } from './lib/token';
 
 /**
@@ -21,6 +22,8 @@ type AuthValue = {
 	loading: boolean;
 	logIn: (email: string, password: string) => Promise<void>;
 	register: (name: string, email: string, password: string) => Promise<'signed-in' | 'pending'>;
+	/** Google or Apple. Resolves false when the user backed out, true once signed in. */
+	signInWith: (flow: ProviderFlow) => Promise<boolean>;
 	logOut: () => Promise<void>;
 	refresh: () => Promise<void>;
 };
@@ -108,6 +111,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 		[adopt]
 	);
 
+	const signInWith = useCallback(
+		async (flow: ProviderFlow) => {
+			// No await before the browser flow: on web it opens a popup, which
+			// has to happen in the same turn as the tap.
+			const res =
+				flow === 'apple-native' ? await signInWithAppleNative() : await signInWithBrowser(flow);
+			if (!res) return false;
+			await adopt(res);
+			return true;
+		},
+		[adopt]
+	);
+
 	const logOut = useCallback(async () => {
 		// The local session is dropped whatever the server says. If the request
 		// fails the user still expects to be signed out of this device.
@@ -117,7 +133,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 	}, []);
 
 	return (
-		<Ctx.Provider value={{ user, loading, logIn, register, logOut, refresh }}>
+		<Ctx.Provider value={{ user, loading, logIn, register, signInWith, logOut, refresh }}>
 			{children}
 		</Ctx.Provider>
 	);

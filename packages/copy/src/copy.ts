@@ -78,6 +78,27 @@ export const copy = {
 			doneTitle: 'Email changed',
 			doneBlurb: 'Log in with the new address from now on.',
 			failedTitle: 'That link did not work'
+		},
+		/** Sign in with Google or Apple, above the email form on log in and create account. */
+		providers: {
+			google: 'Continue with Google',
+			apple: 'Continue with Apple',
+			/** Between the provider buttons and the email form. */
+			divider: 'or',
+			fallback: 'Could not sign in with that account. Try again.',
+			/**
+			 * What a failed sign-in says, by the code the server sends back. Only
+			 * these sentences are ever shown: the code arrives in a URL, and text
+			 * taken from a URL is text anyone could have written there.
+			 */
+			errors: {
+				expired: 'That sign-in expired. Try again.',
+				failed: 'Could not sign in with that account. Try again.',
+				throttled: 'Too many attempts. Try again in a moment.',
+				unavailable: 'That sign-in is not set up here.',
+				'no-email': 'That account did not share a verified email address.',
+				'log-in-first': 'An account already uses that email. Log in with your password.'
+			}
 		}
 	},
 
@@ -190,13 +211,19 @@ export const copy = {
 
 	// Add city dialog, reached from Discover
 	addCity: {
-		title: 'Add city',
-		addFallback: 'Could not add that city.',
+		title: 'Add cities',
+		addFallback: 'Could not add those cities.',
 		searchLabel: 'City',
 		searchPlaceholder: 'Kyoto, Lisbon, Cusco...',
 		searching: 'Searching...',
 		noMatches: 'No cities matched that.',
-		alreadyAdded: 'Added'
+		alreadyAdded: 'Added',
+		/** A search hit already in the list being added. */
+		picked: 'Picked',
+		/** The list of cities picked so far, above the submit button. */
+		pickedHeading: (n: number) => `${n} ${n === 1 ? 'city' : 'cities'} to add`,
+		submit: (n: number) => (n > 1 ? `Add ${n} cities` : 'Add city'),
+		remove: (city: string) => `Remove ${city}`
 	},
 
 	// Discover > city sidebar, location and stay cards, add and edit dialogs
@@ -299,6 +326,10 @@ export const copy = {
 		openLabel: (name: string) => `Open ${name} in the browser`,
 		editCityTitle: 'Edit city',
 		editCityButton: 'Edit city',
+		editCityFallback: 'Could not save that city.',
+		deleteCityFallback: 'Could not delete that city.',
+		/** Under the add-cities search once the list is full (the server's cap). */
+		pickLimit: (max: number) => `Add up to ${max} cities at a time.`,
 		/** In the city menu, beside Add and Edit city, with no title to name the city for it. */
 		deleteCityButton: 'Delete city',
 		deleteCityMessage: (linked: number) =>
@@ -713,3 +744,14 @@ export const copy = {
 		travelWarning: 'Not enough time to get there'
 	}
 } as const;
+
+/**
+ * The sentence for a sign-in error code from the server, or the general one.
+ * Own keys only: the code comes from a URL, and `constructor` is a key of every
+ * object.
+ */
+export function providerError(code: string | null | undefined): string {
+	const errors: Record<string, string> = copy.auth.providers.errors;
+	const key = code?.trim() ?? '';
+	return Object.hasOwn(errors, key) ? errors[key] : copy.auth.providers.fallback;
+}

@@ -5,6 +5,7 @@ import { session, requireUser, limitBody } from './middleware';
 import { billingGate, quota429 } from './provider-quota';
 import { fail } from './respond';
 import { auth } from './routes/auth';
+import { oauth } from './routes/oauth';
 import { account } from './routes/account';
 import { trips } from './routes/trips';
 import { placePhoto } from './routes/place-photo';
@@ -93,6 +94,7 @@ app.get('/api/health', (c) => {
 	});
 });
 app.route('/api/auth', auth);
+app.route('/api/auth', oauth);
 app.route('/api/account', account);
 app.route('/api/trips', trips);
 app.route('/api/place-photo', placePhoto);

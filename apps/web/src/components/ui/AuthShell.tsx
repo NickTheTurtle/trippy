@@ -75,6 +75,7 @@ export function AuthShell({
 	onSubmit,
 	submitting,
 	submitLabel,
+	lead,
 	children,
 	footer
 }: {
@@ -85,11 +86,14 @@ export function AuthShell({
 	onSubmit: () => void;
 	submitting: boolean;
 	submitLabel: string;
+	/** Drawn between the blurb and the form: another way in that is not the form. */
+	lead?: ReactNode;
 	children: ReactNode;
 	footer: ReactNode;
 }) {
 	return (
 		<AuthCard title={title} blurb={blurb}>
+			{lead}
 			<form
 				className="flex flex-col gap-3.5"
 				noValidate

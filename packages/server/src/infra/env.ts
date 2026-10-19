@@ -113,8 +113,47 @@ export const env = {
 	 */
 	get HOST(): string | undefined {
 		return process.env.HOST?.trim() || undefined;
+	},
+	get PRODUCTION(): boolean {
+		return process.env.NODE_ENV === 'production';
+	},
+	/**
+	 * Sign in with Google: a "Web application" OAuth client. Its authorized
+	 * redirect URI is `${APP_URL}/api/auth/google/callback`. Both halves are
+	 * needed, since the server trades the code for the ID token itself. Not a
+	 * paid provider, so offline mode leaves it alone.
+	 */
+	get GOOGLE_CLIENT_ID(): string | undefined {
+		return process.env.GOOGLE_CLIENT_ID?.trim() || undefined;
+	},
+	get GOOGLE_CLIENT_SECRET(): string | undefined {
+		return process.env.GOOGLE_CLIENT_SECRET?.trim() || undefined;
+	},
+	/**
+	 * Sign in with Apple in a browser: the Services ID, whose return URL is
+	 * `${APP_URL}/api/auth/apple/callback`. Apple only returns to https.
+	 */
+	get APPLE_SERVICES_ID(): string | undefined {
+		return process.env.APPLE_SERVICES_ID?.trim() || undefined;
+	},
+	/**
+	 * Sign in with Apple in the iOS app: the bundle ids whose identity tokens are
+	 * accepted. Outside production, Expo Go's own id is accepted as well, since
+	 * that is what a token minted inside Expo Go is issued to. It is not accepted
+	 * in production unless listed here: every Expo Go project shares that id, so
+	 * any of them could mint a token this server would take.
+	 */
+	get APPLE_BUNDLE_IDS(): string[] {
+		const listed = (process.env.APPLE_BUNDLE_IDS ?? '')
+			.split(',')
+			.map((s) => s.trim())
+			.filter(Boolean);
+		return this.PRODUCTION ? listed : [...new Set([...listed, EXPO_GO_BUNDLE_ID])];
 	}
 };
+
+/** The bundle id Expo Go's own Apple sign-ins are issued to. */
+export const EXPO_GO_BUNDLE_ID = 'host.exp.Exponent';
 
 let warnedGooglePlacesFallback = false;
 

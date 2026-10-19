@@ -112,7 +112,7 @@ export function Sheet({
 								accessibilityLabel={primaryBusy ? primaryBusyLabel : busyLabel}
 							/>
 						) : primaryLabel ? (
-							<Text style={[s.navAction, primaryDisabled && { opacity: 0.35 }]}>
+							<Text numberOfLines={1} style={[s.navAction, primaryDisabled && { opacity: 0.35 }]}>
 								{primaryLabel}
 							</Text>
 						) : null}
@@ -230,7 +230,9 @@ const s = StyleSheet.create({
 		backgroundColor: '#d1d1d6'
 	},
 	navBar: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: space.sm },
-	navSide: { width: 78, minHeight: 44, justifyContent: 'center' },
+	// At least wide enough to balance Cancel; a longer action ("Add 12
+	// cities") widens its side instead of wrapping, and the title shrinks.
+	navSide: { minWidth: 78, minHeight: 44, justifyContent: 'center' },
 	navAction: { ...type.body, color: color.accent, fontWeight: '600' },
 	titleBox: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 	navTitle: { ...type.head, textAlign: 'center' },

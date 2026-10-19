@@ -303,8 +303,7 @@ export function updateTrip(tripId: string, actorId: string, e: TripEdit): string
 	// the whole live feed can hold a code the offline table lacks, and refusing
 	// it here would stop its organizer renaming it or locking its schedule.
 	const stored = db.prepare(`SELECT home_currency FROM trips WHERE id = ?`).get(tripId) as
-		| { home_currency: string }
-		| undefined;
+		{ home_currency: string } | undefined;
 	if (!isCurrencyCode(currency) && currency !== stored?.home_currency) return unknownCurrency();
 
 	db.prepare(
@@ -502,33 +501,83 @@ export function addCityResult(
 	actorId: string,
 	c: CityInput
 ): { ok: true; id: string } | { ok: false; reason: CityRefusal } {
+	const res = addCitiesResult(tripId, actorId, [c]);
+	return res.ok ? { ok: true, id: res.ids[0] } : { ok: false, reason: res.reason };
+}
+
+/** The most cities one request may add: a long itinerary, not a bulk import. */
+export const MAX_CITIES_PER_ADD = 20;
+
+/** Name, country and region, folded: the identity `cityOnTrip` compares. */
+function cityIdentity(c: CityInput): string {
+	const part = (s: string | null | undefined) => (s ?? '').trim().toLowerCase();
+	return `${part(c.name)}|${part(c.country)}|${part(c.region)}`;
+}
+
+/**
+ * Add several cities to the end of the itinerary, in the order given, or none.
+ *
+ * All or nothing, because the cities were picked together as one itinerary:
+ * adding the first two of five and refusing the third would leave the organizer
+ * working out which ones landed. Every city is checked before anything is
+ * written, against the trip and against the others in the same request, so two
+ * picks of one place are refused like a pick of a place the trip already has.
+ * `index` names the city that was refused, so the answer can say which.
+ */
+export function addCitiesResult(
+	tripId: string,
+	actorId: string,
+	cities: CityInput[]
+): { ok: true; ids: string[] } | { ok: false; reason: CityRefusal; index?: number } {
 	if (!isOrganizer(tripId, actorId)) return { ok: false, reason: 'forbidden' };
-	if (!validCity(c)) return { ok: false, reason: 'invalid' };
-	if (cityOnTrip(tripId, c)) return { ok: false, reason: 'duplicate' };
-	const next =
+	if (cities.length === 0 || cities.length > MAX_CITIES_PER_ADD) {
+		return { ok: false, reason: 'invalid' };
+	}
+	const seen = new Set<string>();
+	for (const [index, c] of cities.entries()) {
+		if (!validCity(c)) return { ok: false, reason: 'invalid', index };
+		const identity = cityIdentity(c);
+		if (seen.has(identity) || cityOnTrip(tripId, c)) {
+			return { ok: false, reason: 'duplicate', index };
+		}
+		seen.add(identity);
+	}
+	const first =
 		((
 			db.prepare(`SELECT MAX(sort) AS m FROM cities WHERE trip_id = ?`).get(tripId) as
 				{ m: number | null } | undefined
 		)?.m ?? -1) + 1;
-	const id = randomUUID();
-	db.prepare(
+	const insert = db.prepare(
 		`INSERT INTO cities (id, trip_id, name, country, region, tz, lat, lng, sort)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-	).run(
-		id,
-		tripId,
-		c.name.trim(),
-		c.country.trim(),
-		cityRegion(c),
-		c.tz,
-		c.lat ?? null,
-		c.lng ?? null,
-		next
 	);
+	const ids: string[] = [];
+	db.exec('BEGIN');
+	try {
+		for (const [offset, c] of cities.entries()) {
+			const id = randomUUID();
+			insert.run(
+				id,
+				tripId,
+				c.name.trim(),
+				c.country.trim(),
+				cityRegion(c),
+				c.tz,
+				c.lat ?? null,
+				c.lng ?? null,
+				first + offset
+			);
+			ids.push(id);
+		}
+		db.exec('COMMIT');
+	} catch (err) {
+		db.exec('ROLLBACK');
+		throw err;
+	}
 	// A city is the spine of the itinerary: places, stays and budget cells are
-	// all scoped to it.
+	// all scoped to it. One publish for the batch, so other members reload once.
 	publishMany(tripId, ['trip', 'schedule', 'lodging', 'costs']);
-	return { ok: true, id };
+	return { ok: true, ids };
 }
 
 /** Update an existing city. Organizer only. */
@@ -577,7 +626,9 @@ export function removeCityResult(
 	cityId: string
 ): { ok: true } | { ok: false; reason: CityRefusal } {
 	if (!isOrganizer(tripId, actorId)) return { ok: false, reason: 'forbidden' };
-	const exists = db.prepare(`SELECT 1 FROM cities WHERE id = ? AND trip_id = ?`).get(cityId, tripId);
+	const exists = db
+		.prepare(`SELECT 1 FROM cities WHERE id = ? AND trip_id = ?`)
+		.get(cityId, tripId);
 	if (!exists) return { ok: false, reason: 'missing' };
 	const count =
 		(
@@ -593,8 +644,9 @@ export function removeCityResult(
 	// city's id are not deleted: `events.city_id` defaults to the trip's first
 	// city on create, so it is not a statement that the block is there.
 	const pois = (
-		db.prepare(`SELECT id FROM pois WHERE city_id = ? AND trip_id = ?`).all(cityId, tripId) as
-			unknown as { id: string }[]
+		db
+			.prepare(`SELECT id FROM pois WHERE city_id = ? AND trip_id = ?`)
+			.all(cityId, tripId) as unknown as { id: string }[]
 	).map((r) => r.id);
 	const stays = (
 		db

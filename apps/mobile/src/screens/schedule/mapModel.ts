@@ -47,7 +47,7 @@ export const EVENT_COLORS = {
 	food: '#c15a25',
 	stay: '#7b4fa6',
 	travel: '#2f6d9e',
-	freetime: '#8a8578'
+	freetime: '#6b5bd2'
 } as const;
 
 export function buildScheduleMapModel({

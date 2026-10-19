@@ -134,6 +134,21 @@ export function CheckIcon() {
 	);
 }
 
+/** Takes one thing back out of a list. The same cross the dialog's close button draws. */
+export function CloseIcon() {
+	return (
+		<svg viewBox="0 0 16 16" aria-hidden="true" className="size-3.5">
+			<path
+				d="M4 4l8 8M12 4l-8 8"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="1.6"
+				strokeLinecap="round"
+			/>
+		</svg>
+	);
+}
+
 /** The half-done mark: some of a group have finished, not all. */
 export function MinusIcon() {
 	return (

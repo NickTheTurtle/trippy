@@ -1,8 +1,9 @@
+import type { Context } from 'hono';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import { bodyLimit } from 'hono/body-limit';
 import { createMiddleware } from 'hono/factory';
 import { fail } from './respond';
-import { getSessionUser, type SessionUser } from '@trippy/server/auth';
+import { createSession, getSessionUser, type SessionUser } from '@trippy/server/auth';
 import { getTripForUser } from '@trippy/server/trips';
 
 export const COOKIE = 'session';
@@ -63,6 +64,18 @@ export function issueSession(c: Parameters<typeof setCookie>[0], sessionId: stri
 
 export function clearSession(c: Parameters<typeof deleteCookie>[0]) {
 	deleteCookie(c, COOKIE, { path: '/' });
+}
+
+/**
+ * Hands the caller its session however it asked for it: a cookie for the
+ * browser, a token in the body for a native client. Never both, so a browser
+ * session id is never exposed to script.
+ */
+export function grant(c: Context, userId: string) {
+	const id = createSession(userId);
+	if (wantsToken(c)) return { token: id };
+	issueSession(c, id);
+	return {};
 }
 
 type Vars = { user: SessionUser | null; trip: NonNullable<ReturnType<typeof getTripForUser>> };

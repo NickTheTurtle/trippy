@@ -49,6 +49,7 @@ export default function RootLayout() {
 							<Stack.Screen name="verify" options={{ headerShown: false }} />
 							<Stack.Screen name="reset" options={{ headerShown: false }} />
 							<Stack.Screen name="verify-email" options={{ headerShown: false }} />
+							<Stack.Screen name="auth" options={{ headerShown: false, animation: 'none' }} />
 							<Stack.Screen name="trips" options={{ title: copy.trips.heading }} />
 							<Stack.Screen name="account" options={{ title: copy.account.heading }} />
 							<Stack.Screen
