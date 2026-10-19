@@ -1,7 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Text, TextInput, View } from 'react-native';
 import { copy } from '@trippy/copy';
+import { formatDay } from '@trippy/copy/format';
 import { isLocatedType, STAY_CHECK_IN, type EventType } from '@trippy/core/types';
+import {
+	crossesZones,
+	lastDayOf,
+	normalizeSpan,
+	spanProblem,
+	type SpanRow,
+	type ZoneOf
+} from '@trippy/core/span';
 import { MAX_NAME_LENGTH, MAX_NOTES_LENGTH } from '@trippy/core/validate';
 import { guessLeg, minsByMode, rekeyLeg } from '@trippy/core/travel';
 import { api } from '../../lib/api';
@@ -9,7 +18,7 @@ import { useMutation } from '../../hooks/useMutation';
 import { DestructiveRow, Field, InsetGroupedList, InsetSection, ListRow } from '../../ui';
 import { Sheet } from '../../ui/Sheet';
 import { ConfirmSheet, confirmOverlays } from '../../ui/ConfirmSheet';
-import { ChecklistRow, DateField, SegmentedControl, TimeField } from '../../ui/controls';
+import { ChecklistRow, DateField, DateTimeField, SegmentedControl } from '../../ui/controls';
 import { AppSymbol } from '../../ui/Symbol';
 import { color, radius, rowInset, space, type } from '../../theme';
 import { usePlaceField } from './PlaceField';
@@ -21,12 +30,14 @@ import {
 	NO_PEOPLE,
 	TYPE_OPTIONS,
 	clock,
+	dayDiff,
 	dayLabel,
 	deriveTitle,
 	modeLabel,
 	rangeLabel,
 	shiftDay,
-	typeLabel
+	typeLabel,
+	zoneLookup
 } from './shared';
 import type { Cell, Crew, EventDraft, EventRow, LegRow, SavedPoi } from './types';
 
@@ -73,6 +84,7 @@ export function EventSheet({
 	stays,
 	cities,
 	cityId,
+	cityOf,
 	firstDay,
 	lastDay,
 	locked,
@@ -96,7 +108,13 @@ export function EventSheet({
 	saved: SavedPoi[];
 	stays: SavedPoi[];
 	cities: (Cell | null)[];
+	/** For ordering the place picker: the event's city, or the open day's. */
 	cityId: string | null;
+	/**
+	 * The city of a day the board has loaded: its id, null when that day has
+	 * none, or undefined when the day is not loaded and so is not known here.
+	 */
+	cityOf?: (day: string) => string | null | undefined;
 	firstDay: string;
 	lastDay: string;
 	locked: boolean;
@@ -106,11 +124,40 @@ export function EventSheet({
 }) {
 	const opensAt = startMin ?? suggestedStart ?? STAY_CHECK_IN;
 	const openStart = Math.min(opensAt, DAY_END - MIN_EVENT_MINS);
+	/* An end stored as 24:00 is shown as it is picked and read, 12:00 AM on the
+	   morning after, as the web dialog does: an End row reading "Sat 12:00 AM"
+	   for a block that runs to the end of Saturday says it ends as Saturday
+	   begins, and re-picking that 12:00 AM would quietly lose the day. Saving
+	   folds it back (`normalizeSpan`). Not for a journey across zones, whose
+	   stored form keeps a midnight arrival where it is. */
+	const endsAtMidnight =
+		!!event &&
+		event.type !== 'stay' &&
+		event.end_min >= DAY_END &&
+		!crossesZones(event, zoneLookup(cities));
+	const openEnd = openStart + 60;
 	const [eventType, setEventType] = useState<EventType>(event?.type ?? initialType);
 	const [start, setStart] = useState(event?.start_min ?? openStart);
-	const [end, setEnd] = useState(event?.end_min ?? Math.min(DAY_END, openStart + 60));
+	const [end, setEnd] = useState(
+		event ? (endsAtMidnight ? 0 : event.end_min) : openEnd >= DAY_END ? 0 : openEnd
+	);
 	const [timeChosen, setTimeChosen] = useState(!!event || startMin != null);
 	const [date, setDate] = useState(event?.day ?? day);
+	// A timed event's last day (inclusive), as shown. It opens on the start day,
+	// and a stay's checkout is its own field below, so neither leaks into the other.
+	const [endDate, setEndDate] = useState(
+		event && event.type !== 'stay'
+			? endsAtMidnight
+				? shiftDay(lastDayOf(event), 1)
+				: lastDayOf(event)
+			: !event && openEnd >= DAY_END
+				? shiftDay(day, 1)
+				: (event?.day ?? day)
+	);
+	const [endCity, setEndCity] = useState(event?.end_city_id ?? '');
+	// A journey's departure city once picked; null follows the event's own city,
+	// or for a new one the city of the day it is put on.
+	const [departPick, setDepartPick] = useState<string | null>(null);
 	const [checkIn, setCheckIn] = useState(event?.day ?? day);
 	const [checkOut, setCheckOut] = useState(event?.end_day ?? shiftDay(event?.day ?? day, 1));
 	const [people, setPeople] = useState<string[] | null>(event ? [...event.people] : []);
@@ -160,7 +207,57 @@ export function EventSheet({
 	const staying = eventType === 'stay';
 	const onDay = staying ? checkIn : date;
 	const startAt = staying ? STAY_CHECK_IN : start;
-	const endAt = staying ? DAY_END : Math.max(startAt + MIN_EVENT_MINS, end);
+	// The end is read as picked: on a later day, or in an arrival city's zone, it
+	// can be an earlier clock than the start. `spanProblem` judges it instead.
+	const endAt = staying ? DAY_END : end;
+	const zoneOf = useMemo(() => zoneLookup(cities), [cities]);
+	const knownCities = cities.filter((c): c is Cell => c != null);
+	const cityName = (id: string | null) => knownCities.find((c) => c.id === id)?.name ?? '';
+	// A journey on a trip with somewhere else to go (or one already going
+	// somewhere) asks where it leaves from and where it lands.
+	const offerCities = eventType === 'travel' && (knownCities.length > 1 || !!event?.end_city_id);
+	// The city of the chosen day, when the board has it loaded; undefined when not.
+	const dayCity = cityOf?.(onDay);
+	// The departure the row shows: the one picked, else the event's own, else a
+	// new one's chosen day's city when that day is loaded. Null (a blank row)
+	// when none of those is known, rather than a guess.
+	const departure =
+		(offerCities ? departPick : null) ?? (event ? event.city_id : (dayCity ?? null));
+	// The city sent, as on web: only one that is known. Otherwise absent, so the
+	// server works the day's city out (`cityOfDay`) instead of being overruled.
+	const sentCity = offerCities && departure ? departure : event ? null : (dayCity ?? null);
+	// The city the start is judged and previewed in, which may fall back to the
+	// open day's city: a best guess for drawing, never sent. A picked place's
+	// city comes first for a block that has one (not a journey, not free time),
+	// because the server stores that block's city from its place.
+	const placeCity =
+		eventType !== 'travel' && eventType !== 'freetime' && place.placeable && place.poi
+			? ((staying ? stays : saved).find((p) => p.id === place.poi)?.city_id ?? null)
+			: null;
+	const startCity =
+		placeCity || (offerCities && departure) || (event ? event.city_id : (dayCity ?? cityId));
+	const arrival = eventType === 'travel' && endCity && endCity !== startCity ? endCity : null;
+	/* The span as picked, which is what `spanProblem` judges, and the one form
+	   it is stored in (`normalizeSpan`), which is what is drawn and sent: 12:00
+	   AM the next morning on the same clock is 24:00 of the day itself, so the
+	   preview leaves no sliver on tomorrow and the save says exactly what the
+	   server will keep. */
+	const typed: SpanRow = {
+		type: eventType,
+		day: onDay,
+		end_day: staying ? checkOut : endDate !== date ? endDate : null,
+		start_min: startAt,
+		end_min: endAt,
+		city_id: startCity,
+		end_city_id: arrival
+	};
+	const settled = staying
+		? { end_day: checkOut, end_city_id: null, end_min: DAY_END }
+		: normalizeSpan(typed, zoneOf);
+	const crossing = crossesZones({ ...typed, ...settled }, zoneOf);
+	/** The end is picked on the start's day and clock, so the two compare as picked. */
+	const sameClock = endDate === date && !crossing;
+	const problem = staying ? null : spanMessage(typed, settled.end_day, zoneOf, firstDay, lastDay);
 	const lat = place.placeable
 		? place.spot
 			? place.spot.lat
@@ -188,11 +285,13 @@ export function EventSheet({
 		onPreview({
 			id: previewId,
 			day: onDay,
-			end_day: staying ? checkOut : null,
+			end_day: settled.end_day,
 			title,
 			type: eventType,
 			start_min: startAt,
-			end_min: endAt,
+			end_min: settled.end_min,
+			city_id: startCity,
+			end_city_id: settled.end_city_id,
 			people: people ?? [],
 			lat,
 			lng
@@ -202,39 +301,59 @@ export function EventSheet({
 		locked,
 		previewId,
 		onDay,
-		staying,
-		checkOut,
+		settled.end_day,
 		title,
 		eventType,
 		startAt,
-		endAt,
+		settled.end_min,
+		startCity,
+		settled.end_city_id,
 		people,
 		lat,
 		lng
 	]);
 
 	const placeMoved = place.poi !== savedPick || place.place.trim() !== openedOn.trim();
+	/* The span refusal this sheet raised itself, which then follows the span as
+	   it is corrected (as the web dialog's message does) rather than standing
+	   until the next save. A refusal from the server stands as sent. */
+	const refused = useRef<string | null>(null);
 	const versionTook = (res: { version?: number } | null | undefined) => {
 		if (typeof res?.version === 'number') openedVersion.current = res.version;
 	};
 
 	const save = useMutation(
 		async () => {
+			refused.current = null;
 			if (!people) throw new Error(NO_PEOPLE);
-			if (!staying && endAt - startAt < MIN_EVENT_MINS) {
-				throw new Error(`An event needs to run at least ${MIN_EVENT_MINS} minutes.`);
+			if (problem) {
+				refused.current = problem;
+				throw new Error(problem);
 			}
+			// The length a new event is created with, start to its stored end on
+			// the wall clock across however many days it covers.
+			const length =
+				settled.end_min -
+				startAt +
+				(staying ? 0 : dayDiff(date, settled.end_day ?? date) * DAY_END);
 			if (!event) {
 				created.current ??= (
 					await api<{ id: string }>(`${base}/events`, {
 						method: 'POST',
 						body: {
 							day: onDay,
-							endDay: staying ? checkOut : undefined,
+							endDay: staying ? checkOut : (settled.end_day ?? undefined),
+							endCityId: settled.end_city_id ?? undefined,
+							// The city the start is read in, only when it is known: the
+							// departure picked or shown on a journey, else the chosen
+							// day's city if the board has that day loaded. Absent lets
+							// the server work out the day's city itself.
+							cityId: staying ? undefined : (sentCity ?? undefined),
 							title: label.trim() || undefined,
 							type: eventType,
 							start: startAt,
-							duration: endAt - startAt,
+							duration: length,
+							endMin: staying ? undefined : settled.end_min,
 							poiId: place.placeable && place.poi ? place.poi : undefined,
 							placeName:
 								place.placeable && !place.poi ? place.place.trim() || undefined : undefined,
@@ -259,9 +378,19 @@ export function EventSheet({
 						type: eventType,
 						notes: notes.trim(),
 						startMin: staying ? undefined : startAt,
-						endMin: staying ? undefined : endAt,
+						endMin: staying ? undefined : settled.end_min,
 						day: onDay,
-						endDay: staying ? checkOut : undefined,
+						// A span's last day, or null to bring a span back to one day.
+						// Silent on an event that never had one, so a plain edit sends
+						// what it always did.
+						endDay: staying
+							? checkOut
+							: (settled.end_day ?? (event.type !== 'stay' && event.end_day ? null : undefined)),
+						// Set, cleared, or untouched, by the same rule.
+						endCityId: settled.end_city_id ?? (event.end_city_id ? null : undefined),
+						// Only from the row that shows it, so an edit elsewhere never
+						// moves an event to another city's clock.
+						cityId: offerCities ? (departure ?? undefined) : undefined,
 						travelMode: eventType === 'travel' ? mode : undefined,
 						poiId: place.placeable && placeMoved ? place.poi : undefined,
 						placeName: place.placeable && placeMoved && !place.poi ? place.place.trim() : undefined,
@@ -289,12 +418,67 @@ export function EventSheet({
 		{ fallback: copy.schedule.eventDeleteFallback, onSuccess: onDone }
 	);
 
+	/**
+	 * Moving the start carries the end with it, keeping the length, as the web
+	 * dialog does. A block on one clock on one day stops at midnight, as before.
+	 * Anything else (a span, or a journey whose end is on another city's clock)
+	 * moves its end by the same minutes on the end's own clock, which is the
+	 * same real time: a red-eye that leaves an hour later lands an hour later,
+	 * even when that is tomorrow. Nothing is held to the trip's last day; an end
+	 * pushed past it is shown as a problem rather than quietly shortened.
+	 */
 	const setStartMinute = (nextStart: number) => {
 		setTimeChosen(true);
-		const length = Math.max(MIN_EVENT_MINS, end - start);
-		const bounded = Math.max(0, Math.min(DAY_END - MIN_EVENT_MINS, nextStart));
-		setStart(bounded);
-		setEnd(Math.min(DAY_END, bounded + length));
+		if (sameClock) {
+			const length = Math.max(MIN_EVENT_MINS, end - start);
+			const bounded = Math.max(0, Math.min(DAY_END - MIN_EVENT_MINS, nextStart));
+			setStart(bounded);
+			placeEnd(endDate, Math.min(DAY_END, bounded + length));
+			return;
+		}
+		setStart(nextStart);
+		let endMin = end + (nextStart - start);
+		let endOn = endDate;
+		while (endMin > DAY_END) {
+			endMin -= DAY_END;
+			endOn = shiftDay(endOn, 1);
+		}
+		while (endMin < 0 && endOn > date) {
+			endMin += DAY_END;
+			endOn = shiftDay(endOn, -1);
+		}
+		placeEnd(endOn, Math.max(0, endMin));
+	};
+
+	/**
+	 * Put the end at `minute` on `on`. A same-clock 24:00 is shown as 12:00 AM
+	 * the next morning, the way it is read (see `endsAtMidnight`), so the End
+	 * row never says a day ends as it begins; the save folds it back. A
+	 * journey's arrival on another clock keeps its midnight where it is.
+	 */
+	const placeEnd = (on: string, minute: number) => {
+		if (minute >= DAY_END && !crossing) {
+			setEndDate(shiftDay(on, 1));
+			setEnd(0);
+			return;
+		}
+		setEndDate(on);
+		setEnd(minute);
+	};
+
+	/**
+	 * Moving the start day moves the end day the same number of days, so a
+	 * three-day hike stays three days wherever it goes. Past the trip's last
+	 * day it says so (`outsideTrip`) instead of losing a day.
+	 */
+	const setStartDay = (next: string) => {
+		setEndDate(shiftDay(endDate, dayDiff(date, next)));
+		setDate(next);
+	};
+
+	const setEndDay = (next: string) => {
+		setTimeChosen(true);
+		setEndDate(next < date ? date : next);
 	};
 
 	const setJourney = (leg: LegRow, patch: Partial<JourneyEdit>) => {
@@ -317,14 +501,20 @@ export function EventSheet({
 							? copy.schedule.dialog.edit
 							: copy.schedule.dialog.add
 				}
-				subtitle={staying ? rangeLabel(checkIn, checkOut) : dayLabel(onDay)}
+				subtitle={
+					staying
+						? rangeLabel(checkIn, checkOut)
+						: settled.end_day
+							? rangeLabel(date, settled.end_day)
+							: dayLabel(onDay)
+				}
 				onClose={onClose}
 				onPrimary={locked ? undefined : () => void save.run()}
 				primaryLabel={locked ? undefined : event ? copy.common.save : copy.common.add}
 				primaryBusyLabel={event ? copy.common.saving : copy.common.adding}
 				primaryBusy={save.busy}
 				primaryDisabled={place.saving}
-				error={save.error}
+				error={save.error && save.error === refused.current ? (problem ?? '') : save.error}
 			>
 				<InsetSection>
 					<Field
@@ -361,54 +551,93 @@ export function EventSheet({
 						onCheckOut={setCheckOut}
 					/>
 				) : (
-					// Date, Start and End are one section, like Calendar's Starts / Ends.
+					// Start and End are one section, each a day and a time, like
+					// Calendar's Starts / Ends; a journey's arrival city closes it.
 					<InsetSection>
 						{locked ? (
 							<>
 								<ListRow
-									title={copy.schedule.fields.date}
-									value={dayLabel(date)}
-									accessory="none"
-								/>
-								<ListRow
 									title={copy.schedule.fields.start}
-									value={timeLabel(start)}
+									value={`${formatDay(date, { year: true })}  ${timeLabel(start)}`}
 									accessory="none"
 								/>
 								<ListRow
 									title={copy.schedule.fields.end}
-									value={timeLabel(end)}
+									value={`${formatDay(endDate, { year: true })}  ${timeLabel(end)}`}
 									accessory="none"
-									last
+									last={!offerCities}
 								/>
+								{offerCities ? (
+									<>
+										<ListRow
+											title={copy.schedule.fields.departsFrom}
+											value={cityName(departure)}
+											accessory="none"
+										/>
+										<ListRow
+											title={copy.schedule.fields.arrivesIn}
+											value={arrival ? cityName(arrival) : copy.schedule.fields.sameCity}
+											accessory="none"
+											last
+										/>
+									</>
+								) : null}
 							</>
 						) : (
 							<>
-								<DateField
-									label={copy.schedule.fields.date}
-									value={date}
-									onChange={setDate}
-									minimum={firstDay}
-									maximum={lastDay}
-								/>
-								<TimeRow
+								<DateTimeField
 									label={copy.schedule.fields.start}
-									value={start}
-									min={0}
-									max={DAY_END - MIN_EVENT_MINS}
-									onChange={setStartMinute}
+									dayLabel={copy.schedule.fields.date}
+									day={date}
+									minute={start}
+									onDay={setStartDay}
+									onMinute={setStartMinute}
+									minimumDay={firstDay}
+									maximumDay={lastDay}
+									maximumMinute={sameClock ? DAY_END - MIN_EVENT_MINS : DAY_END - 5}
 								/>
-								<TimeRow
+								{/* Up to the morning after the last day, so a span can end at
+								    the trip's last midnight (12:00 AM then); any later time on
+								    that morning is outside the trip and says so. */}
+								<DateTimeField
 									label={copy.schedule.fields.end}
-									value={end}
-									min={start + MIN_EVENT_MINS}
-									max={DAY_END}
-									onChange={(v) => {
+									dayLabel={copy.schedule.fields.endDate}
+									day={endDate}
+									minute={end}
+									onDay={setEndDay}
+									onMinute={(v) => {
 										setTimeChosen(true);
-										setEnd(v);
+										placeEnd(endDate, v);
 									}}
-									last
+									minimumDay={date}
+									maximumDay={shiftDay(lastDay, 1)}
+									minimumMinute={sameClock ? start + MIN_EVENT_MINS : 0}
+									maximumMinute={DAY_END}
+									invalid={problem != null}
+									last={!offerCities}
 								/>
+								{offerCities ? (
+									<>
+										<InlinePicker
+											label={copy.schedule.fields.departsFrom}
+											value={departure ?? ''}
+											options={knownCities.map((c) => ({ key: c.id, label: c.name }))}
+											onPick={setDepartPick}
+											last={false}
+										/>
+										<InlinePicker
+											label={copy.schedule.fields.arrivesIn}
+											value={arrival ?? ''}
+											options={[
+												{ key: '', label: copy.schedule.fields.sameCity },
+												...knownCities
+													.filter((c) => c.id !== departure)
+													.map((c) => ({ key: c.id, label: c.name }))
+											]}
+											onPick={setEndCity}
+										/>
+									</>
+								) : null}
 							</>
 						)}
 					</InsetSection>
@@ -612,36 +841,31 @@ function RowPicker({
 	);
 }
 
-function TimeRow({
-	label,
-	value,
-	min,
-	max,
-	onChange,
-	last
-}: {
-	label: string;
-	value: number;
-	min: number;
-	max: number;
-	onChange: (value: number) => void;
-	last?: boolean;
-}) {
-	return (
-		<TimeField
-			variant="row"
-			label={label}
-			value={value}
-			minimum={min}
-			maximum={max}
-			onChange={onChange}
-			last={last}
-		/>
-	);
-}
-
 function timeLabel(value: number): string {
 	return value === DAY_END ? '12:00 AM' : clock(value);
+}
+
+/**
+ * The sentence for what is wrong with a timed event's span, from the shared
+ * rules. Outside the trip first, as the web dialog orders it: a date past the
+ * last day is the one fix that is not about the clock. The span is judged as
+ * picked, but the trip's bound as stored, so 12:00 AM on the morning after the
+ * last day is allowed, being the last day's own midnight.
+ */
+function spanMessage(
+	typed: SpanRow,
+	storedEndDay: string | null,
+	zoneOf: ZoneOf,
+	firstDay: string,
+	lastDay: string
+): string | null {
+	if ((storedEndDay ?? typed.day) > lastDay || lastDayOf(typed) < firstDay) {
+		return copy.schedule.span.outsideTrip;
+	}
+	const wrong = spanProblem(typed, zoneOf);
+	if (wrong === 'end-before-start') return copy.schedule.span.endBeforeStart;
+	if (wrong === 'too-long') return copy.schedule.span.tooLong;
+	return null;
 }
 
 function PeopleChooser({
@@ -798,7 +1022,7 @@ function JourneyEditor({
 									placeholder={from ? `${modeLabel(edit.mode)} from ${from}` : modeLabel(edit.mode)}
 									onChangeText={(v) => onSet(leg, { title: v })}
 								/>
-								<JourneyModeRow
+								<InlinePicker
 									label={copy.schedule.fields.mode}
 									options={MODE_OPTIONS.map((o) => ({
 										...o,
@@ -826,16 +1050,19 @@ function JourneyEditor({
 	);
 }
 
-function JourneyModeRow({
+function InlinePicker({
 	label,
 	value,
 	options,
-	onPick
+	onPick,
+	last = true
 }: {
 	label: string;
 	value: string;
 	options: { key: string; label: string }[];
 	onPick: (value: string) => void;
+	/** The section's last row, which draws no hairline under itself or its list. */
+	last?: boolean;
 }) {
 	const [open, setOpen] = useState(false);
 	const current = options.find((option) => option.key === value);
@@ -845,7 +1072,7 @@ function JourneyModeRow({
 				title={label}
 				value={current?.label ?? value}
 				onPress={() => setOpen((v) => !v)}
-				last={!open}
+				last={last && !open}
 			/>
 			{open
 				? options.map((option, index) => (
@@ -857,7 +1084,7 @@ function JourneyModeRow({
 								onPick(option.key);
 								setOpen(false);
 							}}
-							last={index === options.length - 1}
+							last={last && index === options.length - 1}
 						/>
 					))
 				: null}

@@ -27,6 +27,8 @@ export type EventRow = {
 	lodging_id: string | null;
 	place_text: string | null;
 	city_id: string | null;
+	/** A travel event's arrival city, whose zone its end is read in. Null means its own city. */
+	end_city_id: string | null;
 	lat: number | null;
 	lng: number | null;
 	notes: string | null;
@@ -37,7 +39,18 @@ export type EventRow = {
 
 export type EventDraft = Pick<
 	EventRow,
-	'id' | 'day' | 'end_day' | 'title' | 'type' | 'start_min' | 'end_min' | 'people' | 'lat' | 'lng'
+	| 'id'
+	| 'day'
+	| 'end_day'
+	| 'title'
+	| 'type'
+	| 'start_min'
+	| 'end_min'
+	| 'city_id'
+	| 'end_city_id'
+	| 'people'
+	| 'lat'
+	| 'lng'
 >;
 
 export type LegRow = {

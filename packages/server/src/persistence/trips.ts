@@ -12,7 +12,7 @@ import { db } from '../db';
 import { publish, publishMany } from '../events';
 import { detachMemberFromLedger } from './expenses';
 import { isOrganizer } from './membership';
-import { eventSpansWhere, settleEventSpans, settleTrip } from './schedule';
+import { eventSpansWhere, releaseCity, settleEventSpans, settleTrip } from './schedule';
 
 export interface TripRow {
 	id: string;
@@ -641,8 +641,8 @@ export function removeCityResult(
 	// The cascade alone takes the places and stays but only nulls the events'
 	// links, which left blocks on the board claiming coordinates for somewhere
 	// the trip no longer has and naming nothing. Events that merely carry the
-	// city's id are not deleted: `events.city_id` defaults to the trip's first
-	// city on create, so it is not a statement that the block is there.
+	// city's id are not deleted: `events.city_id` is the day's city when a block
+	// is created without one, so it is not a statement that the block is there.
 	const pois = (
 		db
 			.prepare(`SELECT id FROM pois WHERE city_id = ? AND trip_id = ?`)
@@ -664,6 +664,11 @@ export function removeCityResult(
 		for (const id of pois) byPoi.run(tripId, id);
 		const byStay = db.prepare(`DELETE FROM events WHERE trip_id = ? AND lodging_id = ?`);
 		for (const id of stays) byStay.run(tripId, id);
+		// The blocks that only name the city survive with it nulled, which moves
+		// the clock their times are read on; a journey between two clocks is
+		// re-read onto the one that remains first (`releaseCity`), and every day
+		// any of them is on is settled below like the deleted ones.
+		spans.push(...releaseCity(tripId, cityId));
 		changes = Number(
 			db.prepare(`DELETE FROM cities WHERE id = ? AND trip_id = ?`).run(cityId, tripId).changes
 		);

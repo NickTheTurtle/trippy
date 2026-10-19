@@ -34,8 +34,11 @@ import {
 	dayLabel,
 	modeLabel,
 	rangeLabel,
+	segmentTime,
+	spanRange,
 	typeLabel
 } from '../../../src/screens/schedule/shared';
+import { segmentOn, type ZoneOf } from '@trippy/core/span';
 import type { BoardDay, EventRow, LegRow, ScheduleData } from '../../../src/screens/schedule/types';
 import { tripTab } from '../../../src/ui/nativeTabs';
 
@@ -68,6 +71,15 @@ function Calendar() {
 		[data?.members]
 	);
 	const memberIds = useMemo(() => data?.members.map((member) => member.id) ?? [], [data?.members]);
+	// The city of a day the payload has loaded, null when it has none, and
+	// undefined when it is not loaded, so a sheet never guesses a day's city.
+	const cityOf = useCallback(
+		(day: string) => {
+			const entry = data?.board.find((b) => b.day === day);
+			return entry ? (entry.city?.id ?? null) : undefined;
+		},
+		[data?.board]
+	);
 
 	// Stable, so the memoized board blocks and the map do not all re-render on
 	// every gesture start and end. It reads the latest payload through the ref.
@@ -223,6 +235,7 @@ function Calendar() {
 							memberIds={memberIds}
 							peopleLabel={schedule.peopleLabel}
 							eventById={schedule.eventById}
+							zoneOf={schedule.zoneOf}
 							locked={locked}
 							onOpen={openAndFocus}
 							onGestureChange={setGestureActive}
@@ -233,6 +246,7 @@ function Calendar() {
 					<Agenda
 						entry={schedule.anchor}
 						eventById={schedule.eventById}
+						zoneOf={schedule.zoneOf}
 						peopleLabel={schedule.peopleLabel}
 						memberName={memberName}
 						locked={locked}
@@ -244,6 +258,7 @@ function Calendar() {
 					entry={schedule.anchor}
 					saved={data.saved}
 					city={schedule.anchor.city}
+					zoneOf={schedule.zoneOf}
 					memberIds={schedule.visibleMemberIds}
 					peopleLabel={schedule.peopleLabel}
 					locked={locked}
@@ -279,6 +294,7 @@ function Calendar() {
 					stays={data.stays}
 					cities={data.cities}
 					cityId={schedule.anchor.city?.id ?? null}
+					cityOf={cityOf}
 					firstDay={data.firstDay}
 					lastDay={data.lastDay}
 					locked={locked}
@@ -306,6 +322,7 @@ function Calendar() {
 					stays={data.stays}
 					cities={data.cities}
 					cityId={opened.city_id ?? schedule.anchor.city?.id ?? null}
+					cityOf={cityOf}
 					firstDay={data.firstDay}
 					lastDay={data.lastDay}
 					locked={locked}
@@ -431,6 +448,7 @@ function StayBand({
 function Agenda({
 	entry,
 	eventById,
+	zoneOf,
 	peopleLabel,
 	memberName,
 	locked,
@@ -439,6 +457,7 @@ function Agenda({
 }: {
 	entry: BoardDay;
 	eventById: Map<string, EventRow>;
+	zoneOf: ZoneOf;
 	peopleLabel: (ids: string[]) => string;
 	memberName: Map<string, string>;
 	locked: boolean;
@@ -448,19 +467,32 @@ function Agenda({
 	const rows = useMemo(
 		() =>
 			[
-				...entry.events.map((event) => ({
-					key: event.id,
-					start: event.start_min,
-					render: (last: boolean) => (
-						<EventCard
-							event={event}
-							memberName={memberName}
-							locked={locked}
-							onPress={() => onOpenEvent(event.id)}
-							last={last}
-						/>
-					)
-				})),
+				// A multi-day event is listed on each day it covers, at the point in
+				// the day its part begins, and worded for that part.
+				...entry.events.flatMap((event) => {
+					const seg = segmentOn(event, entry.day, zoneOf);
+					if (!seg) return [];
+					const when = segmentTime(event, seg, zoneOf);
+					const range = seg.startsHere ? spanRange(event, zoneOf) : null;
+					return [
+						{
+							key: event.id,
+							start: seg.start,
+							render: (last: boolean) => (
+								<EventCard
+									event={event}
+									when={when.words}
+									zone={when.zone}
+									range={range}
+									memberName={memberName}
+									locked={locked}
+									onPress={() => onOpenEvent(event.id)}
+									last={last}
+								/>
+							)
+						}
+					];
+				}),
 				...entry.legs.map((leg) => ({
 					key: `leg:${leg.key}`,
 					start: leg.startMin,
@@ -476,7 +508,17 @@ function Agenda({
 					)
 				}))
 			].sort((a, b) => a.start - b.start),
-		[entry.events, entry.legs, eventById, locked, onOpenEvent, onOpenLeg, peopleLabel]
+		[
+			entry.day,
+			entry.events,
+			entry.legs,
+			eventById,
+			locked,
+			onOpenEvent,
+			onOpenLeg,
+			peopleLabel,
+			zoneOf
+		]
 	);
 	if (!rows.length) {
 		return (
@@ -494,11 +536,20 @@ function Agenda({
 
 function EventCard({
 	event,
+	when,
+	zone,
+	range,
 	memberName,
 	onPress,
 	last
 }: {
 	event: EventRow;
+	/** This day's part of it: its range, or "From", "All day", "Until" on a multi-day event. */
+	when: string;
+	/** The arrival zone beside the end time, for a journey that lands on another clock. */
+	zone: string | null;
+	/** The whole span, shown on the first day of a multi-day event. */
+	range: string | null;
 	memberName: Map<string, string>;
 	locked: boolean;
 	onPress: () => void;
@@ -509,11 +560,21 @@ function EventCard({
 			onPress={onPress}
 			last={last}
 			accessory="chevron"
-			leading={<Text style={styles.agendaTime}>{clockRange(event.start_min, event.end_min)}</Text>}
+			leading={
+				<Text style={styles.agendaTime}>
+					{when}
+					{zone ? <Text style={{ color: color.inkFaint }}> {zone}</Text> : null}
+				</Text>
+			}
 		>
 			<Text style={{ ...type.body, fontWeight: '600' }} numberOfLines={2}>
 				{event.title}
 			</Text>
+			{range ? (
+				<Text style={type.faint} numberOfLines={1}>
+					{range}
+				</Text>
+			) : null}
 			<Text style={type.faint} numberOfLines={1}>
 				{[
 					event.place_text,

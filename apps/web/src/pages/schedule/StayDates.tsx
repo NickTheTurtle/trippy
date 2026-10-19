@@ -8,18 +8,18 @@
  *
  * Checkout is held one day past check-in: the shortest real stay is one night.
  *
- * Bounded and clamped the way the event dialog's Date field is, for the same
+ * Bounded and clamped the way the event dialog's dates are, for the same
  * reason: `min` and `max` colour the platform picker but do not stop a date
  * being typed, and a stay typed past the end of the trip was refused only by
- * the server, after the reader had pressed Save. Checkout may be the morning
+ * the server, after the reader had pressed Save. The clamp waits until the box
+ * is left (see `DayInput`), or no date could be typed at all. Checkout may be the morning
  * after the last day, since it is the morning a stay ends, not a night in it.
  * An emptied field is ignored rather than sent: a stay with no dates is not a
  * stay, and '' reached the server as a malformed day.
  */
-import { Field } from '../../components/ui/Field';
+import { FieldShell } from '../../components/ui/Field';
+import DayInput from '../../components/ui/DayInput';
 import { shiftDay } from './shared';
-
-const clamp = (v: string, lo: string, hi: string) => (v < lo ? lo : v > hi ? hi : v);
 
 export default function StayDates({
 	checkIn,
@@ -40,37 +40,30 @@ export default function StayDates({
 	const lastOut = shiftDay(lastDay, 1);
 	return (
 		<>
-			<Field
-				label="Check in"
-				className="col-span-6 sm:col-span-4"
-				type="date"
-				min={firstDay}
-				max={lastDay}
-				value={checkIn}
-				onChange={(e) => {
-					const typed = e.target.value;
-					if (!typed) return;
-					const next = clamp(typed, firstDay, lastDay);
-					onCheckIn(next);
-					// Dragging the arrival past the departure carries the departure with
-					// it rather than refusing: the reader is moving the stay, not
-					// shortening it to nothing.
-					if (next >= checkOut) onCheckOut(shiftDay(next, 1));
-				}}
-			/>
-			<Field
-				label="Check out"
-				className="col-span-6 sm:col-span-4"
-				type="date"
-				min={shiftDay(checkIn, 1)}
-				max={lastOut}
-				value={checkOut}
-				onChange={(e) => {
-					const typed = e.target.value;
-					if (!typed) return;
-					onCheckOut(clamp(typed, shiftDay(checkIn, 1), lastOut));
-				}}
-			/>
+			<FieldShell label="Check in" className="col-span-6 sm:col-span-4">
+				<DayInput
+					className="input"
+					min={firstDay}
+					max={lastDay}
+					value={checkIn}
+					onDay={(next) => {
+						onCheckIn(next);
+						// Dragging the arrival past the departure carries the departure with
+						// it rather than refusing: the reader is moving the stay, not
+						// shortening it to nothing.
+						if (next >= checkOut) onCheckOut(shiftDay(next, 1));
+					}}
+				/>
+			</FieldShell>
+			<FieldShell label="Check out" className="col-span-6 sm:col-span-4">
+				<DayInput
+					className="input"
+					min={shiftDay(checkIn, 1)}
+					max={lastOut}
+					value={checkOut}
+					onDay={onCheckOut}
+				/>
+			</FieldShell>
 		</>
 	);
 }

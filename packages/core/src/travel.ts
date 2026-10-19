@@ -258,16 +258,26 @@ function landsAt(e: PlannerEvent): boolean {
  * Every `people` list, on the events and on the origins alike, is read as the
  * exact set of travellers. An empty one is nobody, so a caller whose storage
  * writes "Everyone" as an empty list must expand it first; see `PlannerEvent`.
+ *
+ * `instantOf` is the order the day's events happened in, as epoch
+ * milliseconds by id, when the caller knows it better than the clock minutes
+ * do. A day with a same-day flight west is on two clocks, and no one clock
+ * puts the departure city's morning, the flight and the arrival city's
+ * afternoon in the order they happen; `planDay` works the instants out from
+ * the trip's zones. Absent, the events are walked by `startMin`, as always.
+ * Either way ties fall back to the id.
  */
 export function planLegs(
 	events: readonly PlannerEvent[],
-	incoming: PlannerEvent | readonly PlannerEvent[] | null = null
+	incoming: PlannerEvent | readonly PlannerEvent[] | null = null,
+	instantOf?: ReadonlyMap<string, number>
 ): PlannedLeg[] {
 	// Sorting once here rather than per person keeps the per-person walk a filter
 	// over an already-ordered list. Ties are broken on id so the order is total:
 	// two events starting at the same minute must not swap between runs, or the
 	// legs either side of them would churn.
-	const ordered = [...events].sort((a, b) => a.startMin - b.startMin || (a.id < b.id ? -1 : 1));
+	const at = (e: PlannerEvent) => instantOf?.get(e.id) ?? e.startMin;
+	const ordered = [...events].sort((a, b) => at(a) - at(b) || (a.id < b.id ? -1 : 1));
 
 	// Yesterday's stay is an origin, not a block on this day, and its own end is
 	// a time on the day before. Anchoring the journey out of it to midnight is

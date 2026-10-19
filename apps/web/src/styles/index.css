@@ -390,6 +390,11 @@ textarea.input {
 	font-size: var(--text-meta);
 	color: var(--color-ink-soft);
 }
+/* The date in a row beside its clock, sized to its own content rather than
+   stretched, so the start's and the end's clocks line up under each other. */
+.tfdate {
+	width: 10rem;
+}
 /* For number boxes and toolbar fields, sized to sit level with `.btn.small`. */
 .input.compact {
 	padding: 0.25rem 0.4rem;
@@ -865,7 +870,14 @@ select.input.compact {
 .seltrigger:hover {
 	border-color: var(--color-accent);
 }
+/* The label takes the room, as a menu row's does, so anything after it (a
+   warning mark, then the caret) sits at the right edge in the same column as
+   the marks in the open menu. With `space-between` alone a third child was
+   spread into the middle of the gap, beside nothing. */
 .sellabel {
+	flex: 1 1 auto;
+	min-width: 0;
+	text-align: left;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;

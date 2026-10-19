@@ -951,6 +951,103 @@ addColumn('events', 'place_text', 'TEXT');
 addColumn('events', 'time_auto', 'INTEGER NOT NULL DEFAULT 0');
 
 /**
+ * Events that run past their own day, and journeys that land on another clock.
+ *
+ * `end_day` was a stay's checkout and NULL for everything else. For every type
+ * but a stay it now means the day the block ends on, inclusive, with NULL still
+ * meaning "its own day", so every existing non-stay row already says exactly
+ * what it said before and needs no backfill. See `packages/core/src/span.ts`.
+ *
+ * `end_city_id` is a journey's arrival city, whose zone `end_min` is read in:
+ * "depart 22:00 Athens, arrive 15:00 Tokyo" is stored as the ticket says it,
+ * rather than converted to Athens time by a client that would have to know the
+ * offset on that date. NULL, for every existing row and for anything that is
+ * not travel, means the end is read on the start's clock, as it always was. A
+ * deleted city is forgotten (SET NULL) like `city_id`, which reads the end on
+ * the departure clock again rather than losing the event.
+ *
+ * The one rewrite is a guard rather than a backfill: a non-stay row left with
+ * an `end_day` on or before its own day (a stay retyped before the type change
+ * cleared it) would read as covering no day at all under the new range query,
+ * and NULL is what it always meant. Idempotent, and it touches no row that is
+ * already in the stored form.
+ */
+addColumn('events', 'end_city_id', 'TEXT REFERENCES cities(id) ON DELETE SET NULL');
+db.exec(
+	`UPDATE events SET end_day = NULL
+	 WHERE type != 'stay' AND end_day IS NOT NULL AND end_day <= day`
+);
+
+/**
+ * A block linked to a saved place is in that place's city.
+ *
+ * `events.city_id` is the zone a block's start is read in, and on a day with a
+ * journey between two clocks the planner orders the day by real instant from
+ * it (`dayInstants` in core). New writes store a linked place's own city for
+ * anything but a journey (`linkedCity` in `persistence/schedule.ts`). Every
+ * block written before that carries the trip's first city, because that was
+ * the default on create, so on an existing trip a 13:00 lunch at a saved Los
+ * Angeles place on the day of a flight out of Tokyo was still read as 13:00 in
+ * Los Angeles only if Los Angeles happened to be listed first, and otherwise
+ * planned before the departure. Re-saving each block fixed it one at a time;
+ * this fixes the rows once.
+ *
+ * Why it is safe on real data: the column was never a statement of where a
+ * block is (`removeCityResult` in `persistence/trips.ts` relies on exactly
+ * that, and does not delete a block for naming a city), only the zone its
+ * start is read in, and before this pass every non-journey block had both ends
+ * read on that one zone. Moving such a block to its place's city changes no
+ * date, no minute, no length and no version; it changes only which zone its
+ * one clock is, which is the zone the place it is at actually keeps. Journeys
+ * are left alone, because their city is their departure and their place is
+ * where they land; free time has no place. A stay's link is its lodging
+ * option, anything else's its saved place, and only a place on the same trip
+ * with a city is read. Rows already right are not touched.
+ *
+ * One statement per kind, inside one transaction with its marker, so a boot
+ * that fails halfway leaves neither half nor a marker, and the next boot runs
+ * it whole. Exported so a test can run it against rows it wrote itself.
+ */
+export function backfillPlaceCities(): number {
+	const fromPoi = db.prepare(
+		`UPDATE events
+		    SET city_id = (SELECT p.city_id FROM pois p WHERE p.id = events.poi_id)
+		  WHERE type NOT IN ('travel', 'freetime', 'stay')
+		    AND poi_id IS NOT NULL
+		    AND EXISTS (
+		      SELECT 1 FROM pois p
+		       WHERE p.id = events.poi_id AND p.trip_id = events.trip_id
+		         AND p.city_id IS NOT NULL AND p.city_id IS NOT events.city_id
+		    )`
+	);
+	const fromLodging = db.prepare(
+		`UPDATE events
+		    SET city_id = (SELECT l.city_id FROM lodging_options l WHERE l.id = events.lodging_id)
+		  WHERE type = 'stay'
+		    AND lodging_id IS NOT NULL
+		    AND EXISTS (
+		      SELECT 1 FROM lodging_options l
+		       WHERE l.id = events.lodging_id AND l.trip_id = events.trip_id
+		         AND l.city_id IS NOT NULL AND l.city_id IS NOT events.city_id
+		    )`
+	);
+	return Number(fromPoi.run().changes) + Number(fromLodging.run().changes);
+}
+
+const PLACE_CITY_BACKFILL = 'events.city_id-from-linked-place';
+if (!backfillDone(PLACE_CITY_BACKFILL)) {
+	db.exec('BEGIN');
+	try {
+		backfillPlaceCities();
+		markBackfillDone(PLACE_CITY_BACKFILL);
+		db.exec('COMMIT');
+	} catch (err) {
+		db.exec('ROLLBACK');
+		throw err;
+	}
+}
+
+/**
  * Addresses we must not mail again, fed by Amazon SES bounce and complaint
  * notifications.
  *

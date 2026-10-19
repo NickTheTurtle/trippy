@@ -19,6 +19,8 @@ export function FieldShell({
 	hint,
 	htmlFor,
 	className = '',
+	as = 'label',
+	labelId,
 	children
 }: {
 	label: React.ReactNode;
@@ -28,11 +30,20 @@ export function FieldShell({
 	/** Set when the control is not a descendant, so the label still targets it. */
 	htmlFor?: string;
 	className?: string;
+	/**
+	 * `div` for a row of several controls that each carry their own name, like
+	 * a date beside a clock. A `<label>` names the first input inside it,
+	 * which would give the date the row's caption on top of its own. The row
+	 * is then a group named by its caption, and `labelId` is the caption's id,
+	 * so each control inside can put the caption into its own name as well.
+	 */
+	as?: 'label' | 'div';
+	labelId?: string;
 	children: React.ReactNode;
 }) {
-	return (
-		<label htmlFor={htmlFor} className={`field ${className}`}>
-			<span className="flabel">
+	const inner = (
+		<>
+			<span className="flabel" id={labelId}>
 				{label}
 				{optional && <span className="foptional">{copy.ui.field.optionalSuffix}</span>}
 			</span>
@@ -40,6 +51,15 @@ export function FieldShell({
 			{/* A hint is for a rule the value has to keep satisfying, which is
 			    exactly when a placeholder would already be gone. */}
 			{hint && <span className="fhint">{hint}</span>}
+		</>
+	);
+	return as === 'div' ? (
+		<div role="group" aria-labelledby={labelId} className={`field ${className}`}>
+			{inner}
+		</div>
+	) : (
+		<label htmlFor={htmlFor} className={`field ${className}`}>
+			{inner}
 		</label>
 	);
 }

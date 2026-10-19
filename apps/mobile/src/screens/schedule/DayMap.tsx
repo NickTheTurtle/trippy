@@ -11,12 +11,14 @@ import { copy } from '@trippy/copy';
 import { InsetSection, ListRow } from '../../ui';
 import { color, radius, space, type } from '../../theme';
 import { buildScheduleMapModel, type MobileMapPin } from './mapModel';
+import type { ZoneOf } from '@trippy/core/span';
 import type { BoardDay, Cell, EventRow, SavedPoi } from './types';
 
 export function DayMap({
 	entry,
 	saved,
 	city,
+	zoneOf,
 	memberIds,
 	peopleLabel,
 	locked,
@@ -29,6 +31,7 @@ export function DayMap({
 	entry: BoardDay;
 	saved: SavedPoi[];
 	city: Cell | null;
+	zoneOf: ZoneOf;
 	memberIds: string[];
 	peopleLabel: (ids: string[]) => string;
 	locked: boolean;
@@ -43,6 +46,7 @@ export function DayMap({
 	const model = useMemo(
 		() =>
 			buildScheduleMapModel({
+				day: entry.day,
 				events: entry.events,
 				stays: entry.stays,
 				legs: entry.legs,
@@ -50,9 +54,10 @@ export function DayMap({
 				city,
 				memberIds,
 				peopleLabel,
-				locked
+				locked,
+				zoneOf
 			}),
-		[entry, saved, city, memberIds, peopleLabel, locked]
+		[entry, saved, city, memberIds, peopleLabel, locked, zoneOf]
 	);
 	const savedById = useMemo(() => new Map(saved.map((place) => [place.id, place])), [saved]);
 	const focusPin = focusId

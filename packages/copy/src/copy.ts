@@ -450,7 +450,32 @@ export const copy = {
 			notes: 'Notes',
 			participants: 'Participants',
 			/** Shown when nobody is picked, which the board reads as everyone. */
-			nobody: 'Nobody'
+			nobody: 'Nobody',
+			/** The day a block ends on, beside `end`, when it runs past its own day. */
+			endDate: 'End date',
+			/** A journey's departure city, whose clock its start is read on. */
+			departsFrom: 'Departs from',
+			/** A journey's arrival city, whose clock its end is read on. */
+			arrivesIn: 'Arrives in',
+			/** The arrival city left as the departure city. */
+			sameCity: 'Same city'
+		},
+		/**
+		 * A block that runs over several days, as the agenda and a screen reader
+		 * describe the part of it on one day.
+		 */
+		span: {
+			/** On its first day: "From 10:00 PM". */
+			from: (time: string) => `From ${time}`,
+			/** On its last day: "Until 3:00 PM". */
+			until: (time: string) => `Until ${time}`,
+			/** On a day it covers from end to end. */
+			allDay: 'All day',
+			/** The whole span, "10:00 PM Sat to 3:00 PM Sun". */
+			range: (start: string, end: string) => `${start} to ${end}`,
+			endBeforeStart: 'The end must be after the start.',
+			tooLong: 'An event can run for at most 14 days.',
+			outsideTrip: 'Pick an end date within the trip.'
 		},
 		mobile: {
 			stays: 'Stays',

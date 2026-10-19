@@ -666,6 +666,26 @@
 .sched .block.joined:not(.leg) {
 	border-top-left-radius: 0;
 }
+/* A block that runs past the day it is drawn on: square at the edge where it
+   carries on, and flush with it, the way a phone calendar draws a span. The
+   shadow goes with the rounding, since a shadow under a cut edge draws the
+   end the square corners are saying is not there. */
+.sched .block.cuttop {
+	border-top-left-radius: 0;
+	border-top-right-radius: 0;
+}
+.sched .block.cutbottom {
+	border-bottom-left-radius: 0;
+	border-bottom-right-radius: 0;
+}
+.sched .block.cuttop,
+.sched .block.cutbottom {
+	box-shadow: none;
+}
+/* A span is opened rather than picked up, so the pointer says so. */
+.sched .block.fixed {
+	cursor: pointer;
+}
 .sched .bresize {
 	position: absolute;
 	left: 0;

@@ -1,6 +1,14 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { isLocatedType, STAY_CHECK_IN, type EventType } from '@trippy/core/types';
 import { MAX_NAME_LENGTH, MAX_NOTES_LENGTH } from '@trippy/core/validate';
+import { daysBetween } from '@trippy/core/plan';
+import {
+	crossesZones,
+	lastDayOf,
+	normalizeSpan,
+	spanProblem,
+	type SpanRow
+} from '@trippy/core/span';
 import { api } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
 import Modal, { ModalFooter, ModalForm } from '../../components/ui/Modal';
@@ -8,11 +16,14 @@ import { useDeleteAction } from '../../components/ui/useDeleteAction';
 import Select, { type Option } from '../../components/ui/Select';
 import TimeField from '../../components/ui/TimeField';
 import { FieldShell, Field, TextArea } from '../../components/ui/Field';
+import DayInput from '../../components/ui/DayInput';
+import FormError from '../../components/ui/FormError';
 import { LockIcon } from '../../components/ui/icons';
 import { copy } from '../../copy';
 import PeoplePicker from './PeoplePicker';
 import { usePlaceField } from './usePlaceField';
 import { useJourneys } from './Journeys';
+import { arrivalZone, departureZone, zoneLookup } from './span-text';
 import {
 	DAY_END,
 	DRAFT_ID,
@@ -83,6 +94,7 @@ export default function EventDialog({
 	firstDay,
 	lastDay,
 	provider,
+	cityOf,
 	locked = false,
 	dock,
 	peek,
@@ -121,6 +133,12 @@ export default function EventDialog({
 	stays: SavedPoi[];
 	cities: (Cell | null)[];
 	cityId: string | null;
+	/**
+	 * The city a day is spent in, when the board has it loaded. A block being
+	 * added is read in the city of the day it is put on, which the Date field
+	 * can change; `cityId` is the answer for the day the dialog opened on.
+	 */
+	cityOf?: (day: string) => string | null;
 	/** The first and last day the trip reaches, which bound the date field. */
 	firstDay: string;
 	lastDay: string;
@@ -138,9 +156,21 @@ export default function EventDialog({
 	onDone: () => void;
 }) {
 	const opensAt = startMin ?? suggestedStart ?? STAY_CHECK_IN;
+	/* An end stored as 24:00 is shown as it is typed and read, 12:00 AM on the
+	   morning after, since an End row reading "Sat 12:00 AM" for a block that
+	   runs to the end of Saturday says it ends as Saturday begins. Saving folds
+	   it back (`normalizeSpan`). Not for a journey across zones, whose stored
+	   form keeps a midnight arrival where it is. */
+	const endsAtMidnight =
+		!!event &&
+		event.type !== 'stay' &&
+		event.end_min >= DAY_END &&
+		!crossesZones(event, zoneLookup(cities));
 	const [type, setType] = useState<EventType>(event?.type ?? initialType ?? 'activity');
 	const [start, setStart] = useState(String(event ? event.start_min : opensAt));
-	const [end, setEnd] = useState(String(event ? event.end_min : opensAt + 60));
+	const [end, setEnd] = useState(
+		String(event ? (endsAtMidnight ? 0 : event.end_min) : opensAt + 60)
+	);
 	/* Whether the start is still the one the board proposed. Pointing at a time
 	   to open the dialog is already a choice, so only an add that opened without
 	   one can stay a suggestion, and typing into the field ends it. The server
@@ -156,6 +186,19 @@ export default function EventDialog({
 	   sent to another day without being dragged there, and one being added can
 	   be put on a day other than the one on screen. */
 	const [date, setDate] = useState(event?.day ?? day);
+	/* The day it ends on, which is its start day unless it runs past it. A
+	   stay's `end_day` is a checkout morning rather than a last day, so a stay
+	   being retyped starts from its check-in instead. */
+	const [endDate, setEndDate] = useState(
+		event && event.type !== 'stay'
+			? endsAtMidnight
+				? shiftDay(lastDayOf(event), 1)
+				: lastDayOf(event)
+			: (event?.day ?? day)
+	);
+	/* A journey's arrival city, '' for the city it leaves from. Kept across a
+	   change of type like the mode is, and only sent while it is a journey. */
+	const [arrival, setArrival] = useState(event?.end_city_id ?? '');
 	/* `null` once the organiser has emptied the field. Distinct from `[]`, which
 	   is how everyone is stored, and refused at the save rather than at the tick. */
 	const [people, setPeople] = useState<string[] | null>(event ? [...event.people] : []);
@@ -208,6 +251,109 @@ export default function EventDialog({
 	const startAt = staying ? STAY_CHECK_IN : startMinNow;
 	const endAt = staying ? DAY_END : endMinNow;
 
+	/* The span as the user typed it, which is what is judged, and the one form
+	   it is stored in (`normalizeSpan`), which is what is drawn and sent: an
+	   end at 12:00 AM the next morning on the same clock is midnight of the
+	   day itself, so the preview leaves no sliver on tomorrow and the save
+	   says exactly what the server will keep. Everything about it (does it
+	   run past its day, is its end on another clock, is it valid) is asked of
+	   `@trippy/core/span`. */
+	const zoneOf = useMemo(() => zoneLookup(cities), [cities]);
+	/* The Start and End rows' captions and their date fields, which the fields'
+	   names are built from. */
+	const startCapId = useId();
+	const startDateId = useId();
+	const endCapId = useId();
+	const endDateId = useId();
+	/* The departure and arrival rows, shown on a journey wherever there is
+	   another city to name, or where an arrival is already set and has to stay
+	   changeable. */
+	const knownCities = cities.filter((c): c is Cell => c != null);
+	const offerCities = type === 'travel' && (knownCities.length > 1 || !!event?.end_city_id);
+	/* The city of the day the block is on, but only when the board has that
+	   day loaded. A day the client cannot see has a city only the server
+	   knows, so it is left to the server rather than guessed. */
+	const dayCity = cityOf ? cityOf(onDay) : null;
+	/* The departure city chosen in its row, or null while nobody has chosen:
+	   then it follows the event's own city, or for a new block the day's. */
+	const [pickedDeparture, setPickedDeparture] = useState<string | null>(null);
+	const departure = pickedDeparture ?? (event ? event.city_id : dayCity) ?? '';
+	/* The city the start is read in, which is what the span is judged on and
+	   what is sent: the departure row's on a journey that shows it, otherwise
+	   the event's own city, or for a new block the loaded day's. Only the
+	   judging falls back to the city of the day the dialog opened on. */
+	const sentCity: string | null = offerCities && departure ? departure : event ? null : dayCity;
+	/* A picked place's own city, which the server stores on anything but a
+	   journey or free time in place of the day's, so the preview and the
+	   judging read the start on the clock it will be saved on. A stay's place
+	   is one of the proposed stays, everything else's a saved place. */
+	const placeCity =
+		placeable && poi && type !== 'travel' && type !== 'freetime'
+			? ((staying ? stays : saved).find((p) => p.id === poi)?.city_id ?? null)
+			: null;
+	const startCity =
+		(offerCities && departure) || placeCity || (event ? event.city_id : (dayCity ?? cityId));
+	const typedSpan: SpanRow = {
+		type,
+		day: onDay,
+		end_day: staying ? checkOut : endDate !== date ? endDate : null,
+		start_min: startAt,
+		end_min: endAt,
+		city_id: startCity,
+		end_city_id: type === 'travel' && arrival ? arrival : null
+	};
+	const stored = normalizeSpan(typedSpan, zoneOf);
+	const spanRow: SpanRow = { ...typedSpan, ...stored };
+	const endCityId = stored.end_city_id;
+	const runsOver = !staying && !!stored.end_day;
+	const crosses = crossesZones(spanRow, zoneOf);
+	/** The end is typed on the start's day and clock, so the two compare as typed. */
+	const sameClock = endDate === date && !crosses;
+
+	/* What is wrong with the span, in the server's own words. Outside the trip
+	   first, since a date past the last day is the one fix that is not about
+	   the clock. Judged as typed, since an end day before the start is
+	   exactly what normalizing would quietly drop; the trip's bound is judged
+	   as stored, so 12:00 AM on the morning after the last day is allowed,
+	   being the last day's own midnight. */
+	const problem = staying
+		? null
+		: (stored.end_day ?? onDay) > lastDay || endDate < firstDay
+			? cs.span.outsideTrip
+			: (() => {
+					const p = spanProblem(typedSpan, zoneOf);
+					return p === 'too-long' ? cs.span.tooLong : p ? cs.span.endBeforeStart : null;
+				})();
+	/* Said under the end as soon as it stands, except for an end typed behind
+	   its start on one clock: that is usually a time half typed, and leaving
+	   the field puts it right (`fixEnd`). */
+	const shownProblem = problem && !(sameClock && problem === cs.span.endBeforeStart) ? problem : '';
+
+	/* "Same city", then every city but the departure: arriving where you left
+	   is what "Same city" already says. */
+	const departureOptions: Option[] = knownCities.map((c) => ({ value: c.id, label: c.name }));
+	const arrivalOptions: Option[] = [
+		{ value: '', label: cf.sameCity },
+		...departureOptions.filter((o) => o.value !== departure)
+	];
+	/** Choosing to leave from where the journey was arriving makes it a same-city one. */
+	const pickDeparture = (next: string) => {
+		setPickedDeparture(next);
+		if (next === arrival) setArrival('');
+	};
+	const fromZone = departureZone(spanRow, zoneOf);
+	const toZone = arrivalZone(spanRow, zoneOf);
+
+	/**
+	 * Moving the start date carries the end date with it, so a two-day hike
+	 * moved to Thursday still ends on Friday rather than becoming a block that
+	 * ends before it starts.
+	 */
+	const moveDate = (next: string) => {
+		setEndDate(shiftDay(endDate, daysBetween(date, next)));
+		setDate(next);
+	};
+
 	/**
 	 * Moving the start carries the end with it, keeping the length.
 	 *
@@ -220,15 +366,37 @@ export default function EventDialog({
 	const moveStart = (next: string) => {
 		setTimeChosen(true);
 		setStart(next);
-		setEnd(String(Math.min(DAY_END, Number(next) + (endMinNow - startMinNow))));
+		const moved = Number(next) + (endMinNow - startMinNow);
+		if (sameClock) {
+			setEnd(String(Math.min(DAY_END, moved)));
+			return;
+		}
+		/* A span, or a journey whose end is on another clock, keeps its length
+		   by letting the end cross midnight: a red-eye that leaves an hour later
+		   lands an hour later, even when that is tomorrow. */
+		let endMin = moved;
+		let endOn = endDate;
+		while (endMin > DAY_END) {
+			endMin -= DAY_END;
+			endOn = shiftDay(endOn, 1);
+		}
+		while (endMin < 0 && endOn > date) {
+			endMin += DAY_END;
+			endOn = shiftDay(endOn, -1);
+		}
+		setEnd(String(Math.max(0, endMin)));
+		setEndDate(endOn);
 	};
 
 	/* A typed end can be mid-thought: "9:15" on the way to "19:15" is behind the
 	   start for as long as it takes to press the second key. Nothing is refused
 	   while the field has focus; the shortest event the server accepts is what
-	   it settles on once focus leaves. */
+	   it settles on once focus leaves. Only on one clock and one day: an end on
+	   a later day or in another zone may well read earlier than the start. */
 	const fixEnd = () => {
-		if (endMinNow < startMinNow + MIN_EVENT_MINS) setEnd(String(startMinNow + MIN_EVENT_MINS));
+		if (sameClock && endMinNow < startMinNow + MIN_EVENT_MINS) {
+			setEnd(String(startMinNow + MIN_EVENT_MINS));
+		}
 	};
 
 	/* Held in a ref so a caller passing an inline function does not restart the
@@ -273,14 +441,18 @@ export default function EventDialog({
 		preview.current?.({
 			id: previewId,
 			day: onDay,
-			end_day: staying ? checkOut : null,
+			end_day: spanRow.end_day,
+			end_city_id: endCityId,
+			// The clock the start is read on, which the board draws a journey
+			// across zones by: the departure row's, as it is being chosen.
+			city_id: startCity ?? null,
 			/* A typed label is the name; without one the block is named the way it
 			   would be named on a fresh save, so the preview shows the rename the
 			   save is actually going to make rather than the name on record. */
 			title: label.trim() || derived,
 			type,
 			start_min: startAt,
-			end_min: endAt,
+			end_min: spanRow.end_min,
 			// An emptied field has nobody to draw, and the board reads no names as
 			// the whole group, which is what the event still is until this saves.
 			people: people ?? [],
@@ -290,14 +462,15 @@ export default function EventDialog({
 	}, [
 		previewId,
 		onDay,
-		staying,
-		checkOut,
+		spanRow.end_day,
+		endCityId,
+		startCity,
 		notes,
 		label,
 		derived,
 		type,
 		startAt,
-		endAt,
+		spanRow.end_min,
 		people,
 		lat,
 		lng
@@ -364,7 +537,14 @@ export default function EventDialog({
 						method: 'POST',
 						body: {
 							day: onDay,
-							endDay: staying ? checkOut : undefined,
+							// The departure a journey's row shows, or the city of a loaded
+							// day. Absent when the client does not know the day's city, so
+							// the server derives it rather than taking a guess.
+							cityId: staying ? undefined : (sentCity ?? undefined),
+							// A stay's checkout, or the later day a block ends on. Absent
+							// is a block on one day, which is how most are added.
+							endDay: staying ? checkOut : (stored.end_day ?? undefined),
+							endCityId: endCityId ?? undefined,
 							// Absent unless the organiser typed one, which is how most
 							// blocks are added: the server then names it from the place,
 							// the first line of the notes or the type's own noun, which
@@ -373,6 +553,10 @@ export default function EventDialog({
 							type,
 							start: startAt,
 							duration: endAt - startAt,
+							// The end as read on its last day, on the arrival clock for a
+							// journey: said outright, since across a midnight or a zone
+							// a length on one clock is not what it means.
+							endMin: staying ? undefined : spanRow.end_min,
 							poiId: placeable && poi ? poi : undefined,
 							// Only when nothing was picked, which is what makes it a typed
 							// location rather than a second name for a saved one.
@@ -410,12 +594,22 @@ export default function EventDialog({
 					type,
 					notes: notes.trim(),
 					startMin: staying ? undefined : startAt,
-					endMin: staying ? undefined : endAt,
+					endMin: staying ? undefined : spanRow.end_min,
 					// A stay moves and stretches by its dates; everything else moves by
 					// the one date it has. Both arrive as `day`, and the server ignores
 					// one that names the day the block is already on.
 					day: onDay,
-					endDay: staying ? checkOut : undefined,
+					/* A stay's checkout, or the later day a block ends on. Null only
+					   to take away an end day the block had, a span brought back
+					   onto one day or a stay retyped as something else; absent on
+					   a block that never had one, which is every block saved before
+					   spans existed. */
+					endDay: staying ? checkOut : (stored.end_day ?? (event.end_day ? null : undefined)),
+					// The same rule for the arrival city: set, cleared, or untouched.
+					endCityId: endCityId ?? (event.end_city_id ? null : undefined),
+					// The departure, only when its row was on screen: that is the
+					// one place this form says anything about the start's city.
+					cityId: sentCity ?? undefined,
 					// Absent leaves it alone; empty hands the journey back to the router.
 					travelMode: type === 'travel' ? mode : undefined,
 					// Absent leaves the place alone; empty unlinks it.
@@ -456,6 +650,8 @@ export default function EventDialog({
 		e.preventDefault();
 		if (locked) return;
 		if (!people) return save.setError(NO_PEOPLE);
+		// The same sentence the server would answer with, without the round trip.
+		if (problem) return save.setError(problem);
 		void save.run();
 	}
 
@@ -467,7 +663,13 @@ export default function EventDialog({
 				dock={dock}
 				peek={peek}
 				title={locked ? cs.dialog.view : event ? cs.dialog.edit : cs.dialog.add}
-				subtitle={staying ? rangeLabel(checkIn, checkOut) : dayLabel(onDay)}
+				subtitle={
+					staying
+						? rangeLabel(checkIn, checkOut)
+						: runsOver && stored.end_day
+							? rangeLabel(onDay, stored.end_day)
+							: dayLabel(onDay)
+				}
 				onClose={onClose}
 			>
 				<ModalForm className="schedule" onSubmit={submit}>
@@ -494,17 +696,15 @@ export default function EventDialog({
 						    name reads badly, so it sits at the bottom with the notes
 						    rather than at the top where it would look required.
 
-						    The clock takes seven of the twelve columns rather than six,
-						    which is what the pair actually measures: two fixed-width
-						    clocks, a gap either side of "to", and 242px in all. Six
-						    columns is 232px, and the difference used to come out of the
-						    meridiem. The date takes the other five.
+						    The start and the end are a row each, a date and a clock, the
+						    way a phone calendar asks Starts and Ends. Each takes the whole
+						    width: a date and a clock with a zone beside it do not share a
+						    row with anything at a phone's width, and the two rows keep
+						    their dates and clocks in one column at every width.
 
-						    The clock and whatever shares its row take the whole width
-						    below `sm`: two clocks of three segments each do not fit in
-						    half of a 390px dialog. The place and its type share a row only
-						    from `sm` for the same reason: a third of a phone's dialog is
-						    too narrow for "Activity" and its chevron. */}
+						    The place and its type share a row only from `sm`: a third of
+						    a phone's dialog is too narrow for "Activity" and its
+						    chevron. */}
 						<div className="grid grid-cols-12 gap-x-2.5 gap-y-3.5" inert={locked || undefined}>
 							{placeField}
 							<FieldShell
@@ -523,9 +723,9 @@ export default function EventDialog({
 								/>
 							</FieldShell>
 
-							{/* One field, because a start without an end is not an answer:
-							    an event is a span, and the pair reads as one on a line. A
-							    stay's span is in nights, so it asks for dates instead. */}
+							{/* A start and an end, because a start without an end is not
+							    an answer. A stay's span is in nights, so it asks for
+							    dates instead. */}
 							{staying ? (
 								<StayDates
 									checkIn={checkIn}
@@ -537,39 +737,71 @@ export default function EventDialog({
 								/>
 							) : (
 								<>
-									{/* The date sits beside the clock rather than inside it: a
-									    block that is on the wrong day is moved by saying so,
-									    which is the one move a drag down a single day's column
-									    cannot make. Bounded by the trip, because the board
-									    only draws days the trip has.
+									{/* The date sits in the row with its clock: a block that
+									    is on the wrong day is moved by saying so, which is the
+									    one move a drag down a single day's column cannot make.
+									    Bounded by the trip, because the board only draws days
+									    the trip has.
 
 									    Clamped, not merely bounded. `min` and `max` colour a
 									    date input's own picker but do not stop a date being
 									    typed into it, and a typed 2027-05-16 on a trip that
 									    ends on the 15th left the field reading one day while
 									    the board read another, with nothing to say which the
-									    save would use. */}
-									<Field
-										label={cf.date}
-										className="col-span-12 sm:col-span-5"
-										type="date"
-										min={firstDay}
-										max={lastDay}
-										value={date}
-										onChange={(e) => {
-											const typed = e.target.value;
-											if (!typed) return;
-											setDate(typed < firstDay ? firstDay : typed > lastDay ? lastDay : typed);
-										}}
-									/>
-									<FieldShell label={cf.when} className="col-span-12 sm:col-span-7">
+									    save would use. The clamp waits until the box is left
+									    (`DayInput`): applied on every keystroke, it snapped
+									    the first typed digit of a year to the trip and
+									    nothing could be typed at all. */}
+									<FieldShell
+										as="div"
+										labelId={startCapId}
+										label={cf.start}
+										className="col-span-12"
+									>
 										<div className="tfpair">
+											{/* Named "Start Date": the row's caption, then its own
+											    word, so the field says which date it is without
+											    the caption being said twice for the clock, whose
+											    segments already carry it ("Start hour"). */}
+											<DayInput
+												className="input tfdate"
+												id={startDateId}
+												aria-label={cf.date}
+												aria-labelledby={`${startCapId} ${startDateId}`}
+												min={firstDay}
+												max={lastDay}
+												value={date}
+												onDay={moveDate}
+											/>
 											<TimeField
 												value={startAt}
 												onChange={(v) => moveStart(String(v))}
 												ariaLabel={cf.start}
 											/>
-											<span className="tfto">to</span>
+											{fromZone && <span className="tfto">{fromZone}</span>}
+										</div>
+									</FieldShell>
+									{/* The end day is always on screen rather than unfolded
+									    on demand, the way a phone calendar asks Starts and
+									    Ends: an overnight is common enough on a trip that a
+									    reveal would be one more thing to find, and two rows
+									    of the same shape read as one question. Bounded by
+									    the trip and clamped to it, like the start, with the
+									    morning after the last day allowed for an end at its
+									    midnight. */}
+									<FieldShell as="div" labelId={endCapId} label={cf.end} className="col-span-12">
+										<div className="tfpair">
+											<DayInput
+												className="input tfdate"
+												id={endDateId}
+												aria-label={cf.date}
+												aria-labelledby={`${endCapId} ${endDateId}`}
+												min={date}
+												floor={firstDay}
+												max={shiftDay(lastDay, 1)}
+												value={endDate}
+												onDay={setEndDate}
+											/>
 											<TimeField
 												value={endAt}
 												onChange={(v) => {
@@ -579,7 +811,32 @@ export default function EventDialog({
 												onCommit={fixEnd}
 												ariaLabel={cf.end}
 											/>
+											{toZone && <span className="tfto">{toZone}</span>}
 										</div>
+										<FormError message={shownProblem} />
+									</FieldShell>
+								</>
+							)}
+							{/* Where a journey leaves from and where it lands, whose
+							    clocks its start and its end are typed on. Departure
+							    first, so the pair reads in the order it is travelled. */}
+							{offerCities && (
+								<>
+									<FieldShell label={cf.departsFrom} className="col-span-12 sm:col-span-6">
+										<Select
+											value={departure}
+											onChange={pickDeparture}
+											options={departureOptions}
+											ariaLabel={cf.departsFrom}
+										/>
+									</FieldShell>
+									<FieldShell label={cf.arrivesIn} className="col-span-12 sm:col-span-6">
+										<Select
+											value={arrival}
+											onChange={setArrival}
+											options={arrivalOptions}
+											ariaLabel={cf.arrivesIn}
+										/>
 									</FieldShell>
 								</>
 							)}

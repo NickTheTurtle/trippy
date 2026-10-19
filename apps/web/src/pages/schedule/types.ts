@@ -28,18 +28,27 @@ export type EventRow = {
 	id: string;
 	day: string;
 	/**
-	 * The morning a stay is checked out of, exclusive. Null on everything else.
+	 * Two readings, by type.
 	 *
-	 * A stay is the one event that is a range rather than a point: it covers
-	 * every day from `day` up to but not including this one, which is how
-	 * lodging has always read.
+	 * On a stay, the morning it is checked out of, exclusive: it covers every
+	 * night from `day` up to but not including this one, which is how lodging
+	 * has always read.
+	 *
+	 * On anything else, the day it ends on, inclusive, or null when it ends on
+	 * its own day. Never read directly to place a block: `@trippy/core/span`
+	 * (`segmentOn`, `lastDayOf`) is the one reading of it.
 	 */
 	end_day: string | null;
+	/**
+	 * A journey's arrival city, whose zone `end_min` is read in. Null means its
+	 * own city, and it is always null off a travel event.
+	 */
+	end_city_id: string | null;
 	title: string;
 	type: EventType;
-	/** Minutes from midnight, in the city's zone. */
+	/** Minutes from midnight, in the city's zone, on `day`. */
 	start_min: number;
-	/** Minutes from midnight, in the city's zone, on the same day as the start. */
+	/** Minutes from midnight on the day it ends, in the arrival city's zone for a journey. */
 	end_min: number;
 	poi_id: string | null;
 	lodging_id: string | null;
@@ -74,7 +83,18 @@ export type EventRow = {
  */
 export type EventDraft = Pick<
 	EventRow,
-	'id' | 'day' | 'end_day' | 'title' | 'type' | 'start_min' | 'end_min' | 'people' | 'lat' | 'lng'
+	| 'id'
+	| 'day'
+	| 'end_day'
+	| 'end_city_id'
+	| 'city_id'
+	| 'title'
+	| 'type'
+	| 'start_min'
+	| 'end_min'
+	| 'people'
+	| 'lat'
+	| 'lng'
 >;
 
 export type LegRow = {
@@ -127,6 +147,12 @@ export type SavedPoi = {
 export type BoardDay = {
 	day: string;
 	city: Cell | null;
+	/**
+	 * Every timed block on the day, a block carried over from an earlier day or
+	 * on into a later one included, ordered by where it sits on this day. The
+	 * row is the whole event, so its place on this day is `segmentOn`'s answer,
+	 * never its raw `start_min` and `end_min`.
+	 */
 	events: EventRow[];
 	/**
 	 * The day's lodgings, drawn as bands, the morning of checkout included.
