@@ -63,7 +63,8 @@ export const TRIP_TOPICS = [
 	'lodging',
 	'expenses',
 	'tasks',
-	'costs'
+	'costs',
+	'notes'
 ] as const;
 
 export type TripTopic = (typeof TRIP_TOPICS)[number];
@@ -90,7 +91,11 @@ export type LiveStatus = 'connecting' | 'live' | 'retrying' | 'off';
  */
 export type TripEventsControl = {
 	/** Attach a section. Returns the detach, for the effect cleanup. */
-	subscribe: (topics: readonly TripTopic[], invalidate: () => void) => () => void;
+	subscribe: (
+		topics: readonly TripTopic[],
+		invalidate: () => void,
+		options?: LiveOptions
+	) => () => void;
 	/** Start over after giving up. For a "try again" affordance. */
 	retry: () => void;
 };
@@ -137,6 +142,17 @@ function userIsBusy(): boolean {
 
 type Listener = { topics: ReadonlySet<TripTopic | '*'>; invalidate: () => void };
 
+export type LiveOptions = {
+	/**
+	 * Refetch even while the user is busy. Only for a section that merges what
+	 * arrives into what is being typed itself, as the shared notepad does: its
+	 * text box is the focused control nearly all the time it is open, so the
+	 * usual deferral would hold a collaborator's edit back until the reader
+	 * clicked away, which on a notepad can be never.
+	 */
+	whileBusy?: boolean;
+};
+
 /**
  * Opens and owns one stream for `tripId`. Pass `null` where there is no trip
  * (the landing, login, the trips list, the account page) and nothing is opened.
@@ -158,15 +174,15 @@ export function useTripEvents(tripId: string | null): TripEvents {
 	// The coalescing/deferral queue, shared by every section on the page.
 	const pending = useRef<Set<() => void>>(new Set());
 	const flushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+	/** The invalidations allowed through while the user is busy (`whileBusy`). */
+	const eager = useRef<Set<() => void>>(new Set());
 
 	const flush = useCallback(() => {
-		if (userIsBusy()) {
-			flushTimer.current = setTimeout(flush, BUSY_POLL_MS);
-			return;
-		}
-		flushTimer.current = null;
-		const due = [...pending.current];
-		pending.current.clear();
+		const busy = userIsBusy();
+		const due = [...pending.current].filter((fn) => !busy || eager.current.has(fn));
+		for (const fn of due) pending.current.delete(fn);
+		// Whatever was held back waits for the user to finish, as before.
+		flushTimer.current = pending.current.size ? setTimeout(flush, BUSY_POLL_MS) : null;
 		for (const fn of due) fn();
 	}, []);
 
@@ -316,19 +332,25 @@ export function useTripEvents(tripId: string | null): TripEvents {
 		[]
 	);
 
-	const subscribe = useCallback((topics: readonly TripTopic[], invalidate: () => void) => {
-		const entry: Listener = { topics: new Set(topics), invalidate };
-		listeners.current.add(entry);
-		// The listener goes; a reload already queued for it stays. A detach is
-		// usually a re-attach a moment later (a section's effect re-running), and
-		// dropping the queued reload there is how a reconnect used to lose every
-		// refetch it asked for. Running it after a real unmount is harmless: it
-		// is a state update on a component that is gone, which React ignores.
-		// The trip's own teardown below still clears the whole queue.
-		return () => {
-			listeners.current.delete(entry);
-		};
-	}, []);
+	const subscribe = useCallback(
+		(topics: readonly TripTopic[], invalidate: () => void, options?: LiveOptions) => {
+			const entry: Listener = { topics: new Set(topics), invalidate };
+			listeners.current.add(entry);
+			if (options?.whileBusy) eager.current.add(invalidate);
+			else eager.current.delete(invalidate);
+			// The listener goes; a reload already queued for it stays. A detach is
+			// usually a re-attach a moment later (a section's effect re-running), and
+			// dropping the queued reload there is how a reconnect used to lose every
+			// refetch it asked for. Running it after a real unmount is harmless: it
+			// is a state update on a component that is gone, which React ignores.
+			// The trip's own teardown below still clears the whole queue.
+			return () => {
+				listeners.current.delete(entry);
+				eager.current.delete(invalidate);
+			};
+		},
+		[]
+	);
 
 	const retry = useCallback(() => {
 		setStatus('connecting');
@@ -389,11 +411,16 @@ export function useLiveStatus(): { status: LiveStatus; retry: () => void } | nul
  * reload are the same code path. Outside a trip there is no stream and this
  * does nothing, which is what lets a page use it unconditionally.
  */
-export function useLiveSection(topics: readonly TripTopic[], reload: () => void): void {
+export function useLiveSection(
+	topics: readonly TripTopic[],
+	reload: () => void,
+	options?: LiveOptions
+): void {
 	const events = useContext(TripEventsControlContext);
 	// Depend on the topics by value: every caller passes an array literal, and
 	// depending on its identity would resubscribe on every render.
 	const key = topics.join(',');
+	const whileBusy = options?.whileBusy === true;
 	const reloadRef = useRef(reload);
 	reloadRef.current = reload;
 	// One function for the life of the section, so a reload queued before a
@@ -403,6 +430,6 @@ export function useLiveSection(topics: readonly TripTopic[], reload: () => void)
 
 	useEffect(() => {
 		if (!events) return;
-		return events.subscribe(key.split(',') as TripTopic[], invalidate);
-	}, [events, key, invalidate]);
+		return events.subscribe(key.split(',') as TripTopic[], invalidate, { whileBusy });
+	}, [events, key, invalidate, whileBusy]);
 }

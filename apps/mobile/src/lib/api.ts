@@ -11,15 +11,21 @@ import { getToken } from './token';
  * token that this module attaches. Everything else, including turning a non-2xx
  * response into a thrown ApiError carrying the server's own message, is
  * deliberately identical, so a screen ported from web keeps its error handling.
+ *
+ * One addition: the error keeps the refused response's body as `payload`. A
+ * notes save refused as stale (409) carries the server's current notes, and
+ * merging against those saves a second round trip to fetch them.
  */
 
 export class ApiError extends Error {
 	readonly status: number;
+	readonly payload: unknown;
 
-	constructor(status: number, message: string) {
+	constructor(status: number, message: string, payload: unknown = null) {
 		super(message);
 		this.name = 'ApiError';
 		this.status = status;
+		this.payload = payload;
 	}
 }
 
@@ -80,7 +86,7 @@ export async function api<T>(path: string, options: Options = {}): Promise<T> {
 				? (payload as { error: string }).error
 				: copy.api.requestFailed;
 		if (res.status === 401 && !path.startsWith('/auth/')) unauthorized?.();
-		throw new ApiError(res.status, message);
+		throw new ApiError(res.status, message, payload);
 	}
 
 	return payload as T;

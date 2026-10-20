@@ -12,10 +12,12 @@ export const COOKIE = 'session';
  * The largest request body any route will read.
  *
  * No request this API serves is anywhere near 256 KB: the largest real body is
- * an event save with a 4000 character note. Without a ceiling, `c.req.json()`
- * buffers whatever arrives, so one caller streaming a few hundred megabytes
- * holds that much of this process's memory per connection. Refused with 413 in
- * the standard envelope before any route reads a byte of it.
+ * a save of the trip notepad, 20,000 characters, which even at the worst JSON
+ * escaping (six bytes for a control character) is about 120 KB. Without a
+ * ceiling, `c.req.json()` buffers whatever arrives, so one caller streaming a
+ * few hundred megabytes holds that much of this process's memory per
+ * connection. Refused with 413 in the standard envelope before any route reads
+ * a byte of it.
  */
 export const BODY_LIMIT_BYTES = 256 * 1024;
 

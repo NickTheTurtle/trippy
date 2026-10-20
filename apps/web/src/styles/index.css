@@ -459,6 +459,37 @@ select.input.compact {
 	font-weight: 400;
 }
 
+/*
+ * Preparation's shared notepad: one big text box, read and written like a page.
+ *
+ * The ordinary `.input`, given the card's corners and shadow so it reads as the
+ * section's panel rather than as a form field waiting for a label. It starts
+ * tall enough to look like somewhere to write, and grows with its text instead
+ * of scrolling inside itself, so a long note scrolls with the page like every
+ * other list here. `field-sizing` does the growing where it is supported; the
+ * component sets the height by hand elsewhere. The line height is the prose
+ * one, a notch looser than a form's, because this is read more than it is
+ * filled in.
+ */
+textarea.input.notepad {
+	display: block;
+	width: 100%;
+	min-height: max(18rem, 55vh);
+	padding: 1rem 1.15rem;
+	border-radius: var(--radius-lg);
+	box-shadow: var(--shadow-sm);
+	line-height: 1.7;
+	resize: none;
+	field-sizing: content;
+	overflow-wrap: anywhere;
+}
+.notepad-status {
+	min-height: 1.5rem;
+	padding: 0.4rem 0.25rem 0;
+	font-size: var(--text-meta);
+	color: var(--color-ink-faint);
+}
+
 /* --- Dialog ------------------------------------------------------------- */
 
 .modal {

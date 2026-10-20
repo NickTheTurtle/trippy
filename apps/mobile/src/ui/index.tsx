@@ -241,7 +241,8 @@ export function Screen({
 	action,
 	safeTop = false,
 	topOffset = 0,
-	nativeLargeTitle = false
+	nativeLargeTitle = false,
+	keyboardInsets = false
 }: {
 	children: ReactNode;
 	scroll?: boolean;
@@ -259,6 +260,15 @@ export function Screen({
 	 * already scrolled, so the large title collapsed, vanished and jumped back.
 	 */
 	nativeLargeTitle?: boolean;
+	/**
+	 * The screen holds a text box that grows with what is typed (the trip's
+	 * notes). The scroll view takes the keyboard's height as a native inset, so
+	 * the caret can scroll clear of it, and a drag down lowers the keyboard as
+	 * it does in Notes. The native inset rather than a KeyboardAvoidingView,
+	 * for the reason Sheet gives: it is computed in screen space, so it is
+	 * right under the trip's bar and above the floating tab bar alike.
+	 */
+	keyboardInsets?: boolean;
 }) {
 	const insets = useSafeAreaInsets();
 	const inTabs = useInNativeTabs();
@@ -288,6 +298,8 @@ export function Screen({
 				}
 			]}
 			keyboardShouldPersistTaps="handled"
+			automaticallyAdjustKeyboardInsets={keyboardInsets}
+			keyboardDismissMode={keyboardInsets ? 'interactive' : undefined}
 			refreshControl={refreshControl}
 			scrollEnabled={scrollEnabled}
 			contentInsetAdjustmentBehavior={inTabs || nativeLargeTitle ? 'automatic' : undefined}
