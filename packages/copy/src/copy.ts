@@ -351,9 +351,20 @@ export const copy = {
 	// Preparation > tasks, packing list, cost estimates
 	preparation: {
 		navAriaLabel: 'Preparation sections',
-		sections: { tasks: 'Tasks', packing: 'Packing', costs: 'Estimated costs' },
-		/** The phone's section control, where three segments share 358pt. */
-		mobileSections: { tasks: 'Tasks', packing: 'Packing', costs: 'Costs' },
+		sections: { tasks: 'Tasks', packing: 'Packing', costs: 'Estimated costs', notes: 'Notes' },
+		/** The phone's section control, where four segments share 358pt. */
+		mobileSections: { tasks: 'Tasks', packing: 'Packing', costs: 'Costs', notes: 'Notes' },
+		/** The trip's one shared notepad, which everyone edits. */
+		notes: {
+			/** The text box's accessible name; the section heading already says Notes. */
+			label: 'Trip notes',
+			placeholder: 'Notes',
+			saving: 'Saving...',
+			/** Under the notepad: who changed it last, and when ("2 min ago"). */
+			editedBy: (name: string, when: string) => `Edited by ${name} ${when}`,
+			saveFallback: 'Could not save the notes.',
+			tooLong: 'Notes can be at most 20,000 characters.'
+		},
 		add: 'Add',
 		tripTotal: 'Trip total',
 		perPerson: 'Per person',

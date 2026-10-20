@@ -1339,3 +1339,29 @@ db.exec(`
 	CREATE INDEX IF NOT EXISTS idx_oauth_states_expiry ON oauth_states(expires_at);
 	CREATE INDEX IF NOT EXISTS idx_oauth_codes_expiry ON oauth_codes(expires_at);
 `);
+
+/**
+ * The trip's one shared notepad (Preparation > Notes; DESIGN.md 5.0.4).
+ *
+ * One row per trip, keyed by the trip, because there is exactly one notepad and
+ * everybody edits it. `version` is the optimistic lock: a save names the
+ * version it was typed against and only applies if that is still the stored
+ * one (see `persistence/notes.ts`). No row reads as `{ body: '', version: 0 }`,
+ * so a trip that never had notes needs nothing written for it and the first
+ * save is the same compare-and-set as every later one.
+ *
+ * `updated_by` is SET NULL rather than CASCADE: deleting an account must not
+ * delete the trip's notes, it only loses the "edited by" line.
+ *
+ * A brand-new table, so the migration is additive by construction: an existing
+ * database gains it and no existing row is touched.
+ */
+db.exec(`
+	CREATE TABLE IF NOT EXISTS trip_notes (
+		trip_id    TEXT PRIMARY KEY REFERENCES trips(id) ON DELETE CASCADE,
+		body       TEXT NOT NULL DEFAULT '',
+		version    INTEGER NOT NULL DEFAULT 0,
+		updated_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+		updated_at INTEGER
+	);
+`);

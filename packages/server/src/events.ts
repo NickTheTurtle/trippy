@@ -54,6 +54,11 @@ import { isMember } from './persistence/membership';
  *
  * `crews` is deliberately absent: a crew is a saved group of members that the
  * board also reads, so a crew write publishes both `members` and `schedule`.
+ *
+ * `notes` is the shared notepad under Preparation, separate from `tasks` and
+ * `costs` because it has its own endpoint (`GET .../pretrip/notes`) and is
+ * saved as often as someone pauses typing: folding it into `tasks` would send
+ * every open Preparation tab to refetch the whole page on each pause.
  */
 export const TRIP_TOPICS = [
 	'trip',
@@ -63,7 +68,8 @@ export const TRIP_TOPICS = [
 	'lodging',
 	'expenses',
 	'tasks',
-	'costs'
+	'costs',
+	'notes'
 ] as const;
 
 export type TripTopic = (typeof TRIP_TOPICS)[number];

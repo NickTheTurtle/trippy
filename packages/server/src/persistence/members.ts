@@ -601,6 +601,14 @@ export const UNABSORBED_USER_REFERENCES: readonly { table: string; column: strin
 			table: 'oauth_codes',
 			column: 'user_id',
 			why: 'a placeholder cannot sign in, and a one-time sign-in code is not trip history'
+		},
+		{
+			table: 'trip_notes',
+			column: 'updated_by',
+			why:
+				'only the signed-in caller is ever written here and a placeholder cannot sign in, ' +
+				'so it never matches; and it is ON DELETE SET NULL, so even a stray match would ' +
+				'only lose the "edited by" line, never the notes'
 		}
 	];
 

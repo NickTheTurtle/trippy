@@ -23,7 +23,8 @@ export const TRIP_TOPICS = [
 	'lodging',
 	'expenses',
 	'tasks',
-	'costs'
+	'costs',
+	'notes'
 ] as const;
 
 export type TripTopic = (typeof TRIP_TOPICS)[number];

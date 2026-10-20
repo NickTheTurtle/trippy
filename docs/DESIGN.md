@@ -3000,7 +3000,7 @@ still resolved to `UTC`, which is why nobody noticed. The offered list is now
 built per user and always contains the zone the row actually holds, which also
 covers an alias or any zone a given runtime does not enumerate.
 
-### 5.0.4 Preparation: tasks, packing and estimated costs
+### 5.0.4 Preparation: tasks, packing, estimated costs and notes
 
 **One list component serves both tasks and packing.** They differ only in
 wording, so the difference is data: the section descriptor carries the kind, the
@@ -3222,6 +3222,153 @@ and `components/ui/Stat` are used by both Preparation and Expenses, so the two
 money screens cannot drift into two different answers to the same question. The
 bar hides itself on a solo trip, where the only person to read a list as is you,
 and is not drawn above an empty list.
+
+**Notes is one shared page of text, saved as you type.** The fourth section is
+the trip's one notepad (`pages/pretrip/Notes.tsx`): a single `.input` textarea
+with the card's corners, at least most of a screen tall and growing with its
+text (`field-sizing: content`, a measured height where that is unsupported), so
+a long note scrolls with the page rather than inside a box. It has no Add
+button, no helper text, and a muted line under it that says "Saving..." while a
+save is out and "Edited by Sam 2 min ago" otherwise (nothing on a page nobody
+has written). The client keeps `base`, the server copy the box's text derives
+from (body and version), and `local`, what is in the box. Every save sends
+`{ body: local, version: base.version, base: base.body }`, so a stale one is
+merged by the server and answered 200 with `merged: true`; the client then
+puts `mergeNotes(sent, local, answer)` in the box, which keeps anything typed
+while the save was out. A 409 (a save without `base`, kept as the fallback) is
+merged here with `mergeNotes(base, local, theirs)` and resent, up to three
+times in a row, after which the line says the save failed until the next edit.
+A save goes 800ms after typing stops, on blur and on a section switch (the
+component unmounts and its save chain runs on); only one is in flight, and the
+latest text is queued behind it. When the tab is hidden or closed the latest
+text goes at once as a `keepalive` request, even with a save out, sent as
+though that save had landed (its body as `base`, its version plus one) and
+naming the base that save was sent from as `priorBase`, as the native app does
+when it is backgrounded. The save out is cancelled first when it is an
+ordinary request (a keepalive one cannot be recalled); if it was already on its
+way and lands late, the core merge keeps a line one side only extended as one
+copy. The save out may never land; with `priorBase` the
+server writes the new text as is over either base and otherwise merges from
+`priorBase`, so the lines of the save out survive in every order, including
+when somebody else's save takes that version first.
+
+Whenever the box is replaced from outside (a merged answer, a 409 merge, a
+collaborator's text), the new text and the new `base` move together, the
+render is forced with `flushSync`, and the textarea's DOM value is written
+before the handler returns. Otherwise a keystroke landing before React's next
+render was made on the pre-merge text, became `local`, and the next save
+deleted the other person's lines; `tests-e2e/notes.spec.ts` injects exactly that
+keystroke and fails without the fix. As on native, the next keystroke after a
+replacement also goes through `rebaseEdit`. Unsaved text lives outside the
+component in a per-trip map, written on every edit and dropped once a save of
+exactly that text succeeds, so a section switch whose save failed (offline, or
+out of retries) loses nothing: the next mount waits for any save still out,
+merges the leftover into the server's copy and saves it.
+
+A live `notes` event is the one invalidation let through while a field has
+focus (`useLiveSection(..., { whileBusy: true })`), because on this page the
+box is the focused field almost the whole time it is open. With nothing
+unsaved, the new text replaces the box once no save is out and the last key
+was over a second ago. With unsaved text the fetched copy is not put in the
+box; a save is started if none is due, and the server's merge brings the other
+person's text back in its answer. The native app reaches the same result by
+waiting.
+
+**One notepad per trip, saved by compare-and-set, merged by the client.** The
+owner asked for one shared page everyone edits, not a note per person, so the
+storage is one `trip_notes` row keyed by the trip, created by the first save;
+no row reads as `{ body: '', version: 0 }`. `PUT .../pretrip/notes` names the
+version it was typed against and applies only if that is still the stored one,
+in a single `UPDATE ... WHERE version = ?` (or, at version 0, an `INSERT ... ON
+CONFLICT DO NOTHING`), so the check and the write cannot be split by another
+save. A plain last-write-wins would have been simpler and would silently delete
+whatever the slower typist's tab had not seen. Live co-editing (OT or CRDTs)
+was the other way out, and is far more than a household-sized trip's notepad
+needs: two people rarely type in it in the same second, and when they do, a 409
+carrying the current notes lets the loser merge and save once more.
+
+**The server merges too, when the save says what it was typed on.** A 409 is
+only safe if someone is there to read it, and the two saves most likely to race
+are the two that nobody reads: the `keepalive` save sent while the tab is
+hidden or closing, and the save from a notepad that has already unmounted (a
+section switch, leaving the tab). Their 409 arrived at a page that no longer
+existed, and the text in them was simply gone. So a PUT may carry `base`, the
+stored text its `body` was derived from. When `base` is there and the stored
+text is no longer `base`, the server runs the same `mergeNotes(base, body,
+stored)` the client would have, saves the result at the stored version
+(retrying the compare-and-set a few times should yet another save slip in) and
+answers 200 with `merged: true`. That is decided by the text, not the version:
+a background or unload save may be sent with an optimistic version (the
+in-flight save's plus one), and if someone else's save took that version first
+the version matches and a plain write would replace their text. Only a stored
+body equal to `base` at the expected version is a plain write. The merge is
+the identical core function, so a merge done on the
+server and one done on the client cannot disagree. A merge that comes out over
+the 20,000 character ceiling writes nothing and answers 400 with the too-long
+sentence and the current notes; silently truncating somebody's paragraph to fit
+would be the same data loss by another route. Without `base` the 409 is
+unchanged, so a client that wants to merge itself still can.
+
+**A speculative save also names the base before its base (`priorBase`).** When
+the tab hides or the app goes to the background while a save is still in
+flight, the client cannot wait for it, so it sends what is in the box with
+`base` set to the in-flight save's text and `version` one past it. If that
+in-flight save never lands, the store still holds the older text, and merging
+from `base` treats every line the in-flight save added as something the store
+deleted: from `Packing`, an in-flight `Packing / milk / eggs` and a speculative
+`Packing / milk / eggs / bread` merged to `Packing / bread`. So such a save also
+carries `priorBase`, the base the in-flight save was itself sent from. A store
+holding either `base` or `priorBase` takes `body` as written, because `body`
+already contains everything since `priorBase`. Anything else is merged from the
+older ancestor, `mergeNotes(priorBase, body, stored)`: if the in-flight save
+landed and somebody saved after it, its lines sit on both sides of the merge and
+collapse into one copy; if it never landed, nothing of the user's is missing
+from `body` to begin with. `priorBase` is validated like `base`, and is refused
+without one.
+
+`rebaseEdit(previous, replaced, incoming)` covers the client-side twin of the
+same race. When a live update swaps the box from `previous` to `replaced`, a
+native text view can report an edit it applied to the text it held before the
+swap, and taking that at face value undoes the other person's save. The edit is
+attributed to whichever parent it is closer to, by the size of the changed
+middle once the common start and end are removed (one keystroke is 1, a paste
+its length). Close to `replaced`, it is used as is; close to `previous`, it is
+merged in with `mergeNotes(previous, incoming, replaced)`. A tie goes to
+`replaced`, the text the box is meant to hold.
+
+The merge (`mergeNotes` in `@trippy/core/notes`) is line-based and
+deliberately keeps everything: a one-sided change applies, the same change on
+both sides applies once, and where both sides changed the same lines
+differently both versions are kept, ours then theirs, with no conflict markers.
+In a notepad a `<<<<<<<` is only more text someone has to find and delete, and
+seeing both versions of a line is exactly the cue to fix it by hand. The one
+exception is a version the other merely continues: when one side's text for
+the block is a prefix of the other's, only the longer is kept. That is one
+person's typing arriving twice out of order, the commonest being a late
+in-flight save of "LONE ONE" landing after the speculative save of "LONE ONE
+TWO" (a request that has reached the server cannot be recalled by the client),
+and keeping both would write the line out twice. Dropping the shorter loses
+nothing, because every character of it is in the longer. Unless the shorter is
+base's text cut short ("Buy milk and eggs" trimmed to "Buy milk" while someone
+else added "!"): that is a deliberate trim, the longer would undo it without a
+trace, so both are kept and the trimmer sees what happened. Edits that
+merely touch (one person on line 3, the other on line 4) are not a conflict,
+unlike a code-review diff3, because duplicating neighbouring lines whenever two
+people typed near each other would make the notepad unusable. It lives in core
+so the web and native clients run the identical merge. `editedAgo` sits beside
+it and spells out month names itself because Hermes has no
+`Intl.RelativeTimeFormat`.
+
+The ceiling is `MAX_NOTES_BODY`, 20,000 characters, five times the per-event
+note: this is the trip's whole scratchpad, and anything longer is a pasted
+document. `updated_by` is ON DELETE SET NULL so deleting an account never takes
+the trip's notes with it, and it is listed in `UNABSORBED_USER_REFERENCES`
+rather than handed over when a placeholder is merged, because only the
+signed-in caller is ever written there and a placeholder cannot sign in. Every
+member may save; the schedule lock is about the board and does not reach
+Preparation. Each save publishes its own `notes` topic rather than `tasks`, so
+the pauses in someone's typing do not reload every open tab's task list and
+budget.
 
 ### 5.0.5 Discover: places, stays and the search
 
@@ -4085,6 +4232,49 @@ answer two different questions, the group's total and one member's share, and bo
 must split assigned and unassigned rows the same way. The pure `totalFor` / `amountFor`
 helpers therefore live in `@trippy/core/pretrip-shares` rather than being copied into the
 native screen; the web file remains a shim so existing imports keep working.
+
+**Native Notes is one page of text, saved as you type.** Preparation's fourth segment
+(Tasks, Packing, Costs, Notes; the four short labels fit 390pt) is the trip's one shared
+notepad, drawn as Apple Notes draws a note: a borderless multiline box in body type on a
+single inset card, growing with its text while the screen scrolls, with no hint text and
+a muted footnote under it ("Saving...", then "Edited by Sam 2 min ago", nothing when
+never edited). It has no Add button, so the tab's add action is null there. The save logic
+is the web's: `base` is the server copy the box's text derives from, `local` is that text,
+one save is in flight at a time, and every save sends `{ body, version, base }` so a stale
+one is merged by the server (`merged: true`); an older server's 409 is merged here with
+`mergeNotes` and resent, up to three times in a row as on the web. Saves go 800ms after
+typing stops and at once on blur, on a segment switch, and on leaving the tab (native
+tabs keep it mounted, so that is a focus effect, not an unmount). Somebody else's text,
+from a live `notes` refetch or pull to refresh, waits as on the web until nothing here
+is unsaved and the typing has paused for a second.
+
+The native box adds one hazard the web does not have. Under the new architecture a value
+set from JavaScript is dropped if the user has typed since, so after a merge or a live
+replacement the next keystroke can arrive carrying the pre-merge text. Kept as is, it
+would be saved against the post-merge base and delete the other person's lines. So `base`
+only ever moves together with the text set beside it, and a replacement stays pending
+until the next keystroke, which is passed through `rebaseEdit` (it tells which of the two
+texts the keystroke was made on, and merges if it was the old one). Unsaved text also
+lives outside the component, per trip, until the server has it: a switch to Tasks whose
+last save failed, or was still being refused, leaves it there, and the notepad's next
+mount merges it into the server's copy and saves it, after waiting for any save still
+out. When the app leaves the foreground it saves at once even with a save out, because
+a backgrounded app may never run again. That second save is sent as though the first had
+landed (its body as `base`, its version plus one), so in the usual case it is a plain
+write of what was typed since. Sent on the first one's own version and base it arrived
+as a stale second edit of the line just typed, and the server's merge kept both copies of
+that line. It also carries `priorBase`, the base the first save was itself sent from:
+the server plain-writes only when the stored text is `base` or `priorBase`, and otherwise
+merges from `priorBase`. So if the first save never lands, or somebody else's save takes
+its version first, the second is merged rather than written over what is stored, and
+neither the first save's lines nor theirs are lost. The first save's request is cancelled
+as the second goes out: the second carries all of its text, and the first landing after
+it would be merged as a stale edit of the same line and leave that line twice. With the
+first save cancelled nothing else will retry, so a failed second save shows the save
+error and the notepad saves again when the app comes back to the foreground.
+The screen's scroll view takes the keyboard as a native inset (`Screen keyboardInsets`),
+the reasoning `Sheet` gives, so the caret can scroll clear of the keyboard under native
+tabs.
 
 **Native Discover keeps the web's list model and stays list-first.** Cities stay
 the standing axis, filters stay the web's four (on a phone labelled All / Sights / Food /
@@ -8193,6 +8383,8 @@ DELETE /api/trips/:tripId/pretrip/tasks/:taskId
 POST   /api/trips/:tripId/pretrip/costs
 PUT    /api/trips/:tripId/pretrip/costs/:itemId
 DELETE /api/trips/:tripId/pretrip/costs/:itemId
+GET    /api/trips/:tripId/pretrip/notes                { body, version, updatedAt, updatedBy }
+PUT    /api/trips/:tripId/pretrip/notes                { body, version, base?, priorBase? }; stale: merged if base, else 409 + current notes
 
 GET    /api/trips/:tripId/people                       members, invited ones included
 POST   /api/trips/:tripId/people/invites

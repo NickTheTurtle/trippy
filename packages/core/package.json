@@ -16,6 +16,7 @@
 		"./plan": "./src/plan.ts",
 		"./span": "./src/span.ts",
 		"./pretrip-shares": "./src/pretrip-shares.ts",
+		"./notes": "./src/notes.ts",
 		"./currency": "./src/currency.ts",
 		"./api-types": "./src/api-types.ts",
 		"./currency-names": "./src/currency-names.ts",

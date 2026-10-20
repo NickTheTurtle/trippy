@@ -19,16 +19,18 @@ import { shareLabel } from '../components/ui/ViewAsBar';
 import { PlusIcon } from '../components/ui/icons';
 import EditTask from './pretrip/EditTask';
 import EditCost from './pretrip/EditCost';
+import Notes from './pretrip/Notes';
 import { totalFor } from './pretrip/shares';
 import { copy } from '../copy';
 
 const cp = copy.preparation;
 
 /**
- * Preparation: the tasks, the packing list and the cost estimates.
+ * Preparation: the tasks, the packing list, the cost estimates and the shared
+ * notepad.
  *
- * This file is composition only. The two lists, the estimates table and the
- * two dialogs live in `pages/pretrip/`.
+ * This file is composition only. The two lists, the estimates table, the
+ * notepad and the two dialogs live in `pages/pretrip/`.
  */
 export default function Pretrip() {
 	const { trip } = useTrip();
@@ -76,7 +78,8 @@ export default function Pretrip() {
 			label: cp.sections.packing,
 			badge: data.packing.length - packedCount || null
 		},
-		{ id: 'costs', label: cp.sections.costs, badge: null }
+		{ id: 'costs', label: cp.sections.costs, badge: null },
+		{ id: 'notes', label: cp.sections.notes, badge: null }
 	];
 
 	// Whole units: these are estimates, and the cents on a guessed number are
@@ -140,32 +143,36 @@ export default function Pretrip() {
 	const rest = section === 'tasks' ? data.tasks.filter((t) => !isMine(t, data.me)) : data.packing;
 	const split = section === 'tasks' && rest.length < data.tasks.length;
 
-	const addButton = (
-		<button
-			className="btn primary"
-			onClick={() =>
-				section === 'costs'
-					? setEditing({
-							id: null,
-							label: '',
-							amount: '',
-							currency: data.currency,
-							category: data.categories[0] ?? '',
-							assignees: []
-						})
-					: setEditingTask({
-							id: null,
-							kind: section === 'tasks' ? 'task' : 'packing',
-							label: '',
-							assignees: [],
-							version: null
-						})
-			}
-		>
-			<PlusIcon />
-			{cp.add}
-		</button>
-	);
+	// The notepad has nothing to add: it is one page, written in place. The
+	// header row still renders there (wide), empty, so the panel starts at the
+	// same height as on every other section.
+	const addButton =
+		section === 'notes' ? null : (
+			<button
+				className="btn primary"
+				onClick={() =>
+					section === 'costs'
+						? setEditing({
+								id: null,
+								label: '',
+								amount: '',
+								currency: data.currency,
+								category: data.categories[0] ?? '',
+								assignees: []
+							})
+						: setEditingTask({
+								id: null,
+								kind: section === 'tasks' ? 'task' : 'packing',
+								label: '',
+								assignees: [],
+								version: null
+							})
+				}
+			>
+				<PlusIcon />
+				{cp.add}
+			</button>
+		);
 
 	return (
 		<div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[190px_minmax(0,1fr)]">
@@ -215,7 +222,11 @@ export default function Pretrip() {
 					</div>
 				)}
 
-				{section !== 'costs' ? (
+				{section === 'notes' ? (
+					// Keyed by trip: a trip switch starts a new notepad rather than
+					// carrying one trip's unsaved text into the other's.
+					<Notes key={trip.id} tripId={trip.id} />
+				) : section !== 'costs' ? (
 					<>
 						{section === 'tasks' && <MyTasks {...taskProps} items={data.tasks} />}
 						{/* An empty list hands the whole card to `EmptyState`, which brings

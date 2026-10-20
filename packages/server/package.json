@@ -19,6 +19,7 @@
 		"./mail": "./src/providers/mail.ts",
 		"./oauth": "./src/infra/oauth.ts",
 		"./members": "./src/persistence/members.ts",
+		"./notes": "./src/persistence/notes.ts",
 		"./photos": "./src/photos.ts",
 		"./photo-cache": "./src/providers/photo-cache.ts",
 		"./places": "./src/providers/places.ts",

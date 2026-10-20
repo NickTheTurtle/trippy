@@ -27,6 +27,7 @@ import {
 import { TaskSheet } from '../../../src/screens/TaskSheet';
 import { CostSheet } from '../../../src/screens/CostSheet';
 import { DoneSheet } from '../../../src/screens/DoneSheet';
+import { Notes } from '../../../src/screens/pretrip/Notes';
 import { Tag } from '../../../src/ui/marks';
 import { useToast } from '../../../src/ui/Toast';
 import { useTripAddAction } from '../../../src/ui/TripAddAction';
@@ -72,7 +73,7 @@ type Data = {
 	budget: { items: CostItem[]; grandTotal: number };
 };
 
-const SECTIONS = ['tasks', 'packing', 'costs'] as const;
+const SECTIONS = ['tasks', 'packing', 'costs', 'notes'] as const;
 type Section = (typeof SECTIONS)[number];
 
 export default tripTab(Pretrip);
@@ -87,12 +88,19 @@ function Pretrip() {
 	const [editingCost, setEditingCost] = useState<CostItem | null>(null);
 	const [addingCost, setAddingCost] = useState(false);
 	const [viewAs, setViewAs] = useState('');
-	useTripAddAction(
-		useCallback(() => {
-			if (section === 'costs') setAddingCost(true);
-			else setAddingTask(true);
-		}, [section])
-	);
+	// Notes has nothing to add, so the floating Add button goes away there.
+	const add = useCallback(() => {
+		if (section === 'costs') setAddingCost(true);
+		else setAddingTask(true);
+	}, [section]);
+	useTripAddAction(section === 'notes' ? null : add);
+	// Pull to refresh reloads the page and, through this key, the notepad,
+	// which has its own endpoint.
+	const [notesRefresh, setNotesRefresh] = useState(0);
+	const refresh = useCallback(() => {
+		reload();
+		setNotesRefresh((n) => n + 1);
+	}, [reload]);
 
 	if (loading && !data) return <Loading />;
 	if (!data) {
@@ -110,7 +118,10 @@ function Pretrip() {
 
 	return (
 		<>
-			<Screen refreshControl={<RefreshControl refreshing={loading && !!data} onRefresh={reload} />}>
+			<Screen
+				keyboardInsets={section === 'notes'}
+				refreshControl={<RefreshControl refreshing={loading && !!data} onRefresh={refresh} />}
+			>
 				{error ? <FormError message={error} /> : null}
 				<SegmentedControl
 					items={SECTIONS.map((key) => ({ key, label: copy.preparation.mobileSections[key] }))}
@@ -118,7 +129,9 @@ function Pretrip() {
 					onPick={(key) => setSection(key as Section)}
 				/>
 
-				{section === 'costs' ? (
+				{section === 'notes' ? (
+					<Notes tripId={tripId} refreshKey={notesRefresh} />
+				) : section === 'costs' ? (
 					<Costs
 						data={data}
 						viewAs={viewAs}

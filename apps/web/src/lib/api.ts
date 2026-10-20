@@ -29,15 +29,36 @@ import { copy } from '../copy';
 
 export class ApiError extends Error {
 	readonly status: number;
+	/**
+	 * The parsed body of the refusal, or null. Most callers only need the
+	 * message, but a 409 can carry the server's current copy (the notepad's
+	 * does), and making the caller ask again for it would be a second request
+	 * racing the next writer.
+	 */
+	readonly payload: unknown;
 
-	constructor(status: number, message: string) {
+	constructor(status: number, message: string, payload: unknown = null) {
 		super(message);
 		this.name = 'ApiError';
 		this.status = status;
+		this.payload = payload;
 	}
 }
 
-type Options = { method?: string; body?: unknown; signal?: AbortSignal };
+type Options = {
+	method?: string;
+	body?: unknown;
+	signal?: AbortSignal;
+	/**
+	 * Let the request outlive the page, for a save sent as the tab is hidden or
+	 * closed. Browsers cap a keepalive body at 64KB, so a larger one is sent as
+	 * an ordinary request rather than refused outright.
+	 */
+	keepalive?: boolean;
+};
+
+/** Browsers refuse a keepalive request whose body is over 64KB. */
+const KEEPALIVE_MAX_BYTES = 64 * 1024 - 512;
 
 /**
  * Who to tell when a request comes back 401.
@@ -61,18 +82,23 @@ export function onUnauthorized(listener: (() => void) | null): void {
 
 export async function api<T>(path: string, options: Options = {}): Promise<T> {
 	const { method = 'GET', body, signal } = options;
+	const json = body === undefined ? undefined : JSON.stringify(body);
+	const keepalive =
+		options.keepalive === true &&
+		(json === undefined || new TextEncoder().encode(json).length <= KEEPALIVE_MAX_BYTES);
 
 	let res: Response;
 	try {
 		res = await fetch(`/api${path}`, {
 			method,
 			signal,
+			keepalive,
 			// The session cookie is httpOnly, so the client cannot read or attach it
 			// by hand. Same-origin is the default in modern browsers, but stating it
 			// keeps the guarantee explicit if this ever moves to a separate host.
 			credentials: 'same-origin',
-			headers: body === undefined ? undefined : { 'content-type': 'application/json' },
-			body: body === undefined ? undefined : JSON.stringify(body)
+			headers: json === undefined ? undefined : { 'content-type': 'application/json' },
+			body: json
 		});
 	} catch (err) {
 		// An abort is the caller deliberately cancelling, not a failure to report.
@@ -91,7 +117,7 @@ export async function api<T>(path: string, options: Options = {}): Promise<T> {
 				? (payload as { error: string }).error
 				: copy.api.requestFailed;
 		if (res.status === 401 && !path.startsWith('/auth/')) unauthorized?.();
-		throw new ApiError(res.status, message);
+		throw new ApiError(res.status, message, payload);
 	}
 
 	return payload as T;
