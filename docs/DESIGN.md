@@ -287,10 +287,36 @@ questions: the strip is for "not today, the next one", the field is for "the
 Thursday after next".
 
 **Still one day on screen.** The strip snaps `x mandatory` to whole panels. Half
-a day beside half another is not two days, it is one board with the hours
-written twice, because the hour gutter belongs to a panel. Snapping also makes
-"which day is the reader on" an answer rather than a measurement, and that
-answer is what becomes the url.
+a day beside half another is not two days, it is two half-days read against one
+clock, and no one can tell which of them a block at the seam belongs to.
+Snapping also makes "which day is the reader on" an answer rather than a
+measurement, and that answer is what becomes the url.
+
+**The time axis stands still; the days slide past it.** Each panel used to draw
+its own hour labels, so on every step or swipe the clock slid sideways with the
+day, and halfway through one there were two clocks on screen. The hours are the
+one thing that is the same on every day, so there is now one time column, a
+direct child of `.boardscroll` with `position: sticky; left: 0`, laid out beside
+the strip (`.boardscroll` is a flex row of the column and `.daytrack`). Sticky
+rather than a separate box scrolled in step by script, because it shares the
+scroller with the days: it scrolls up and down with them pixel for pixel, and
+there is no frame in which it can trail. It must be the box's own child: a
+sticky element only travels inside its parent, and inside the strip, which is
+one box wide, the column was dragged off with the days as soon as the strip
+passed its first day. It is opaque and above the blocks, so the day leaving the
+box passes under it, and below a carried block (z-index 20), which may be held
+over it on its way to another date. Each panel keeps its hour rules, bare, from
+the same origin, so a label sits on its rule at every scroll; the `.still` and
+`.rebase` transition switches cover the column as they cover the grid.
+
+A day is now the box less the gutter. The strip is `100% - --hourgutter` wide
+and each panel is the whole strip, so days sit edge to edge; the box's
+`scroll-padding-left` is the gutter, so every snap point is a day's left edge
+against the column, which is exactly `index * day width`. Every seat, slide,
+settle and edge-travel rate reads that width off a panel (`stride()` in
+`Schedule.tsx`) rather than taking `clientWidth`, so the stylesheet owns the
+number. The lodging band and the date header are outside the box and did not
+change.
 
 **One scroll container, two axes.** `.boardscroll` gains `overflow-x`; the
 panels are not given a scroller of their own. A box with `overflow-x: auto`
@@ -310,8 +336,11 @@ would paint the old offset first, which is a flash of the wrong day.
 
 The cost is real and bounded: `dayLegs` runs a routing pass per day served, so
 first load triples. It persists through `saveAutoLeg` and sits behind
-`routingGate`, and the agenda is deliberately still served one day, since a list
-has no neighbour to scroll to.
+`routingGate`. The agenda is served the same three days. It used to get one,
+since a list has no neighbour to scroll to, but then a step held the old day on
+screen under the new date for a whole round trip; with the neighbours in hand
+both views draw the next day on the tap. The extra pass is one the next step
+would have paid anyway, and it is saved, so each day is routed once.
 
 **A settle writes the url with `replace`.** A flick across the trip is one
 continuous movement, not a series of visits, so it leaves one history entry
@@ -331,12 +360,61 @@ keeps the previous data rather than blanking, which is exactly what makes that
 possible. They remain `<Link>`s so the board stays addressable and the back
 button still walks the days.
 
-**`useSlideIn` no longer fires on a day change.** It scripted a 64px slide of
-the whole card, standing in for a movement the board could not make. The board
-can make it now, and the script became a second motion disagreeing with the
-scroll about how far the board went. A view change still slides, because Day and
-Agenda really do replace what the card draws and there is no gesture between
-them to borrow.
+**An arrow's slide is a tween, not the browser's smooth scroll.** The slide
+began as `scrollTo({ behavior: 'smooth' })`, which cannot be told where it is
+going once it has started. The payload for the new day lands part-way through
+(about 100ms locally, longer in production), the strip re-indexes under it, and
+the re-seat above had to set `scrollLeft` to keep the day still, which cancelled
+the glide. Measured frame by frame, the reader saw 30 to 60px of motion and then
+a jump of the remaining 550. `stepTo` now runs its own ease-out over
+`GLIDE_MS` (320ms), and the re-seat, finding a slide in flight, moves its start,
+its end and the offset on screen by the re-index (how far a day the old three
+and the new three share changed index) and lets it finish. Snapping is off for
+the length of the slide, for the reason it is off under a carried block: a
+mandatory snap container answers every per-frame write by throwing the strip
+back. It is an inline style rather than a class so a render mid-slide cannot
+drop it. Progress is counted a frame at a time, capped at two frames, rather
+than read off the clock, because drawing the new panels is one long frame and a
+clock-driven slide leapt a third of a day to catch up. A hand on the strip (a
+press, a touch, a sideways wheel) ends the slide where it is; a swipe is still
+native scroll and snap, untouched. Under `prefers-reduced-motion` the arrow puts
+the day there at once.
+
+Only the payload for the day the slide is heading to may rebase it. Any other
+payload means the reader has gone somewhere else since the click (Back, the
+date picker), and its three days can still hold the slide's day: rebased
+anyway, the slide landed there and the settle wrote that day over the history
+entry the reader had just returned to. Such a payload ends the slide and seats
+its own day. A Back pressed within a few milliseconds of the click is not even
+rendered as a change, since the router commits the entry it was already on, so
+nothing is fetched and no payload comes at all; the strip therefore also listens
+for `popstate` and, when the url's day is on the strip and the strip is not on
+it, turns towards it from wherever it is. The same listener makes Back and
+Forward between neighbouring days slide like the arrows rather than cut.
+
+**`useSlideIn` no longer fires on a day change of the day board.** It scripted a
+64px slide of the whole card, standing in for a movement the board could not
+make. The board can make it now, and the script became a second motion
+disagreeing with the scroll about how far the board went. A view change still
+slides, because Day and Agenda really do replace what the card draws and there
+is no gesture between them to borrow.
+
+**The agenda steps with a short slide and a fade.** The agenda is one list with
+no strip under it, so a step simply replaced its rows, with no sign of which way
+the reader went. It now takes `useSlideIn` with a 28px, 200ms slide from the
+side of travel and a fade over the swap: a page of a list turning, not the board
+moving. Nothing vertical moves; the list keeps its scroll. The hook now starts
+its animation in a layout effect, since a passive one let the browser paint the
+new content in place for a frame before jumping it sideways to begin. The list
+is built from the day under the reader rather than the url's, and the stepper
+names the same day, so the title and the rows always change together. The
+agenda payload carries the same three days as the day board's, so the day an
+arrow asks for is already on the client: the list switches and slides on the
+click, and the fetch that follows only confirms it. The map follows the list
+there, drawn from the day being read, so it flies on the tap too. The day board
+keeps its map on the url's day: the day being read changes at the halfway point
+of every swipe, and a camera that flew off mid-gesture would be a second motion
+arguing with the hand.
 
 **Carrying a block across dates.** A block is drawn inside its own day's panel,
 so it would slide out from under a still hand as the strip travels. It is
@@ -381,6 +459,74 @@ alone, a neighbour's 04:00 block was drawn above the top of its own panel, where
 it is clipped and sitting at the wrong hour. The cost is that a neighbour's
 early start opens the day you are reading too, which is the right way round: an
 hour of empty grid is cheaper than a block in the wrong place.
+
+**A day change never moves the clock.** The hour at the top of the box is the
+reader's, across days exactly as within one. Two things used to move it.
+
+The window followed the three days the strip holds, and the strip recycles them
+on every step, so a day with an early start coming into the three (or leaving
+it) moved the grid's origin and every hour line slid down or up under a reader
+who had only asked for tomorrow. The window now keeps a floor for the visit, per
+trip and view: the earliest start it has opened to so far. It can open earlier;
+it never closes again while the reader stays. When it opens because of a day
+change, a live reload of somebody else's block or a change of "view as", the box
+is scrolled down by exactly what opened, in the same layout pass and before
+paint, and the board's own transitions are off for that one frame (`.rebase`),
+because every block and hour line eases its `top` and an ease on top of the
+correction is the very slide being removed. The new hours are there above, for
+a reader who scrolls up to them. The cost is the shared origin's again, an hour
+of empty grid above a day that does not need it.
+
+A window the reader opened themselves keeps the behaviour it always had. A draft
+typed into a dialog opens it through the draft as it is typed, with nothing
+offset, and closes it again on a cancel. The floor is fed from the days as
+saved at all times, a dialog open or not: freezing it while a draft existed let
+the window follow every saved start under a docked dialog, so a step or a live
+reload that brought an earlier one opened the grid with no correction and the
+clock slid. A drag opens it to the minute through `openFloor` and the glue,
+unchanged. The reload that follows either write is marked as the reader's own
+(`ownWrite`), so the opening it brings eases in rather than being scrolled out
+of sight above the box, which is where the block they just placed would
+otherwise be.
+
+The second was the seat on the first block, which ran on every day the board
+arrived at: step from a day that starts at nine to one that starts at eleven and
+on a phone the hours scrolled two hours up, step back and they stayed there. It
+now runs only on arriving at the day board (the page loading, or coming back
+from the agenda), never on a step.
+
+**The lodging band only grows during a visit.** The band above the board names
+the stays of the day being read, so stepping onto a day with fewer of them made
+it shorter and pulled the whole board up: 42px at 390px, one row of chips,
+which reads as the clock jumping even though the hours inside the box did not
+move. The same rule as the window's floor, per trip and view: the tallest band
+seen so far is held as its `min-height`, measured off the band as rendered, and
+the rows it has sit at the top of that room (`align-content: flex-start`). It
+is also kept per width, since the chips wrap differently on a rotated phone, and
+not taken before the web font is in, because the wider fallback wraps the band
+onto a row it loses once the font arrives and holding that row would keep empty
+space for the whole visit. A day with more stays still grows the band; that is
+the one direction it may move.
+
+**The map flies between days.** Both maps used to cut: Google's `fitBounds`,
+`setCenter` and `setZoom` jump, so a day change snapped the camera to the new
+framing and its tiles loaded in under the reader. Google has no animated fit, so
+`map-camera.ts` computes the one `fitBounds(bounds, 40)` would choose (Web
+Mercator, the map div's size, the same padding) and the camera flies there with
+`moveCamera` once a frame, along the smooth zoom-and-pan of van Wijk and Nuij,
+the curve Mapbox's `flyTo` uses: within the view it is close to a pan with the
+zoom eased across it, and a jump to another city climbs out until both ends are
+on screen, crosses and comes back down. The raster map is built with
+`isFractionalZoomEnabled` so the zoom passes through every value rather than
+stepping a level at a time. About 600ms, up to 900ms for a jump between cities.
+Leaflet does the same with its own `flyToBounds` and `flyTo`. A focus on a block
+and the return from one fly the same way. A new target mid-flight turns the
+camera from wherever it is. A hand on the map (a drag, a wheel, a pinch, a press
+on its controls) ends a flight where it stands, and the rule that the camera is
+the reader's is unchanged: it only moves when the day's points change. The first
+framing on page load is still a cut, since the map was just built on the city
+and a page should not open by flying in from it, and so is every move under
+`prefers-reduced-motion`.
 
 ### A suggested time follows the day; a chosen one does not
 
@@ -1161,7 +1307,10 @@ the width of an `.hourline` label, and the `.stayband`'s `margin-left`. On a
 phone one of them was set back to 0 while the other three kept their value, so
 the stay band sat 56px to the left of every block under it. It is now a single
 `--hourgutter` on `.sched` that all four derive from, which is why the defect
-could exist and why it cannot recur.
+could exist and why it cannot recur. Since the time axis became one fixed column
+beside the strip, the four are the column's width, the strip's snap padding,
+the label width and the band's indent; the grid and the lane no longer indent at
+all.
 
 Its phone value is 44px, measured rather than guessed: the widest label the
 board ever writes is "12 AM" at 33.56px, so a 36px label box holds it on one
@@ -4331,6 +4480,78 @@ a list instead of crashing Metro. No Google key is needed for Expo Go. A
 production Android build will need an Android Maps SDK key wired through
 `app.json` and the `react-native-maps` config plugin; that is a build-time
 secret, not a value to commit here.
+
+**Switching days moves the date, never the clock.** The owner's report was that
+stepping between days on the phone was janky: the hours scrolled up and down and
+the map cut from one zoom to the next. Each piece had its own cause, and each
+rule below answers one.
+
+- _The board's window only opens earlier, and only saved days open it._
+  `DayBoard` drew each day from its own earliest hour (6 AM at the latest), so
+  a step from a 9 AM day to one with a 5 AM run moved every hour line, and the
+  step back moved them again. The board now draws from a floor, the earliest
+  hour any saved day has opened at on this trip during the visit, held by the
+  Calendar screen so a trip to the agenda and back does not reset it. Only the
+  saved days feed it: a step, a live reload, or a change of who the board is
+  read for can lower it, and nothing raises it. When it is lowered, the
+  board's scroll moves down by exactly the time added, in a layout effect, so
+  what was at the top of the board stays there. The reader's own unsaved
+  times, an open sheet's draft or a drop still waiting on its write, may open
+  the window for as long as they stand, as they always could, but they neither
+  move the floor nor offset the scroll, matching the web board. A 4:40 picked
+  in the sheet and then cancelled used to leave the board open from 4 AM for
+  the rest of the visit, and the reader's own drop moved the scroll under
+  their finger. A save from the sheet keeps its draft drawn until the
+  payload that follows it lands, and that payload counts as the reader's own
+  write (the web board's `ownWrite`): the floor drops to it with no offset.
+  Dropping the draft as the sheet closed drew the old day for the round trip,
+  closing the window and then reopening it with an offset that pushed the
+  block just saved off the top.
+- _The seat on the first block runs once._ It used to run on every day change
+  and put the board at the new day's first block, which on its own was the
+  "time scrolls up and down". It now runs only when the board first appears
+  (the screen opening, or a switch from Agenda to Day), where there is no
+  position of the reader's to keep.
+- _A step draws the next day from what is held._ The payload already carries the
+  day either side of the one asked for, so `useScheduleDay` shows the asked-for
+  day as soon as the payload holds it rather than holding the old day for a
+  round trip. The server sends that three-day payload for either view; the
+  client always names the day view in its request, so switching views does not
+  change the url and is not a reload. A day the payload does not hold (a jump from the date
+  picker) still waits for its payload. The arrows read the shown day's
+  neighbours; the far neighbour of a held day is unknown until its payload
+  lands, so the arrow stays enabled and a press made then is carried out when
+  it arrives.
+- _The transition is sideways, short, and optional._ `DaySlide`
+  (`src/ui/DaySlide.tsx`) brings the new day's blocks, or the agenda list, in
+  24px from the side the reader stepped towards over 200ms. Only the blocks
+  move on the board; the hour grid behind them stays put, because the clock has
+  not changed. Under Reduce Motion the day is replaced with no animation. The
+  ease is clamped to [0, 1]: a slow render can hand the first frame a time
+  before the animation's start, and unclamped that threw the day 100px the
+  wrong way for a frame.
+- _The time axis is fixed._ The hour labels sit in their own gutter and the
+  hour lines span the visible lanes, both outside the board's sideways scroller
+  and outside the slide; only the day's blocks and journeys scroll sideways
+  and slide, as in Calendar. The gutter used to scroll with the lanes, so on a
+  day too wide for the phone, a reader who had scrolled sideways lost the hours
+  off the left edge, and a step to a narrower day clamped the scroll and threw
+  the hours back by a lane or two (104 to 208px in the web preview). The lanes
+  are clipped to their own width, so the slide's offset never widens what
+  scrolls; on the web it did, and the clamp crept along with the animation.
+- _A load nobody pulled for does not move the page._ The Calendar's
+  `RefreshControl` was given `loading`, and on iOS a refresh that was not pulled
+  for is begun programmatically by moving the scroll view's content down by
+  the spinner's height and back when the load ends. Every step and every live
+  update did that. `usePullRefresh` spins only for a pull.
+- _The map camera animates, and only when its aim changes._ The map was a
+  controlled `region`, so a new day replaced the view in one frame, and a
+  re-render could undo a pan. It now takes `initialRegion` once and calls
+  `animateToRegion` (500ms, or no animation under Reduce Motion) when the day's
+  points, the focused pin or a repeat focus change, or the focus is cleared.
+  A reload that leaves the points where they were leaves the reader's pan and
+  zoom alone. `DayMap.web.tsx` is a list with no camera, so it has nothing to
+  mirror.
 
 **Auth is the same session row presented two ways.** A browser gets an httpOnly
 cookie, which is the right answer there and the one thing script cannot read. A
@@ -7752,10 +7973,12 @@ clearing the id, since the map only re-aims when the key changes.
 **The board opens on its first block when a phone would hide it.** The box has a
 320px floor, and at 390x844 the chrome above it leaves less than that on
 screen, so a day starting at nine opened on three empty hours and a sliver of
-block along the fold. On arriving at a day, and only when the first block would
-sit in the lower half of what is actually visible (measured against the
-viewport, not the box), the box scrolls to half an hour before it. A desktop box
-shows the morning whole and never moves.
+block along the fold. On arriving at the day board (the page loading, or coming
+back from the agenda), and only when the first block would sit in the lower half
+of what is actually visible (measured against the viewport, not the box), the
+box scrolls to half an hour before it. A desktop box shows the morning whole and
+never moves. It used to run on every day the board arrived at, which moved the
+clock on a day step; see "A day change never moves the clock" under M3.
 
 **The strip keeps its seat through a width change.** The seat is `index *
 width` taken when the payload lands; a width change without a window resize (a

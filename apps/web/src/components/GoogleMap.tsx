@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { mapCard, cardAnchor, createCardLayer } from './map-card';
+import { easeInOut, fitCamera, flight, flightMs, type Camera } from './map-camera';
 import { groupColocated } from './map-groups';
 import MapBoundary from './MapBoundary';
 
@@ -260,6 +261,92 @@ function GoogleMapInner({
 	const focusRef = useRef(focus);
 	focusRef.current = focus;
 
+	/**
+	 * The camera's flight, while one is under way, and whether the map has been
+	 * framed yet.
+	 *
+	 * Every move the page makes to the camera flies there: a new day's pins, a
+	 * block clicked, a focus cleared. The first framing does not. The map is
+	 * built on the trip's city, or on the world when there is none, and a page
+	 * that opened by flying in from either would be making the reader watch a
+	 * load. A flight asked for while another is under way starts from wherever
+	 * the camera is, so a quick second step turns the camera rather than
+	 * finishing the first trip and then making the second. A hand on the map
+	 * (a drag, a wheel, a pinch, a press on its controls) ends it where it is:
+	 * the camera is the reader's the moment they reach for it.
+	 */
+	const flightRaf = useRef(0);
+	const framedOnce = useRef(false);
+	const stopFlight = useCallback(() => {
+		cancelAnimationFrame(flightRaf.current);
+		flightRaf.current = 0;
+	}, []);
+	const aim = useCallback(
+		(map: Gm, to: Camera) => {
+			stopFlight();
+			const jump = () => map.moveCamera({ center: { lat: to.lat, lng: to.lng }, zoom: to.zoom });
+			const first = !framedOnce.current;
+			framedOnce.current = true;
+			const c = map.getCenter?.();
+			const z = map.getZoom?.();
+			if (first || !c || typeof z !== 'number' || stillness()) return jump();
+			const el = elRef.current;
+			const path = flight(
+				{ lat: c.lat(), lng: c.lng(), zoom: z },
+				to,
+				Math.max(el?.clientWidth ?? 0, el?.clientHeight ?? 0)
+			);
+			if (path.span < 1e-3) return jump();
+			const ms = flightMs(path.span);
+			const t0 = performance.now();
+			const step = (now: number) => {
+				const t = Math.min(1, Math.max(0, (now - t0) / ms));
+				const cam = path.at(easeInOut(t));
+				map.moveCamera({ center: { lat: cam.lat, lng: cam.lng }, zoom: cam.zoom });
+				flightRaf.current = t < 1 ? requestAnimationFrame(step) : 0;
+			};
+			flightRaf.current = requestAnimationFrame(step);
+		},
+		[stopFlight]
+	);
+
+	/**
+	 * Put the camera on the framed points, or on the city when there are none.
+	 *
+	 * One rule for the first draw and for a cleared focus, so the two cannot
+	 * disagree about what "the whole day" looks like. The fit is the one
+	 * `fitBounds(bounds, 40)` would choose, computed so it can be flown to; the
+	 * SDK's own fit is only the fallback for a map with no room to measure.
+	 */
+	const frame = useCallback(
+		(map: Gm, bounds: Gm, count: number, c: MapCenter) => {
+			if (count > 1 && bounds && !bounds.getNorthEast().equals(bounds.getSouthWest())) {
+				const sw = bounds.getSouthWest();
+				const ne = bounds.getNorthEast();
+				const el = elRef.current;
+				const to = fitCamera(
+					{ lat: sw.lat(), lng: sw.lng() },
+					{ lat: ne.lat(), lng: ne.lng() },
+					el?.clientWidth ?? 0,
+					el?.clientHeight ?? 0,
+					FIT_PADDING
+				);
+				if (to) aim(map, to);
+				else {
+					stopFlight();
+					framedOnce.current = true;
+					map.fitBounds(bounds, FIT_PADDING);
+				}
+			} else if (count >= 1 && bounds) {
+				const at = bounds.getCenter();
+				aim(map, { lat: at.lat(), lng: at.lng(), zoom: 14 });
+			} else if (c?.lat != null && c?.lng != null) {
+				aim(map, { lat: c.lat, lng: c.lng, zoom: 12 });
+			}
+		},
+		[aim, stopFlight]
+	);
+
 	useEffect(() => {
 		let cancelled = false;
 		const report = (reason: MapsFailure) => {
@@ -279,12 +366,19 @@ function GoogleMapInner({
 					center:
 						c?.lat != null && c?.lng != null ? { lat: c.lat, lng: c.lng } : { lat: 20, lng: 0 },
 					zoom: c?.lat != null ? 12 : 2,
+					// So a flight passes through every zoom on its way rather than
+					// stepping a whole level at a time, and so a fit is as tight as
+					// its padding rather than rounded down to the next level.
+					isFractionalZoomEnabled: true,
 					mapTypeControl: false,
 					streetViewControl: false,
 					fullscreenControl: true
 				});
+				framedOnce.current = false;
 				// A tap opens a card, so a tap on the map behind it is what puts it away.
 				mapRef.current.addListener('click', () => layerRef.current?.hide(true));
+				// A drag is the reader taking the camera; a flight under way stops.
+				mapRef.current.addListener('dragstart', stopFlight);
 				setReady((n) => n + 1);
 			})
 			// Swallowed here once, which is how a page with a broken key went on
@@ -294,6 +388,7 @@ function GoogleMapInner({
 		return () => {
 			cancelled = true;
 			stopWatching();
+			stopFlight();
 			for (const o of markers.current) o.setMap?.(null);
 			for (const o of lines.current) o.setMap?.(null);
 			layerRef.current?.destroy();
@@ -305,7 +400,24 @@ function GoogleMapInner({
 			fitted.current = '';
 			mapRef.current = null;
 		};
-	}, [apiKey]);
+	}, [apiKey, stopFlight]);
+
+	/* A wheel, a pinch or a press anywhere on the map, its own controls included,
+	   ends a flight where it is. Listened for on the way down, before the SDK
+	   handles it, so its zoom starts from a camera that has stopped moving. */
+	useEffect(() => {
+		const el = elRef.current;
+		if (!el) return;
+		const opts = { capture: true, passive: true } as const;
+		el.addEventListener('wheel', stopFlight, opts);
+		el.addEventListener('pointerdown', stopFlight, opts);
+		el.addEventListener('touchstart', stopFlight, opts);
+		return () => {
+			el.removeEventListener('wheel', stopFlight, opts);
+			el.removeEventListener('pointerdown', stopFlight, opts);
+			el.removeEventListener('touchstart', stopFlight, opts);
+		};
+	}, [stopFlight]);
 
 	useEffect(() => {
 		const map = mapRef.current;
@@ -509,8 +621,7 @@ function GoogleMapInner({
 		const map = mapRef.current;
 		if (!map) return;
 		if (focus?.lat != null && focus?.lng != null) {
-			map.panTo({ lat: focus.lat, lng: focus.lng });
-			map.setZoom(16);
+			aim(map, { lat: focus.lat, lng: focus.lng, zoom: 16 });
 			return;
 		}
 		const { bounds, count } = dayView.current;
@@ -522,22 +633,12 @@ function GoogleMapInner({
 	return <div ref={elRef} className="gmapbox" />;
 }
 
-/**
- * Put the camera on the framed points, or on the city when there are none.
- *
- * One rule for the first draw and for a cleared focus, so the two cannot
- * disagree about what "the whole day" looks like.
- */
-function frame(map: Gm, bounds: Gm, count: number, c: MapCenter): void {
-	if (count > 1 && bounds && !bounds.getNorthEast().equals(bounds.getSouthWest())) {
-		map.fitBounds(bounds, 40);
-	} else if (count >= 1 && bounds) {
-		map.setCenter(bounds.getCenter());
-		map.setZoom(14);
-	} else if (c?.lat != null && c?.lng != null) {
-		map.setCenter({ lat: c.lat, lng: c.lng });
-		map.setZoom(12);
-	}
+/** The room `fitBounds` leaves around the day's pins, in pixels. */
+const FIT_PADDING = 40;
+
+/** Whether the reader has asked for stillness: then the camera cuts, as it used to. */
+function stillness(): boolean {
+	return !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 }
 
 /**

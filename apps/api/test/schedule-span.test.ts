@@ -198,9 +198,9 @@ describe('creating a block that runs past its own day', () => {
 		const id = await created(await post(f, { start: 480, endDay: '2026-10-05', endMin: 0 }));
 		expect(stored(id)).toMatchObject({ day: D1, end_day: D3, end_min: 1440 });
 		const monday = (await (await board(f, `?view=agenda&day=2026-10-05`)).json()) as {
-			board: { events: unknown[] }[];
+			board: { day: string; events: unknown[] }[];
 		};
-		expect(monday.board[0].events).toEqual([]);
+		expect(monday.board.find((b) => b.day === '2026-10-05')!.events).toEqual([]);
 	});
 
 	it('refuses an end before the start', async () => {
@@ -476,15 +476,15 @@ describe('the city a block starts in', () => {
 			await app.request(`/trips/${tripId}/schedule?day=${D3}&view=agenda`, {
 				headers: { cookie }
 			})
-		).json()) as { board: { city: { id: string } | null }[] };
-		expect(body.board[0].city?.id).toBe(tokyo);
+		).json()) as { board: { day: string; city: { id: string } | null }[] };
+		expect(body.board.find((b) => b.day === D3)!.city?.id).toBe(tokyo);
 		// With no stay to read, a day is the trip's first city, as before.
 		const empty = (await (
 			await app.request(`/trips/${tripId}/schedule?day=2026-10-10&view=agenda`, {
 				headers: { cookie }
 			})
-		).json()) as { board: { city: { id: string } | null }[] };
-		expect(empty.board[0].city?.id).toBe(la);
+		).json()) as { board: { day: string; city: { id: string } | null }[] };
+		expect(empty.board.find((b) => b.day === '2026-10-10')!.city?.id).toBe(la);
 	});
 });
 
@@ -560,11 +560,13 @@ describe('correcting the city a journey departs from', () => {
 
 		// Read back and drawn the way the clients draw it: on the arrival clock.
 		const body = (await (await call(`?day=${D2}&view=agenda`)).json()) as {
-			board: { events: SpanRow[] }[];
+			board: { day: string; events: SpanRow[] }[];
 			cities: { id: string; tz: string }[];
 		};
 		const zones = new Map(body.cities.map((x) => [x.id, x.tz]));
-		const row = body.board[0].events.find((e) => (e as SpanRow & { id: string }).id === flight)!;
+		const row = body.board
+			.find((b) => b.day === D2)!
+			.events.find((e) => (e as SpanRow & { id: string }).id === flight)!;
 		expect(segmentOn(row, D2, (id) => (id ? zones.get(id) : null))).toMatchObject({
 			start: 60,
 			end: 660
@@ -668,9 +670,11 @@ describe('correcting the city a journey departs from', () => {
 		expect(cityOf(flight)).toBe(tokyo);
 
 		const body = (await (await call(`?day=${D2}&view=agenda`)).json()) as {
-			board: { legs: { fromEventId: string; toEventId: string }[] }[];
+			board: { day: string; legs: { fromEventId: string; toEventId: string }[] }[];
 		};
-		expect(body.board[0].legs.map((l) => [l.fromEventId, l.toEventId])).toEqual([
+		expect(
+			body.board.find((b) => b.day === D2)!.legs.map((l) => [l.fromEventId, l.toEventId])
+		).toEqual([
 			[stay, museum],
 			[flight, lunch]
 		]);
@@ -748,11 +752,10 @@ describe('reading a span back', () => {
 
 		for (const day of [D1, D2, D3]) {
 			const agenda = (await (await board(f, `?view=agenda&day=${day}`)).json()) as Payload;
-			expect(agenda.board.map((b) => b.day)).toEqual([day]);
-			expect(agenda.board[0].events.map((e) => e.id)).toEqual([id]);
+			expect(agenda.board.find((b) => b.day === day)!.events.map((e) => e.id)).toEqual([id]);
 		}
 		const after = (await (await board(f, `?view=agenda&day=2026-10-05`)).json()) as Payload;
-		expect(after.board[0].events).toEqual([]);
+		expect(after.board.find((b) => b.day === '2026-10-05')!.events).toEqual([]);
 	});
 
 	it('keeps every covered day reachable when the trip is shortened under it', async () => {

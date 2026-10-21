@@ -170,10 +170,10 @@
  * end of the page doing its job. */
 .sched {
 	margin-bottom: calc(-1 * var(--tailpull, 0px));
-	/* The clock gutter, in one place: the day grid's indent, the lane's left
-	   edge, the width of an hour label and the lodging band's indent are the
-	   same measurement seen four times, and they read as misaligned the moment
-	   one of them is changed on its own. */
+	/* The clock gutter, in one place: the time column's width, the snap padding
+	   that lines each day up against it, the width of an hour label and the
+	   lodging band's indent are the same measurement seen four times, and they
+	   read as misaligned the moment one of them is changed on its own. */
 	--hourgutter: 56px;
 }
 
@@ -221,10 +221,11 @@
 	/* One day at a time, and the strip comes to rest on one.
 	 *
 	 * The board can be scrolled sideways through the trip, but a calendar that
-	 * stopped halfway between two days would be showing neither: the hour
-	 * gutter belongs to a day, and half a day beside half another reads as one
-	 * board with the times written twice. So the strip is mandatory-snapped to
-	 * whole panels, which also makes the day the reader has settled on an
+	 * stopped halfway between two days would be showing neither: half a day
+	 * beside half another reads as two half-days against one clock, with no
+	 * telling which a block at the seam belongs to. So the strip is
+	 * mandatory-snapped to whole panels, which also makes the day the reader
+	 * has settled on an
 	 * unambiguous answer rather than a measurement, and that answer is what
 	 * becomes the url.
 	 *
@@ -232,6 +233,9 @@
 	 * on purpose. Sideways there is nothing beyond the board worth reaching,
 	 * and on a trackpad the chain was a back navigation out of the trip. */
 	scroll-snap-type: x mandatory;
+	/* The time column covers the box's left edge, so a day is snapped to the
+	   column's right edge rather than the box's: see `.timecol`. */
+	scroll-padding-left: var(--hourgutter);
 	overscroll-behavior-x: contain;
 	/* Room for the hour label that hangs above the first rule.
 	 *
@@ -273,29 +277,69 @@
  * a little air under the last row so the final row does not sit on the edge of
  * the card when the list is scrolled to its end. */
 .sched .boardscroll.list {
+	/* A list, not a time column beside a strip of days: see the rule below. */
+	display: block;
 	padding-top: 0;
 	padding-bottom: 0.4rem;
 	/* A list is one day. Nothing beside it to snap to, and a snap axis on a box
 	   with a single child pins its scroll to that child's top. */
 	overflow-x: hidden;
 	scroll-snap-type: none;
+	scroll-padding-left: 0;
 }
-/* The strip itself: the days, side by side, each as wide as the box. */
-.sched .daytrack {
+/* The day board's two halves, side by side in the box: the time column, then
+   the strip of days. */
+.sched .boardscroll:not(.list) {
 	display: flex;
 	align-items: flex-start;
 }
+/* The strip itself: the days, side by side, each as wide as the box less the
+   time column. The strip is that wide and its days overflow it, which is what
+   the box scrolls through. */
+.sched .daytrack {
+	display: flex;
+	align-items: flex-start;
+	flex: 0 0 calc(100% - var(--hourgutter));
+	min-width: 0;
+}
+/* The time column: the hour labels, standing still at the left of the box.
+ *
+ * Sticky to the box's left edge, so the days slide past it on a step, a swipe or
+ * a carried block while it stays where the eye is, and in the same scroller as
+ * the days, so it scrolls up and down with them pixel for pixel. A separate box
+ * scrolled in step by script would trail the hours by a frame; this cannot.
+ *
+ * A child of the box rather than of the strip, because a sticky element only
+ * travels inside its parent: the strip is one box wide, so inside it the
+ * column was carried off with the days as soon as the strip passed its first
+ * day. Its parent is the box itself, whose scrolling area is the whole strip.
+ * It takes its own width, so the days start at its right edge; the box's
+ * `scroll-padding-left` then makes every snap point a day's left edge less the
+ * gutter, which is exactly `index * day width`.
+ *
+ * Opaque, and above the blocks, because the day leaving the box passes under
+ * it rather than through the labels; below a carried block, which is in the
+ * reader's hand and may be held over the gutter on its way to another day. */
+.sched .timecol {
+	position: sticky;
+	left: 0;
+	z-index: 9;
+	flex: 0 0 var(--hourgutter);
+	background: var(--color-surface);
+	transition: height var(--sched-settle);
+}
 /* One day.
  *
- * `flex: 0 0 100%` against a track that is itself the width of the scroll box,
- * so a panel is exactly a viewport and the snap lands on whole days at any
- * width, with no breakpoint deciding how many fit. `min-width: 0` because a
- * flex item defaults to the width of its content and the grid inside is a fixed
- * number of pixels tall but happily wider than its share.
+ * `flex: 0 0 100%` against a strip that is itself the width of the scroll box
+ * less the time column, so a panel is exactly the room beside the column and
+ * the snap lands on whole days at any width, with no breakpoint deciding how
+ * many fit. `min-width: 0` because a flex item defaults to the width of its
+ * content and the grid inside is a fixed number of pixels tall but happily
+ * wider than its share.
  *
- * `snap-align: start` rather than `center`: the hour gutter is on the left of
- * each panel, so lining the left edges up is what puts the clock where the eye
- * already is. */
+ * `snap-align: start` rather than `center`: the time column is on the left, so
+ * lining each day's left edge up against it is what puts the clock where the
+ * eye already is. */
 .sched .daypanel {
 	flex: 0 0 100%;
 	min-width: 0;
@@ -317,8 +361,8 @@
 /* The board's title bar: the day it is drawing, and the way to the next one.
    Centred over the board rather than left-aligned in the toolbar, because it
    labels the thing underneath it. `.board` gives its left padding away to the
-   day grid's hour gutter, so the margin here is what squares the rule up with
-   the card's right padding. */
+   time column, so the margin here is what squares the rule up with the card's
+   right padding. */
 .sched .boardhead {
 	display: flex;
 	align-items: center;
@@ -338,6 +382,11 @@
 	display: flex;
 	flex-wrap: wrap;
 	align-items: center;
+	/* The page holds the band at the tallest it has been this visit (see
+	   `bandFloor` in `Schedule.tsx`), so a day with fewer stays leaves room
+	   instead of pulling the board up. The rows it does have sit at the top of
+	   that room rather than being spread down it. */
+	align-content: flex-start;
 	gap: 0.4rem;
 	margin: 0 0 0.7rem var(--hourgutter);
 }
@@ -422,10 +471,10 @@
 
 /* The day's own grid. Named rather than `.grid`, which is Tailwind's display
    utility: the dialogs are rendered inside `.sched` and every 12-column form in
-   them was inheriting this clock gutter as a 56px indent. */
+   them was inheriting this clock gutter as a 56px indent. It has no gutter of
+   its own any more: the hours are in the time column beside the strip. */
 .sched .daygrid {
 	position: relative;
-	padding-left: var(--hourgutter);
 	/* The window can open onto an earlier hour, which makes the grid taller and
 	   moves every block down it. Blocks glide; an axis that jumped would tear
 	   away from them for the length of the glide, so it travels at the same
@@ -454,7 +503,20 @@
    scroll it would visibly lag behind. */
 .sched .daygrid.still,
 .sched .daygrid.still .hourline,
+.sched .timecol.still,
+.sched .timecol.still .hourline,
 .sched .daygrid.opening .block.dragging {
+	transition: none;
+}
+/* The window opened under a reader who did not open it: a day step brought an
+   earlier start into the strip. The box scrolls down by the opening in the same
+   frame, so the hours stay exactly where they were, and an ease on top of that
+   would slide every block and rule down from where it already is. Set for that
+   one frame by the page; see `lastOrigin` in `Schedule.tsx`. */
+.sched .boardscroll.rebase .daygrid,
+.sched .boardscroll.rebase .timecol,
+.sched .boardscroll.rebase .hourline,
+.sched .boardscroll.rebase .block {
 	transition: none;
 }
 .sched .hourline span {
@@ -466,10 +528,10 @@
 	font-size: var(--text-micro);
 	color: var(--color-ink-faint);
 }
-/* Journeys share the event columns, so the lane takes the whole width. */
+/* Journeys share the event columns, so the lane takes the whole of the day. */
 .sched .lane {
 	position: absolute;
-	left: var(--hourgutter);
+	left: 0;
 	right: 0;
 	top: 0;
 	bottom: 0;
@@ -878,7 +940,7 @@
 	}
 }
 /* The agenda is a board in its own right now, so it takes the board card's
-   padding and only makes up the left gutter the day grid uses for its hours. */
+   padding and only makes up the left gutter the day board's time column uses. */
 .sched .agenda {
 	padding-left: 1rem;
 }
@@ -1296,6 +1358,7 @@
 	.sched .block.dragging,
 	.sched .block.resizing,
 	.sched .daygrid,
+	.sched .timecol,
 	.sched .hourline {
 		transition: none;
 		animation: none;

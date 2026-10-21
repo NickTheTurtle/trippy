@@ -8,6 +8,7 @@ import MapView, {
 	type MapMarker
 } from 'react-native-maps';
 import { copy } from '@trippy/copy';
+import { useReducedMotion } from 'react-native-reanimated';
 import { InsetSection, ListRow } from '../../ui';
 import { color, radius, space, type } from '../../theme';
 import { buildScheduleMapModel, type MobileMapPin } from './mapModel';
@@ -63,6 +64,31 @@ export function DayMap({
 	const focusPin = focusId
 		? model.pins.find((pin) => pin.eventIds.includes(focusId) || pin.addId === focusId)
 		: null;
+	const target = focusPin ? focusRegion(focusPin) : model.region;
+
+	/*
+	 * The camera moves to a new day, it is not cut to it. The map used to be
+	 * driven by a controlled `region`, so a step replaced the view in one frame
+	 * at the new day's zoom, and any re-render that rebuilt the region object
+	 * could snap back a pan the reader had made. Now `initialRegion` places it
+	 * once and the camera is animated (`animateToRegion`, 500ms) only when what
+	 * it is aimed at changes: the day's points, a pin focused (again, which is
+	 * `focusKey`), or the focus cleared. A reload that leaves the points where
+	 * they were leaves the reader's pan and zoom alone. Reduce Motion moves it
+	 * without the animation.
+	 */
+	const mapRef = useRef<MapView | null>(null);
+	const reduceMotion = useReducedMotion();
+	const aim = `${regionKey(target)}|${focusPin ? `${focusPin.key}:${focusKey}` : ''}`;
+	const aimed = useRef(aim);
+	useEffect(() => {
+		if (aimed.current === aim) return;
+		aimed.current = aim;
+		mapRef.current?.animateToRegion(target, reduceMotion ? 0 : CAMERA_MS);
+		// `aim` is the whole of what `target` says; the object itself is new on
+		// every render.
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [aim, reduceMotion]);
 
 	useEffect(() => {
 		if (!focusPin) return;
@@ -90,9 +116,10 @@ export function DayMap({
 			) : null}
 			{expanded ? (
 				<MapView
+					ref={mapRef}
 					style={{ height: 260 }}
-					initialRegion={model.region}
-					region={focusPin ? focusRegion(focusPin) : model.region}
+					// Read once, when the map mounts (and again after Hide and Show).
+					initialRegion={target}
 					showsUserLocation={false}
 				>
 					{model.routes.map((route) => (
@@ -234,4 +261,18 @@ function ActionText({ children, onPress }: { children: string; onPress: () => vo
 
 function focusRegion(pin: MobileMapPin) {
 	return { latitude: pin.lat, longitude: pin.lng, latitudeDelta: 0.015, longitudeDelta: 0.015 };
+}
+
+const CAMERA_MS = 500;
+
+/** A region as a value, so the same view asked for twice is one aim. */
+function regionKey(region: {
+	latitude: number;
+	longitude: number;
+	latitudeDelta: number;
+	longitudeDelta: number;
+}): string {
+	return [region.latitude, region.longitude, region.latitudeDelta, region.longitudeDelta]
+		.map((n) => n.toFixed(6))
+		.join(',');
 }

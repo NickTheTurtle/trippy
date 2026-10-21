@@ -76,7 +76,14 @@ export async function api<T>(path: string, options: Options = {}): Promise<T> {
 		throw new ApiError(0, copy.api.unreachable);
 	}
 
-	const payload = res.status === 204 ? null : await res.json().catch(() => null);
+	// An abort while the body is read is an abort, not an empty body.
+	const payload =
+		res.status === 204
+			? null
+			: await res.json().catch((err) => {
+					if (isAbort(err)) throw err;
+					return null;
+				});
 
 	if (!res.ok) {
 		const message =

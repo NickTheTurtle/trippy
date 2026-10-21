@@ -22,6 +22,8 @@ import { viewAsAccessibilityLabel, viewAsButtonLabel } from '../../../src/lib/vi
 import { Sheet } from '../../../src/ui/Sheet';
 import { useTripAddAction } from '../../../src/ui/TripAddAction';
 import { useSheetHandoff } from '../../../src/ui/useSheetHandoff';
+import { usePullRefresh } from '../../../src/ui/usePullRefresh';
+import { DaySlide } from '../../../src/ui/DaySlide';
 import { showActionMenu } from '../../../src/ui/actionMenu';
 import { AppSymbol } from '../../../src/ui/Symbol';
 import { color, radius, space, type } from '../../../src/theme';
@@ -64,6 +66,16 @@ function Calendar() {
 	const [mapFocusId, setMapFocusId] = useState<string | null>(null);
 	const [mapFocusKey, setMapFocusKey] = useState(0);
 	const [addMenuOpen, setAddMenuOpen] = useState(false);
+	// The day board's earliest hour so far on this trip (see DayBoard), kept
+	// here so a trip to the agenda and back does not close the window again.
+	const [boardFloor, setBoardFloor] = useState<{ tripId: string; min: number } | null>(null);
+	const onBoardFloor = useCallback((min: number) => setBoardFloor({ tripId, min }), [tripId]);
+	const refreshAll = useCallback(() => {
+		schedule.reload();
+		tripState.reload();
+	}, [schedule.reload, tripState.reload]);
+	const pull = usePullRefresh(schedule.loading, refreshAll);
+	const shownDay = schedule.day;
 	const openedRef = useRef<ScheduleData | null>(null);
 	openedRef.current = data;
 	const memberName = useMemo(
@@ -102,22 +114,22 @@ function Calendar() {
 	useEffect(() => {
 		setMapFocusId(null);
 		setMapFocusKey((key) => key + 1);
-	}, [data?.day]);
+	}, [shownDay]);
 	const headerAdd = useCallback(() => {
-		if (locked || !data) return;
+		if (locked || !shownDay) return;
 		const shown = showActionMenu(copy.schedule.add.replace(/^\+\s*/, ''), [
-			{ label: copy.schedule.dialog.add, onPress: () => setAdding({ day: data.day }) },
+			{ label: copy.schedule.dialog.add, onPress: () => setAdding({ day: shownDay }) },
 			{
 				label: copy.schedule.addStay.replace(/^\+\s*/, ''),
-				onPress: () => setAdding({ day: data.day, type: 'stay' })
+				onPress: () => setAdding({ day: shownDay, type: 'stay' })
 			}
 		]);
 		if (!shown) setAddMenuOpen(true);
-	}, [data, locked]);
+	}, [shownDay, locked]);
 	useTripAddAction(!locked && data ? headerAdd : null);
 	const addHandoff = useSheetHandoff({
-		event: () => data && setAdding({ day: data.day }),
-		stay: () => data && setAdding({ day: data.day, type: 'stay' })
+		event: () => shownDay && setAdding({ day: shownDay }),
+		stay: () => shownDay && setAdding({ day: shownDay, type: 'stay' })
 	});
 
 	if (schedule.loading && !data) return <Loading />;
@@ -131,19 +143,13 @@ function Calendar() {
 	}
 
 	const viewAsLabel = viewAsButtonLabel(schedule.readAs, data.members, data.me);
-
-	const refresh = () => {
-		schedule.reload();
-		tripState.reload();
-	};
+	const day = shownDay ?? data.day;
 
 	return (
 		<>
 			<Screen
 				scrollEnabled={!gestureActive}
-				refreshControl={
-					<RefreshControl refreshing={schedule.loading && !!data} onRefresh={refresh} />
-				}
+				refreshControl={<RefreshControl refreshing={pull.refreshing} onRefresh={pull.onRefresh} />}
 			>
 				<FormError message={schedule.error ?? ''} />
 				<View style={{ gap: space.md }}>
@@ -152,12 +158,12 @@ function Calendar() {
 							label={copy.schedule.nav.previousDay}
 							icon="chevron.left"
 							fallback="chevron-back"
-							disabled={!data.prevDay}
+							disabled={schedule.prevDay === null}
 							onPress={schedule.stepPrev}
 						/>
 						<View style={{ flex: 1, alignItems: 'center' }}>
 							<DayTitle
-								day={data.day}
+								day={day}
 								days={data.days}
 								firstDay={data.firstDay}
 								lastDay={data.lastDay}
@@ -165,8 +171,8 @@ function Calendar() {
 							/>
 							<Text style={type.faint}>
 								{[
-									!data.prevDay ? copy.schedule.mobile.firstDay : null,
-									!data.nextDay ? copy.schedule.mobile.lastDay : null
+									schedule.prevDay === null ? copy.schedule.mobile.firstDay : null,
+									schedule.nextDay === null ? copy.schedule.mobile.lastDay : null
 								]
 									.filter(Boolean)
 									.join(' · ') || ' '}
@@ -176,7 +182,7 @@ function Calendar() {
 							label={copy.schedule.nav.nextDay}
 							icon="chevron.right"
 							fallback="chevron-forward"
-							disabled={!data.nextDay}
+							disabled={schedule.nextDay === null}
 							onPress={schedule.stepNext}
 						/>
 					</View>
@@ -232,27 +238,33 @@ function Calendar() {
 						<DayBoard
 							base={`/trips/${tripId}/schedule`}
 							entry={schedule.anchor}
+							saved={schedule.savedAnchor ?? schedule.anchor}
+							ownWrite={schedule.ownWrite}
 							memberIds={memberIds}
 							peopleLabel={schedule.peopleLabel}
 							eventById={schedule.eventById}
 							zoneOf={schedule.zoneOf}
 							locked={locked}
+							floor={boardFloor?.tripId === tripId ? boardFloor.min : null}
+							onFloor={onBoardFloor}
 							onOpen={openAndFocus}
 							onGestureChange={setGestureActive}
 							onReload={schedule.reload}
 						/>
 					</View>
 				) : (
-					<Agenda
-						entry={schedule.anchor}
-						eventById={schedule.eventById}
-						zoneOf={schedule.zoneOf}
-						peopleLabel={schedule.peopleLabel}
-						memberName={memberName}
-						locked={locked}
-						onOpenEvent={openAndFocus}
-						onOpenLeg={(leg) => openAndFocus(leg.toEventId)}
-					/>
+					<DaySlide day={schedule.anchor.day}>
+						<Agenda
+							entry={schedule.anchor}
+							eventById={schedule.eventById}
+							zoneOf={schedule.zoneOf}
+							peopleLabel={schedule.peopleLabel}
+							memberName={memberName}
+							locked={locked}
+							onOpenEvent={openAndFocus}
+							onOpenLeg={(leg) => openAndFocus(leg.toEventId)}
+						/>
+					</DaySlide>
 				)}
 				<DayMap
 					entry={schedule.anchor}
@@ -267,7 +279,7 @@ function Calendar() {
 					onOpenEvent={openAndFocus}
 					onAddPlace={(place) =>
 						setAdding({
-							day: data.day,
+							day,
 							type: place.kind === 'food' ? 'food' : 'activity',
 							poi: place
 						})
@@ -302,8 +314,7 @@ function Calendar() {
 					onClose={() => setAdding(null)}
 					onDone={() => {
 						setAdding(null);
-						schedule.setPreview(null);
-						schedule.reload();
+						schedule.afterSave();
 					}}
 				/>
 			) : null}
@@ -331,8 +342,7 @@ function Calendar() {
 					onDone={() => {
 						setOpened(null);
 						setMapFocusId(null);
-						schedule.setPreview(null);
-						schedule.reload();
+						schedule.afterSave();
 					}}
 				/>
 			) : null}

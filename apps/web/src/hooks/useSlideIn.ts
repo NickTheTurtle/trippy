@@ -1,4 +1,4 @@
-import { useEffect, useRef, type RefObject } from 'react';
+import { useLayoutEffect, useRef, type RefObject } from 'react';
 import useMediaQuery from './useMediaQuery';
 
 /** How far the arriving panel starts from where it lands.
@@ -23,16 +23,17 @@ const SLIDE_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)';
 /**
  * Slides a panel in place from the side it came from when its contents change.
  *
- * This is now the schedule's day step only: stepping a day swaps what the
- * board draws while the toolbar and the map beside it stay put, so only the
- * board moves and the move is an in-flow transform on that one element. The
- * tab change, which pages the whole section, was a second caller of this hook
- * and is now its own gesture in `usePageTransition`: a full-section carousel is
- * a different motion (two panels travelling past each other rather than one
- * arriving) and forcing both through one hook served neither well. The cost of
- * a bare day swap is that it says nothing: the board is simply different, with
- * no sign that a step was taken or which way it went, which is what the slide
- * supplies.
+ * Two callers on the schedule. The board card slides when the view changes
+ * (Day and Agenda replace what the card draws, and there is no gesture between
+ * them to borrow), and the agenda's list slides when its day changes, since the
+ * list has no strip of days under it to travel. The day board's own step is not
+ * a caller: it is a real horizontal movement of the strip. The tab change,
+ * which pages the whole section, was a caller once and is now its own gesture
+ * in `usePageTransition`: a full-section carousel is a different motion (two
+ * panels travelling past each other rather than one arriving) and forcing both
+ * through one hook served neither well. The cost of a bare swap is that it says
+ * nothing: the content is simply different, with no sign that a step was taken
+ * or which way it went, which is what the slide supplies.
  *
  * The move plays once the panel has content, which for the board is at once:
  * the trip's days are already loaded, so the board never empties between steps.
@@ -52,39 +53,56 @@ const SLIDE_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)';
  * stepping twice the same way leaves the class unchanged, so the second step
  * would be still.
  *
- * Nothing fades. The board is being moved, not swapped out, and a board that
- * dimmed on the way in would say something happened to its contents rather
- * than to the reader's place in a sequence.
+ * Nothing fades by default. The board is being moved, not swapped out, and a
+ * board that dimmed on the way in would say something happened to its contents
+ * rather than to the reader's place in a sequence. The agenda's day step is the
+ * caller that asks for the fade: there the list really is replaced, with no
+ * strip underneath to carry it, so a short slide in the direction of travel
+ * says which way it went and the fade covers the swap of rows.
+ *
+ * Started in a layout effect, so the first frame the new content is painted in
+ * is already the first frame of the move. A passive effect let the browser
+ * paint the arrival in place once and then jump it sideways to start sliding.
+ *
+ * A null `key` forgets what was shown, so content that comes back after being
+ * away (the agenda after a spell on the day board) arrives still rather than
+ * sliding from wherever it was last.
  */
 export default function useSlideIn(
 	ref: RefObject<HTMLElement | null>,
 	/** What is on screen now. A change here is what a step is. */
 	key: string | null,
 	/** Where `key` sits in its sequence. Larger is further forward. */
-	rank: number
+	rank: number,
+	/** A shorter move than the whole board's, and whether it fades in as well. */
+	options: { px?: number; ms?: number; fade?: boolean } = {}
 ): void {
 	const shown = useRef<{ key: string; rank: number } | null>(null);
 	const stillness = useMediaQuery('(prefers-reduced-motion: reduce)');
+	const { px = SLIDE_PX, ms = SLIDE_MS, fade = false } = options;
 
-	useEffect(() => {
+	useLayoutEffect(() => {
 		const was = shown.current;
-		if (key !== null) shown.current = { key, rank };
+		shown.current = key === null ? null : { key, rank };
 		const el = ref.current;
 		// The first panel has nowhere to have come from, two steps to the same
 		// place is not a step, and a reader who asked for stillness gets it.
 		if (!el || key === null || !was || was.key === key || stillness) return;
 		if (rank === was.rank) return;
 
-		const offset = rank > was.rank ? SLIDE_PX : -SLIDE_PX;
+		const offset = rank > was.rank ? px : -px;
 		let anim: Animation | null = null;
 		let observer: MutationObserver | null = null;
 
 		const play = () => {
 			if (anim) return;
-			anim = el.animate([{ transform: `translateX(${offset}px)` }, { transform: 'none' }], {
-				duration: SLIDE_MS,
-				easing: SLIDE_EASE
-			});
+			const from: Keyframe = { transform: `translateX(${offset}px)` };
+			const to: Keyframe = { transform: 'none' };
+			if (fade) {
+				from.opacity = 0;
+				to.opacity = 1;
+			}
+			anim = el.animate([from, to], { duration: ms, easing: SLIDE_EASE });
 			// Left unfilled deliberately: the panel holds no transform once this is
 			// done, so it cannot go on being the containing block for the fixed
 			// dropdowns and dialogs that are anchored against the viewport.
@@ -111,5 +129,5 @@ export default function useSlideIn(
 			observer?.disconnect();
 			anim?.cancel();
 		};
-	}, [ref, key, rank, stillness]);
+	}, [ref, key, rank, stillness, px, ms, fade]);
 }
