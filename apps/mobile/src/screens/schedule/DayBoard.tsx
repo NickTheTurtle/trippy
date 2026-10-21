@@ -16,6 +16,7 @@ import { color, radius, space, type } from '../../theme';
 import { useToast } from '../../ui/Toast';
 import { setInteractionBusy } from '../../ui/busy';
 import { AppSymbol } from '../../ui/Symbol';
+import { DaySlide } from '../../ui/DaySlide';
 import {
 	DAY_END,
 	DEFAULT_START,
@@ -75,22 +76,42 @@ type ActiveLabel = { id: string; kind: 'move' | 'resize'; minute: number } | nul
 export function DayBoard({
 	base,
 	entry,
+	saved,
+	ownWrite,
 	memberIds,
 	peopleLabel,
 	eventById,
 	zoneOf,
 	locked,
+	floor,
+	onFloor,
 	onOpen,
 	onGestureChange,
 	onReload
 }: {
 	base: string;
 	entry: BoardDay;
+	/**
+	 * The same day as saved: `entry` without the open sheet's draft. Only this
+	 * feeds `floor`; see the window below.
+	 */
+	saved: BoardDay;
+	/**
+	 * The saved data is the payload that follows the reader's own save from the
+	 * sheet: the floor may drop, but the scroll is not offset.
+	 */
+	ownWrite: boolean;
 	memberIds: string[];
 	peopleLabel: (ids: string[]) => string;
 	eventById: Map<string, EventRow>;
 	zoneOf: ZoneOf;
 	locked: boolean;
+	/**
+	 * The earliest the board has opened on this trip, held by the screen so it
+	 * outlives a trip to the agenda and back. null before the board has drawn.
+	 */
+	floor: number | null;
+	onFloor: (min: number) => void;
 	onOpen: (id: string) => void;
 	onGestureChange: (active: boolean) => void;
 	onReload: () => void;
@@ -103,6 +124,9 @@ export function DayBoard({
 	const [gestureActive, setGestureActive] = useState(false);
 	const releaseBusy = useRef<(() => void) | null>(null);
 	const scrollRef = useRef<ElementRef<typeof GestureScrollView> | null>(null);
+	// Where the board is scrolled to, kept from its scroll events so the window
+	// opening earlier can push it down by exactly what was added above.
+	const scrollY = useRef(0);
 
 	useEffect(() => {
 		setPending(null);
@@ -157,13 +181,44 @@ export function DayBoard({
 	const baseEndFor = (event: EventRow) =>
 		pending?.id === event.id && pending.end != null ? pending.end : segEnd(event);
 
-	const boardStart = useMemo(() => {
+	/*
+	 * The hour the board opens at.
+	 *
+	 * Each day used to open at its own earliest hour (6 AM at the latest), so a
+	 * step from a 9 AM day to one with a 5 AM run moved every hour line on the
+	 * board, and the step back moved them again. The board now draws from a
+	 * floor: the earliest any saved day has opened at on this visit (`floor`,
+	 * held by the screen), lowered by this day's saved start (`savedStart`) and
+	 * never raised. Only saved data feeds it: a step, a live reload, a change of
+	 * who the board is read for.
+	 *
+	 * The reader's own unsaved times, the sheet's draft in `entry` and a drop
+	 * still waiting on its write (`pending`), can open the window further for as
+	 * long as they stand (`dayStart`), as they always could, but they do not move
+	 * the floor: a 4:40 picked in the sheet and cancelled used to leave the board
+	 * open from 4 AM for the rest of the visit.
+	 */
+	const savedStart = useMemo(() => {
+		const mins: number[] = [];
+		for (const event of saved.events) {
+			const seg = segmentOn(event, saved.day, zoneOf);
+			if (seg) mins.push(seg.start, seg.end);
+		}
+		for (const leg of saved.legs) mins.push(leg.startMin, leg.endMin);
+		return windowStart(mins.length ? mins : [DEFAULT_START]);
+	}, [saved, zoneOf]);
+	const savedFloor = floor == null ? savedStart : Math.min(floor, savedStart);
+	useEffect(() => {
+		if (floor == null || savedStart < floor) onFloor(savedStart);
+	}, [floor, onFloor, savedStart]);
+	const dayStart = useMemo(() => {
 		const mins = [
 			...drawn.flatMap((event) => [baseStartFor(event), baseEndFor(event)]),
 			...entry.legs.flatMap((leg) => [leg.startMin, leg.endMin])
 		];
 		return windowStart(mins.length ? mins : [DEFAULT_START]);
 	}, [drawn, entry, pending, segments]);
+	const boardStart = Math.min(savedFloor, dayStart);
 
 	const { layout, bars } = useMemo(() => {
 		const eventsForLayout = drawn.map((event) => ({
@@ -184,24 +239,52 @@ export function DayBoard({
 	const laneW = boardW - GUTTER;
 	const contentH = (DAY_END - boardStart) * PX_PER_MIN + 24;
 
+	/*
+	 * Seat the board on its first block, once, when it first appears: the
+	 * screen opening, or a switch from the agenda to the day. A day step, the
+	 * date picker and a live reload leave the scroll where the reader put it.
+	 * The seat used to run on every day change, which with the window moving as
+	 * well made the hours jump up and down on every step.
+	 */
 	useEffect(() => {
 		const starts = [
 			...drawn.map((event) => baseStartFor(event)),
 			...entry.legs.map((leg) => leg.startMin)
 		];
 		const first = starts.length ? Math.min(...starts) : DEFAULT_START;
-		const timer = setTimeout(
-			() =>
-				scrollRef.current?.scrollTo({
-					y: Math.max(0, topPx(first, boardStart) - 80),
-					animated: false
-				}),
-			0
-		);
+		const timer = setTimeout(() => {
+			const y = Math.max(0, topPx(first, boardStart) - 80);
+			scrollY.current = y;
+			scrollRef.current?.scrollTo({ y, animated: false });
+		}, 0);
 		return () => clearTimeout(timer);
-		// Only seat when the served day changes.
+		// First arrival only; see above.
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [entry.day]);
+	}, []);
+
+	/*
+	 * When the floor drops, everything below the new hours is drawn lower by
+	 * the time added, so the scroll moves down by the same amount in the same
+	 * commit, before paint: what was at the top of the board stays there. Only
+	 * a drop of the floor does this, and not one that comes from the reader's
+	 * own write. The window opening for the reader's own draft or drop is not
+	 * offset (as on the web board), and when the floor drops to where a draft
+	 * or drop had already opened it, nothing moves, so nothing is offset. A
+	 * save from the sheet is held on the board until its payload lands
+	 * (`useScheduleDay`), and that payload is `ownWrite`, so the block the
+	 * reader just placed stays where they placed it.
+	 */
+	const shown = useRef<{ floor: number; start: number } | null>(null);
+	useLayoutEffect(() => {
+		const was = shown.current;
+		shown.current = { floor: savedFloor, start: boardStart };
+		if (!was || ownWrite || savedFloor >= was.floor || boardStart >= was.start) return;
+		const y = scrollY.current + (was.start - boardStart) * PX_PER_MIN;
+		scrollY.current = y;
+		scrollRef.current?.scrollTo({ y, animated: false });
+		// `ownWrite` is read as it stands when the floor moves, not a trigger.
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [boardStart, savedFloor]);
 
 	const trims = new Map<string, number>();
 	for (const bar of bars) {
@@ -283,6 +366,10 @@ export function DayBoard({
 				ref={scrollRef}
 				scrollEnabled={!gestureActive}
 				nestedScrollEnabled
+				onScroll={(event) => {
+					scrollY.current = event.nativeEvent.contentOffset.y;
+				}}
+				scrollEventThrottle={16}
 				style={{ maxHeight: 620 }}
 				contentContainerStyle={{ paddingBottom: space.md }}
 			>
@@ -313,80 +400,94 @@ export function DayBoard({
 								</View>
 							);
 						})}
-						{bars.map((bar) => (
-							<LegBar
-								key={legLaneId(bar.leg)}
-								leg={bar.leg}
-								from={eventById.get(bar.leg.fromEventId)}
-								left={GUTTER + bar.left * laneW}
-								width={Math.max(32, bar.width * laneW - GAP)}
-								boardStart={boardStart}
-								peopleLabel={peopleLabel}
-							/>
-						))}
-						{drawn.map((event) => {
-							const placed = layout.placed.get(event.id);
-							const seg = segments.get(event.id);
-							if (!placed || !seg) return null;
-							const drawnStart = baseStartFor(event);
-							const drawnEnd = baseEndFor(event);
-							const trimmedHeight =
-								heightPx(drawnStart, drawnEnd, boardStart) - (trims.get(event.id) ?? 0);
-							const can = boardGestures(event, seg, zoneOf);
-							const when = segmentTime(event, seg, zoneOf);
-							return (
-								<EventBlock
-									key={event.id}
-									event={event}
-									left={GUTTER + placed.left * laneW}
-									width={Math.max(44, placed.width * laneW - GAP)}
-									top={topPx(drawnStart, boardStart)}
-									height={Math.max(MIN_LEG_H, trimmedHeight)}
-									drawnStart={drawnStart}
-									drawnEnd={drawnEnd}
-									length={Math.max(MIN_EVENT_MINS, seg.end - seg.start)}
-									startsHere={seg.startsHere}
-									endsHere={seg.endsHere}
-									timeWords={when.words}
-									timeZone={when.zone}
-									canMove={can.move}
-									canResize={can.resize}
+						{/* The day's blocks slide across a step; the hour grid behind
+						    them stays where it is, because the clock has not changed. */}
+						<DaySlide
+							day={entry.day}
+							style={{
+								position: 'absolute',
+								left: 0,
+								top: 0,
+								width: boardW,
+								height: contentH,
+								pointerEvents: 'box-none'
+							}}
+						>
+							{bars.map((bar) => (
+								<LegBar
+									key={legLaneId(bar.leg)}
+									leg={bar.leg}
+									from={eventById.get(bar.leg.fromEventId)}
+									left={GUTTER + bar.left * laneW}
+									width={Math.max(32, bar.width * laneW - GAP)}
+									boardStart={boardStart}
 									peopleLabel={peopleLabel}
-									locked={locked}
-									onOpen={openBlock}
-									onBeginGesture={beginGesture}
-									onEndGesture={endGesture}
-									onReportMinute={reportMinute}
-									onCommitMove={commitMove}
-									onCommitResize={commitResize}
 								/>
-							);
-						})}
-						{activeLabel ? (
-							<TimeBadge
-								left={GUTTER}
-								top={
-									activeLabel.kind === 'move'
-										? topPx(activeLabel.minute, boardStart) - 22
-										: topPx(activeLabel.minute, boardStart) + 4
-								}
-								minute={activeLabel.minute}
-							/>
-						) : null}
-						{pending?.start != null ? (
-							<TimeBadge
-								left={GUTTER}
-								top={topPx(pending.start, boardStart) - 22}
-								minute={pending.start}
-							/>
-						) : null}
-						{pending?.end != null ? (
-							<TimeBadge
-								left={GUTTER}
-								top={topPx(pending.end, boardStart) + 4}
-								minute={pending.end}
-							/>
-						) : null}
+							))}
+							{drawn.map((event) => {
+								const placed = layout.placed.get(event.id);
+								const seg = segments.get(event.id);
+								if (!placed || !seg) return null;
+								const drawnStart = baseStartFor(event);
+								const drawnEnd = baseEndFor(event);
+								const trimmedHeight =
+									heightPx(drawnStart, drawnEnd, boardStart) - (trims.get(event.id) ?? 0);
+								const can = boardGestures(event, seg, zoneOf);
+								const when = segmentTime(event, seg, zoneOf);
+								return (
+									<EventBlock
+										key={event.id}
+										event={event}
+										left={GUTTER + placed.left * laneW}
+										width={Math.max(44, placed.width * laneW - GAP)}
+										top={topPx(drawnStart, boardStart)}
+										height={Math.max(MIN_LEG_H, trimmedHeight)}
+										drawnStart={drawnStart}
+										drawnEnd={drawnEnd}
+										length={Math.max(MIN_EVENT_MINS, seg.end - seg.start)}
+										startsHere={seg.startsHere}
+										endsHere={seg.endsHere}
+										timeWords={when.words}
+										timeZone={when.zone}
+										canMove={can.move}
+										canResize={can.resize}
+										peopleLabel={peopleLabel}
+										locked={locked}
+										onOpen={openBlock}
+										onBeginGesture={beginGesture}
+										onEndGesture={endGesture}
+										onReportMinute={reportMinute}
+										onCommitMove={commitMove}
+										onCommitResize={commitResize}
+									/>
+								);
+							})}
+							{activeLabel ? (
+								<TimeBadge
+									left={GUTTER}
+									top={
+										activeLabel.kind === 'move'
+											? topPx(activeLabel.minute, boardStart) - 22
+											: topPx(activeLabel.minute, boardStart) + 4
+									}
+									minute={activeLabel.minute}
+								/>
+							) : null}
+							{pending?.start != null ? (
+								<TimeBadge
+									left={GUTTER}
+									top={topPx(pending.start, boardStart) - 22}
+									minute={pending.start}
+								/>
+							) : null}
+							{pending?.end != null ? (
+								<TimeBadge
+									left={GUTTER}
+									top={topPx(pending.end, boardStart) + 4}
+									minute={pending.end}
+								/>
+							) : null}
+						</DaySlide>
 					</View>
 				</GestureScrollView>
 			</GestureScrollView>

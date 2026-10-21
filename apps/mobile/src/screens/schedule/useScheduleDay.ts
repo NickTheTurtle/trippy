@@ -13,7 +13,14 @@ export function useScheduleDay(tripId: string, paused = false) {
 	const [viewAs, setViewAs] = useState('');
 	const [preview, setPreview] = useState<EventDraft | null>(null);
 	const [reloadDue, setReloadDue] = useState(false);
-	const qs = new URLSearchParams({ view });
+	// A step pressed before the day it steps from has loaded its own neighbours:
+	// -1 or 1, carried out when that payload lands.
+	const [queued, setQueued] = useState(0);
+	// Every request names the day view. The server sends the same three days for
+	// either view, and leaving the view out of the url means switching between
+	// Day and Agenda is not a reload. The agenda filter (`readAs`) is applied
+	// here, not by the server.
+	const qs = new URLSearchParams({ view: 'day' });
 	if (day) qs.set('day', day);
 	const apiState = useApi<ScheduleData>(`/trips/${tripId}/schedule?${qs}`);
 	const reload = useCallback(() => {
@@ -28,7 +35,39 @@ export function useScheduleDay(tripId: string, paused = false) {
 	}, [apiState.reload, paused, reloadDue]);
 
 	const data = apiState.data;
-	const effectiveDay = day ?? data?.day ?? null;
+	/*
+	 * The day on screen: the one asked for as soon as the payload holds it, else
+	 * the payload's own day until the asked-for one lands (a jump from the date
+	 * picker to a day that was not beside the last one). A step therefore draws
+	 * the next day in the same frame as the tap, and the payload that follows
+	 * only fills in the day after it.
+	 */
+	const shownDay = useMemo(() => {
+		if (!data) return null;
+		return day && data.board.some((entry) => entry.day === day) ? day : data.day;
+	}, [data, day]);
+	/*
+	 * The days either side of the shown one. `undefined` is not known yet: the
+	 * shown day was held as a neighbour, and its own far neighbour comes with its
+	 * payload. The arrow stays enabled, and a press is carried out when it lands.
+	 */
+	const around = useMemo((): {
+		prev: string | null | undefined;
+		next: string | null | undefined;
+	} => {
+		if (!data || shownDay === data.day) {
+			return { prev: data?.prevDay ?? null, next: data?.nextDay ?? null };
+		}
+		if (shownDay === data.nextDay) return { prev: data.day, next: undefined };
+		if (shownDay === data.prevDay) return { prev: undefined, next: data.day };
+		return { prev: undefined, next: undefined };
+	}, [data, shownDay]);
+	useEffect(() => {
+		if (!queued || !data || data.day !== day) return;
+		setQueued(0);
+		const to = queued < 0 ? data.prevDay : data.nextDay;
+		if (to) setDay(to);
+	}, [data, day, queued]);
 	const members = useMemo(() => data?.members ?? [], [data?.members]);
 	const memberIds = useMemo(() => members.map((m) => m.id), [members]);
 	const zoneOf = useMemo(() => zoneLookup(data?.cities ?? []), [data?.cities]);
@@ -46,37 +85,87 @@ export function useScheduleDay(tripId: string, paused = false) {
 	}, [readAs, memberIds]);
 	const visibleMemberIds = useMemo(() => [...selected], [selected]);
 
+	/*
+	 * A save from the sheet, held until its own payload lands.
+	 *
+	 * The sheet clears its draft as it closes, and the reload is a round trip
+	 * behind it. Dropping the draft at once drew the old saved day in between:
+	 * a block saved at 4:40 went back to 9:30 and the board's window closed to
+	 * its floor, then the payload reopened it and the floor's offset pushed
+	 * the block the reader had just placed off the top. The draft is drawn
+	 * instead until the payload that follows the save arrives (or the reload
+	 * ends without one), and that payload is reported as the reader's own
+	 * write (`ownWrite`), so the board lets its floor drop without moving the
+	 * scroll, as the web board does for `ownWrite`.
+	 */
+	const [hold, setHold] = useState<{
+		draft: EventDraft | null;
+		from: ScheduleData;
+		sent: boolean;
+	} | null>(null);
+	const held = hold && data === hold.from ? hold.draft : null;
+	const draft = preview ?? held;
+	const ownWrite = hold !== null && data !== hold.from;
+	useEffect(() => {
+		if (!hold) return;
+		if (data !== hold.from) setHold(null);
+		else if (apiState.loading && !hold.sent) setHold({ ...hold, sent: true });
+		else if (!apiState.loading && hold.sent) setHold(null);
+	}, [apiState.loading, data, hold]);
+	const afterSave = useCallback(() => {
+		if (data) setHold({ draft: preview, from: data, sent: false });
+		setPreview(null);
+		reload();
+	}, [data, preview, reload]);
+
 	const planned: BoardDay[] = useMemo(() => {
 		const known = new Map(
 			(data?.board ?? []).flatMap((entry) => entry.legs.map((l) => [l.key, l] as const))
 		);
 		return (data?.board ?? []).map((entry) => {
-			const { events, stays } = applyDraft(entry, preview, zoneOf);
+			const { events, stays } = applyDraft(entry, draft, zoneOf);
 			return {
 				...entry,
 				events,
 				stays,
-				legs: preview ? replanLegs(entry, preview, memberIds, known, zoneOf) : entry.legs
+				legs: draft ? replanLegs(entry, draft, memberIds, known, zoneOf) : entry.legs
 			};
 		});
-	}, [data?.board, memberIds, preview, zoneOf]);
+	}, [data?.board, memberIds, draft, zoneOf]);
 
-	const board: BoardDay[] = useMemo(() => {
-		const showEvent = (e: EventRow) =>
-			e.people.length === 0 || e.people.some((p) => selected.has(p));
-		const showLeg = (l: LegRow) => l.people.some((p) => selected.has(p));
-		return planned.map((entry) => ({
-			...entry,
-			events: entry.events.filter(showEvent),
-			stays: entry.stays.filter(showEvent),
-			legs: entry.legs.filter(showLeg)
-		}));
-	}, [planned, selected]);
+	const visible = useCallback(
+		(entry: BoardDay): BoardDay => {
+			const showEvent = (e: EventRow) =>
+				e.people.length === 0 || e.people.some((p) => selected.has(p));
+			const showLeg = (l: LegRow) => l.people.some((p) => selected.has(p));
+			return {
+				...entry,
+				events: entry.events.filter(showEvent),
+				stays: entry.stays.filter(showEvent),
+				legs: entry.legs.filter(showLeg)
+			};
+		},
+		[selected]
+	);
+
+	const board: BoardDay[] = useMemo(() => planned.map(visible), [planned, visible]);
 
 	const anchor = useMemo(
-		() => (data ? (board.find((entry) => entry.day === data.day) ?? board[0] ?? null) : null),
-		[board, data]
+		() => (data ? (board.find((entry) => entry.day === shownDay) ?? board[0] ?? null) : null),
+		[board, data, shownDay]
 	);
+
+	/*
+	 * The shown day as it is saved: the payload's own entry, under the same
+	 * view-as filter, but without the open sheet's unsaved draft. The day
+	 * board's floor is read from this, so a time picked in a sheet and then
+	 * cancelled does not open the board earlier for the rest of the visit.
+	 */
+	const savedAnchor = useMemo(() => {
+		const entries = data?.board ?? [];
+		const entry = entries.find((e) => e.day === shownDay) ?? entries[0];
+		return entry ? visible(entry) : null;
+	}, [data?.board, shownDay, visible]);
 
 	const eventById = useMemo(() => {
 		const out = new Map<string, EventRow>();
@@ -127,8 +216,17 @@ export function useScheduleDay(tripId: string, paused = false) {
 		[memberName, members.length]
 	);
 
-	const stepTo = useCallback((next: string | null) => {
-		if (next) setDay(next);
+	const step = (delta: -1 | 1) => {
+		const to = delta < 0 ? around.prev : around.next;
+		if (to === undefined) setQueued(delta);
+		else if (to) {
+			setQueued(0);
+			setDay(to);
+		}
+	};
+	const pickDay = useCallback((next: string) => {
+		setQueued(0);
+		setDay(next);
 	}, []);
 
 	const suggestedStart = useCallback(
@@ -147,8 +245,12 @@ export function useScheduleDay(tripId: string, paused = false) {
 	return {
 		...apiState,
 		data,
-		day: effectiveDay,
-		setDay,
+		/** The day on screen, which leads the payload's `day` on a step. */
+		day: shownDay,
+		setDay: pickDay,
+		/** The shown day's neighbours; null at an end, undefined while unknown. */
+		prevDay: around.prev,
+		nextDay: around.next,
 		view,
 		setView,
 		viewAs,
@@ -158,6 +260,11 @@ export function useScheduleDay(tripId: string, paused = false) {
 		board,
 		planned,
 		anchor,
+		savedAnchor,
+		/** True for the payload that follows the reader's own save from the sheet. */
+		ownWrite,
+		/** The sheet saved: hold its draft on the board until the reload lands. */
+		afterSave,
 		eventById,
 		locked: false,
 		zoneOf,
@@ -167,7 +274,7 @@ export function useScheduleDay(tripId: string, paused = false) {
 		suggestedStart,
 		legsTo,
 		draftLegs: legsTo(DRAFT_ID),
-		stepPrev: () => stepTo(data?.prevDay ?? null),
-		stepNext: () => stepTo(data?.nextDay ?? null)
+		stepPrev: () => step(-1),
+		stepNext: () => step(1)
 	};
 }

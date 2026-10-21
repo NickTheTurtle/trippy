@@ -236,6 +236,24 @@ const BOARD_PAD_PX = 12;
 const SETTLE_MS = 140;
 
 /**
+ * How long an arrow takes to carry the strip to the next day.
+ *
+ * Scripted rather than the browser's own smooth scroll, which could not be told
+ * where it was going once it had started: the payload for the new day landed
+ * part-way through, the strip re-indexed under it, and the re-seat that keeps
+ * the day still had to cancel the glide to do its job. What the reader saw was
+ * thirty pixels of motion and then a jump. A tween owns its numbers, so the
+ * re-seat moves both ends of it by the re-index and lets it finish.
+ *
+ * About a third of a second, eased out: long enough to read as travel, short
+ * enough that a second click is not kept waiting.
+ */
+const GLIDE_MS = 320;
+
+/** The agenda's day step: a short slide in the direction of travel, with a fade. */
+const AGENDA_SLIDE = { px: 28, ms: 200, fade: true } as const;
+
+/**
  * How far a pointer may wander, in pixels, and still have been a click.
  *
  * A click that moved nothing must write nothing. Every drop snaps to five
@@ -1116,6 +1134,43 @@ export default function Schedule() {
 	const placing = useRef(false);
 	/** The day the last settle committed, so it is not committed twice. */
 	const committed = useRef<string | null>(null);
+	/**
+	 * The days the strip's panels hold, in order, as of the last commit.
+	 *
+	 * Written by the re-seat in the same layout pass that re-indexes the panels,
+	 * so it always describes what is in the DOM. The scroll listener reads it
+	 * rather than the `board` its closure was made with: that closure is only
+	 * replaced by a passive effect, after paint, and a scroll event fired in
+	 * between read the new offset against the old three days.
+	 */
+	const seatDays = useRef<string[]>([]);
+	/** The payload the last re-seat saw, so it can tell a new one from a re-render. */
+	const seatData = useRef<ScheduleData | null>(null);
+	/**
+	 * An arrow's slide to a neighbour, while it runs. See `GLIDE_MS`.
+	 *
+	 * `at` is the offset the tween last wrote, which is the position the reader
+	 * is looking at: the box's own `scrollLeft` can already have been clamped by
+	 * a re-index that took a panel away, so it is not the thing to rebase.
+	 */
+	const glide = useRef<{
+		day: string;
+		from: number;
+		to: number;
+		at: number;
+		t0: number;
+		raf: number;
+	} | null>(null);
+	const stillness = useMediaQuery('(prefers-reduced-motion: reduce)');
+	/** Stop a slide where it is and hand the strip back to its snap. */
+	const endGlide = useCallback(() => {
+		const g = glide.current;
+		if (!g) return;
+		cancelAnimationFrame(g.raf);
+		glide.current = null;
+		scrollRef.current?.style.removeProperty('scroll-snap-type');
+	}, []);
+	useEffect(() => endGlide, [endGlide]);
 	useLayoutEffect(() => {
 		const el = scrollRef.current;
 		if (!el) return;
@@ -1173,17 +1228,24 @@ export default function Schedule() {
 	   when it fires, and a popup over a blank screen explains itself and then
 	   leaves nothing behind. The two event dialogs report their own saves in
 	   their own footers, beside the form that caused them. */
+	/** Set around the reload that follows the reader's own write. See `lastOrigin`. */
+	const ownWrite = useRef(false);
+	/** Reload after a write of this reader's, so the window it opens is theirs. */
+	const reloadMine = useCallback(() => {
+		ownWrite.current = true;
+		reload();
+	}, [reload]);
 	const act = useCallback(
 		async (fn: () => Promise<unknown>) => {
 			try {
 				await fn();
-				reload();
+				reloadMine();
 			} catch (err) {
 				setPending(null);
 				toast.error(err instanceof ApiError ? err.message : copy.api.saveFallback);
 			}
 		},
-		[reload, toast]
+		[reloadMine, toast]
 	);
 
 	const eventOp = useCallback(
@@ -1300,18 +1362,21 @@ export default function Schedule() {
 	   the whole group and is always shown; otherwise the chosen person has to be
 	   on it. Travel legs are not: a leg belongs to the people making that
 	   journey, and a leg they are not on is not part of their day. */
-	const board: BoardDay[] = useMemo(() => {
-		const showEvent = (e: EventRow) =>
-			e.people.length === 0 || e.people.some((p) => selected.has(p));
-		const showLeg = (l: LegRow) => l.people.some((p) => selected.has(p));
-
-		return planned.map((entry) => ({
-			...entry,
-			events: entry.events.filter(showEvent),
-			stays: entry.stays.filter(showEvent),
-			legs: entry.legs.filter(showLeg)
-		}));
-	}, [planned, selected]);
+	const showEvent = useCallback(
+		(e: EventRow) => e.people.length === 0 || e.people.some((p) => selected.has(p)),
+		[selected]
+	);
+	const showLeg = useCallback((l: LegRow) => l.people.some((p) => selected.has(p)), [selected]);
+	const board: BoardDay[] = useMemo(
+		() =>
+			planned.map((entry) => ({
+				...entry,
+				events: entry.events.filter(showEvent),
+				stays: entry.stays.filter(showEvent),
+				legs: entry.legs.filter(showLeg)
+			})),
+		[planned, showEvent, showLeg]
+	);
 
 	/**
 	 * Who cannot make one of today's journeys in the time the day leaves them.
@@ -1362,13 +1427,21 @@ export default function Schedule() {
 		() => (data ? (board.find((b) => b.day === data.day) ?? board[0] ?? null) : null),
 		[board, data]
 	);
-	const anchorCity = anchor?.city ?? null;
 
 	/* The day under the reader, which the stepper, the band and the map name. */
 	const reading = useMemo(() => {
 		const on = shownDay && board.some((b) => b.day === shownDay) ? shownDay : (data?.day ?? null);
 		return board.find((b) => b.day === on) ?? anchor;
 	}, [board, shownDay, data?.day, anchor]);
+
+	/* The day the map draws. In the agenda it is the day being read, so an arrow
+	   moves the map on the tap together with the list it switches, rather than a
+	   fetch later. On the day board it stays the url's day: the day being read
+	   there changes at the halfway point of every swipe, and a camera that flew
+	   off mid-gesture and back when the hand let go would be a second motion
+	   arguing with the first. */
+	const mapped = data?.view === 'agenda' ? reading : anchor;
+	const mappedCity = mapped?.city ?? null;
 
 	const navigate = useNavigate();
 
@@ -1385,19 +1458,61 @@ export default function Schedule() {
 	 * Layout effect, so the seat is taken in the same frame the new panels are
 	 * painted in. A passive effect would paint the old offset first, which is a
 	 * flash of the wrong day.
+	 *
+	 * An arrow's slide that is still running when its own day's payload lands is
+	 * rebased rather than cancelled. Both ends of it, and the offset on screen, move by
+	 * exactly the re-index (how far a day the old three and the new three share
+	 * changed index), so the day under the reader stays put and the slide goes on
+	 * to where it was going. Seating it instead stopped the slide dead and jumped
+	 * the rest of the way, which on a fast connection was nearly all of it.
+	 *
+	 * The agenda has no strip, so all it takes from here is the day: the one the
+	 * url names is the one it reads once that day's rows are in.
 	 */
 	useLayoutEffect(() => {
 		const el = scrollRef.current;
-		if (!el || !data || data.view === 'agenda') return;
+		const was = seatDays.current;
+		const days = board.map((b) => b.day);
+		seatDays.current = days;
+		const fresh = seatData.current !== data;
+		seatData.current = data;
+		if (!el || !data) return;
+		if (data.view === 'agenda') {
+			endGlide();
+			setShownDay(data.day);
+			committed.current = data.day;
+			return;
+		}
 		// Not under a hand. A live reload that lands while a block is being carried
 		// to the next day would otherwise throw the strip back onto the url's day,
 		// out from under the block and the pointer holding it. The drop reloads,
 		// and the seat is taken then.
 		if (dragRef.current) return;
-		const i = board.findIndex((b) => b.day === data.day);
+		const w = el.clientWidth;
+		const g = glide.current;
+		const shared = days.find((d) => was.includes(d));
+		// Only the payload for the day the slide is going to may carry it on. A
+		// payload for any other day means the reader has gone somewhere else since
+		// the click (the back button, the date picker), and its three days can
+		// still hold the slide's day: carried on, the slide landed there and the
+		// settle wrote it over the entry the reader had just returned to. A board
+		// that changed without a new payload ("view as", a draft) is the same
+		// payload, so the slide goes on.
+		const ours = !fresh || data.day === g?.day;
+		if (g && w && ours && days.includes(g.day) && shared !== undefined) {
+			const shift = (days.indexOf(shared) - was.indexOf(shared)) * w;
+			g.from += shift;
+			g.at += shift;
+			g.to = days.indexOf(g.day) * w;
+			el.scrollLeft = g.at;
+			committed.current = data.day;
+			return;
+		}
+		endGlide();
+		const i = days.indexOf(data.day);
 		if (i < 0) return;
 		placing.current = true;
-		el.scrollLeft = i * el.clientWidth;
+		el.scrollLeft = i * w;
 		setShownDay(data.day);
 		committed.current = data.day;
 		// Released on the next frame: setting scrollLeft queues a scroll event,
@@ -1406,7 +1521,7 @@ export default function Schedule() {
 			placing.current = false;
 		});
 		return () => cancelAnimationFrame(id);
-	}, [data, board]);
+	}, [data, board, endGlide]);
 
 	/**
 	 * Keep the seat when the box changes width.
@@ -1425,6 +1540,8 @@ export default function Schedule() {
 		const ro = new ResizeObserver(() => {
 			const now = el.clientWidth;
 			if (!now || now === w || dragRef.current) return;
+			// A slide in flight is aimed at the old width; land it before squaring.
+			endGlide();
 			const i = Math.round(el.scrollLeft / w);
 			w = now;
 			placing.current = true;
@@ -1435,27 +1552,36 @@ export default function Schedule() {
 		});
 		ro.observe(el);
 		return () => ro.disconnect();
-	}, [data?.view, !!data]);
+	}, [data?.view, !!data, endGlide]);
 
 	/**
-	 * Open a day on its first block when the box would otherwise hide it.
+	 * Open the day board on its first block when the box would otherwise hide it.
 	 *
 	 * The window starts at six, which a box 70% of a desktop screen tall shows
 	 * with most of the day under it. A phone gets the 320px floor, which is five
 	 * hours: a day that starts at eleven opened on an empty grid with the
 	 * morning's first block a sliver along the bottom edge, and nothing to say
-	 * the rest was there. Only on arriving at a day, and only when the first
-	 * thing on it would sit in the lower half of what is on screen, so a board
-	 * the reader has scrolled is never taken away from them and a desktop board,
-	 * whose box shows the morning whole, does not move at all.
+	 * the rest was there. Only when the first thing on the day would sit in the
+	 * lower half of what is on screen, so a desktop board, whose box shows the
+	 * morning whole, does not move at all.
+	 *
+	 * Only on arriving at the day board: the page loading, or coming back to it
+	 * from the agenda. Never on a day step. It used to run on every day the board
+	 * arrived at, and that is the clock moving under the reader: step from a day
+	 * that starts at nine to one that starts at eleven and the hours scrolled two
+	 * hours up, step back and they stayed there. Across days the hour at the top
+	 * of the box is the reader's, the same as the scroll inside one day is.
 	 */
 	const openedOn = useRef<string | null>(null);
 	useLayoutEffect(() => {
 		const el = scrollRef.current;
-		if (!el || !data || data.view === 'agenda' || !viewH) return;
-		const key = `${data.day}|${data.view}`;
-		if (openedOn.current === key) return;
-		openedOn.current = key;
+		if (!el || !data) return;
+		if (data.view === 'agenda') {
+			openedOn.current = null;
+			return;
+		}
+		if (!viewH || openedOn.current === trip.id) return;
+		openedOn.current = trip.id;
 		const today = board.find((b) => b.day === data.day);
 		const firsts = [
 			...(today?.events.map((e) => holdsOpen(e, today.day)) ?? []),
@@ -1493,7 +1619,7 @@ export default function Schedule() {
 			if (placing.current) return;
 			const w = el.clientWidth;
 			if (!w) return;
-			const landed = board[Math.round(el.scrollLeft / w)]?.day;
+			const landed = seatDays.current[Math.round(el.scrollLeft / w)];
 			if (!landed) return;
 			setShownDay(landed);
 			window.clearTimeout(settle);
@@ -1512,7 +1638,26 @@ export default function Schedule() {
 			el.removeEventListener('scroll', onScroll);
 			window.clearTimeout(settle);
 		};
-	}, [board, data, navigate]);
+	}, [data, navigate]);
+
+	/* A hand on the strip takes it back from a slide in flight: a finger or a
+	   press landing on it, or a sideways wheel. A vertical wheel is reading the
+	   hours, not asking for another day, so it leaves the slide alone. */
+	useEffect(() => {
+		const el = scrollRef.current;
+		if (!el || data?.view === 'agenda') return;
+		const onWheel = (e: WheelEvent) => {
+			if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) endGlide();
+		};
+		el.addEventListener('pointerdown', endGlide, { passive: true });
+		el.addEventListener('touchstart', endGlide, { passive: true });
+		el.addEventListener('wheel', onWheel, { passive: true });
+		return () => {
+			el.removeEventListener('pointerdown', endGlide);
+			el.removeEventListener('touchstart', endGlide);
+			el.removeEventListener('wheel', onWheel);
+		};
+	}, [data?.view, !!data, endGlide]);
 
 	/**
 	 * Slide the strip to a neighbour, which is what an arrow now does.
@@ -1520,9 +1665,21 @@ export default function Schedule() {
 	 * The arrows are still links, so the board stays addressable and the back
 	 * button still walks the days. This runs first, over the panels that are on
 	 * screen at the time of the click: the old three are still painted while the
-	 * new day is being fetched, so the strip glides to the neighbour the reader
-	 * asked for, and the re-seat above lands on the same day once the payload
-	 * arrives. One motion, whether it was a hand or an arrow that started it.
+	 * new day is being fetched, so the strip slides to the neighbour the reader
+	 * asked for, and the re-seat above rebases the slide when the payload lands
+	 * part-way through it. One motion, whether it was a hand or an arrow that
+	 * started it, and the same scroll events, so the stepper renames the day at
+	 * the halfway point exactly as it does under a finger.
+	 *
+	 * A tween rather than `scrollTo({ behavior: 'smooth' })`: see `GLIDE_MS`.
+	 * Snapping is off while it runs, for the reason it is off under a carried
+	 * block (`.held`): a mandatory snap container answers every per-frame write
+	 * by throwing the strip back to the nearest day. Written as an inline style
+	 * rather than a class so a render in the middle of the slide cannot take it
+	 * away. A reader who asked for stillness gets the day at once.
+	 *
+	 * The agenda has no strip. When the payload already holds the day asked for,
+	 * the list switches to it at once instead of waiting for the fetch.
 	 */
 	const stepTo = useCallback(
 		(day: string) => {
@@ -1531,10 +1688,76 @@ export default function Schedule() {
 			const i = board.findIndex((b) => b.day === day);
 			if (i < 0) return;
 			committed.current = day;
-			el.scrollTo({ left: i * el.clientWidth, behavior: 'smooth' });
+			if (data?.view === 'agenda') {
+				setShownDay(day);
+				return;
+			}
+			const to = i * el.clientWidth;
+			const was = glide.current;
+			if (was) cancelAnimationFrame(was.raf);
+			if (stillness) {
+				endGlide();
+				el.scrollLeft = to;
+				return;
+			}
+			const from = was ? was.at : el.scrollLeft;
+			el.style.setProperty('scroll-snap-type', 'none');
+			const g = { day, from, to, at: from, t0: performance.now(), raf: 0 };
+			glide.current = g;
+			// Progress is counted a frame at a time, capped at two frames' worth,
+			// rather than read off the clock. The payload lands mid-slide and
+			// drawing the new panels is one long frame; read off the clock, the
+			// strip leapt a third of a day to catch up with the time it missed.
+			let done = 0;
+			let last = g.t0;
+			const tick = (now: number) => {
+				if (glide.current !== g) return;
+				done += Math.min(Math.max(0, now - last), 34);
+				last = now;
+				const t = Math.min(1, done / GLIDE_MS);
+				g.at = g.from + (g.to - g.from) * (1 - (1 - t) ** 3);
+				el.scrollLeft = g.at;
+				if (t < 1) g.raf = requestAnimationFrame(tick);
+				else endGlide();
+			};
+			g.raf = requestAnimationFrame(tick);
 		},
-		[board]
+		[board, data?.view, stillness, endGlide]
 	);
+
+	/**
+	 * The strip follows the back and forward buttons, not only the arrows.
+	 *
+	 * A Back pressed while an arrow's slide was still running moved the url to
+	 * the day the reader came from, and the slide went on to the day the arrow
+	 * had asked for. A quick enough Back is never even rendered as a change: the
+	 * router commits the entry it returns to, which is the one it was already
+	 * on, so nothing is fetched and no payload ever comes to put the strip
+	 * right. The reader was left looking at one day under an address naming
+	 * another. So a history move is read off the url itself, as it happens: when
+	 * the day it names is on the strip and the strip is not on it, the strip
+	 * turns towards it from wherever it is, the same slide an arrow makes (or
+	 * the same jump, for a reader who asked for stillness); when the day is not
+	 * on the strip, a slide in flight is ended and that day's payload seats it.
+	 */
+	useEffect(() => {
+		if (!data || data.view === 'agenda') return;
+		const view = data.view;
+		const onPop = () => {
+			const q = new URLSearchParams(window.location.search);
+			const day = q.get('day');
+			const el = scrollRef.current;
+			if (!day || q.get('view') !== view || !el || dragRef.current) return;
+			const g = glide.current;
+			const w = el.clientWidth;
+			const on = g ? g.day : w ? seatDays.current[Math.round(el.scrollLeft / w)] : day;
+			if (on === day) return;
+			if (seatDays.current.includes(day)) stepTo(day);
+			else endGlide();
+		};
+		window.addEventListener('popstate', onPop);
+		return () => window.removeEventListener('popstate', onPop);
+	}, [data?.view, !!data, stepTo, endGlide]);
 
 	/**
 	 * Whether Google has taken itself off the table.
@@ -1578,6 +1801,58 @@ export default function Schedule() {
 	);
 
 	/**
+	 * The same first minute, for the days as saved: no draft from an open dialog.
+	 *
+	 * This is what the floor below follows. The draft-inclusive `winStart` is
+	 * still what a dialog opens the window through as it is typed; keeping the
+	 * two apart is what lets a saved early start that arrives while a dialog is
+	 * open (a step behind a docked panel, a live reload) hold the clock still
+	 * like any other, rather than open the window with nothing to offset it.
+	 */
+	const savedStart = useMemo(
+		() =>
+			windowStart(
+				(data?.board ?? []).flatMap((entry) => [
+					...entry.events.filter(showEvent).map((e) => holdsOpen(e, entry.day)),
+					...entry.legs.filter(showLeg).map((l) => l.startMin)
+				])
+			),
+		[data, showEvent, showLeg, holdsOpen]
+	);
+
+	/**
+	 * The earliest the window has opened to on this visit to the day board.
+	 *
+	 * The window may open earlier as the reader moves through the trip, and it
+	 * never closes again while they stay. `winStart` is measured off the three
+	 * days the strip holds, and the strip recycles them on every step, so a
+	 * board that followed it exactly moved its whole clock whenever a day with
+	 * an early start came into or went out of the three: every hour line slid
+	 * down an hour, or up one, under a reader who had only asked for tomorrow.
+	 * Holding the earliest start seen is what lets a step leave the hours where
+	 * they were. The cost is the same as the shared origin's, an hour of empty
+	 * grid above a day that does not need it, and it is the same right trade.
+	 *
+	 * Fed only by the days as saved (`savedStart`), whether or not a dialog is
+	 * open. A draft opens the window through `winStart` as it is typed and closes
+	 * it again on a cancel, as it always has, and nothing is offset for it; once
+	 * saved, the reload brings the time back as saved and it counts from then.
+	 * Kept per trip and view, so another trip starts afresh.
+	 *
+	 * State set while rendering, React's way of deriving a value from the last
+	 * one: it is a running minimum, and the guard only lets it move down.
+	 */
+	const floorKey = `${trip.id}|${data?.view ?? ''}`;
+	const [floorAt, setFloorAt] = useState<{ key: string; min: number } | null>(null);
+	let floor = floorAt?.key === floorKey ? floorAt.min : null;
+	if (data && data.view !== 'agenda' && (floor === null || savedStart < floor)) {
+		floor = savedStart;
+		setFloorAt({ key: floorKey, min: savedStart });
+	}
+	/** The window at rest: the floor, opened further only by a draft. */
+	const restStart = Math.min(winStart, floor ?? savedStart);
+
+	/**
 	 * Where a dropped block has opened the window to, held until its day comes
 	 * back from the server.
 	 *
@@ -1598,9 +1873,9 @@ export default function Schedule() {
 	 * A drag drives it directly: the window follows the block down to the minute,
 	 * rather than the block being held inside the window. That is what lets a
 	 * block be dragged into hours the board was not showing, and because it is
-	 * continuous it never steps. `winStart` is the floor it returns to.
+	 * continuous it never steps. `restStart` is the floor it returns to.
 	 */
-	const boardStart = Math.min(winStart, (drag ? drag.liveStart : openFloor) ?? winStart);
+	const boardStart = Math.min(restStart, (drag ? drag.liveStart : openFloor) ?? restStart);
 
 	/**
 	 * Keep the dragged block under the pointer while the board moves beneath it.
@@ -1638,7 +1913,7 @@ export default function Schedule() {
 	 * a dialog is not being held onto by anybody, and that one is better read as
 	 * the board opening than hidden by moving the hours under it.
 	 */
-	const openedBy = winStart - boardStart;
+	const openedBy = restStart - boardStart;
 	const glue = (openedBy - (drag?.creep ?? 0)) * PX_PER_MIN;
 	const lastGlue = useRef(glue);
 	useLayoutEffect(() => {
@@ -1651,6 +1926,56 @@ export default function Schedule() {
 		const top = BOARD_PAD_PX + topPx(d.liveStart, boardStart);
 		const foot = top + d.mins * PX_PER_MIN - el.clientHeight;
 		el.scrollTop = Math.min(Math.max(el.scrollTop, foot), top);
+	});
+
+	/**
+	 * Keep the clock still when the floor opens the window under the reader.
+	 *
+	 * The floor drops when a day with an earlier start than any seen so far
+	 * arrives: a step, a swipe, the date picker, a live reload of somebody
+	 * else's early block, a change of who the board is read as. The grid then
+	 * grows at the top and every hour on it would slide down by what was opened,
+	 * so the box is scrolled down by exactly that in the same layout pass, before
+	 * paint, and nothing on screen moves. The new hours are there above, for a
+	 * reader who scrolls up to them. The same correction the drag's glue makes,
+	 * for the same reason; here nobody is holding anything.
+	 *
+	 * The board's own transitions are switched off for that one frame
+	 * (`.rebase`). Every block and hour line eases its `top`, and a glide down
+	 * by the opening under a scroll that has already jumped by it is the very
+	 * slide this exists to remove. The class is added and the style read back
+	 * before the scroll is written, which also cancels any transition an earlier
+	 * layout read in this commit had already started.
+	 *
+	 * Not for the reader's own writes. A block they drag to 4:30 or type in at
+	 * 4:40 opens the window, and that opening is the board answering them, so it
+	 * keeps the behaviour it has always had: the drop's `openFloor` and the
+	 * draft's `winStart` open it, the saved time holds it open once it is back,
+	 * and the hours ease into place rather than vanishing above the box. Marked
+	 * by `ownWrite` around the reload that follows a write, and cleared by the
+	 * next payload.
+	 */
+	const lastOrigin = useRef<{
+		start: number;
+		floor: number;
+		data: ScheduleData;
+	} | null>(null);
+	useLayoutEffect(() => {
+		if (!data) return;
+		const was = lastOrigin.current;
+		const floorNow = floor ?? savedStart;
+		lastOrigin.current = { start: boardStart, floor: floorNow, data };
+		const mine = ownWrite.current;
+		if (was && was.data !== data) ownWrite.current = false;
+		const el = scrollRef.current;
+		if (!el || !was || data.view === 'agenda' || was.data.view === 'agenda') return;
+		if (dragRef.current || mine || floorNow >= was.floor) return;
+		const opened = (was.start - boardStart) * PX_PER_MIN;
+		if (opened <= 0) return;
+		el.classList.add('rebase');
+		void el.scrollHeight;
+		el.scrollTop += opened;
+		requestAnimationFrame(() => el.classList.remove('rebase'));
 	});
 
 	/** Which city a day is spent in, for ordering the place picker. */
@@ -1850,10 +2175,10 @@ export default function Schedule() {
 		   block's own colour, and an unscheduled one is grey, so the map says both
 		   what is in the plan and what each planned thing is. The day's own stops
 		   also carry their number and the line through them. */
-		const dayPins = (anchor?.events ?? []).filter((e) => e.lat != null && e.lng != null);
-		const stayPins = (anchor?.stays ?? []).filter((s) => s.lat != null && s.lng != null);
+		const dayPins = (mapped?.events ?? []).filter((e) => e.lat != null && e.lng != null);
+		const stayPins = (mapped?.stays ?? []).filter((s) => s.lat != null && s.lng != null);
 		const scheduledPoiIds = new Set(
-			(anchor?.events ?? []).map((e) => e.poi_id).filter((id): id is string => id !== null)
+			(mapped?.events ?? []).map((e) => e.poi_id).filter((id): id is string => id !== null)
 		);
 		const restPins = (data?.saved ?? []).filter(
 			(p) => p.lat != null && p.lng != null && !scheduledPoiIds.has(p.id)
@@ -1874,7 +2199,7 @@ export default function Schedule() {
 		 * the rest of the group divides.
 		 */
 		const ordered = ((): boolean => {
-			const day = anchor?.day ?? '';
+			const day = mapped?.day ?? '';
 			const at = (e: EventRow) => segOf(e, day);
 			const evs = [...dayPins].sort((a, b) => at(a).start - at(b).start);
 			if (evs.length < 2) return true;
@@ -1925,16 +2250,16 @@ export default function Schedule() {
 			   are the ones already on the board, so they answer it for whoever is
 			   being read rather than for the group in the abstract. */
 			const arrivals = new Map<string, LegRow[]>();
-			for (const l of anchor?.legs ?? []) {
+			for (const l of mapped?.legs ?? []) {
 				const at = arrivals.get(l.toEventId);
 				if (at) at.push(l);
 				else arrivals.set(l.toEventId, [l]);
 			}
 			tracks.push({
-				name: dayLabel(data.day),
+				name: dayLabel(mapped?.day ?? data.day),
 				color: '#2f6d5e',
 				items: [...dayPins]
-					.sort((a, b) => segOf(a, anchor!.day).start - segOf(b, anchor!.day).start)
+					.sort((a, b) => segOf(a, mapped!.day).start - segOf(b, mapped!.day).start)
 					.map((e) => {
 						const legs = arrivals.get(e.id) ?? [];
 						/* Two routes at most. A day that splits can have a journey per
@@ -1985,7 +2310,7 @@ export default function Schedule() {
 			});
 		}
 		return tracks;
-	}, [anchor, data, readAs, eventById, peopleLabel, locked, segOf, zoneOf]);
+	}, [mapped, data, readAs, eventById, peopleLabel, locked, segOf, zoneOf]);
 
 	/* Clicking a block on the board aims the map at it, so the reader can see
 	   what is around the place they just selected. A click focuses; it does not
@@ -2049,8 +2374,10 @@ export default function Schedule() {
 	);
 	/* The camera returns to the whole day when the selection is dropped: on a day
 	   change, because the focused block is not on the new day, and on Escape while
-	   no dialog is up, since an open dialog owns Escape for its own close. */
-	const shownDayKey = data?.day;
+	   no dialog is up, since an open dialog owns Escape for its own close. Keyed on
+	   the day the map draws, so in the agenda a focus is let go on the tap, with
+	   the camera free to fly to the new day, rather than when the fetch lands. */
+	const shownDayKey = mapped?.day ?? data?.day;
 	const hadFocus = useRef(false);
 	hadFocus.current = !!focusId;
 	useEffect(() => {
@@ -2079,7 +2406,7 @@ export default function Schedule() {
 					<GoogleMap
 						tracks={mapTracks}
 						apiKey={data.mapsKey}
-						center={anchorCity}
+						center={mappedCity}
 						focus={mapFocus}
 						focusKey={mapFocusKey}
 						onAdd={locked ? undefined : addFromMap}
@@ -2088,7 +2415,7 @@ export default function Schedule() {
 				) : (
 					<TripMap
 						tracks={mapTracks}
-						center={anchorCity}
+						center={mappedCity}
 						focus={mapFocus}
 						focusKey={mapFocusKey}
 						onAdd={locked ? undefined : addFromMap}
@@ -2102,7 +2429,7 @@ export default function Schedule() {
 		// Without the dep the swap to Leaflet waits for the next change to
 		// `mapTracks`, which most board edits produce, so the bug would not be a
 		// map that never falls back but one that falls back only sometimes.
-		[data?.mapsKey, mapsOut, mapTracks, anchorCity, mapFocus, mapFocusKey, addFromMap, locked]
+		[data?.mapsKey, mapsOut, mapTracks, mappedCity, mapFocus, mapFocusKey, addFromMap, locked]
 	);
 
 	// --- Drag and resize ----------------------------------------------------
@@ -2464,6 +2791,65 @@ export default function Schedule() {
 		data ? VIEW_OPTIONS.findIndex((o) => o.v === data.view) : 0
 	);
 
+	/**
+	 * The agenda's day step.
+	 *
+	 * The day board steps by travelling its strip; the agenda is one list with
+	 * nothing beside it to travel to, so its rows were simply replaced, with no
+	 * sign which way the reader went. A short slide from the side of travel with
+	 * a fade says it, at a fraction of the board card's slide: this is a page of
+	 * a list turning, not the board changing. Keyed on the day being listed and
+	 * ranked by date, so a later day comes in from the right. Nothing vertical
+	 * moves: the list keeps its scroll, exactly as the day board keeps its hour.
+	 */
+	const agendaRef = useRef<HTMLDivElement>(null);
+	const listedDay = data?.view === 'agenda' ? (reading?.day ?? data.day) : null;
+	useSlideIn(
+		agendaRef,
+		listedDay,
+		listedDay ? Date.parse(`${listedDay}T00:00:00Z`) / 86_400_000 : 0,
+		AGENDA_SLIDE
+	);
+
+	/**
+	 * The lodging band only grows during a visit, the clock's floor for the band.
+	 *
+	 * The band sits above the board and names the stays of the day being read,
+	 * so a step onto a day with fewer of them made it shorter and pulled the
+	 * whole board up under the reader: 42px at 390px, a row of stay chips. The
+	 * tallest band seen so far is held as its `min-height`, measured off the band
+	 * as rendered, so a shorter day leaves room rather than taking it back. Per
+	 * trip and view, like the window's floor, and per width, because the chips
+	 * wrap differently on a rotated phone and a height kept from another width
+	 * is a guess. Not taken before the web font is in: the fallback is wider and
+	 * wraps the band onto a row it does not have once the font arrives, and
+	 * holding that row would keep empty space for the whole visit.
+	 */
+	const bandRef = useRef<HTMLDivElement>(null);
+	const bandFloor = useRef({ key: '', h: 0 });
+	const holdBand = useCallback(() => {
+		const el = bandRef.current;
+		if (!el || (document.fonts && document.fonts.status !== 'loaded')) return;
+		const key = `${trip.id}|${data?.view ?? ''}|${el.clientWidth}`;
+		if (bandFloor.current.key !== key) {
+			bandFloor.current = { key, h: 0 };
+			el.style.removeProperty('min-height');
+		}
+		const h = el.getBoundingClientRect().height;
+		if (h > bandFloor.current.h) bandFloor.current.h = h;
+		el.style.minHeight = `${bandFloor.current.h}px`;
+	}, [trip.id, data?.view]);
+	useLayoutEffect(holdBand);
+	useEffect(() => {
+		let live = true;
+		void document.fonts?.ready.then(() => {
+			if (live) holdBand();
+		});
+		return () => {
+			live = false;
+		};
+	}, [holdBand]);
+
 	/* Three states before there is a page, as on every other trip page: still
 	   loading, failed, or here. This drew nothing at all while the first day
 	   loaded, and a failure was a banner with no way to ask again short of
@@ -2508,7 +2894,7 @@ export default function Schedule() {
 	 */
 	function stayBands(entry: BoardDay) {
 		return (
-			<div className="stayband">
+			<div className="stayband" ref={bandRef}>
 				{entry.stays.map((s) => (
 					<div key={s.id} className={preview?.id === s.id ? 'staychip editingnow' : 'staychip'}>
 						<button
@@ -2833,10 +3219,15 @@ export default function Schedule() {
 	/* A span is listed on every day it covers. Where it begins it reads as the
 	   whole range, so the one row says when it ends; on the days after, it
 	   reads as the part of it on that day, and has no start of its own to put
-	   in the time column. */
+	   in the time column.
+
+	   The day under the reader, as the stepper names it, rather than the url's:
+	   the two differ only between an arrow and its payload, and a list still on
+	   yesterday under a title already on today is the mismatch this avoids. */
+	const listed = reading ?? anchor;
 	const agenda = [
-		...(anchor?.events ?? []).map((ev) => {
-			const seg = segOf(ev, anchor!.day);
+		...(listed?.events ?? []).map((ev) => {
+			const seg = segOf(ev, listed!.day);
 			const part = seg.startsHere ? null : segmentTime(ev, seg, zoneOf);
 			return {
 				key: ev.id,
@@ -2852,7 +3243,7 @@ export default function Schedule() {
 				open: () => openBlock(ev.id)
 			};
 		}),
-		...(anchor?.legs ?? []).map((leg) => ({
+		...(listed?.legs ?? []).map((leg) => ({
 			key: laneKey(leg),
 			start: leg.startMin,
 			when: clock(leg.startMin),
@@ -2947,7 +3338,7 @@ export default function Schedule() {
 								style={viewH ? { maxHeight: `${viewH}px` } : undefined}
 							>
 								{view === 'agenda' ? (
-									agendaBoard()
+									<div ref={agendaRef}>{agendaBoard()}</div>
 								) : (
 									<div className="daytrack">
 										{board.map((entry) => (
@@ -3024,7 +3415,7 @@ export default function Schedule() {
 					onClose={() => setAdding(null)}
 					onDone={() => {
 						setAdding(null);
-						reload();
+						reloadMine();
 					}}
 				/>
 			)}
@@ -3055,7 +3446,7 @@ export default function Schedule() {
 					onClose={closeEvent}
 					onDone={() => {
 						closeEvent();
-						reload();
+						reloadMine();
 					}}
 				/>
 			)}

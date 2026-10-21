@@ -1678,4 +1678,192 @@ test.describe('the day strip', () => {
 			fixture.teardown();
 		}
 	});
+
+	test('stepping a day leaves the clock where it was, whatever the days around it start at', async ({
+		page,
+		request
+	}) => {
+		const fixture = await seedDay(page, request);
+		const { startDate, endDate } = fixture.tripBody;
+		const middle = '2027-02-11';
+		const cityId = (
+			(await (
+				await apiSend(request, fixture, 'GET', `/trips/${fixture.tripId}/schedule?day=${startDate}`)
+			).json()) as { cities: { id: string }[] }
+		).cities[0].id;
+		const add = async (day: string, start: number) => {
+			const res = await apiSend(
+				request,
+				fixture,
+				'POST',
+				`/trips/${fixture.tripId}/schedule/events`,
+				{ day, cityId, type: 'activity', start, duration: 45 }
+			);
+			expect(res.status(), await res.text()).toBe(201);
+		};
+		// The first day starts at ten, the second at nine and the last at five, so
+		// the three days the strip holds start earlier with every step: from the
+		// middle day the last one is drawn beside it and opens the window to 5 AM.
+		await add(middle, 9 * 60);
+		await add(endDate, 5 * 60);
+		try {
+			await page.goto(`/trips/${fixture.tripId}/schedule?day=${startDate}&view=day`);
+			await expect(page.locator('.sched .daypanel')).toHaveCount(2);
+			await settled(page);
+			const firstHour = (day: string) =>
+				page.locator(`.sched .daypanel[data-day="${day}"] .hourline span`).first();
+			await expect(firstHour(startDate)).toHaveText('6 AM');
+
+			/** Step a day, and report where ten o'clock stood on every frame of it. */
+			const step = (label: string) =>
+				page.evaluate(async (label) => {
+					const box = document.querySelector('.sched .boardscroll')!;
+					const tens = () =>
+						[...box.querySelectorAll('.hourline')]
+							.filter((l) => l.textContent?.trim() === '10 AM')
+							.map((l) =>
+								Math.round(l.getBoundingClientRect().top - box.getBoundingClientRect().top)
+							);
+					const seen = new Set<number>(tens());
+					(document.querySelector(`a[aria-label="${label}"]`) as HTMLElement).click();
+					const t0 = performance.now();
+					while (performance.now() - t0 < 1500) {
+						await new Promise((r) => requestAnimationFrame(r));
+						for (const y of tens()) seen.add(y);
+					}
+					return [...seen];
+				}, label);
+
+			// Every panel's ten o'clock, on every frame of the step: one height.
+			// The window opens to five while the strip is moving, and the box
+			// scrolls down by exactly what opened, so nothing on screen moves.
+			expect(await step('Next day')).toHaveLength(1);
+			await expect(page).toHaveURL(new RegExp(`day=${middle}`));
+			await expect(firstHour(middle)).toHaveText('5 AM');
+
+			// Back to a day whose own three start at six. The window stays open
+			// rather than closing under the reader, so again nothing moves.
+			const before = await step('Previous day');
+			expect(before).toHaveLength(1);
+			await expect(page).toHaveURL(new RegExp(`day=${startDate}`));
+			await expect(firstHour(startDate)).toHaveText('5 AM');
+			// And it is the same height it was before either step.
+			expect(await step('Next day')).toEqual(before);
+		} finally {
+			fixture.teardown();
+		}
+	});
+
+	test('going back in the middle of an arrow slide stays on the day gone back to', async ({
+		page,
+		request
+	}) => {
+		const fixture = await seedDay(page, request);
+		const { endDate } = fixture.tripBody;
+		const middle = '2027-02-11';
+		try {
+			await page.goto(`/trips/${fixture.tripId}/schedule?day=${middle}&view=day`);
+			await expect(page.locator('.sched .daypanel')).toHaveCount(3);
+			await settled(page);
+			// The next day's payload never arrives, so the only one that lands is
+			// the day gone back to, while the slide towards the next day is still
+			// running. That payload's three days still hold the next day, which is
+			// exactly what used to carry the slide on to it.
+			await page.route(`**/schedule?day=${endDate}&view=day`, () => new Promise(() => {}));
+
+			await page.getByRole('link', { name: 'Next day' }).click();
+			await expect(page).toHaveURL(new RegExp(`day=${endDate}`));
+			await page.goBack();
+			await expect(page).toHaveURL(new RegExp(`day=${middle}`));
+
+			// Seated on the day gone back to, the middle panel...
+			const box = page.locator('.sched .boardscroll');
+			await expect.poll(() => box.evaluate((el) => el.scrollLeft / el.clientWidth)).toBe(1);
+			await expect(page.locator('.sched .boardhead')).toContainText('11');
+			// ...and still there once any slide and settle would have finished: the
+			// url is not rewritten to the day the slide had been heading for.
+			await page.waitForTimeout(800);
+			await expect(page).toHaveURL(new RegExp(`day=${middle}`));
+			expect(await box.evaluate((el) => el.scrollLeft / el.clientWidth)).toBe(1);
+		} finally {
+			fixture.teardown();
+		}
+	});
+});
+
+test.describe("the agenda's day step", () => {
+	// The agenda is served the same three days as the day board, so the day an
+	// arrow asks for is already on the client: the list switches on the click
+	// rather than on the fetch, and the payload only confirms it.
+	test('shows the next day as soon as it is asked for, before its fetch lands', async ({
+		page,
+		request
+	}) => {
+		const fixture = await createApiFixture(request);
+		const { startDate } = fixture.tripBody;
+		const middle = '2027-02-11';
+		try {
+			const cityId = await addCity(request, fixture, {
+				name: 'Athens',
+				country: 'Greece',
+				arrive: startDate,
+				depart: fixture.tripBody.endDate,
+				lat: 37.9838,
+				lng: 23.7275,
+				tz: 'Europe/Athens'
+			});
+			for (const [day, title] of [
+				[startDate, 'Harbour walk'],
+				[middle, 'Ferry to Hydra']
+			]) {
+				const res = await apiSend(
+					request,
+					fixture,
+					'POST',
+					`/trips/${fixture.tripId}/schedule/events`,
+					{ day, cityId, type: 'activity', start: 600, duration: 60, title }
+				);
+				expect(res.status(), await res.text()).toBe(201);
+			}
+			await signIn(page, fixture.sessionCookie);
+			await page.goto(`/trips/${fixture.tripId}/schedule?day=${startDate}&view=agenda`);
+			await expect(page.locator('.sched .agendatitle', { hasText: 'Harbour walk' })).toBeVisible();
+
+			// Hold the next day's payload at the route until the assertions below
+			// are done. Nothing is left to timing: while it is held it cannot have
+			// landed, so whatever the list shows came from the payload already on
+			// the client.
+			const nextDay = `day=${middle}&view=agenda`;
+			let release = () => {};
+			const held = new Promise<void>((r) => (release = r));
+			let reached: () => void = () => {};
+			const asked = new Promise<void>((r) => (reached = r));
+			let landed = false;
+			await page.route(`**/schedule?${nextDay}`, async (route) => {
+				reached();
+				await held;
+				await route.continue();
+			});
+			page.on('requestfinished', (req) => {
+				if (req.url().includes(nextDay)) landed = true;
+			});
+			await page.getByRole('link', { name: 'Next day' }).click();
+			// The fetch is out and parked at the route.
+			await asked;
+			await expect(
+				page.locator('.sched .agendatitle', { hasText: 'Ferry to Hydra' })
+			).toBeVisible();
+			await expect(page.locator('.sched .agendatitle', { hasText: 'Harbour walk' })).toHaveCount(0);
+			await expect(page.locator('.sched .boardhead')).toContainText('11');
+			expect(landed).toBe(false);
+			release();
+			// And the payload, once it lands, agrees and keeps the day.
+			await expect.poll(() => landed).toBe(true);
+			await expect(
+				page.locator('.sched .agendatitle', { hasText: 'Ferry to Hydra' })
+			).toBeVisible();
+		} finally {
+			fixture.teardown();
+		}
+	});
 });

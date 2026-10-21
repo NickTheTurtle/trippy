@@ -30,6 +30,11 @@ export function useApi<T>(path: string | null): Loadable<T> {
 
 		api<T>(path, { signal: ac.signal })
 			.then((d) => {
+				// A request replaced by a newer one (a reload on top of a reload)
+				// can be aborted while its body is read, which `api()` used to
+				// return as null. Stored, that blanked the screen to its loading
+				// state until the newer answer arrived.
+				if (ac.signal.aborted) return;
 				setData(d);
 				setError(null);
 				setErrorStatus(null);

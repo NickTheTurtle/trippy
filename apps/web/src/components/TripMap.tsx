@@ -6,6 +6,9 @@ import { mapCard, cardAnchor, createCardLayer } from './map-card';
 import { groupColocated } from './map-groups';
 import MapBoundary from './MapBoundary';
 
+/** How long the camera takes to reach a new framing, in seconds: Leaflet's unit. */
+const FLY_S = 0.6;
+
 /**
  * The keyless fallback map, on OpenStreetMap tiles.
  *
@@ -189,12 +192,37 @@ function TripMapInner({
 		frame(map, L, pts);
 	}
 
-	/** The framed points, or the city when there are none to frame. */
+	/** The framed points, or the city when there are none to frame.
+	 *
+	 * Flown to rather than cut to, so a new day's pins arrive the way the
+	 * Google map's do: Leaflet's own `flyTo` curve, which climbs out for a jump
+	 * between cities and is close to a pan for a move across one. The first
+	 * framing is the exception and is still a cut, since the map was just built
+	 * on the city and a page should not open by flying, and so is a reader who
+	 * asked for stillness. A flight under way is replaced from where the camera
+	 * is, and a drag or a wheel on the map stops it: Leaflet does both. */
 	function frame(map: LMap, L: typeof import('leaflet'), pts: [number, number][]) {
 		const c = centerRef.current;
-		if (pts.length === 1) map.setView(pts[0], 14);
-		else if (pts.length > 1) map.fitBounds(L.latLngBounds(pts).pad(0.25));
-		else if (c?.lat != null && c?.lng != null) map.setView([c.lat, c.lng], 12);
+		if (pts.length === 1) go(map, pts[0], 14);
+		else if (pts.length > 1) {
+			const b = L.latLngBounds(pts).pad(0.25);
+			if (still()) map.fitBounds(b, { animate: false });
+			else map.flyToBounds(b, { duration: FLY_S });
+		} else if (c?.lat != null && c?.lng != null) go(map, [c.lat, c.lng], 12);
+	}
+
+	/** One point at one zoom, flown to or cut to by the same rule as `frame`. */
+	function go(map: LMap, at: [number, number], zoom: number) {
+		if (still()) map.setView(at, zoom, { animate: false });
+		else map.flyTo(at, zoom, { duration: FLY_S });
+	}
+
+	/** Whether this move should cut: the first framing, or a reader asking for stillness. */
+	const framedOnce = useRef(false);
+	function still(): boolean {
+		const first = !framedOnce.current;
+		framedOnce.current = true;
+		return first || !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 	}
 
 	useEffect(() => {
@@ -222,6 +250,7 @@ function TripMapInner({
 			// A tap opens a card, so a tap on the map behind it is what puts it away.
 			map.on('click', () => layerRef.current?.hide(true));
 			mapRef.current = map;
+			framedOnce.current = false;
 			draw();
 			/* Leaflet reads the size of its container once and caches it, so a box
 			   that is sized from the page rather than from a stylesheet, as the
@@ -262,7 +291,7 @@ function TripMapInner({
 		const L = lRef.current;
 		if (!map || !L) return;
 		if (focus?.lat != null && focus?.lng != null) {
-			map.setView([focus.lat, focus.lng], 16);
+			go(map, [focus.lat, focus.lng], 16);
 			return;
 		}
 		frame(map, L, dayPts.current);

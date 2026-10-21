@@ -338,6 +338,11 @@
 	display: flex;
 	flex-wrap: wrap;
 	align-items: center;
+	/* The page holds the band at the tallest it has been this visit (see
+	   `bandFloor` in `Schedule.tsx`), so a day with fewer stays leaves room
+	   instead of pulling the board up. The rows it does have sit at the top of
+	   that room rather than being spread down it. */
+	align-content: flex-start;
 	gap: 0.4rem;
 	margin: 0 0 0.7rem var(--hourgutter);
 }
@@ -455,6 +460,16 @@
 .sched .daygrid.still,
 .sched .daygrid.still .hourline,
 .sched .daygrid.opening .block.dragging {
+	transition: none;
+}
+/* The window opened under a reader who did not open it: a day step brought an
+   earlier start into the strip. The box scrolls down by the opening in the same
+   frame, so the hours stay exactly where they were, and an ease on top of that
+   would slide every block and rule down from where it already is. Set for that
+   one frame by the page; see `lastOrigin` in `Schedule.tsx`. */
+.sched .boardscroll.rebase .daygrid,
+.sched .boardscroll.rebase .hourline,
+.sched .boardscroll.rebase .block {
 	transition: none;
 }
 .sched .hourline span {

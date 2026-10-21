@@ -467,11 +467,13 @@ schedule.get('/', async (c) => {
 	 * length of the trip. Each day costs a routing pass on its first load, so
 	 * the count here is a bill as well as a payload.
 	 *
-	 * The agenda reads one day, so it is served one: there is nothing beside it
-	 * to scroll to.
+	 * The agenda is served the same three. It has no strip, but a step that
+	 * waited a round trip held the old day on screen under the new date; with
+	 * the neighbours already here the next day is drawn on the tap. The routing
+	 * pass that buys is one the next step would have paid anyway, and it is
+	 * saved, so it is paid once per day rather than once per look.
 	 */
-	const drawn =
-		view === 'agenda' ? [day] : [prevDay, day, nextDay].filter((d): d is string => d !== null);
+	const drawn = [prevDay, day, nextDay].filter((d): d is string => d !== null);
 
 	const board = await Promise.all(
 		drawn.map(async (on) => ({

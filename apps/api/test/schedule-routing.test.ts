@@ -116,9 +116,11 @@ async function load(f: { cookie: string; tripId: string }) {
 		headers: { cookie: f.cookie }
 	});
 	expect(res.status).toBe(200);
-	return (await res.json()) as {
-		board: { legs: { id: string; key: string; autoMins: number | null }[] }[];
+	const body = (await res.json()) as {
+		board: { day: string; legs: { id: string; key: string; autoMins: number | null }[] }[];
 	};
+	// The day asked for, out of the three served.
+	return { board: body.board.filter((b) => b.day === DAY) };
 }
 
 describe('routing on a board load', () => {
