@@ -235,8 +235,10 @@ export function DayBoard({
 	}, [drawn, entry, memberIds, pending, segments]);
 
 	const maxCols = Math.max(1, ...[...layout.placed.values()].map((placed) => placed.cols));
-	const boardW = Math.max(boardOuterW, GUTTER + maxCols * LANE_MIN);
-	const laneW = boardW - GUTTER;
+	// The lanes' visible width, beside the fixed hour gutter, and the width they
+	// are drawn at, which scrolls sideways when a day needs more lanes than fit.
+	const laneOuterW = Math.max(1, boardOuterW - GUTTER);
+	const laneW = Math.max(laneOuterW, maxCols * LANE_MIN);
 	const contentH = (DAY_END - boardStart) * PX_PER_MIN + 24;
 
 	/*
@@ -373,123 +375,145 @@ export function DayBoard({
 				style={{ maxHeight: 620 }}
 				contentContainerStyle={{ paddingBottom: space.md }}
 			>
-				<GestureScrollView
-					horizontal
-					scrollEnabled={!gestureActive}
-					nestedScrollEnabled
-					showsHorizontalScrollIndicator={boardW > boardOuterW}
-				>
-					<View style={{ width: boardW, height: contentH }}>
-						{hoursFrom(boardStart).map((hour) => {
-							const top = topPx(hour * 60, boardStart);
-							return (
-								<View key={hour} style={{ position: 'absolute', left: 0, right: 0, top }}>
-									<Text style={{ ...type.faint, position: 'absolute', width: GUTTER - 8 }}>
-										{hourLabel(hour)}
-									</Text>
-									<View
-										style={{
-											position: 'absolute',
-											left: GUTTER,
-											right: 0,
-											top: 8,
-											borderTopWidth: 1,
-											borderTopColor: color.line
-										}}
-									/>
-								</View>
-							);
-						})}
-						{/* The day's blocks slide across a step; the hour grid behind
-						    them stays where it is, because the clock has not changed. */}
-						<DaySlide
-							day={entry.day}
-							style={{
-								position: 'absolute',
-								left: 0,
-								top: 0,
-								width: boardW,
-								height: contentH,
-								pointerEvents: 'box-none'
-							}}
-						>
-							{bars.map((bar) => (
-								<LegBar
-									key={legLaneId(bar.leg)}
-									leg={bar.leg}
-									from={eventById.get(bar.leg.fromEventId)}
-									left={GUTTER + bar.left * laneW}
-									width={Math.max(32, bar.width * laneW - GAP)}
-									boardStart={boardStart}
-									peopleLabel={peopleLabel}
-								/>
-							))}
-							{drawn.map((event) => {
-								const placed = layout.placed.get(event.id);
-								const seg = segments.get(event.id);
-								if (!placed || !seg) return null;
-								const drawnStart = baseStartFor(event);
-								const drawnEnd = baseEndFor(event);
-								const trimmedHeight =
-									heightPx(drawnStart, drawnEnd, boardStart) - (trims.get(event.id) ?? 0);
-								const can = boardGestures(event, seg, zoneOf);
-								const when = segmentTime(event, seg, zoneOf);
-								return (
-									<EventBlock
-										key={event.id}
-										event={event}
-										left={GUTTER + placed.left * laneW}
-										width={Math.max(44, placed.width * laneW - GAP)}
-										top={topPx(drawnStart, boardStart)}
-										height={Math.max(MIN_LEG_H, trimmedHeight)}
-										drawnStart={drawnStart}
-										drawnEnd={drawnEnd}
-										length={Math.max(MIN_EVENT_MINS, seg.end - seg.start)}
-										startsHere={seg.startsHere}
-										endsHere={seg.endsHere}
-										timeWords={when.words}
-										timeZone={when.zone}
-										canMove={can.move}
-										canResize={can.resize}
-										peopleLabel={peopleLabel}
-										locked={locked}
-										onOpen={openBlock}
-										onBeginGesture={beginGesture}
-										onEndGesture={endGesture}
-										onReportMinute={reportMinute}
-										onCommitMove={commitMove}
-										onCommitResize={commitResize}
-									/>
-								);
-							})}
-							{activeLabel ? (
-								<TimeBadge
-									left={GUTTER}
-									top={
-										activeLabel.kind === 'move'
-											? topPx(activeLabel.minute, boardStart) - 22
-											: topPx(activeLabel.minute, boardStart) + 4
-									}
-									minute={activeLabel.minute}
-								/>
-							) : null}
-							{pending?.start != null ? (
-								<TimeBadge
-									left={GUTTER}
-									top={topPx(pending.start, boardStart) - 22}
-									minute={pending.start}
-								/>
-							) : null}
-							{pending?.end != null ? (
-								<TimeBadge
-									left={GUTTER}
-									top={topPx(pending.end, boardStart) + 4}
-									minute={pending.end}
-								/>
-							) : null}
-						</DaySlide>
+				{/*
+				 * The time axis is fixed: the hour labels sit in their own gutter
+				 * and the hour lines span the visible lanes, both outside the
+				 * sideways scroller and outside the day's slide. Only the day's
+				 * blocks and journeys scroll sideways and slide on a step, as in
+				 * Calendar. The gutter used to scroll with the lanes, so a reader
+				 * who had scrolled a wide day sideways lost the hours off the left,
+				 * and a step to a narrower day jumped them back by a lane or two.
+				 */}
+				<View style={{ flexDirection: 'row', height: contentH }}>
+					<View style={{ width: GUTTER, height: contentH }}>
+						{hoursFrom(boardStart).map((hour) => (
+							<Text
+								key={hour}
+								style={{
+									...type.faint,
+									position: 'absolute',
+									left: 0,
+									top: topPx(hour * 60, boardStart),
+									width: GUTTER - 8
+								}}
+							>
+								{hourLabel(hour)}
+							</Text>
+						))}
 					</View>
-				</GestureScrollView>
+					<View style={{ flex: 1, height: contentH }}>
+						{hoursFrom(boardStart).map((hour) => (
+							<View
+								key={hour}
+								style={{
+									position: 'absolute',
+									left: 0,
+									right: 0,
+									top: topPx(hour * 60, boardStart) + 8,
+									borderTopWidth: 1,
+									borderTopColor: color.line
+								}}
+							/>
+						))}
+						<GestureScrollView
+							horizontal
+							scrollEnabled={!gestureActive}
+							nestedScrollEnabled
+							showsHorizontalScrollIndicator={laneW > laneOuterW}
+							style={{ height: contentH }}
+						>
+							{/* Clipped, so the slide's offset never widens what scrolls. */}
+							<View style={{ width: laneW, height: contentH, overflow: 'hidden' }}>
+								<DaySlide
+									day={entry.day}
+									style={{
+										position: 'absolute',
+										left: 0,
+										top: 0,
+										width: laneW,
+										height: contentH,
+										pointerEvents: 'box-none'
+									}}
+								>
+									{bars.map((bar) => (
+										<LegBar
+											key={legLaneId(bar.leg)}
+											leg={bar.leg}
+											from={eventById.get(bar.leg.fromEventId)}
+											left={bar.left * laneW}
+											width={Math.max(32, bar.width * laneW - GAP)}
+											boardStart={boardStart}
+											peopleLabel={peopleLabel}
+										/>
+									))}
+									{drawn.map((event) => {
+										const placed = layout.placed.get(event.id);
+										const seg = segments.get(event.id);
+										if (!placed || !seg) return null;
+										const drawnStart = baseStartFor(event);
+										const drawnEnd = baseEndFor(event);
+										const trimmedHeight =
+											heightPx(drawnStart, drawnEnd, boardStart) - (trims.get(event.id) ?? 0);
+										const can = boardGestures(event, seg, zoneOf);
+										const when = segmentTime(event, seg, zoneOf);
+										return (
+											<EventBlock
+												key={event.id}
+												event={event}
+												left={placed.left * laneW}
+												width={Math.max(44, placed.width * laneW - GAP)}
+												top={topPx(drawnStart, boardStart)}
+												height={Math.max(MIN_LEG_H, trimmedHeight)}
+												drawnStart={drawnStart}
+												drawnEnd={drawnEnd}
+												length={Math.max(MIN_EVENT_MINS, seg.end - seg.start)}
+												startsHere={seg.startsHere}
+												endsHere={seg.endsHere}
+												timeWords={when.words}
+												timeZone={when.zone}
+												canMove={can.move}
+												canResize={can.resize}
+												peopleLabel={peopleLabel}
+												locked={locked}
+												onOpen={openBlock}
+												onBeginGesture={beginGesture}
+												onEndGesture={endGesture}
+												onReportMinute={reportMinute}
+												onCommitMove={commitMove}
+												onCommitResize={commitResize}
+											/>
+										);
+									})}
+									{activeLabel ? (
+										<TimeBadge
+											left={0}
+											top={
+												activeLabel.kind === 'move'
+													? topPx(activeLabel.minute, boardStart) - 22
+													: topPx(activeLabel.minute, boardStart) + 4
+											}
+											minute={activeLabel.minute}
+										/>
+									) : null}
+									{pending?.start != null ? (
+										<TimeBadge
+											left={0}
+											top={topPx(pending.start, boardStart) - 22}
+											minute={pending.start}
+										/>
+									) : null}
+									{pending?.end != null ? (
+										<TimeBadge
+											left={0}
+											top={topPx(pending.end, boardStart) + 4}
+											minute={pending.end}
+										/>
+									) : null}
+								</DaySlide>
+							</View>
+						</GestureScrollView>
+					</View>
+				</View>
 			</GestureScrollView>
 		</View>
 	);

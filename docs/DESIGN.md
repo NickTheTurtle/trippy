@@ -287,10 +287,36 @@ questions: the strip is for "not today, the next one", the field is for "the
 Thursday after next".
 
 **Still one day on screen.** The strip snaps `x mandatory` to whole panels. Half
-a day beside half another is not two days, it is one board with the hours
-written twice, because the hour gutter belongs to a panel. Snapping also makes
-"which day is the reader on" an answer rather than a measurement, and that
-answer is what becomes the url.
+a day beside half another is not two days, it is two half-days read against one
+clock, and no one can tell which of them a block at the seam belongs to.
+Snapping also makes "which day is the reader on" an answer rather than a
+measurement, and that answer is what becomes the url.
+
+**The time axis stands still; the days slide past it.** Each panel used to draw
+its own hour labels, so on every step or swipe the clock slid sideways with the
+day, and halfway through one there were two clocks on screen. The hours are the
+one thing that is the same on every day, so there is now one time column, a
+direct child of `.boardscroll` with `position: sticky; left: 0`, laid out beside
+the strip (`.boardscroll` is a flex row of the column and `.daytrack`). Sticky
+rather than a separate box scrolled in step by script, because it shares the
+scroller with the days: it scrolls up and down with them pixel for pixel, and
+there is no frame in which it can trail. It must be the box's own child: a
+sticky element only travels inside its parent, and inside the strip, which is
+one box wide, the column was dragged off with the days as soon as the strip
+passed its first day. It is opaque and above the blocks, so the day leaving the
+box passes under it, and below a carried block (z-index 20), which may be held
+over it on its way to another date. Each panel keeps its hour rules, bare, from
+the same origin, so a label sits on its rule at every scroll; the `.still` and
+`.rebase` transition switches cover the column as they cover the grid.
+
+A day is now the box less the gutter. The strip is `100% - --hourgutter` wide
+and each panel is the whole strip, so days sit edge to edge; the box's
+`scroll-padding-left` is the gutter, so every snap point is a day's left edge
+against the column, which is exactly `index * day width`. Every seat, slide,
+settle and edge-travel rate reads that width off a panel (`stride()` in
+`Schedule.tsx`) rather than taking `clientWidth`, so the stylesheet owns the
+number. The lodging band and the date header are outside the box and did not
+change.
 
 **One scroll container, two axes.** `.boardscroll` gains `overflow-x`; the
 panels are not given a scroller of their own. A box with `overflow-x: auto`
@@ -1281,7 +1307,10 @@ the width of an `.hourline` label, and the `.stayband`'s `margin-left`. On a
 phone one of them was set back to 0 while the other three kept their value, so
 the stay band sat 56px to the left of every block under it. It is now a single
 `--hourgutter` on `.sched` that all four derive from, which is why the defect
-could exist and why it cannot recur.
+could exist and why it cannot recur. Since the time axis became one fixed column
+beside the strip, the four are the column's width, the strip's snap padding,
+the label width and the band's indent; the grid and the lane no longer indent at
+all.
 
 Its phone value is 44px, measured rather than guessed: the widest label the
 board ever writes is "12 AM" at 33.56px, so a 36px label box holds it on one
@@ -4501,6 +4530,15 @@ rule below answers one.
   ease is clamped to [0, 1]: a slow render can hand the first frame a time
   before the animation's start, and unclamped that threw the day 100px the
   wrong way for a frame.
+- _The time axis is fixed._ The hour labels sit in their own gutter and the
+  hour lines span the visible lanes, both outside the board's sideways scroller
+  and outside the slide; only the day's blocks and journeys scroll sideways
+  and slide, as in Calendar. The gutter used to scroll with the lanes, so on a
+  day too wide for the phone, a reader who had scrolled sideways lost the hours
+  off the left edge, and a step to a narrower day clamped the scroll and threw
+  the hours back by a lane or two (104 to 208px in the web preview). The lanes
+  are clipped to their own width, so the slide's offset never widens what
+  scrolls; on the web it did, and the clamp crept along with the animation.
 - _A load nobody pulled for does not move the page._ The Calendar's
   `RefreshControl` was given `loading`, and on iOS a refresh that was not pulled
   for is begun programmatically by moving the scroll view's content down by

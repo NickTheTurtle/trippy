@@ -676,8 +676,19 @@ const Leg = memo(function Leg({
  * alone: a block dragged around inside an open window does not move the hours,
  * and redrawing twenty rules and their labels for every pointer move was a
  * measurable part of what made the drag late.
+ *
+ * Drawn twice over, in two parts. Each day panel draws its rules, bare, across
+ * the day's own width; the one time column beside the strip draws the labels
+ * and the gutter's stretch of each rule. See `.timecol` in `schedule.css`.
  */
-const Axis = memo(function Axis({ boardStart }: { boardStart: number }) {
+const Axis = memo(function Axis({
+	boardStart,
+	labels
+}: {
+	boardStart: number;
+	/** The hour names, which only the fixed time column carries. */
+	labels: boolean;
+}) {
 	return (
 		<div className="axis">
 			{hoursFrom(boardStart).map((h) => (
@@ -696,12 +707,26 @@ const Axis = memo(function Axis({ boardStart }: { boardStart: number }) {
 					    ran 11 PM, blank, and stopped without saying where. Each
 					    midnight is true where it sits, one opening the day and one
 					    closing it, so both are written. */}
-					<span>{hourLabel(h)}</span>
+					{labels && <span>{hourLabel(h)}</span>}
 				</div>
 			))}
 		</div>
 	);
 });
+
+/**
+ * How far apart the strip's days are, in pixels: the width of one day panel.
+ *
+ * Not the box's width. The time column stands at the left of the box and the
+ * panels are the rest of it, so a day is the box less the gutter, and every
+ * seat, slide and "which day is this offset on" is a multiple of that. Read
+ * off a panel rather than worked out from the gutter, so the stylesheet owns
+ * the number and a width change is never a stale constant.
+ */
+function stride(el: HTMLElement): number {
+	const panel = el.querySelector<HTMLElement>('.daypanel');
+	return panel ? panel.getBoundingClientRect().width : el.clientWidth;
+}
 
 /** The url for a day and a view. The schedule is addressable; see `navUrl`. */
 const navUrl = (day: string, v: string) => `?day=${day}&view=${v}`;
@@ -1488,7 +1513,7 @@ export default function Schedule() {
 		// out from under the block and the pointer holding it. The drop reloads,
 		// and the seat is taken then.
 		if (dragRef.current) return;
-		const w = el.clientWidth;
+		const w = stride(el);
 		const g = glide.current;
 		const shared = days.find((d) => was.includes(d));
 		// Only the payload for the day the slide is going to may carry it on. A
@@ -1536,9 +1561,9 @@ export default function Schedule() {
 	useEffect(() => {
 		const el = scrollRef.current;
 		if (!el || data?.view === 'agenda') return;
-		let w = el.clientWidth;
+		let w = stride(el);
 		const ro = new ResizeObserver(() => {
-			const now = el.clientWidth;
+			const now = stride(el);
 			if (!now || now === w || dragRef.current) return;
 			// A slide in flight is aimed at the old width; land it before squaring.
 			endGlide();
@@ -1617,7 +1642,7 @@ export default function Schedule() {
 		let settle = 0;
 		const onScroll = () => {
 			if (placing.current) return;
-			const w = el.clientWidth;
+			const w = stride(el);
 			if (!w) return;
 			const landed = seatDays.current[Math.round(el.scrollLeft / w)];
 			if (!landed) return;
@@ -1692,7 +1717,7 @@ export default function Schedule() {
 				setShownDay(day);
 				return;
 			}
-			const to = i * el.clientWidth;
+			const to = i * stride(el);
 			const was = glide.current;
 			if (was) cancelAnimationFrame(was.raf);
 			if (stillness) {
@@ -1749,7 +1774,7 @@ export default function Schedule() {
 			const el = scrollRef.current;
 			if (!day || q.get('view') !== view || !el || dragRef.current) return;
 			const g = glide.current;
-			const w = el.clientWidth;
+			const w = stride(el);
 			const on = g ? g.day : w ? seatDays.current[Math.round(el.scrollLeft / w)] : day;
 			if (on === day) return;
 			if (seatDays.current.includes(day)) stepTo(day);
@@ -2649,7 +2674,7 @@ export default function Schedule() {
 				const pastLeft = box.left + EDGE_PX - d.pointerX;
 				const pastRight = d.pointerX - (box.right - EDGE_PX);
 				const days = (past: number) =>
-					(Math.min(past, EDGE_PX) / EDGE_PX) * EDGE_DAY_RATE * el.clientWidth * dt;
+					(Math.min(past, EDGE_PX) / EDGE_PX) * EDGE_DAY_RATE * stride(el) * dt;
 				const sideways = pastLeft > 0 ? -days(pastLeft) : pastRight > 0 ? days(pastRight) : 0;
 				if (sideways) el.scrollLeft += sideways;
 
@@ -2687,7 +2712,7 @@ export default function Schedule() {
 		const { id, origStart, day } = d;
 		// Whichever day the strip has brought under the block.
 		const el = scrollRef.current;
-		const w = el?.clientWidth ?? 0;
+		const w = el ? stride(el) : 0;
 		const toDay = (w ? board[Math.round(el!.scrollLeft / w)]?.day : null) ?? day;
 		putDrag(null);
 		// A press that never moved is a click, and a click writes nothing: see
@@ -3163,7 +3188,7 @@ export default function Schedule() {
 				className={`daygrid${drag ? ' still' : ''}${drag && openedBy > 0 ? ' opening' : ''}`}
 				style={{ height: `${(DAY_END - boardStart) * PX_PER_MIN + GRID_TAIL_PX}px` }}
 			>
-				<Axis boardStart={boardStart} />
+				<Axis boardStart={boardStart} labels={false} />
 
 				<div
 					className="lane"
@@ -3340,13 +3365,36 @@ export default function Schedule() {
 								{view === 'agenda' ? (
 									<div ref={agendaRef}>{agendaBoard()}</div>
 								) : (
-									<div className="daytrack">
-										{board.map((entry) => (
-											<div
-												className="daypanel"
-												key={entry.day}
-												data-day={entry.day}
-												/* The days either side are drawn but not read. They are
+									<>
+										{/* The time column. One for the whole strip, standing
+										    still at the left of the box while the days slide
+										    past it, and scrolling with them up and down because
+										    it is in the same scroller: the hours are the one
+										    thing on the board that is the same on every day,
+										    and a gutter that travelled with each panel moved
+										    the clock sideways on every step. Its height and its
+										    rules are the panels' own, from the same origin, so
+										    a label sits on its rule at every scroll.
+
+										    A child of the box itself, not of the strip. A sticky
+										    element can only travel inside its parent, and the
+										    strip is one box wide: inside it, the column was
+										    carried off with the strip past the first day. */}
+										<div
+											className={`timecol${drag ? ' still' : ''}`}
+											style={{
+												height: `${(DAY_END - boardStart) * PX_PER_MIN + GRID_TAIL_PX}px`
+											}}
+										>
+											<Axis boardStart={boardStart} labels />
+										</div>
+										<div className="daytrack">
+											{board.map((entry) => (
+												<div
+													className="daypanel"
+													key={entry.day}
+													data-day={entry.day}
+													/* The days either side are drawn but not read. They are
 												   off screen, so a reader who can see the board is
 												   looking at one day; a reader who cannot was being
 												   handed three days of blocks as one unbroken list,
@@ -3361,19 +3409,20 @@ export default function Schedule() {
 												   panel stops being the one being read the moment the
 												   strip passes the halfway point: made inert under the
 												   hand holding it, the gesture would die mid-air. */
-												inert={!drag && entry.day !== (reading?.day ?? data.day)}
-											>
-												{dayBoard(entry, {
-													lanePx: laneW || 560,
-													// One panel is measured, and they are all the same
-													// width: a second observer on a strip that
-													// re-indexes would report the same number twice and
-													// re-render the board for it.
-													measure: entry.day === data.day
-												})}
-											</div>
-										))}
-									</div>
+													inert={!drag && entry.day !== (reading?.day ?? data.day)}
+												>
+													{dayBoard(entry, {
+														lanePx: laneW || 560,
+														// One panel is measured, and they are all the same
+														// width: a second observer on a strip that
+														// re-indexes would report the same number twice and
+														// re-render the board for it.
+														measure: entry.day === data.day
+													})}
+												</div>
+											))}
+										</div>
+									</>
 								)}
 							</div>
 						) : null}

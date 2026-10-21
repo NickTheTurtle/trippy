@@ -1267,10 +1267,16 @@ test.describe('schedule board colour and edit affordance', () => {
 
 			// A grey pin's card offers the one thing there is to do to it, and the
 			// button survives the crossing from the pin: a hovered card waits out a
-			// grace period, so the pointer can reach it over the map.
-			await page.locator('.wp-pin[title="Tram stop"]').hover();
+			// grace period, so the pointer can reach it over the map. Hovered until
+			// the card is up, because the camera flies to the day after load and a
+			// late live reload redraws the pins (which closes any card): a pointer
+			// put on a pin that is still moving, or about to be replaced, finds
+			// nothing to hold.
 			const add = page.locator('.mapcard-add');
-			await expect(add).toBeVisible();
+			await expect(async () => {
+				await page.locator('.wp-pin[title="Tram stop"]').hover();
+				await expect(add).toBeVisible({ timeout: 1000 });
+			}).toPass();
 			await add.hover();
 			await expect(add).toBeVisible();
 			await add.click();
@@ -1497,10 +1503,13 @@ test.describe('the day strip', () => {
 			await expect(page.locator('.sched .daypanel')).toHaveCount(3);
 			expect(await panelDays(page)).toEqual([startDate, middle, endDate]);
 			await settled(page);
-			// Seated on the middle panel, not on the first one the strip drew.
+			// Seated on the middle panel, not on the first one the strip drew. A day
+			// is a panel wide, which is the box less the time column beside it.
 			const seat = await page
 				.locator('.sched .boardscroll')
-				.evaluate((el) => Math.round(el.scrollLeft / el.clientWidth));
+				.evaluate((el) =>
+					Math.round(el.scrollLeft / el.querySelector('.daypanel')!.getBoundingClientRect().width)
+				);
 			expect(seat).toBe(1);
 
 			// The first day has nothing before it, so the strip is two panels and
@@ -1525,7 +1534,7 @@ test.describe('the day strip', () => {
 
 			// A hand carrying the strip to tomorrow.
 			await page.locator('.sched .boardscroll').evaluate((el) => {
-				el.scrollLeft = el.clientWidth;
+				el.scrollLeft = el.querySelector('.daypanel')!.getBoundingClientRect().width;
 				el.dispatchEvent(new Event('scroll'));
 			});
 
@@ -1710,20 +1719,27 @@ test.describe('the day strip', () => {
 			await page.goto(`/trips/${fixture.tripId}/schedule?day=${startDate}&view=day`);
 			await expect(page.locator('.sched .daypanel')).toHaveCount(2);
 			await settled(page);
-			const firstHour = (day: string) =>
-				page.locator(`.sched .daypanel[data-day="${day}"] .hourline span`).first();
-			await expect(firstHour(startDate)).toHaveText('6 AM');
+			// The hours are named once, in the time column beside the strip.
+			const firstHour = () => page.locator('.sched .timecol .hourline span').first();
+			await expect(firstHour()).toHaveText('6 AM');
 
-			/** Step a day, and report where ten o'clock stood on every frame of it. */
+			/** Step a day, and report where ten o'clock stood on every frame of it:
+			    the label in the time column and the rule on every day panel. */
 			const step = (label: string) =>
 				page.evaluate(async (label) => {
 					const box = document.querySelector('.sched .boardscroll')!;
-					const tens = () =>
-						[...box.querySelectorAll('.hourline')]
-							.filter((l) => l.textContent?.trim() === '10 AM')
-							.map((l) =>
-								Math.round(l.getBoundingClientRect().top - box.getBoundingClientRect().top)
-							);
+					const tens = () => {
+						const named = [...box.querySelectorAll('.timecol .hourline')];
+						const at = named.findIndex((l) => l.textContent?.trim() === '10 AM');
+						return [
+							named[at],
+							...[...box.querySelectorAll('.daypanel')].map(
+								(p) => p.querySelectorAll('.hourline')[at]
+							)
+						].map((l) =>
+							Math.round(l.getBoundingClientRect().top - box.getBoundingClientRect().top)
+						);
+					};
 					const seen = new Set<number>(tens());
 					(document.querySelector(`a[aria-label="${label}"]`) as HTMLElement).click();
 					const t0 = performance.now();
@@ -1734,19 +1750,20 @@ test.describe('the day strip', () => {
 					return [...seen];
 				}, label);
 
-			// Every panel's ten o'clock, on every frame of the step: one height.
-			// The window opens to five while the strip is moving, and the box
-			// scrolls down by exactly what opened, so nothing on screen moves.
+			// Ten o'clock, labelled and on every panel, on every frame of the step:
+			// one height. The window opens to five while the strip is moving, and
+			// the box scrolls down by exactly what opened, so nothing on screen
+			// moves.
 			expect(await step('Next day')).toHaveLength(1);
 			await expect(page).toHaveURL(new RegExp(`day=${middle}`));
-			await expect(firstHour(middle)).toHaveText('5 AM');
+			await expect(firstHour()).toHaveText('5 AM');
 
 			// Back to a day whose own three start at six. The window stays open
 			// rather than closing under the reader, so again nothing moves.
 			const before = await step('Previous day');
 			expect(before).toHaveLength(1);
 			await expect(page).toHaveURL(new RegExp(`day=${startDate}`));
-			await expect(firstHour(startDate)).toHaveText('5 AM');
+			await expect(firstHour()).toHaveText('5 AM');
 			// And it is the same height it was before either step.
 			expect(await step('Next day')).toEqual(before);
 		} finally {
@@ -1778,13 +1795,57 @@ test.describe('the day strip', () => {
 
 			// Seated on the day gone back to, the middle panel...
 			const box = page.locator('.sched .boardscroll');
-			await expect.poll(() => box.evaluate((el) => el.scrollLeft / el.clientWidth)).toBe(1);
+			const index = () =>
+				box.evaluate(
+					(el) => el.scrollLeft / el.querySelector('.daypanel')!.getBoundingClientRect().width
+				);
+			await expect.poll(index).toBe(1);
 			await expect(page.locator('.sched .boardhead')).toContainText('11');
 			// ...and still there once any slide and settle would have finished: the
 			// url is not rewritten to the day the slide had been heading for.
 			await page.waitForTimeout(800);
 			await expect(page).toHaveURL(new RegExp(`day=${middle}`));
-			expect(await box.evaluate((el) => el.scrollLeft / el.clientWidth)).toBe(1);
+			expect(await index()).toBe(1);
+		} finally {
+			fixture.teardown();
+		}
+	});
+
+	test('the hours stand still while the days slide past them', async ({ page, request }) => {
+		const fixture = await seedDay(page, request);
+		const middle = '2027-02-11';
+		try {
+			await page.goto(`/trips/${fixture.tripId}/schedule?day=${middle}&view=day`);
+			await expect(page.locator('.sched .daypanel')).toHaveCount(3);
+			await settled(page);
+
+			// On every frame of an arrow step: where each hour label stands across
+			// the box, and how far the strip of days has travelled.
+			const seen = await page.evaluate(async () => {
+				const box = document.querySelector('.sched .boardscroll')!;
+				const left = () => box.getBoundingClientRect().left;
+				const labels = () =>
+					[...box.querySelectorAll('.hourline span')].map((s) =>
+						(s.getBoundingClientRect().left - left()).toFixed(1)
+					);
+				const xs = new Set<string>(labels());
+				const from = box.scrollLeft;
+				let travelled = 0;
+				(document.querySelector('a[aria-label="Next day"]') as HTMLElement).click();
+				const t0 = performance.now();
+				while (performance.now() - t0 < 1200) {
+					await new Promise((r) => requestAnimationFrame(r));
+					for (const x of labels()) xs.add(x);
+					travelled = Math.max(travelled, Math.abs(box.scrollLeft - from));
+				}
+				return { xs: [...xs], travelled, count: labels().length };
+			});
+			await expect(page).toHaveURL(/day=2027-02-12/);
+			// The days moved a whole day's width...
+			expect(seen.travelled).toBeGreaterThan(100);
+			// ...and every hour label stayed exactly where it was, the whole way.
+			expect(seen.count).toBeGreaterThan(5);
+			expect(seen.xs).toHaveLength(1);
 		} finally {
 			fixture.teardown();
 		}
