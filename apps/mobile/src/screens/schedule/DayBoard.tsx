@@ -39,6 +39,7 @@ import {
 	snapResizeEnd
 } from './gesture';
 import type { BoardDay, EventRow, LegRow } from './types';
+import { PAD_LEFT, PAD_RIGHT, SMALL_LINE, TITLE_LINE, blockFit, type BlockFit } from './blockFit';
 
 const GUTTER = 58;
 const LANE_MIN = 104;
@@ -304,6 +305,35 @@ export function DayBoard({
 		}
 	}
 
+	/*
+	 * How much of each journey bar's top a block still covers. A block trimmed
+	 * below its least height is held at `MIN_LEG_H` so its title stays whole,
+	 * and blocks draw over bars, so the bar under it loses that much of its top.
+	 * The bar then draws only what fits whole in the rest (`LegBar`) rather
+	 * than a line with its top half under the block.
+	 */
+	const covers = new Map<string, number>();
+	for (const bar of bars) {
+		const bottom = topPx(bar.leg.endMin, boardStart);
+		const top =
+			bottom - Math.max(heightPx(bar.leg.startMin, bar.leg.endMin, boardStart), MIN_LEG_H);
+		for (const event of drawn) {
+			const placed = layout.placed.get(event.id);
+			if (!placed || placed.left >= bar.left + bar.width || bar.left >= placed.left + placed.width)
+				continue;
+			const from = topPx(baseStartFor(event), boardStart);
+			const to =
+				from +
+				Math.max(
+					MIN_LEG_H,
+					heightPx(baseStartFor(event), baseEndFor(event), boardStart) - (trims.get(event.id) ?? 0)
+				);
+			if (from > top + 0.5 || to <= top) continue;
+			const id = legLaneId(bar.leg);
+			covers.set(id, Math.max(covers.get(id) ?? 0, Math.min(to, bottom) - top));
+		}
+	}
+
 	const beginGesture = useCallback(() => setGestureActive(true), []);
 	const endGesture = useCallback(() => {
 		setGestureActive(false);
@@ -443,6 +473,7 @@ export function DayBoard({
 											left={bar.left * laneW}
 											width={Math.max(32, bar.width * laneW - GAP)}
 											boardStart={boardStart}
+											covered={covers.get(legLaneId(bar.leg)) ?? 0}
 											peopleLabel={peopleLabel}
 										/>
 									))}
@@ -731,6 +762,7 @@ const EventBlock = memo(function EventBlock({
 	}));
 
 	const timeText = timeZone ? `${timeWords} ${timeZone}` : timeWords;
+	const fit = blockFit(height, width, event.title, timeText);
 	const accessibilityLabel = `${event.title}, ${timeText}. ${movable ? copy.schedule.block.mobileOpenLabel : copy.schedule.block.openLabel}`;
 	// Like Calendar, a part cut at midnight has square corners on the cut edge,
 	// so a block reads as carrying on from the day before or into the next.
@@ -742,7 +774,7 @@ const EventBlock = memo(function EventBlock({
 	};
 
 	return (
-		<View style={{ position: 'absolute', left, top, width, height }}>
+		<View testID={`block:${event.id}`} style={{ position: 'absolute', left, top, width, height }}>
 			<GestureDetector gesture={blockGesture}>
 				<Animated.View
 					accessible
@@ -755,27 +787,20 @@ const EventBlock = memo(function EventBlock({
 							minHeight: MIN_LEG_H,
 							...corners,
 							backgroundColor: EVENT_FILLS[event.type],
-							paddingLeft: 10,
-							paddingRight: 7,
-							paddingVertical: 4,
+							paddingLeft: PAD_LEFT,
+							paddingRight: PAD_RIGHT,
 							overflow: 'hidden'
 						},
 						blockStyle
 					]}
 				>
-					<Text
-						numberOfLines={2}
-						style={{ color: color.ink, fontWeight: '700', fontSize: 12, lineHeight: 15 }}
-					>
-						{event.title}
-					</Text>
-					<Text style={{ color: color.inkSoft, fontSize: 10, lineHeight: 12 }}>
-						{timeWords}
-						{timeZone ? <Text style={{ color: color.inkFaint }}> {timeZone}</Text> : null}
-					</Text>
-					<Text numberOfLines={1} style={{ color: color.inkSoft, fontSize: 10, lineHeight: 12 }}>
-						{peopleLabel(event.people)}
-					</Text>
+					<BlockText
+						fit={fit}
+						title={event.title}
+						timeWords={timeWords}
+						timeZone={timeZone}
+						people={peopleLabel(event.people)}
+					/>
 					<View
 						style={{
 							position: 'absolute',
@@ -819,7 +844,8 @@ const EventBlock = memo(function EventBlock({
 								height: 3,
 								borderRadius: 2,
 								backgroundColor: EVENT_COLORS[event.type],
-								opacity: 0.4
+								// Not drawn across a one-line block's words; the grip still works.
+								opacity: fit.kind === 'stack' ? 0.4 : 0
 							}}
 						/>
 					</Animated.View>
@@ -829,6 +855,76 @@ const EventBlock = memo(function EventBlock({
 	);
 });
 EventBlock.displayName = 'EventBlock';
+
+const titleStyle = {
+	color: color.ink,
+	fontWeight: '700',
+	fontSize: 12,
+	lineHeight: TITLE_LINE
+} as const;
+const smallStyle = { color: color.inkSoft, fontSize: 10, lineHeight: SMALL_LINE } as const;
+
+/**
+ * A block's words, in whole lines only (`blockFit`): stacked when there is
+ * room, else one line of title and time, else the title alone.
+ */
+function BlockText({
+	fit,
+	title,
+	timeWords,
+	timeZone,
+	people
+}: {
+	fit: BlockFit;
+	title: string;
+	timeWords: string;
+	timeZone: string | null;
+	people: string;
+}) {
+	const time = (
+		<>
+			{timeWords}
+			{timeZone ? <Text style={{ color: color.inkFaint }}> {timeZone}</Text> : null}
+		</>
+	);
+	if (fit.kind === 'line') {
+		return (
+			<View
+				style={{
+					flexDirection: 'row',
+					alignItems: 'baseline',
+					gap: 4,
+					paddingTop: fit.padV,
+					height: TITLE_LINE + fit.padV
+				}}
+			>
+				<Text numberOfLines={1} style={{ ...titleStyle, flexShrink: 1 }}>
+					{title}
+				</Text>
+				{fit.time ? (
+					<Text numberOfLines={1} style={{ ...smallStyle, flexShrink: 0 }}>
+						{time}
+					</Text>
+				) : null}
+			</View>
+		);
+	}
+	return (
+		<View style={{ paddingTop: fit.padV }}>
+			<Text numberOfLines={fit.titleLines} style={titleStyle}>
+				{title}
+			</Text>
+			<Text numberOfLines={1} style={smallStyle}>
+				{time}
+			</Text>
+			{fit.people ? (
+				<Text numberOfLines={1} style={smallStyle}>
+					{people}
+				</Text>
+			) : null}
+		</View>
+	);
+}
 
 function TimeBadge({ left, top, minute }: { left: number; top: number; minute: number }) {
 	return (
@@ -846,6 +942,7 @@ function LegBar({
 	left,
 	width,
 	boardStart,
+	covered,
 	peopleLabel
 }: {
 	leg: LegRow;
@@ -853,14 +950,21 @@ function LegBar({
 	left: number;
 	width: number;
 	boardStart: number;
+	/** How much of the bar's top a block draws over; see covers. */
+	covered: number;
 	peopleLabel: (ids: string[]) => string;
 }) {
 	const h = Math.max(MIN_LEG_H, heightPx(leg.startMin, leg.endMin, boardStart));
 	const top = topPx(leg.endMin, boardStart) - h;
+	// What is left in view under a block: a whole line, the marks alone, or nothing.
+	const shown = h - Math.min(h, covered);
+	const words = shown >= 12;
+	const marks = shown >= 10;
 	const mode = modeLabel(leg.resolvedMode);
 	const name = leg.title ?? (from && width > 150 ? `${mode} from ${from.title}` : mode);
 	return (
 		<View
+			testID={`legbar:${leg.key}`}
 			style={{
 				position: 'absolute',
 				left,
@@ -869,33 +973,46 @@ function LegBar({
 				height: h,
 				minHeight: MIN_LEG_H,
 				paddingHorizontal: width < 64 ? 2 : 5,
+				paddingTop: h - shown,
 				justifyContent: 'center',
 				overflow: 'hidden'
 			}}
 		>
-			<View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-				<AppSymbol
-					name={symbolForMode(leg.resolvedMode)}
-					fallback="navigate-outline"
-					size={10}
-					color={leg.tight ? color.warn : color.inkFaint}
-				/>
-				<Text
-					numberOfLines={1}
-					style={{ fontSize: 10, lineHeight: 12, color: color.inkSoft, fontWeight: '700', flex: 1 }}
-				>
-					{name} · {leg.resolvedMins}m
-				</Text>
-				{leg.tight ? (
+			{marks ? (
+				<View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
 					<AppSymbol
-						name="exclamationmark.triangle.fill"
-						fallback="warning-outline"
+						name={symbolForMode(leg.resolvedMode)}
+						fallback="navigate-outline"
 						size={10}
-						color={color.warn}
+						color={leg.tight ? color.warn : color.inkFaint}
 					/>
-				) : null}
-			</View>
-			{h > 36 ? (
+					{words ? (
+						<Text
+							numberOfLines={1}
+							style={{
+								fontSize: 10,
+								lineHeight: 12,
+								color: color.inkSoft,
+								fontWeight: '700',
+								flex: 1
+							}}
+						>
+							{name} · {leg.resolvedMins}m
+						</Text>
+					) : (
+						<View style={{ flex: 1 }} />
+					)}
+					{leg.tight ? (
+						<AppSymbol
+							name="exclamationmark.triangle.fill"
+							fallback="warning-outline"
+							size={10}
+							color={color.warn}
+						/>
+					) : null}
+				</View>
+			) : null}
+			{shown > 36 ? (
 				<Text numberOfLines={1} style={{ fontSize: 10, lineHeight: 12, color: color.inkSoft }}>
 					{leg.tight ? copy.viewAs.travelWarning : peopleLabel(leg.people)}
 				</Text>

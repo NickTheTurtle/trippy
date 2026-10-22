@@ -45,17 +45,16 @@ export default function Reset() {
 	// No redirect and no session: the server drops every session on a reset, so
 	// signing in is the next step and the page says so rather than doing it.
 	if (done) {
-		return <AuthNotice title={c.doneTitle} blurb={c.doneBlurb} footer={logIn} />;
+		return <AuthNotice title={c.doneTitle} footer={logIn} />;
 	}
 
 	return (
 		<AuthShell
 			title={c.title}
-			blurb={c.blurb}
 			failure={failure}
 			onSubmit={submit}
 			submitting={submitting}
-			submitLabel={c.submitLabel}
+			submitLabel={copy.common.save}
 			footer={
 				<>
 					{c.footerPrompt} {logIn}

@@ -54,5 +54,5 @@ export default function Verify() {
 		);
 	}
 
-	return <AuthNotice title={c.title} blurb={c.blurb} />;
+	return <AuthNotice title={c.title} />;
 }

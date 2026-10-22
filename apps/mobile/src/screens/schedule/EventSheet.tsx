@@ -34,33 +34,27 @@ import {
 	dayLabel,
 	deriveTitle,
 	modeLabel,
-	rangeLabel,
 	shiftDay,
 	typeLabel,
 	zoneLookup
 } from './shared';
 import type { Cell, Crew, EventDraft, EventRow, LegRow, SavedPoi } from './types';
-
-type JourneyEdit = { title: string; mode: string; mins: string };
-
-function legEdit(leg: LegRow): JourneyEdit {
-	return { title: leg.title ?? '', mode: leg.resolvedMode, mins: String(leg.resolvedMins) };
-}
-
-function sameEdit(a: JourneyEdit, b: JourneyEdit) {
-	return a.mode === b.mode && a.mins === b.mins && a.title.trim() === b.title.trim();
-}
-
-function estimateFor(leg: LegRow, mode: string) {
-	return mode === leg.autoMode && leg.autoMins != null ? leg.autoMins : minsByMode(leg.km, mode);
-}
+import {
+	estimateFor,
+	journeyFields,
+	legFields,
+	sameFields,
+	type JourneyEdit,
+	type JourneyEdits,
+	type JourneyFields
+} from './journeys';
 
 function automatic(leg: LegRow) {
 	const mode = leg.autoMode ?? guessLeg(leg.km).mode;
 	return { mode, mins: estimateFor(leg, mode) };
 }
 
-function isAutomatic(leg: LegRow, edit: JourneyEdit) {
+function isAutomatic(leg: LegRow, edit: JourneyFields) {
 	const auto = automatic(leg);
 	const mins = Number(edit.mins);
 	return edit.mode === auto.mode && (mins === auto.mins || mins === minsByMode(leg.km, edit.mode));
@@ -76,6 +70,7 @@ export function EventSheet({
 	initialType = 'activity',
 	initialPoi,
 	legs,
+	liveLegs,
 	eventOf,
 	peopleLabel,
 	members,
@@ -89,6 +84,7 @@ export function EventSheet({
 	lastDay,
 	locked,
 	onPreview,
+	onJourneys,
 	onClose,
 	onDone
 }: {
@@ -100,7 +96,10 @@ export function EventSheet({
 	suggestedStart?: number;
 	initialType?: EventType;
 	initialPoi?: { id: string; name: string };
+	/** The journeys into this event with the draft applied, before the journey edits below. */
 	legs: LegRow[];
+	/** The same journeys with the journey edits applied, as the board draws them. */
+	liveLegs?: LegRow[];
 	eventOf: (eventId: string) => EventRow | null;
 	peopleLabel: (ids: string[]) => string;
 	members: { id: string; name: string }[];
@@ -119,6 +118,8 @@ export function EventSheet({
 	lastDay: string;
 	locked: boolean;
 	onPreview: (draft: EventDraft | null) => void;
+	/** The journey edits as typed, for the board's preview; null when there are none. */
+	onJourneys?: (edits: JourneyEdits | null) => void;
 	onClose: () => void;
 	onDone: () => void;
 }) {
@@ -313,6 +314,17 @@ export function EventSheet({
 		lng
 	]);
 
+	/* The journey edits go to the board as they are typed, beside the draft, so
+	   its bars, their place, the tight mark and the view-as marks follow them;
+	   closing the sheet (save or cancel) takes them off again. They used to stay
+	   in here until the save, so the board showed the old journey under a sheet
+	   that said otherwise. */
+	useEffect(() => {
+		if (locked || !onJourneys) return;
+		onJourneys(Object.keys(journeyEdits).length ? journeyEdits : null);
+		return () => onJourneys(null);
+	}, [journeyEdits, locked, onJourneys]);
+
 	const placeMoved = place.poi !== savedPick || place.place.trim() !== openedOn.trim();
 	/* The span refusal this sheet raised itself, which then follows the span as
 	   it is corrected (as the web dialog's message does) rather than standing
@@ -481,12 +493,14 @@ export function EventSheet({
 		setEndDate(next < date ? date : next);
 	};
 
-	const setJourney = (leg: LegRow, patch: Partial<JourneyEdit>) => {
-		setJourneyEdits((old) => ({
-			...old,
-			[leg.key]: { ...(old[leg.key] ?? legEdit(leg)), ...patch }
-		}));
+	// Only the fields touched are held (see `journeys.ts`); picking a mode drops
+	// typed minutes, so the minutes read as that mode's estimate.
+	const setJourney = (leg: LegRow, patch: JourneyEdit) => {
+		setJourneyEdits((old) => ({ ...old, [leg.key]: { ...old[leg.key], ...patch } }));
 	};
+
+	// "(optional)" is advice about filling a field in, so a read-only view leaves it off.
+	const optional = locked ? '' : copy.ui.field.optionalSuffix;
 
 	return (
 		<>
@@ -501,13 +515,6 @@ export function EventSheet({
 							? copy.schedule.dialog.edit
 							: copy.schedule.dialog.add
 				}
-				subtitle={
-					staying
-						? rangeLabel(checkIn, checkOut)
-						: settled.end_day
-							? rangeLabel(date, settled.end_day)
-							: dayLabel(onDay)
-				}
 				onClose={onClose}
 				onPrimary={locked ? undefined : () => void save.run()}
 				primaryLabel={locked ? undefined : event ? copy.common.save : copy.common.add}
@@ -519,7 +526,7 @@ export function EventSheet({
 				<InsetSection>
 					<Field
 						variant="row"
-						label={`${copy.schedule.fields.label}${copy.ui.field.optionalSuffix}`}
+						label={`${copy.schedule.fields.label}${optional}`}
 						value={label}
 						placeholder={derived}
 						maxLength={MAX_NAME_LENGTH}
@@ -644,7 +651,7 @@ export function EventSheet({
 				)}
 				{eventType === 'travel' ? (
 					<RowPicker
-						label={`${copy.schedule.fields.mode}${copy.ui.field.optionalSuffix}`}
+						label={`${copy.schedule.fields.mode}${optional}`}
 						value={mode}
 						options={[{ key: '', label: copy.schedule.journey.automatic }, ...MODE_OPTIONS]}
 						readonly={locked}
@@ -661,7 +668,7 @@ export function EventSheet({
 				{locked ? (
 					<InsetSection>
 						<ListRow
-							title={`${copy.schedule.fields.notes}${copy.ui.field.optionalSuffix}`}
+							title={copy.schedule.fields.notes}
 							subtitle={notes || undefined}
 							accessory="none"
 							last
@@ -690,6 +697,7 @@ export function EventSheet({
 				)}
 				<JourneyEditor
 					legs={legs}
+					liveLegs={liveLegs}
 					edits={journeyEdits}
 					eventOf={eventOf}
 					peopleLabel={peopleLabel}
@@ -959,6 +967,7 @@ function PeopleChooser({
 
 function JourneyEditor({
 	legs,
+	liveLegs,
 	edits,
 	eventOf,
 	peopleLabel,
@@ -966,25 +975,28 @@ function JourneyEditor({
 	onSet
 }: {
 	legs: LegRow[];
+	liveLegs?: LegRow[];
 	edits: Record<string, JourneyEdit>;
 	eventOf: (eventId: string) => EventRow | null;
 	peopleLabel: (ids: string[]) => string;
 	readonly: boolean;
-	onSet: (leg: LegRow, patch: Partial<JourneyEdit>) => void;
+	onSet: (leg: LegRow, patch: JourneyEdit) => void;
 }) {
 	if (!legs.length) return null;
 	return (
 		<View style={{ gap: space.sm }}>
 			{legs.map((leg) => {
-				const edit = edits[leg.key] ?? legEdit(leg);
+				const edit = journeyFields(leg, edits[leg.key]);
 				const from = eventOf(leg.fromEventId)?.title ?? null;
+				// Whether it fits is the board's answer, edits included.
+				const tight = (liveLegs?.find((l) => l.key === leg.key) ?? leg).tight;
 				return (
 					<InsetSection
 						key={leg.key}
 						title={copy.schedule.journey.heading}
 						footer={peopleLabel(leg.people)}
 					>
-						{leg.tight ? (
+						{tight ? (
 							<View style={{ paddingHorizontal: rowInset, paddingTop: space.md }}>
 								<Text style={{ ...type.footnote, color: color.warn }}>
 									{copy.viewAs.travelWarning}
@@ -993,19 +1005,24 @@ function JourneyEditor({
 						) : null}
 						{readonly ? (
 							<>
+								{/* The mode once: in the name when it is the board's own
+								    ("Walk from X"), else on its own row under a name
+								    somebody gave it. */}
 								<ListRow
-									title={`${copy.schedule.journey.name}${copy.ui.field.optionalSuffix}`}
+									title={copy.schedule.journey.name}
 									value={
 										edit.title ||
 										(from ? `${modeLabel(edit.mode)} from ${from}` : modeLabel(edit.mode))
 									}
 									accessory="none"
 								/>
-								<ListRow
-									title={copy.schedule.fields.mode}
-									value={modeLabel(edit.mode)}
-									accessory="none"
-								/>
+								{edit.title ? (
+									<ListRow
+										title={copy.schedule.fields.mode}
+										value={modeLabel(edit.mode)}
+										accessory="none"
+									/>
+								) : null}
 								<ListRow
 									title={copy.schedule.journey.minutes}
 									value={`${edit.mins} ${copy.schedule.journey.minutesUnit}`}
@@ -1029,9 +1046,7 @@ function JourneyEditor({
 										label: `${o.label} ${copy.schedule.journey.estimate(estimateFor(leg, o.key))}`
 									}))}
 									value={edit.mode}
-									onPick={(next) =>
-										onSet(leg, { mode: next, mins: String(estimateFor(leg, next)) })
-									}
+									onPick={(next) => onSet(leg, { mode: next, mins: undefined })}
 								/>
 								<Field
 									variant="row"
@@ -1099,14 +1114,16 @@ async function saveJourneys(
 	legs: LegRow[],
 	edits: Record<string, JourneyEdit>
 ) {
-	const touched = legs.filter((leg) => edits[leg.key] && !sameEdit(edits[leg.key], legEdit(leg)));
+	const touched = legs.filter(
+		(leg) => edits[leg.key] && !sameFields(journeyFields(leg, edits[leg.key]), legFields(leg))
+	);
 	if (!touched.length) return;
 	const fresh = await api<{ board: { legs: LegRow[] }[] }>(`${base}?day=${day}`);
 	const rows = new Map(fresh.board.flatMap((b) => b.legs).map((leg) => [leg.key, leg]));
 	for (const leg of touched) {
 		const row = rows.get(rekeyLeg(leg.key, toEventId));
 		if (!row) continue;
-		const edit = edits[leg.key];
+		const edit = journeyFields(leg, edits[leg.key]);
 		const legTitle = edit.title.trim();
 		await api(`${base}/legs/${row.id}`, {
 			method: 'PATCH',

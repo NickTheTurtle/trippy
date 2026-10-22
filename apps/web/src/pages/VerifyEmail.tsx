@@ -72,5 +72,5 @@ export default function VerifyEmail() {
 	if (failed) return <AuthNotice title={c.failedTitle} blurb={state.error} footer={onward} />;
 	if (state === 'done')
 		return <AuthNotice title={c.doneTitle} blurb={c.doneBlurb} footer={onward} />;
-	return <AuthNotice title={c.title} blurb={c.blurb} />;
+	return <AuthNotice title={c.title} />;
 }

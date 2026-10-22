@@ -345,15 +345,15 @@ export function ExpenseSheet({
 					options={payerOptions(data.members, expense)}
 					onPick={setPayerId}
 				/>
-				<Text
-					style={{
-						...type.faint,
-						color: income ? color.accentInk : color.inkFaint,
-						marginHorizontal: rowInset
-					}}
-				>
-					{income ? copy.expenses.addDialog.incomeNote : copy.expenses.addDialog.mobileExpenseNote}
-				</Text>
+				{/* Only income gets a note: that it credits the people selected rather
+				    than charging them is the one thing the form does not show. An
+				    expense said "everyone selected is charged", which the title and
+				    the segment above already did. */}
+				{income ? (
+					<Text style={{ ...type.faint, color: color.accentInk, marginHorizontal: rowInset }}>
+						{copy.expenses.addDialog.incomeNote}
+					</Text>
+				) : null}
 				<View style={{ gap: 7 }}>
 					<SectionHeader>{copy.expenses.addDialog.splitLabel}</SectionHeader>
 					<SegmentedControl

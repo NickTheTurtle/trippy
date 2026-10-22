@@ -41,7 +41,6 @@ export default function Login() {
 			behavior={Platform.OS === 'ios' ? 'padding' : undefined}
 		>
 			<Screen safeTop largeTitle={copy.auth.login.title}>
-				<Text style={type.subhead}>{copy.auth.login.blurb}</Text>
 				<AuthProviders
 					busy={provider.busy || submit.busy}
 					onSignIn={(flow) => {

@@ -42,7 +42,6 @@ export default function Forgot() {
 				topOffset={Platform.OS === 'web' ? 72 : navBarHeight}
 				largeTitle={copy.auth.forgot.title}
 			>
-				<Text style={type.subhead}>{copy.auth.forgot.blurb}</Text>
 				<InsetSection error={submit.error}>
 					<Field
 						variant="row"

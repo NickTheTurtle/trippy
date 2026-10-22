@@ -4,6 +4,7 @@ import { suggestStart } from '@trippy/core/plan';
 import { useApi } from '../../hooks/useApi';
 import { useLiveSection } from '../../hooks/useTripEvents';
 import { applyDraft, replanLegs } from './replan';
+import type { JourneyEdits } from './journeys';
 import { DRAFT_ID, zoneLookup } from './shared';
 import type { BoardDay, EventDraft, EventRow, LegRow, ScheduleData, ViewMode } from './types';
 
@@ -12,6 +13,8 @@ export function useScheduleDay(tripId: string, paused = false) {
 	const [view, setView] = useState<ViewMode>('day');
 	const [viewAs, setViewAs] = useState('');
 	const [preview, setPreview] = useState<EventDraft | null>(null);
+	// The open sheet's unsaved journey edits, keyed by leg key, drawn with its draft.
+	const [journeyPreview, setJourneyPreview] = useState<JourneyEdits | null>(null);
 	const [reloadDue, setReloadDue] = useState(false);
 	// A step pressed before the day it steps from has loaded its own neighbours:
 	// -1 or 1, carried out when that payload lands.
@@ -100,11 +103,13 @@ export function useScheduleDay(tripId: string, paused = false) {
 	 */
 	const [hold, setHold] = useState<{
 		draft: EventDraft | null;
+		journeys: JourneyEdits | null;
 		from: ScheduleData;
 		sent: boolean;
 	} | null>(null);
-	const held = hold && data === hold.from ? hold.draft : null;
-	const draft = preview ?? held;
+	const heldNow = hold && data === hold.from ? hold : null;
+	const draft = preview ?? heldNow?.draft ?? null;
+	const journeys = preview ? journeyPreview : (heldNow?.journeys ?? null);
 	const ownWrite = hold !== null && data !== hold.from;
 	useEffect(() => {
 		if (!hold) return;
@@ -113,25 +118,37 @@ export function useScheduleDay(tripId: string, paused = false) {
 		else if (!apiState.loading && hold.sent) setHold(null);
 	}, [apiState.loading, data, hold]);
 	const afterSave = useCallback(() => {
-		if (data) setHold({ draft: preview, from: data, sent: false });
+		if (data) setHold({ draft: preview, journeys: journeyPreview, from: data, sent: false });
 		setPreview(null);
+		setJourneyPreview(null);
 		reload();
-	}, [data, preview, reload]);
+	}, [data, journeyPreview, preview, reload]);
 
-	const planned: BoardDay[] = useMemo(() => {
+	/*
+	 * The board as the open sheet would leave it. Two plans: `planned` carries
+	 * the draft and the journey edits, and is what every reader of the day draws
+	 * (the bars, their place, `tight`, the view-as marks, the map). `drafted`
+	 * carries the draft alone, and is what the sheet's journey fields are read
+	 * against: an edit is compared with the journey as it would be without it,
+	 * both to show the right estimate per mode and to know whether to save it.
+	 */
+	const { planned, drafted } = useMemo(() => {
 		const known = new Map(
 			(data?.board ?? []).flatMap((entry) => entry.legs.map((l) => [l.key, l] as const))
 		);
-		return (data?.board ?? []).map((entry) => {
+		const edited = journeys && Object.keys(journeys).length ? journeys : null;
+		const both = (data?.board ?? []).map((entry) => {
 			const { events, stays } = applyDraft(entry, draft, zoneOf);
-			return {
-				...entry,
-				events,
-				stays,
-				legs: draft ? replanLegs(entry, draft, memberIds, known, zoneOf) : entry.legs
-			};
+			const base =
+				draft || edited ? replanLegs(entry, draft, memberIds, known, zoneOf) : entry.legs;
+			const legs = edited ? replanLegs(entry, draft, memberIds, known, zoneOf, edited) : base;
+			return { live: { ...entry, events, stays, legs }, base };
 		});
-	}, [data?.board, memberIds, draft, zoneOf]);
+		return {
+			planned: both.map((b): BoardDay => b.live),
+			drafted: both.map((b) => b.base)
+		};
+	}, [data?.board, memberIds, draft, journeys, zoneOf]);
 
 	const visible = useCallback(
 		(entry: BoardDay): BoardDay => {
@@ -236,7 +253,13 @@ export function useScheduleDay(tripId: string, paused = false) {
 		[board, zoneOf]
 	);
 
+	// The journeys into an event without the sheet's journey edits, which is
+	// what the sheet reads its fields against (see `drafted`), and with them.
 	const legsTo = useCallback(
+		(eventId: string) => drafted.flatMap((legs) => legs.filter((leg) => leg.toEventId === eventId)),
+		[drafted]
+	);
+	const liveLegsTo = useCallback(
 		(eventId: string) =>
 			planned.flatMap((entry) => entry.legs.filter((leg) => leg.toEventId === eventId)),
 		[planned]
@@ -271,9 +294,12 @@ export function useScheduleDay(tripId: string, paused = false) {
 		viewAsOptions,
 		peopleLabel,
 		setPreview,
+		setJourneyPreview,
 		suggestedStart,
 		legsTo,
+		liveLegsTo,
 		draftLegs: legsTo(DRAFT_ID),
+		draftLiveLegs: liveLegsTo(DRAFT_ID),
 		stepPrev: () => step(-1),
 		stepNext: () => step(1)
 	};

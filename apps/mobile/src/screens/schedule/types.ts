@@ -63,6 +63,8 @@ export type LegRow = {
 	title: string | null;
 	autoMode: string | null;
 	autoMins: number | null;
+	/** `routeKey` of the question the routed answer was for; see `resolveLeg`. */
+	autoKey: string | null;
 	mode: string | null;
 	mins: number | null;
 	resolvedMode: string;

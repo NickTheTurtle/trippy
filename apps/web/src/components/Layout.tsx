@@ -53,15 +53,19 @@ function TopBar() {
 					<span>{copy.shell.brand}</span>
 				</Link>
 
-				<nav className="flex min-w-0 items-center gap-6 text-body font-medium">
-					{status === 'authenticated' ? (
-						/* A disclosure, not an ARIA menu. It was marked up as
+				{/* Signed out, the bar is the brand alone. It used to carry "Log in"
+				    and "Start planning" too, and every signed-out page already offers
+				    both: the front page as its two calls to action, and each form as
+				    the line under its button. The bar said them a second time. */}
+				{status === 'authenticated' && (
+					<nav className="flex min-w-0 items-center gap-6 text-body font-medium">
+						{/* A disclosure, not an ARIA menu. It was marked up as
 						   `role="menu"` with `menuitem`s, which promises arrow keys,
 						   roving focus and typeahead that were never built, so a screen
 						   reader user was told to use keys that did nothing. Two links'
 						   worth of choices do not need a menu: a button that shows and
 						   hides a panel of ordinary controls is the honest pattern, and
-						   Tab, Escape and click-away are all it has to handle. */
+						   Tab, Escape and click-away are all it has to handle. */}
 						<div
 							className="relative min-w-0"
 							ref={menuWrapRef}
@@ -137,22 +141,8 @@ function TopBar() {
 								</div>
 							)}
 						</div>
-					) : (
-						// Nothing is shown while the session is still being checked. The
-						// alternative is guessing, and guessing wrong means the bar flips
-						// from "Log in" to a username a moment after every page load.
-						status === 'anonymous' && (
-							<>
-								<Link to="/login" className="hover:text-accent">
-									{copy.shell.logIn}
-								</Link>
-								<Link to="/register" className="btn primary">
-									{copy.shell.register}
-								</Link>
-							</>
-						)
-					)}
-				</nav>
+					</nav>
+				)}
 			</div>
 		</header>
 	);

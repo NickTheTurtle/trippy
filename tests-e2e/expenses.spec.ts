@@ -63,6 +63,10 @@ test.describe('expenses', () => {
 			const dialog = page.getByRole('dialog');
 			await dialog.getByLabel(ce.addDialog.descriptionLabel).fill('Dinner');
 			await dialog.getByLabel(ce.addDialog.amountLabel).fill('90');
+			// A positive amount is an ordinary expense. The form has no income
+			// switch, so its one note says how to record income instead.
+			await expect(dialog.getByText(ce.addDialog.expenseNote)).toBeVisible();
+			await expect(dialog.getByText(ce.addDialog.incomeNote)).toHaveCount(0);
 			await chooseInSelect(dialog, ce.addDialog.paidByLabel, 'E2E User');
 			await dialog.getByRole('button', { name: copy.common.add, exact: true }).click();
 			await expect(dialog).toBeHidden();
@@ -281,10 +285,23 @@ test.describe('expenses', () => {
 			await signIn(page, fixture.sessionCookie);
 			await page.goto(`/trips/${fixture.tripId}/expenses`);
 
-			// The row is tagged income and shows the amount as a credit.
+			// The row says it is income once, in its verb ("received"), rather than
+			// with a tag beside the name as well, and shows the amount as a credit.
 			const row = page.getByRole('listitem').filter({ hasText: 'Deposit refund' });
-			await expect(row).toContainText(ce.row.incomeTag);
+			await expect(row).toContainText(ce.row.received);
 			await expect(row).toContainText(usd(-6000));
+
+			// Opened, the dialog says once that the people on it are credited,
+			// which neither its title nor "Received by" says.
+			await row.getByRole('button').click();
+			const dialog = page.getByRole('dialog');
+			await expect(
+				dialog.getByRole('heading', { name: ce.addDialog.editIncomeTitle })
+			).toBeVisible();
+			await expect(dialog.getByText(ce.addDialog.incomeNote)).toBeVisible();
+			await expect(dialog.getByText(ce.addDialog.expenseNote)).toHaveCount(0);
+			await page.keyboard.press('Escape');
+			await expect(dialog).toBeHidden();
 
 			// However it is signed, a ledger with one entry still nets to zero.
 			const data = await expensesData(request, fixture);

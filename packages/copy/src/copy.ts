@@ -17,7 +17,6 @@ export const copy = {
 	auth: {
 		login: {
 			title: 'Welcome back',
-			blurb: 'Log in to keep planning.',
 			submitLabel: 'Log in',
 			fallback: 'Could not log in.',
 			footerPrompt: 'New here?',
@@ -27,7 +26,6 @@ export const copy = {
 		},
 		register: {
 			title: 'Create your account',
-			blurb: 'Start planning your first trip.',
 			submitLabel: 'Create account',
 			fallback: 'Could not create the account.',
 			footerPrompt: 'Already have an account?',
@@ -41,7 +39,6 @@ export const copy = {
 		},
 		forgot: {
 			title: 'Forgot your password',
-			blurb: 'We will email you a link to set a new one.',
 			submitLabel: 'Email me a link',
 			fallback: 'Could not send that link.',
 			footerPrompt: 'Remembered it?',
@@ -51,21 +48,18 @@ export const copy = {
 			sentTitle: 'Check your email',
 			sentBlurb: 'If that address has an account, a reset link is on its way.'
 		},
+		/** The title says "new", so the field and the button do not repeat it. */
 		reset: {
 			title: 'Set a new password',
-			blurb: 'Choose a password you have not used here before.',
-			submitLabel: 'Save password',
 			fallback: 'Could not change that password.',
 			footerPrompt: 'Changed your mind?',
 			footerLink: 'Log in',
-			passwordLabel: 'New password',
+			passwordLabel: 'Password',
 			passwordHint: 'At least 8 characters',
-			doneTitle: 'Password changed',
-			doneBlurb: 'Log in with your new password.'
+			doneTitle: 'Password changed'
 		},
 		verify: {
 			title: 'Confirming your email',
-			blurb: 'One moment.',
 			failedTitle: 'That link did not work',
 			retry: 'Create an account',
 			/** Beside `retry`: the account may already exist, from an earlier link. */
@@ -74,7 +68,6 @@ export const copy = {
 		/** The link sent to a new address when a signed-in member changes their email. */
 		verifyEmail: {
 			title: 'Confirming your new email',
-			blurb: 'One moment.',
 			doneTitle: 'Email changed',
 			doneBlurb: 'Log in with the new address from now on.',
 			failedTitle: 'That link did not work'
@@ -112,8 +105,7 @@ export const copy = {
 		brand: 'Trippy',
 		accountSettings: 'Account settings',
 		logOut: 'Log out',
-		logIn: 'Log in',
-		register: 'Start planning'
+		logIn: 'Log in'
 	},
 
 	// Trip tab bar (nav.ts)
@@ -198,14 +190,13 @@ export const copy = {
 			title: 'Edit trip',
 			fallback: 'Could not save that trip.',
 			/** The schedule lock. The switch says what it does; nothing else needs to. */
-			lockLabel: 'Lock schedule',
-			lockFooter: 'Prevents schedule edits until it is unlocked.'
+			lockLabel: 'Lock schedule'
 		},
 		leaveTrip: 'Leave trip',
 		leaveDialog: {
 			title: (trip: string) => `Leave ${trip}?`
 		},
-		liveOff: "Live updates are off, so you will not see other people's changes.",
+		liveOff: 'Live updates are off.',
 		reconnect: 'Reconnect'
 	},
 
@@ -220,8 +211,6 @@ export const copy = {
 		alreadyAdded: 'Added',
 		/** A search hit already in the list being added. */
 		picked: 'Picked',
-		/** The list of cities picked so far, above the submit button. */
-		pickedHeading: (n: number) => `${n} ${n === 1 ? 'city' : 'cities'} to add`,
 		submit: (n: number) => (n > 1 ? `Add ${n} cities` : 'Add city'),
 		remove: (city: string) => `Remove ${city}`
 	},
@@ -236,7 +225,6 @@ export const copy = {
 		},
 		noCities: {
 			heading: 'No cities yet',
-			body: 'Add a city to start planning.',
 			cta: 'Add city',
 			memberNote: 'Waiting for an organizer to add the first stop...'
 		},
@@ -358,7 +346,6 @@ export const copy = {
 		notes: {
 			/** The text box's accessible name; the section heading already says Notes. */
 			label: 'Trip notes',
-			placeholder: 'Notes',
 			saving: 'Saving...',
 			/** Under the notepad: who changed it last, and when ("2 min ago"). */
 			editedBy: (name: string, when: string) => `Edited by ${name} ${when}`,
@@ -400,8 +387,7 @@ export const copy = {
 		},
 		costTable: {
 			sectionLabel: (category: string) => `${category} estimates`,
-			ofTotal: (total: string) => `of ${total}`,
-			total: 'Total'
+			ofTotal: (total: string) => `of ${total}`
 		},
 		costDialog: {
 			editTitle: 'Edit cost',
@@ -431,7 +417,9 @@ export const copy = {
 			/** What pressing a block does, which depends on whether it can be moved. */
 			moveLabel: 'Show on the map, or drag to reschedule.',
 			mobileOpenLabel: 'Open event details, or long press to reschedule.',
-			openLabel: 'Show the details.'
+			openLabel: 'Show the details.',
+			/** What pressing a journey or a stay does: they cannot be dragged. */
+			showOnMap: 'Show on the map.'
 		},
 		addStay: '+ Add stay',
 		add: '+ Add',
@@ -490,9 +478,11 @@ export const copy = {
 		},
 		mobile: {
 			stays: 'Stays',
-			firstDay: 'First day',
-			lastDay: 'Last day',
-			freeDay: 'This day is free.'
+			/** The rows of the "Add" menu, whose title already says Add. */
+			addEvent: 'Event',
+			addStay: 'Stay',
+			/** Under the day's title; the web keeps `lock.hint` as its tooltip. */
+			lockHint: 'Locked by the organizer'
 		},
 		map: {
 			title: 'Map',
@@ -510,7 +500,14 @@ export const copy = {
 			minutes: 'Minutes',
 			minutesUnit: 'min',
 			automatic: 'Automatic',
-			estimate: (minutes: number) => `${minutes}m`
+			estimate: (minutes: number) => `${minutes}m`,
+			/** Splitting a card that stands for several journeys, and merging them back. */
+			split: 'Split',
+			merge: 'Merge',
+			/** A card's accessible name: who is making the journey. */
+			groupLabel: (who: string) => `Journey, ${who}`,
+			/** Said of a journey whose mode or minutes somebody set by hand. */
+			pinned: 'pinned'
 		},
 		eventSaveFallback: 'Could not save that event.',
 		eventAddFallback: 'Could not add that event.',
@@ -543,8 +540,6 @@ export const copy = {
 		nothingToSettle: 'Nothing to settle',
 		noneForMember: (who: string) => `Nothing here for ${who}`,
 		row: {
-			paymentTag: 'payment',
-			incomeTag: 'income',
 			received: 'received',
 			paid: 'paid',
 			ofTotal: (total: string) => `of ${total}`,
@@ -584,9 +579,14 @@ export const copy = {
 			currencyLabel: 'Currency',
 			receivedByLabel: 'Received by',
 			paidByLabel: 'Paid by',
+			/** Income only: crediting rather than charging is what the form does not otherwise show. */
 			incomeNote: 'Saved as income: everyone selected is credited instead of charged.',
+			/**
+			 * Web only, on an expense. The web form has no expense/income switch and
+			 * turns into income only when the amount goes negative, so this is the
+			 * one way in. The phone has a segment for it and shows nothing here.
+			 */
 			expenseNote: 'Use a negative amount for a refund or payout.',
-			mobileExpenseNote: 'Saved as an expense: everyone selected is charged.',
 			splitLabel: 'Split',
 			splitAriaLabel: 'Split method',
 			selectedCount: (chosen: number, members: number) => `${chosen} of ${members} selected`,
@@ -609,7 +609,6 @@ export const copy = {
 		membersHeading: 'Members',
 		navAriaLabel: 'People sections',
 		row: {
-			sampleCompanion: 'Sample companion',
 			youTag: 'you',
 			organizerTag: 'organizer',
 			invitedTag: 'invited',
@@ -631,6 +630,14 @@ export const copy = {
 			heading: 'Crews',
 			nobody: 'Nobody yet',
 			memberCount: (members: number) => `${members} ${members === 1 ? 'person' : 'people'}`,
+			/**
+			 * The phone's crew row: who is in it, with the rest counted, so the size
+			 * is said once and only when the names alone cannot say it.
+			 */
+			namesAndMore: (names: readonly string[], shown: number) =>
+				names.length > shown
+					? `${names.slice(0, shown).join(', ')} and ${names.length - shown} more`
+					: names.join(', '),
 			locked: 'Locked',
 			addTitle: 'Add crew',
 			editTitle: 'Edit crew',
@@ -662,10 +669,11 @@ export const copy = {
 			heading: 'Password',
 			change: 'Change password',
 			updated: 'Password updated.',
-			currentLabel: 'Current password',
-			newLabel: 'New password',
+			/** Under the Password heading, so the labels do not say "password" again. */
+			currentLabel: 'Current',
+			newLabel: 'New',
 			newHint: 'At least 8 characters',
-			confirmLabel: 'Confirm new password',
+			confirmLabel: 'Confirm',
 			fallback: 'Could not change your password.'
 		}
 	},
@@ -674,7 +682,8 @@ export const copy = {
 	ui: {
 		modal: { closeLabel: 'Close' },
 		confirmDialog: {
-			undone: 'Are you sure? This action cannot be undone.',
+			/** The title already asks the question, so the body only adds what it costs. */
+			undone: 'This cannot be undone.',
 			fallback: 'Could not complete that.'
 		},
 		searchDropdown: { busyLabel: 'Searching...' },

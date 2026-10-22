@@ -504,7 +504,7 @@ function EditTripSheet({
 			busy={busy}
 			busyLabel={copy.common.deleting}
 		>
-			<InsetSection footer={copy.tripShell.editDialog.lockFooter} error={save.error}>
+			<InsetSection error={save.error}>
 				<Field variant="row" label={copy.tripForm.nameLabel} value={name} onChangeText={setName} />
 				<DateField
 					label={copy.tripForm.startLabel}

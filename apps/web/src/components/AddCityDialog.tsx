@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, ApiError } from '../lib/api';
 import Modal, { ModalFooter } from './ui/Modal';
 import SearchDropdown from './ui/SearchDropdown';
@@ -126,7 +126,9 @@ export default function AddCityDialog({
 	const pickedKeys = new Set(picked.map(key));
 
 	return (
-		<Modal open title={c.title} subtitle={trip.name} onClose={onClose}>
+		<Modal open title={c.title} onClose={onClose}>
+			{/* No subtitle naming the trip: its name is the page header right
+			    behind this dialog, and no other dialog inside a trip repeats it. */}
 			<div className="mbody flex flex-col gap-4">
 				<div ref={searchRef}>
 					<CitySearch
@@ -173,41 +175,34 @@ function PickedList({
 	onRemove: (key: string) => void;
 }) {
 	const names = picked.map((s) => s.name.trim().toLowerCase());
-	const headingId = useId();
+	// No heading: the footer button already says how many are about to be added.
 	return (
-		<section aria-labelledby={headingId} className="flex min-w-0 flex-col gap-1.5">
-			{/* A label in the field labels' own style rather than a heading, which
-			    would draw in the display face and outweigh the dialog's title. */}
-			<p id={headingId} className="flabel m-0">
-				{c.pickedHeading(picked.length)}
-			</p>
-			<ul className="m-0 flex min-w-0 list-none flex-col divide-y divide-accent-soft rounded-md border border-accent-soft bg-accent-soft/40 p-0">
-				{picked.map((s, i) => {
-					// Two Nashvilles in one list need different names on their remove
-					// buttons; one Kyoto does not need its prefecture read out.
-					const label =
-						names.indexOf(names[i]) !== names.lastIndexOf(names[i]) && s.region
-							? `${s.name}, ${s.region}`
-							: s.name;
-					return (
-						<li key={key(s)} className="flex min-w-0 items-center gap-2 py-1.5 pr-1.5 pl-3">
-							<span className="flex min-w-0 flex-1 flex-col">
-								<span className="flex min-w-0 items-baseline gap-1.5">
-									<span className="truncate font-medium">{s.name}</span>
-									{s.region && <span className="muted min-w-0 truncate text-meta">{s.region}</span>}
-								</span>
-								<span className="muted truncate text-meta">
-									{detail(s.country, s.tz.replace(/_/g, ' '))}
-								</span>
+		<ul className="m-0 flex min-w-0 list-none flex-col divide-y divide-accent-soft rounded-md border border-accent-soft bg-accent-soft/40 p-0">
+			{picked.map((s, i) => {
+				// Two Nashvilles in one list need different names on their remove
+				// buttons; one Kyoto does not need its prefecture read out.
+				const label =
+					names.indexOf(names[i]) !== names.lastIndexOf(names[i]) && s.region
+						? `${s.name}, ${s.region}`
+						: s.name;
+				return (
+					<li key={key(s)} className="flex min-w-0 items-center gap-2 py-1.5 pr-1.5 pl-3">
+						<span className="flex min-w-0 flex-1 flex-col">
+							<span className="flex min-w-0 items-baseline gap-1.5">
+								<span className="truncate font-medium">{s.name}</span>
+								{s.region && <span className="muted min-w-0 truncate text-meta">{s.region}</span>}
 							</span>
-							<IconButton label={c.remove(label)} onClick={() => onRemove(key(s))}>
-								<CloseIcon />
-							</IconButton>
-						</li>
-					);
-				})}
-			</ul>
-		</section>
+							<span className="muted truncate text-meta">
+								{detail(s.country, s.tz.replace(/_/g, ' '))}
+							</span>
+						</span>
+						<IconButton label={c.remove(label)} onClick={() => onRemove(key(s))}>
+							<CloseIcon />
+						</IconButton>
+					</li>
+				);
+			})}
+		</ul>
 	);
 }
 
@@ -344,7 +339,7 @@ function CitySearch({
 			}}
 			// Both are refused by the server (the whole request with them), so
 			// neither can be picked. A full list takes nothing more, unlabelled:
-			// the count above the list already says why.
+			// the count on the Add button already says why.
 			itemDisabled={(s) => full || onTrip.has(key(s)) || picked.has(key(s))}
 			// Nothing to say yet on one letter, so the popup stays shut until the
 			// query is long enough to have searched.

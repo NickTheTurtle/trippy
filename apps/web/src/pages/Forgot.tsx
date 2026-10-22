@@ -60,7 +60,6 @@ export default function Forgot() {
 	return (
 		<AuthShell
 			title={c.title}
-			blurb={c.blurb}
 			failure={failure}
 			onSubmit={submit}
 			submitting={submitting}

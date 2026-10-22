@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { guessLeg, minsByMode, rekeyLeg } from '@trippy/core/travel';
 import { api } from '../../lib/api';
 import Select, { type Option } from '../../components/ui/Select';
@@ -6,20 +6,56 @@ import { FieldShell } from '../../components/ui/Field';
 import { WarningIcon } from '../../components/ui/icons';
 import { copy } from '../../copy';
 import { MODE_OPTIONS, modeLabel } from './shared';
-import type { EventRow, LegRow } from './types';
+import type { EventRow, LegDraft, LegDrafts, LegRow } from './types';
 
 const cj = copy.schedule.journey;
 
-/** What a reader can say about a journey. */
-type LegEdit = { title: string; mode: string; mins: string };
+/**
+ * What a reader has said about a journey: only the fields they touched.
+ *
+ * It used to be a copy of all three, taken on the first keystroke in any of
+ * them, so naming a journey and then moving the event in the same dialog
+ * pinned the minutes the journey had before the move: the bar stayed at the
+ * old length and the save wrote a duration nobody typed. Anything not touched
+ * is read off the journey as it now stands, so it follows the edit. The same
+ * shape as mobile's `JourneyEdit`.
+ */
+type LegEdit = { title?: string; mode?: string; mins?: string };
 
-const legEdit = (l: LegRow): LegEdit => ({
+/** A journey's three fields as a card shows them and a save compares them. */
+type LegFields = { title: string; mode: string; mins: string };
+
+const legEdit = (l: LegRow): LegFields => ({
 	title: l.title ?? '',
 	mode: l.resolvedMode,
 	mins: String(l.resolvedMins)
 });
 
-const sameEdit = (a: LegEdit, b: LegEdit) =>
+/**
+ * The card as shown: each touched field as typed, the rest from the journey. A
+ * mode picked without minutes shows that mode's estimate, so it too follows
+ * the event if the event is then moved.
+ */
+const shownOf = (l: LegRow, e: LegEdit | undefined): LegFields => {
+	if (!e) return legEdit(l);
+	const mode = e.mode ?? l.resolvedMode;
+	return {
+		title: e.title ?? l.title ?? '',
+		mode,
+		mins: e.mins ?? (e.mode != null ? String(estimateFor(l, mode)) : String(l.resolvedMins))
+	};
+};
+
+/** Whether the card says how the journey is made, as opposed to only naming it. */
+const saysHow = (e: LegEdit | undefined) => e?.mode != null || e?.mins != null;
+
+/** Typed minutes as a duration, or null for an emptied box or a zero on the way to ten. */
+const parseMins = (text: string): number | null => {
+	const n = text.trim() === '' ? NaN : Number(text);
+	return Number.isFinite(n) && n >= 1 ? Math.round(n) : null;
+};
+
+const sameEdit = (a: LegFields, b: LegFields) =>
 	a.mode === b.mode && a.mins === b.mins && a.title.trim() === b.title.trim();
 
 /**
@@ -46,7 +82,7 @@ const automatic = (l: LegRow) => {
  * label to explain: a journey left at its own mode and its own estimate is
  * stored as unpinned, and typing that estimate back is how it is unpinned.
  */
-const isAutomatic = (l: LegRow, e: LegEdit) => {
+const isAutomatic = (l: LegRow, e: LegFields) => {
 	const a = automatic(l);
 	const mins = Number(e.mins);
 	/* A routing answer can land between the pick and the save, so the straight
@@ -63,7 +99,7 @@ const isAutomatic = (l: LegRow, e: LegEdit) => {
  * in the box beside the picker, and saying it twice on one line is noise.
  */
 const modeOptionsFor = (l: LegRow): Option[] =>
-	MODE_OPTIONS.map((o) => ({ ...o, hint: `${estimateFor(l, o.value)} min` }));
+	MODE_OPTIONS.map((o) => ({ ...o, hint: cj.estimate(estimateFor(l, o.value)) }));
 
 /**
  * A card in "Getting here": one journey, or several that start in the same place.
@@ -117,17 +153,31 @@ const toggle = (set: Set<string>, key: string, on: boolean) => {
  */
 export function useJourneys({
 	legs,
+	live,
 	eventOf,
 	peopleLabel,
-	focusLegId
+	participants,
+	focusLegId,
+	onDraft
 }: {
 	/** The journeys that arrive at this block, replanned as the edit is typed. */
 	legs: LegRow[];
+	/**
+	 * The same journeys as the board draws them, with what these cards say laid
+	 * over the top. `legs` stays the cards' baseline, since a card compared with
+	 * a row that already holds its own edit would read as untouched and never
+	 * be saved; this is what the warning is read off, so it follows the board.
+	 */
+	live?: LegRow[];
 	/** Another event on the board, or null when it is not loaded. */
 	eventOf: (eventId: string) => EventRow | null;
 	peopleLabel: (ids: string[]) => string;
+	/** Who the block is for, as its Participants field holds it ([] is everyone). */
+	participants: string[];
 	/** The journey the reader pointed at, if they arrived here by clicking one. */
 	focusLegId?: string;
+	/** What the cards say so far, by leg key, or null once the dialog is gone. */
+	onDraft?: (said: LegDrafts | null) => void;
 }) {
 	/* What the reader has said about a journey, keyed by leg key rather than by
 	   leg id: an edit to who is going replans the day, so the row a journey is
@@ -141,19 +191,89 @@ export function useJourneys({
 	const [split, setSplit] = useState<Set<string>>(new Set());
 	const [joined, setJoined] = useState<Set<string>>(new Set());
 
-	const editOf = (l: LegRow) => edits[l.key] ?? legEdit(l);
-	const setEdit = (group: LegRow[], patch: Partial<LegEdit>) =>
+	const editOf = (l: LegRow) => shownOf(l, edits[l.key]);
+	const setEdit = (group: LegRow[], patch: LegEdit) =>
 		setEdits((m) => {
 			const next = { ...m };
-			for (const l of group) next[l.key] = { ...(m[l.key] ?? legEdit(l)), ...patch };
+			for (const l of group) next[l.key] = { ...m[l.key], ...patch };
 			return next;
 		});
 
+	/**
+	 * What merging into `lead`'s card writes to every journey in the group.
+	 *
+	 * The fields the lead's reader touched, as typed. Of the rest, the name, the
+	 * mode and the minutes only where the group disagrees on them, since one
+	 * card has to show one answer and merging is choosing it; where the group
+	 * agrees they are left untouched and keep following the event. So merging
+	 * journeys that already agree and then moving the event cannot pin the
+	 * minutes the journey had before the move, while merging a 12-minute walk
+	 * with a pinned 30-minute one saves the 12 that the card shows.
+	 */
+	const mergeFrom = (lead: LegRow, group: LegRow[]): LegEdit => {
+		const e = edits[lead.key];
+		const shown = shownOf(lead, e);
+		const all = group.map((l) => shownOf(l, edits[l.key]));
+		const patch: LegEdit = {};
+		if (e?.title != null) patch.title = e.title;
+		else if (all.some((s) => s.title.trim() !== shown.title.trim())) patch.title = shown.title;
+		if (e?.mode != null) patch.mode = e.mode;
+		else if (all.some((s) => s.mode !== shown.mode)) patch.mode = shown.mode;
+		// Minutes are compared after the name and mode above apply, so two
+		// journeys that become the same mode over the same ground agree on its
+		// estimate and nothing is pinned.
+		const after = group.map((l) => shownOf(l, { ...edits[l.key], ...patch }));
+		if (e?.mins != null) patch.mins = e.mins;
+		else if (after.some((s) => s.mins !== shown.mins)) patch.mins = shown.mins;
+		else patch.mins = undefined;
+		return patch;
+	};
+
 	/* Changing the mode re-answers the question the number is an answer to. A
 	   walk and a taxi over the same ground are not the same twelve minutes, and
-	   leaving the old number there would state a duration nobody believes. */
+	   leaving the old number there would state a duration nobody believes. So a
+	   picked mode drops any typed minutes, and the card shows the mode's estimate
+	   until a number is typed again. */
 	const pickMode = (group: LegRow[], mode: string) =>
-		setEdit(group, { mode, mins: String(estimateFor(group[0], mode)) });
+		setEdits((m) => {
+			const next = { ...m };
+			for (const l of group) next[l.key] = { ...m[l.key], mode, mins: undefined };
+			return next;
+		});
+
+	/* What the cards say, as the board reads it: only journeys whose card
+	   differs from the day as it stands, so an untouched or reverted card leaves
+	   the bar exactly as it was. A card that has only renamed its journey says
+	   nothing about how it is made, so the bar keeps following the event.
+	   Minutes that are not a usable number yet are left to the mode's estimate
+	   rather than drawn as a one-minute journey. */
+	const said = useMemo(() => {
+		const out: Record<string, LegDraft> = {};
+		for (const l of legs) {
+			const e = edits[l.key];
+			const shown = shownOf(l, e);
+			if (!e || sameEdit(shown, legEdit(l))) continue;
+			const how = saysHow(e);
+			out[l.key] = {
+				title: shown.title.trim() || null,
+				mode: how ? shown.mode : null,
+				mins: how && e.mins != null ? parseMins(e.mins) : null
+			};
+		}
+		return out;
+	}, [legs, edits]);
+	/* Reported up the way the event draft is, through a ref so an inline
+	   callback does not re-fire the effect, and withdrawn when the dialog goes,
+	   saved or not, so a cancel puts the board back exactly. */
+	const report = useRef(onDraft);
+	report.current = onDraft;
+	useEffect(() => {
+		report.current?.(said);
+	}, [said]);
+	useEffect(() => () => report.current?.(null), []);
+
+	/** Each journey as the board is drawing it, which is where its warning is read. */
+	const drawn = useMemo(() => new Map((live ?? legs).map((l) => [l.key, l])), [live, legs]);
 
 	/**
 	 * The journeys as cards: one per starting place, unless the reader has taken
@@ -202,7 +322,9 @@ export function useJourneys({
 	 * renaming one event.
 	 */
 	const save = async (base: string, day: string, toEventId: string) => {
-		const touched = legs.filter((l) => edits[l.key] && !sameEdit(edits[l.key], legEdit(l)));
+		const touched = legs.filter(
+			(l) => edits[l.key] && !sameEdit(shownOf(l, edits[l.key]), legEdit(l))
+		);
 		if (!touched.length) return;
 		const fresh = await api<{ board: { legs: LegRow[] }[] }>(`${base}?day=${day}`);
 		const rows = new Map(fresh.board.flatMap((b) => b.legs).map((l) => [l.key, l]));
@@ -210,21 +332,30 @@ export function useJourneys({
 			const row = rows.get(rekeyLeg(l.key, toEventId));
 			// A journey the save has planned away is not one to write to.
 			if (!row) continue;
-			const now = edits[l.key];
+			const e = edits[l.key];
+			// Read against the row as saved, so an untouched field is what the
+			// journey now is, not what it was when the dialog opened.
+			const now = shownOf(row, e);
 			const legTitle = now.title.trim();
+			const mins = parseMins(now.mins) ?? estimateFor(row, now.mode);
 			await api(`${base}/legs/${row.id}`, {
 				method: 'PATCH',
-				// Empty mode and minutes is the reset, and the name is not part of it.
-				body: isAutomatic(row, now)
-					? { mode: '', mins: '', title: legTitle }
-					: { mode: now.mode, mins: now.mins, title: legTitle }
+				// The route writes mode and minutes on every call, so a rename alone
+				// sends back whatever the row already holds: a pin stays a pin and an
+				// unpinned journey stays free to follow its events. Empty mode and
+				// minutes is the reset, and the name is not part of it.
+				body: !saysHow(e)
+					? { mode: row.mode ?? '', mins: row.mins ?? '', title: legTitle }
+					: isAutomatic(row, { ...now, mins: String(mins) })
+						? { mode: '', mins: '', title: legTitle }
+						: { mode: now.mode, mins, title: legTitle }
 			});
 		}
 	};
 
 	const section = journeys.length > 0 && (
 		<section className="jsec">
-			<h3 className="jhead">Getting here</h3>
+			<h3 className="jhead">{cj.heading}</h3>
 			{journeys.map((j) => {
 				const lead = j.legs[0];
 				const now = editOf(lead);
@@ -234,65 +365,73 @@ export function useJourneys({
 				// the placeholder does too.
 				const from = eventOf(lead.fromEventId)?.title ?? null;
 				const who = peopleLabel(j.legs.flatMap((l) => l.people));
-				const tight = j.legs.some((l) => l.tight);
+				// Off the board's copy, so the mark comes and goes as the mode and
+				// the minutes are typed, in step with the bar behind the dialog.
+				const tight = j.legs.some((l) => (drawn.get(l.key) ?? l).tight);
 				// A journey planned but not yet saved has no id, so an absent focus
 				// must not be allowed to match it.
 				const focused = !!focusLegId && j.legs.some((l) => l.id === focusLegId);
 				// A group of one cannot be split, and can only be merged when there is
 				// another journey starting where it does.
 				const siblings = journeys.filter((o) => o.key === j.key).length;
+				// One card for everybody on the block says nothing the Participants
+				// field above it does not, so it goes unnamed.
+				const showWho = journeys.length > 1 || who !== peopleLabel(participants);
 				return (
 					<div
 						key={j.merged ? j.key : lead.key}
 						className={`jrow${focused ? ' on' : ''}`}
 						role="group"
-						aria-label={`Journey, ${who}`}
+						aria-label={cj.groupLabel(who)}
 					>
 						{/* Who is on it names the journey: it is the only thing telling
 						    six approaches to the same lunch apart. */}
-						<p className="jwho">
-							<span>{who}</span>
-							{/* Written out as well as drawn. The triangle's tooltip is a
+						{(showWho || tight || j.merged || siblings > 1) && (
+							<p className="jwho">
+								{showWho && <span>{who}</span>}
+								{/* Written out as well as drawn. The triangle's tooltip is a
 							    hover, and a phone has none: the card is the one place a
 							    tight journey is explained, so it says so in words. */}
-							{tight && (
-								<span className="jwarn">
-									<WarningIcon />
-									{copy.viewAs.travelWarning}
-								</span>
-							)}
-							{j.merged && (
-								<button
-									type="button"
-									className="jlink"
-									onClick={() => {
-										setSplit((s) => toggle(s, j.key, true));
-										setJoined((s) => toggle(s, j.key, false));
-									}}
-								>
-									Split
-								</button>
-							)}
-							{!j.merged && siblings > 1 && (
-								<button
-									type="button"
-									className="jlink"
-									onClick={() => {
-										setSplit((s) => toggle(s, j.key, false));
-										setJoined((s) => toggle(s, j.key, true));
-										// Merging is an answer, not just a layout: the card about
-										// to stand for the group says what this one said, so every
-										// journey under it is set to match.
-										setEdit(
-											legs.filter((l) => originKey(l, eventOf(l.fromEventId)) === j.key),
-											now
-										);
-									}}
-								>
-									Merge
-								</button>
-							)}
-						</p>
+								{tight && (
+									<span className="jwarn">
+										<WarningIcon />
+										{copy.viewAs.travelWarning}
+									</span>
+								)}
+								{j.merged && (
+									<button
+										type="button"
+										className="jlink"
+										onClick={() => {
+											setSplit((s) => toggle(s, j.key, true));
+											setJoined((s) => toggle(s, j.key, false));
+										}}
+									>
+										{cj.split}
+									</button>
+								)}
+								{!j.merged && siblings > 1 && (
+									<button
+										type="button"
+										className="jlink"
+										onClick={() => {
+											setSplit((s) => toggle(s, j.key, false));
+											setJoined((s) => toggle(s, j.key, true));
+											// Merging is an answer, not just a layout: the card about
+											// to stand for the group says what this one said, so every
+											// journey under it is set to match. Only what it says,
+											// though: see `mergeFrom`.
+											const group = legs.filter(
+												(l) => originKey(l, eventOf(l.fromEventId)) === j.key
+											);
+											setEdit(group, mergeFrom(lead, group));
+										}}
+									>
+										{cj.merge}
+									</button>
+								)}
+							</p>
+						)}
 						<div className="jfields">
 							{/* Every field says what it is above it, as every other field
 							    in the app does. The name used to be a placeholder alone, and
@@ -317,16 +456,14 @@ export function useJourneys({
 								/>
 							</FieldShell>
 							<FieldShell label={cj.minutes} className="jminsf">
-								<div className="input jmins">
-									<input
-										type="number"
-										min={1}
-										data-autofocus={focused ? '' : undefined}
-										value={now.mins}
-										onChange={(e) => setEdit(j.legs, { mins: e.target.value })}
-									/>
-									<span>min</span>
-								</div>
+								<input
+									className="input jmins"
+									type="number"
+									min={1}
+									data-autofocus={focused ? '' : undefined}
+									value={now.mins}
+									onChange={(e) => setEdit(j.legs, { mins: e.target.value })}
+								/>
 							</FieldShell>
 						</div>
 					</div>

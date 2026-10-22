@@ -83,7 +83,8 @@ function People() {
 					memberRows.length === 0 ? (
 						<EmptyState graphic message={copy.common.nothingAdded} />
 					) : (
-						<InsetSection title={copy.people.membersHeading}>
+						// No section heading: the segment above already says Members.
+						<InsetSection>
 							{memberRows.map((person, index) => (
 								<MemberRow
 									key={person.id}
@@ -103,23 +104,26 @@ function People() {
 				) : crews.length === 0 ? (
 					<EmptyState graphic message={copy.common.nothingAdded} />
 				) : (
-					<InsetSection title={copy.people.crews.heading}>
+					<InsetSection>
 						{crews.map((crew, index) => {
+							// The names say the size: "3 people" over "Ana, Ben, Cy" said it
+							// twice, and "0 people" over "Nobody yet" too. A big crew names
+							// two and counts the rest, so its size is still said once.
 							const names = crew.members.filter((id) => knownNames[id]).map((id) => knownNames[id]);
-							const subtitle = names.length ? names.join(', ') : copy.people.crews.nobody;
-							const count = copy.people.crews.memberCount(names.length);
+							const subtitle = names.length
+								? copy.people.crews.namesAndMore(names, CREW_NAMES_SHOWN)
+								: copy.people.crews.nobody;
 							return (
 								<ListRow
 									key={crew.id}
 									title={crew.name}
-									subtitle={count}
 									detail={subtitle}
 									leading={<Avatar name={crew.name} size={AVATAR_SIZE} />}
 									accessory={crew.locked ? 'none' : 'chevron'}
 									onPress={crew.locked ? undefined : () => setCrewDraft(crew)}
 									accessibilityLabel={
 										crew.locked
-											? [crew.name, count, subtitle, copy.people.crews.locked].join(', ')
+											? [crew.name, subtitle, copy.people.crews.locked].join(', ')
 											: undefined
 									}
 									last={index === crews.length - 1}
@@ -176,6 +180,8 @@ function People() {
 
 /** The web's `lg` avatar: a roster row leads with a face a touch larger than a list icon. */
 const AVATAR_SIZE = 34;
+/** A crew row names this many people and counts the rest, to stay on one line at 390pt. */
+const CREW_NAMES_SHOWN = 2;
 
 /**
  * One member of the roster, drawn as web MemberRow is: the status tags sit on
@@ -210,8 +216,10 @@ function MemberRow({
 		tags.push({ key: 'seed', label: copy.people.row.sampleTag, tone: 'neutral', outline: true });
 	}
 	const editable = person.placeholder || person.seeded || person.id === me;
+	// A sample person's tag already says so; the line under the name used to
+	// add "Sample companion" as well, so they have no second line at all.
 	const detail = person.seeded
-		? copy.people.row.sampleCompanion
+		? null
 		: person.placeholder
 			? (person.invitedEmail ?? person.email)
 			: person.email;

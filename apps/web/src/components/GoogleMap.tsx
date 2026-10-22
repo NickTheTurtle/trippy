@@ -43,6 +43,15 @@ export type MapTrack = {
 	 */
 	line?: boolean;
 	/**
+	 * Where the line sets off from, when that is somewhere other than the first
+	 * item: a point the route starts at without being one of its stops. The
+	 * schedule's day starts in the room the night was spent in, which is a pin
+	 * of its own on another track. Drawn only where the line is, and never
+	 * framed by the camera on this track's account: whatever it stands for is
+	 * framed, or not, as its own pin.
+	 */
+	lineFrom?: { lat: number; lng: number };
+	/**
 	 * False to draw plain pins with nothing written on them. A number on a pin
 	 * is a claim about order, so it is only honest when the track has one: a day
 	 * whose events overlap is not a sequence, and numbering it would invent one.
@@ -485,7 +494,10 @@ function GoogleMapInner({
 
 		for (const t of tracksRef.current) {
 			const located = t.items.filter((i) => i.lat != null && i.lng != null);
-			const path: { lat: number; lng: number }[] = [];
+			// The route's starting point, unframed: see `MapTrack.lineFrom`.
+			const path: { lat: number; lng: number }[] = t.lineFrom
+				? [{ lat: t.lineFrom.lat, lng: t.lineFrom.lng }]
+				: [];
 			for (const i of located) {
 				const pos = { lat: i.lat as number, lng: i.lng as number };
 				path.push(pos);

@@ -1,6 +1,6 @@
-import { guessLeg, placeLeg } from '@trippy/core/travel';
-import { planDay, stayBand, stayEndOf } from '@trippy/core/plan';
+import { planDay, resolveLeg, stayBand, stayEndOf, type LegOverride } from '@trippy/core/plan';
 import { coversDay, segmentOn, type ZoneOf } from '@trippy/core/span';
+import { journeyPin, type JourneyEdits } from './journeys';
 import type { BoardDay, EventDraft, EventRow, LegRow } from './types';
 
 export function applyDraft(
@@ -55,7 +55,8 @@ export function replanLegs(
 	draft: EventDraft | null,
 	roster: readonly string[],
 	known?: ReadonlyMap<string, LegRow>,
-	zoneOf?: ZoneOf
+	zoneOf?: ZoneOf,
+	journeys?: JourneyEdits | null
 ): LegRow[] {
 	const { events } = applyDraft(entry, draft, zoneOf);
 	// The zones are what the server plans a same-day journey west by; without
@@ -64,26 +65,35 @@ export function replanLegs(
 	const stored = new Map(entry.legs.map((l) => [l.key, l]));
 	return planned.map((leg) => {
 		const row = stored.get(leg.key) ?? known?.get(leg.key);
-		const auto = guessLeg(leg.km);
-		const resolvedMode = row?.mode ?? row?.autoMode ?? auto.mode;
-		const resolvedMins = row?.mins ?? row?.autoMins ?? auto.mins;
+		// The ladder is core's (`resolveLeg`), which also drops a routed answer
+		// for two points the journey no longer joins: an event moved to another
+		// place in the sheet keeps its leg key, and used to keep the old drive.
+		const override: LegOverride | null = row
+			? {
+					title: row.title,
+					autoMode: row.autoMode,
+					autoMins: row.autoMins,
+					autoKey: row.autoKey ?? null,
+					mode: row.mode,
+					mins: row.mins
+				}
+			: null;
+		const base: LegRow = { id: row?.id ?? '', day: entry.day, ...resolveLeg(leg, override) };
+		const edit = journeys?.[leg.key];
+		if (!edit) return base;
+		// What the sheet has typed about this journey but not saved, applied as a
+		// pin over the same answer, so the bar, its place and `tight` follow it.
+		const pin = journeyPin(base, edit);
 		return {
-			id: row?.id ?? '',
-			day: entry.day,
-			key: leg.key,
-			fromEventId: leg.fromEventId,
-			toEventId: leg.toEventId,
-			people: leg.people,
-			title: row?.title ?? null,
-			autoMode: row?.autoMode ?? null,
-			autoMins: row?.autoMins ?? null,
-			mode: row?.mode ?? null,
-			mins: row?.mins ?? null,
-			resolvedMode,
-			resolvedMins,
-			km: leg.km,
-			manual: row?.mode != null || row?.mins != null,
-			...placeLeg(leg, resolvedMins)
+			...base,
+			...resolveLeg(leg, {
+				title: pin.title,
+				autoMode: base.autoMode,
+				autoMins: base.autoMins,
+				autoKey: base.autoKey,
+				mode: pin.mode ?? base.mode,
+				mins: pin.mins ?? base.mins
+			})
 		};
 	});
 }

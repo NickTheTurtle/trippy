@@ -158,7 +158,9 @@ export default function Account() {
 								</Text>
 							) : null}
 						</View>
-						<InsetSection title={copy.account.password.heading}>
+						{/* Unheaded: "Change password" names itself, and a "Password"
+						    heading over it said the word twice. */}
+						<InsetSection>
 							<ListRow
 								title={copy.account.password.change}
 								symbol={{ name: 'key', fallback: 'key-outline' }}

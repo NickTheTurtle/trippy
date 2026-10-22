@@ -7,7 +7,7 @@ import {
 	isTransportMode,
 	type EventType
 } from '@trippy/core/types';
-import { legKey, routeKey, type PlannedLeg } from '@trippy/core/travel';
+import { legKey, type PlannedLeg } from '@trippy/core/travel';
 import {
 	daysBetween,
 	planDay,
@@ -828,19 +828,14 @@ export function legsForDay(tripId: string, day: string): LegRow[] {
 		// the two events; showing one fewer journey beats inventing a row id the
 		// client would then try to edit.
 		if (!row) continue;
-		// A routed answer for two points that are no longer where this journey's
-		// events are is not an answer about this journey. Until the next board
-		// load routes it again it falls back to the straight-line guess, rather
-		// than planning the day around a drive to where the museum used to be.
-		// A row routed before `auto_key` existed has none and is trusted as before.
-		const stale =
-			row.auto_key != null &&
-			row.auto_mode != null &&
-			row.auto_key !== routeKey(leg, row.auto_mode);
+		// `resolveLeg` drops a routed answer whose `auto_key` no longer matches
+		// the journey's two points; the key is sent on so a client previewing a
+		// move applies the same rule.
 		const override: LegOverride = {
 			title: row.title,
-			autoMode: stale ? null : row.auto_mode,
-			autoMins: stale ? null : row.auto_mins,
+			autoMode: row.auto_mode,
+			autoMins: row.auto_mins,
+			autoKey: row.auto_key,
 			mode: row.mode,
 			mins: row.mins
 		};

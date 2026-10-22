@@ -18,10 +18,10 @@
  * without it the first journey of the morning has no origin and the client
  * would plan a day the server does not.
  */
-import { guessLeg, placeLeg } from '@trippy/core/travel';
-import { planDay, stayBand, stayEndOf } from '@trippy/core/plan';
+import { minsByMode, type PlannedLeg } from '@trippy/core/travel';
+import { planDay, resolveLeg, stayBand, stayEndOf, type LegOverride } from '@trippy/core/plan';
 import { coversDay, segmentOn, type ZoneOf } from '@trippy/core/span';
-import type { BoardDay, EventDraft, EventRow, LegRow } from './types';
+import type { BoardDay, EventDraft, EventRow, LegDraft, LegDrafts, LegRow } from './types';
 
 /**
  * The day's events and lodgings with the draft applied.
@@ -118,6 +118,11 @@ function boardStays(rows: EventRow[], day: string): EventRow[] {
  * to tomorrow in the dialog preview its journeys at the bare estimate, and then
  * snap to the pinned ferry once saved. The window is what the client has; a
  * move beyond it still previews the estimate until the save comes back.
+ *
+ * `said` is what the open dialog's journey cards say, by leg key, before it is
+ * saved. Changing a walk to a taxi is an edit to the day like any other, so the
+ * bar, where it sits and whether it is tight follow the cards as they are
+ * typed rather than after the save.
  */
 export function replanLegs(
 	entry: BoardDay,
@@ -125,7 +130,8 @@ export function replanLegs(
 	roster: readonly string[],
 	known?: ReadonlyMap<string, LegRow>,
 	cityOf?: (day: string) => string | null,
-	zoneOf?: ZoneOf
+	zoneOf?: ZoneOf,
+	said?: LegDrafts
 ): LegRow[] {
 	const { events } = applyDraft(entry, draft, cityOf);
 	// The zones are what place a same-day journey across clocks; a span is
@@ -135,28 +141,55 @@ export function replanLegs(
 	const stored = new Map(entry.legs.map((l) => [l.key, l]));
 	return planned.map((leg) => {
 		const row = stored.get(leg.key) ?? known?.get(leg.key);
-		const auto = guessLeg(leg.km);
-		const resolvedMode = row?.mode ?? row?.autoMode ?? auto.mode;
-		const resolvedMins = row?.mins ?? row?.autoMins ?? auto.mins;
+		const override: LegOverride | null = row
+			? {
+					title: row.title,
+					autoMode: row.autoMode,
+					autoMins: row.autoMins,
+					autoKey: row.autoKey,
+					mode: row.mode,
+					mins: row.mins
+				}
+			: null;
+		const edit = said?.[leg.key];
 		return {
 			// A journey that only the edit implies has no row yet, so it has no id.
 			// Saving is by key, which both ends compute the same way.
 			id: row?.id ?? '',
 			day: entry.day,
-			key: leg.key,
-			fromEventId: leg.fromEventId,
-			toEventId: leg.toEventId,
-			people: leg.people,
-			title: row?.title ?? null,
-			autoMode: row?.autoMode ?? null,
-			autoMins: row?.autoMins ?? null,
-			mode: row?.mode ?? null,
-			mins: row?.mins ?? null,
-			resolvedMode,
-			resolvedMins,
-			km: leg.km,
-			manual: row?.mode != null || row?.mins != null,
-			...placeLeg(leg, resolvedMins)
+			// The same ladder the server resolves the stored row with, stale
+			// routing included, so the preview and the board agree.
+			...resolveLeg(leg, edit ? withEdit(leg, override, edit) : override)
 		};
 	});
+}
+
+/**
+ * A stored journey with what the open dialog says about it laid over the top.
+ *
+ * Typed minutes win as a pin, which is what saving them would make them. A mode
+ * with no usable minutes is answered the way the mode picker answers it: the
+ * router's time when the router was asked about that mode, otherwise the
+ * distance at that mode's pace. The router's answer is read after the stale
+ * check, so a block moved in the same dialog does not lend its old drive time
+ * to the new mode.
+ */
+function withEdit(leg: PlannedLeg, stored: LegOverride | null, edit: LegDraft): LegOverride {
+	const kept: LegOverride = {
+		title: edit.title,
+		autoMode: stored?.autoMode ?? null,
+		autoMins: stored?.autoMins ?? null,
+		autoKey: stored?.autoKey ?? null,
+		mode: stored?.mode ?? null,
+		mins: stored?.mins ?? null
+	};
+	// A rename alone: how the journey is made is what it already was.
+	if (edit.mode == null) return kept;
+	const routed = resolveLeg(leg, stored);
+	const mins =
+		edit.mins ??
+		(edit.mode === routed.autoMode && routed.autoMins != null
+			? routed.autoMins
+			: minsByMode(leg.km, edit.mode));
+	return { ...kept, mode: edit.mode, mins };
 }

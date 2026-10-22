@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { type PlannedLeg, type PlannerEvent } from '@trippy/core/travel';
+import { routeKey, type PlannedLeg, type PlannerEvent } from '@trippy/core/travel';
 import { DAY_END_MIN, isLocatedType } from '@trippy/core/types';
 import {
 	daysBetween,
@@ -791,6 +791,18 @@ describe('resolveLeg', () => {
 			endMin: 660,
 			tight: true
 		});
+	});
+
+	it('drops a routed answer for two points the journey no longer joins', () => {
+		const routed = { ...none, autoMode: 'transit', autoMins: 26 };
+		const fresh = resolveLeg(leg, { ...routed, autoKey: routeKey(leg, 'transit') });
+		expect(fresh).toMatchObject({ autoMins: 26, resolvedMins: 26 });
+		const moved = resolveLeg(leg, { ...routed, autoKey: 'transit:0.0000,0.0000>1.0000,1.0000' });
+		expect(moved).toMatchObject({ autoMode: null, autoMins: null });
+		expect(moved.resolvedMins).toBe(resolveLeg(leg, null).resolvedMins);
+		// A pin still wins over a stale answer, and a row from before the key is trusted.
+		expect(resolveLeg(leg, { ...routed, autoKey: 'x', mins: 45 }).resolvedMins).toBe(45);
+		expect(resolveLeg(leg, routed).resolvedMins).toBe(26);
 	});
 
 	it('runs an open-ended journey forward from its departure and never calls it tight', () => {

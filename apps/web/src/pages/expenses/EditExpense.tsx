@@ -306,6 +306,12 @@ export default function EditExpense({
 							</FieldShell>
 						</div>
 
+						{/* One note either way. Income says it credits the people selected
+						    rather than charging them, which the title and "Received by" do
+						    not. An expense says how to record income at all: this form has
+						    no expense/income switch (the phone has a segment), so a negative
+						    amount is the only way in and this line is the only place it is
+						    said. */}
 						<p className={`-mt-2 text-meta ${income ? 'text-accent-ink' : 'text-ink-faint'}`}>
 							{income ? c.incomeNote : c.expenseNote}
 						</p>

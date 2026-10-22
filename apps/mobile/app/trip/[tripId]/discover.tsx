@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Linking, Pressable, RefreshControl, Text, View } from 'react-native';
 import { copy } from '@trippy/copy';
 import { formatPerNight } from '@trippy/copy/format';
-import { localDayMinutes } from '@trippy/core/tz';
 import { safeExternalUrl } from '@trippy/core/validate';
 import type { Poi, Stay, DiscoverData } from '../../../src/lib/api-types';
 import { api } from '../../../src/lib/api';
@@ -29,6 +28,7 @@ import {
 	EditStaySheet
 } from '../../../src/screens/discover/PlaceSheets';
 import { useDiscoverVotes } from '../../../src/screens/discover/useDiscoverVotes';
+import { parseHours, todayHours } from '../../../src/screens/discover/placeMeta';
 import { tripTab } from '../../../src/ui/nativeTabs';
 
 type TripData = {
@@ -162,11 +162,13 @@ function Discover() {
 			<>
 				<Screen>
 					<FormError message={error ?? ''} />
+					{/* The heading and the button say it all: a line under them that
+					    said "Add a city to start planning" repeated the button, and a
+					    member, who has no button, was told to do what they cannot. */}
 					<EmptyState
 						symbol={{ name: 'mappin.and.ellipse', fallback: 'location-outline' }}
 						title={copy.discover.noCities.heading}
-						message={copy.discover.noCities.body}
-						hint={isOrganizer ? undefined : copy.discover.noCities.memberNote}
+						message={isOrganizer ? undefined : copy.discover.noCities.memberNote}
 						action={
 							isOrganizer ? (
 								<Button label={copy.discover.noCities.cta} onPress={() => setCitySheet('add')} />
@@ -332,7 +334,7 @@ function Discover() {
 				<AddDiscoverSheet
 					open
 					base={base}
-					city={{ id: current.id, name: current.name }}
+					city={{ id: current.id, name: current.name, tz: current.tz }}
 					provider={data.provider}
 					initialType={filter === STAY ? STAY : filter === 'food' ? 'food' : 'attraction'}
 					currency={data.currency}
@@ -741,24 +743,4 @@ function linkedForCity(data: DiscoverData, cityId: string): number {
 
 function pct(votes: number, total: number): number {
 	return total ? Math.round((votes / total) * 100) : 0;
-}
-
-function parseHours(raw: string | null): string[] | null {
-	if (!raw) return null;
-	try {
-		const value: unknown = JSON.parse(raw);
-		return Array.isArray(value) ? value.map(String) : null;
-	} catch {
-		return null;
-	}
-}
-
-function todayHours(hours: string[] | null | undefined, tz: string): string | null {
-	if (!hours || hours.length === 0 || !tz) return null;
-	const { day } = localDayMinutes(tz);
-	if (!day) return null;
-	const weekday = new Date(`${day}T00:00:00Z`).getUTCDay();
-	if (Number.isNaN(weekday)) return null;
-	const idx = (weekday + 6) % 7;
-	return (hours[idx] ?? hours[0]).replace(/^[A-Za-z]+:\s*/, '');
 }

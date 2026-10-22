@@ -30,14 +30,12 @@ import {
 	MIN_EVENT_MINS,
 	MODE_OPTIONS,
 	TYPE_OPTIONS,
-	dayLabel,
 	deriveTitle,
 	NO_PEOPLE,
-	rangeLabel,
 	shiftDay
 } from './shared';
 import StayDates from './StayDates';
-import type { Cell, Crew, EventDraft, EventRow, LegRow, SavedPoi } from './types';
+import type { Cell, Crew, EventDraft, EventRow, LegDrafts, LegRow, SavedPoi } from './types';
 
 const cf = copy.schedule.fields;
 const cs = copy.schedule;
@@ -82,6 +80,7 @@ export default function EventDialog({
 	initialType,
 	initialPoi,
 	legs,
+	liveLegs,
 	focusLegId,
 	eventOf,
 	peopleLabel,
@@ -99,6 +98,7 @@ export default function EventDialog({
 	dock,
 	peek,
 	onPreview,
+	onJourneyPreview,
 	onClose,
 	onDone
 }: {
@@ -121,6 +121,8 @@ export default function EventDialog({
 	initialPoi?: { id: string; name: string };
 	/** The journeys that arrive at this block, replanned as the dialog is typed. */
 	legs: LegRow[];
+	/** The same journeys as the board draws them, with the cards' edits applied. */
+	liveLegs?: LegRow[];
 	/** The journey the reader pointed at, if they arrived here by clicking one. */
 	focusLegId?: string;
 	/** Another event on the board, or null when it is not loaded. */
@@ -152,6 +154,8 @@ export default function EventDialog({
 	peek?: boolean;
 	/** The block so far, or null once this dialog is gone. */
 	onPreview?: (draft: EventDraft | null) => void;
+	/** What the journey cards say so far, by leg key, or null once this dialog is gone. */
+	onJourneyPreview?: (said: LegDrafts | null) => void;
 	onClose: () => void;
 	onDone: () => void;
 }) {
@@ -241,7 +245,15 @@ export default function EventDialog({
 		initialPlace: openedOn
 	});
 
-	const journeys = useJourneys({ legs, eventOf, peopleLabel, focusLegId });
+	const journeys = useJourneys({
+		legs,
+		live: liveLegs,
+		eventOf,
+		peopleLabel,
+		participants: people ?? [],
+		focusLegId,
+		onDraft: onJourneyPreview
+	});
 
 	const startMinNow = Number(start);
 	const endMinNow = Number(end);
@@ -305,7 +317,6 @@ export default function EventDialog({
 	const stored = normalizeSpan(typedSpan, zoneOf);
 	const spanRow: SpanRow = { ...typedSpan, ...stored };
 	const endCityId = stored.end_city_id;
-	const runsOver = !staying && !!stored.end_day;
 	const crosses = crossesZones(spanRow, zoneOf);
 	/** The end is typed on the start's day and clock, so the two compare as typed. */
 	const sameClock = endDate === date && !crosses;
@@ -663,13 +674,6 @@ export default function EventDialog({
 				dock={dock}
 				peek={peek}
 				title={locked ? cs.dialog.view : event ? cs.dialog.edit : cs.dialog.add}
-				subtitle={
-					staying
-						? rangeLabel(checkIn, checkOut)
-						: runsOver && stored.end_day
-							? rangeLabel(onDay, stored.end_day)
-							: dayLabel(onDay)
-				}
 				onClose={onClose}
 			>
 				<ModalForm className="schedule" onSubmit={submit}>
