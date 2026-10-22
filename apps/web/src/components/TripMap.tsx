@@ -119,7 +119,8 @@ function TripMapInner({
 
 		for (const t of tracksRef.current) {
 			const located = t.items.filter((i) => i.lat != null && i.lng != null);
-			const line: [number, number][] = [];
+			// The route's starting point, unframed: see `MapTrack.lineFrom`.
+			const line: [number, number][] = t.lineFrom ? [[t.lineFrom.lat, t.lineFrom.lng]] : [];
 			for (const i of located) {
 				const ll: [number, number] = [i.lat as number, i.lng as number];
 				line.push(ll);

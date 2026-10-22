@@ -118,9 +118,9 @@ function Calendar() {
 	const headerAdd = useCallback(() => {
 		if (locked || !shownDay) return;
 		const shown = showActionMenu(copy.schedule.add.replace(/^\+\s*/, ''), [
-			{ label: copy.schedule.dialog.add, onPress: () => setAdding({ day: shownDay }) },
+			{ label: copy.schedule.mobile.addEvent, onPress: () => setAdding({ day: shownDay }) },
 			{
-				label: copy.schedule.addStay.replace(/^\+\s*/, ''),
+				label: copy.schedule.mobile.addStay,
 				onPress: () => setAdding({ day: shownDay, type: 'stay' })
 			}
 		]);
@@ -169,14 +169,6 @@ function Calendar() {
 								lastDay={data.lastDay}
 								onPick={schedule.setDay}
 							/>
-							<Text style={type.faint}>
-								{[
-									schedule.prevDay === null ? copy.schedule.mobile.firstDay : null,
-									schedule.nextDay === null ? copy.schedule.mobile.lastDay : null
-								]
-									.filter(Boolean)
-									.join(' · ') || ' '}
-							</Text>
 						</View>
 						<IconButton
 							label={copy.schedule.nav.nextDay}
@@ -218,7 +210,7 @@ function Calendar() {
 					</View>
 					{locked ? (
 						<Text style={{ ...type.footnote, color: color.warn, marginHorizontal: space.lg }}>
-							{copy.schedule.lock.hint}
+							{copy.schedule.mobile.lockHint}
 						</Text>
 					) : null}
 				</View>
@@ -298,6 +290,7 @@ function Calendar() {
 					initialType={adding.type ?? 'activity'}
 					initialPoi={adding.poi}
 					legs={schedule.draftLegs}
+					liveLegs={schedule.draftLiveLegs}
 					eventOf={(id) => schedule.eventById.get(id) ?? null}
 					peopleLabel={schedule.peopleLabel}
 					members={data.members}
@@ -311,6 +304,7 @@ function Calendar() {
 					lastDay={data.lastDay}
 					locked={locked}
 					onPreview={schedule.setPreview}
+					onJourneys={schedule.setJourneyPreview}
 					onClose={() => setAdding(null)}
 					onDone={() => {
 						setAdding(null);
@@ -325,6 +319,7 @@ function Calendar() {
 					event={opened}
 					day={opened.day}
 					legs={schedule.legsTo(opened.id)}
+					liveLegs={schedule.liveLegsTo(opened.id)}
 					eventOf={(id) => schedule.eventById.get(id) ?? null}
 					peopleLabel={schedule.peopleLabel}
 					members={data.members}
@@ -338,6 +333,7 @@ function Calendar() {
 					lastDay={data.lastDay}
 					locked={locked}
 					onPreview={schedule.setPreview}
+					onJourneys={schedule.setJourneyPreview}
 					onClose={() => setOpened(null)}
 					onDone={() => {
 						setOpened(null);
@@ -413,12 +409,12 @@ function AddMenuSheet({
 		>
 			<InsetSection>
 				<ListRow
-					title={copy.schedule.dialog.add}
+					title={copy.schedule.mobile.addEvent}
 					symbol={{ name: 'calendar.badge.plus', fallback: 'calendar-outline' }}
 					onPress={onEvent}
 				/>
 				<ListRow
-					title={copy.schedule.addStay.replace(/^\+\s*/, '')}
+					title={copy.schedule.mobile.addStay}
 					symbol={{ name: 'bed.double', fallback: 'bed-outline' }}
 					onPress={onStay}
 					last
@@ -531,12 +527,11 @@ function Agenda({
 		]
 	);
 	if (!rows.length) {
-		return (
-			<EmptyState graphic message={copy.common.nothingAdded} hint={copy.schedule.mobile.freeDay} />
-		);
+		return <EmptyState graphic message={copy.common.nothingAdded} />;
 	}
+	// No heading: the day's title is right above.
 	return (
-		<InsetSection title={dayLabel(entry.day)}>
+		<InsetSection>
 			{rows.map((row, index) => (
 				<View key={row.key}>{row.render(index === rows.length - 1)}</View>
 			))}
@@ -571,9 +566,11 @@ function EventCard({
 			last={last}
 			accessory="chevron"
 			leading={
+				// A first day's part ("From 10:00 PM") is the start the range line
+				// below already gives, so the range stands alone.
 				<Text style={styles.agendaTime}>
-					{when}
-					{zone ? <Text style={{ color: color.inkFaint }}> {zone}</Text> : null}
+					{range ? '' : when}
+					{zone && !range ? <Text style={{ color: color.inkFaint }}> {zone}</Text> : null}
 				</Text>
 			}
 		>
@@ -617,7 +614,7 @@ function JourneyCard({
 	const mode = modeLabel(leg.resolvedMode);
 	const name =
 		leg.title ?? (from ? `${mode} from ${from.title}` : to ? `${mode} to ${to.title}` : mode);
-	const detail = `${clockRange(leg.startMin, leg.endMin)}. ${mode}, ${leg.resolvedMins} min, ${peopleLabel(leg.people)}${leg.tight ? `. ${copy.viewAs.travelWarning}` : ''}`;
+	const detail = `${clockRange(leg.startMin, leg.endMin)}. ${leg.title ? `${mode}, ` : ''}${leg.resolvedMins} min, ${peopleLabel(leg.people)}${leg.tight ? `. ${copy.viewAs.travelWarning}` : ''}`;
 	return (
 		<GroupedRow
 			onPress={onPress}
@@ -646,8 +643,9 @@ function JourneyCard({
 					{name}
 				</Text>
 			</View>
+			{/* The mode is the icon and the name; this line is how long and who. */}
 			<Text style={type.faint} numberOfLines={1}>
-				{mode} · {leg.resolvedMins} min · {peopleLabel(leg.people)}
+				{leg.resolvedMins} min · {peopleLabel(leg.people)}
 			</Text>
 		</GroupedRow>
 	);

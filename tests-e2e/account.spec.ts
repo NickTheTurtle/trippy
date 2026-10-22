@@ -155,7 +155,7 @@ test.describe('account', () => {
 			await expect(ok.locator('span[role="status"]')).toBeVisible();
 
 			await password.getByLabel(ca.password.currentLabel).fill('not-the-password');
-			await password.getByLabel(/^New password/).fill('Another-Pass-2026!');
+			await password.getByLabel(new RegExp(`^${ca.password.newLabel}`)).fill('Another-Pass-2026!');
 			await password.getByLabel(ca.password.confirmLabel).fill('Another-Pass-2026!');
 			await password.getByRole('button', { name: copy.common.save }).click();
 

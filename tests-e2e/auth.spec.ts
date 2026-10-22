@@ -33,8 +33,8 @@ test.describe('auth and session', () => {
 			userId = (await me.json()).user.id;
 
 			await logOut(page);
-			// Logged out returns to the landing page with its call to action.
-			await expect(page.getByRole('link', { name: copy.shell.register }).first()).toBeVisible();
+			// Logged out, the top bar no longer carries the account menu.
+			await expect(page.locator('header button[aria-expanded]')).toHaveCount(0);
 
 			await page.goto('/login');
 			await page.getByLabel(copy.auth.login.emailLabel).fill(email);

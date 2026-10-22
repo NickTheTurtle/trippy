@@ -249,7 +249,6 @@ export default function Pretrip() {
 						memberCount={data.memberCount}
 						viewAs={viewAs}
 						onViewAs={setViewAs}
-						total={shownTotal}
 						fmt={fmt}
 						home={data.currency}
 						onEdit={(it) =>

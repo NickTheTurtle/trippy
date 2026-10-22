@@ -292,6 +292,12 @@
 .sched .boardscroll:not(.list) {
 	display: flex;
 	align-items: flex-start;
+	/* A finger only pans the board up and down; sideways it is script that
+	   moves the strip, one deliberate day at a time, with a lock on the axis so
+	   a scroll down the hours that wobbles does not change the day. See
+	   `AXIS_LOCK_PX` in `Schedule.tsx`. Touch only: a mouse, a trackpad and a
+	   sideways wheel scroll the strip natively as before. */
+	touch-action: pan-y pinch-zoom;
 }
 /* The strip itself: the days, side by side, each as wide as the box less the
    time column. The strip is that wide and its days overflow it, which is what
@@ -864,11 +870,57 @@
 	white-space: nowrap;
 	text-overflow: ellipsis;
 }
+/* A block too short to stack its title over its time (`whoBudget` in
+   `schedule/shared.ts`, which counts in this file's pixels). It drops its
+   vertical padding and sets the title and the time side by side on one line,
+   centred, each ellipsized rather than cut from below; the shortest drop the
+   time. Every block is at least 15px tall, which is exactly one line. */
+.sched .block.oneline {
+	padding-top: 0;
+	padding-bottom: 0;
+}
+.sched .block.oneline .bface {
+	display: flex;
+	align-items: center;
+	gap: 0.4rem;
+}
+.sched .block.oneline .bt {
+	display: block;
+	flex: 0 1 auto;
+	min-width: 0;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.sched .block.oneline .bmeta {
+	flex: 0 0 auto;
+	margin: 0;
+	height: auto;
+}
+/* The pencil shrinks to the line rather than overhanging the box, and on a
+   screen that always shows it the text stops short of it instead of running
+   under it. */
+.sched .block.oneline .bedit {
+	top: 50%;
+	transform: translateY(-50%);
+	padding: 0 2px;
+}
+.sched .block.oneline .bedit svg {
+	width: 13px;
+	height: 13px;
+}
+@media (hover: none) {
+	.sched:not(.locked) .block.oneline .bface {
+		padding-right: 22px;
+	}
+}
 .sched .bwho {
 	display: flex;
 	flex-wrap: wrap;
 	align-content: flex-start;
-	gap: 0.2rem;
+	/* Rows on a 15px pitch, the unit `whoBudget` counts in, so the height it
+	   allows ends between two rows of chips and never through one. */
+	gap: 2px 0.2rem;
 	margin-top: 0.1rem;
 	max-height: calc(var(--wrows, 2) * 15px);
 	overflow: hidden;
@@ -1175,40 +1227,20 @@
 .sched .schedule .jminsf {
 	flex: 0 0 5rem;
 }
-/* The unit belongs inside the box with the number, not floating past its edge. */
+/* The number alone: the field's label already says Minutes, so a unit in the
+   box beside it said the same thing twice. */
 .sched .schedule .jmins {
-	display: flex;
-	align-items: center;
-	gap: 0.2rem;
-	height: var(--control-h);
-	padding: 0 0.5rem;
-}
-.sched .schedule .jmins:focus-within {
-	border-color: var(--color-accent);
-}
-.sched .schedule .jmins input {
-	min-width: 0;
-	flex: 1 1 auto;
-	border: 0;
-	background: none;
-	padding: 0;
-	color: inherit;
-	font: inherit;
-	outline: none;
+	width: 100%;
 	text-align: right;
 	/* The spinner would be a third control in a 5rem box, and the arrow keys
 	   still step the number for anyone who wants that. */
 	-moz-appearance: textfield;
 	appearance: textfield;
 }
-.sched .schedule .jmins input::-webkit-outer-spin-button,
-.sched .schedule .jmins input::-webkit-inner-spin-button {
+.sched .schedule .jmins::-webkit-outer-spin-button,
+.sched .schedule .jmins::-webkit-inner-spin-button {
 	-webkit-appearance: none;
 	margin: 0;
-}
-.sched .schedule .jmins span {
-	font-size: var(--text-meta);
-	color: var(--color-ink-faint);
 }
 /* At phone width the three controls cannot share a line. The mode and the
    minutes are fixed, so the name is what collapses, and it collapsed to 22px:

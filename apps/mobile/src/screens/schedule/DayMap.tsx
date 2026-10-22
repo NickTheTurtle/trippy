@@ -50,6 +50,7 @@ export function DayMap({
 				day: entry.day,
 				events: entry.events,
 				stays: entry.stays,
+				incoming: entry.incoming,
 				legs: entry.legs,
 				saved,
 				city,

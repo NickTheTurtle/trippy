@@ -167,12 +167,11 @@ test.describe('several cities are added at once', () => {
 			// The box is emptied and keeps focus, ready for the next city.
 			await expect(input).toHaveValue('');
 			await expect(input).toBeFocused();
-			await expect(dialog.getByText(copy.addCity.pickedHeading(1))).toBeVisible();
 			await expect(submit(1)).toBeEnabled();
 
 			await input.pressSequentially('Li');
 			await dialog.getByRole('option').filter({ hasText: 'Lisbon' }).click();
-			await expect(dialog.getByText(copy.addCity.pickedHeading(2))).toBeVisible();
+			await expect(submit(2)).toBeEnabled();
 
 			// A city already in the list is shown, marked, and cannot be picked again.
 			await input.fill('Po');
@@ -232,10 +231,14 @@ test.describe('several cities are added at once', () => {
 				page.locator('.toast.bad').filter({ hasText: 'Kyoto is already on this trip.' })
 			).toBeVisible();
 			// All or nothing: the dialog and both picks are still there.
-			await expect(dialog.getByText(copy.addCity.pickedHeading(2))).toBeVisible();
+			await expect(
+				dialog.getByRole('button', { name: copy.addCity.submit(2), exact: true })
+			).toBeEnabled();
 
 			await dialog.getByRole('button', { name: copy.addCity.remove('Kyoto') }).click();
-			await expect(dialog.getByText(copy.addCity.pickedHeading(1))).toBeVisible();
+			await expect(
+				dialog.getByRole('button', { name: copy.addCity.submit(1), exact: true })
+			).toBeEnabled();
 			await dialog.getByRole('button', { name: copy.addCity.submit(1), exact: true }).click();
 			await expect(dialog).toBeHidden();
 

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ScrollView, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { copy } from '@trippy/copy';
 import { parseMoneyToCents } from '@trippy/copy/format';
 import { CURRENCY_CODES } from '@trippy/core/currency';
@@ -9,12 +9,13 @@ import { MAX_NOTES_LENGTH } from '@trippy/core/validate';
 import type { PlaceHit, PlaceHitDetails, Poi, Stay } from '../../lib/api-types';
 import { api, ApiError, isAbort } from '../../lib/api';
 import { useMutation } from '../../hooks/useMutation';
-import { DestructiveRow, Field, InsetSection, ListRow, SectionHeader } from '../../ui';
+import { DestructiveRow, Field, GroupedRow, InsetSection, ListRow, SectionHeader } from '../../ui';
 import { Sheet } from '../../ui/Sheet';
 import { ConfirmSheet, confirmOverlays } from '../../ui/ConfirmSheet';
 import { SearchablePicker, SegmentedControl } from '../../ui/controls';
 import { Cover } from '../../ui/Cover';
 import { color, rowInset, space, type } from '../../theme';
+import { todayHours } from './placeMeta';
 
 const MIN_QUERY = 3;
 const SEARCH_DEBOUNCE_MS = 600;
@@ -68,6 +69,24 @@ function inferType(category: string | null | undefined): AddType | null {
 function currencyOptions(currencies: readonly string[]) {
 	const codes = currencies.length ? currencies : CURRENCY_CODES;
 	return codes.map((code) => ({ key: code, label: code, detail: currencyName(code) }));
+}
+
+/**
+ * The web's HitSummary as one line: rating, price band and today's hours, the
+ * things that tell you at a glance whether this is the place you meant.
+ */
+function hitSummary(hit: PlaceHit, tz?: string): { text: string; label: string } | null {
+	const rating = hit.rating ? hit.rating.toFixed(1) : null;
+	const price = hit.priceLevel != null ? '$'.repeat(Math.max(1, hit.priceLevel)) : null;
+	const hours = tz ? todayHours(hit.hours, tz) : null;
+	if (!rating && !price && !hours) return null;
+	const stars = rating ? `★ ${rating}${hit.ratingCount ? ` (${hit.ratingCount})` : ''}` : null;
+	return {
+		text: [stars, price, hours].filter(Boolean).join(' · '),
+		label: [rating ? copy.mobileDiscover.ratingLabel(rating, hit.ratingCount) : null, price, hours]
+			.filter(Boolean)
+			.join(', ')
+	};
 }
 
 function TextArea({
@@ -176,7 +195,7 @@ export function AddDiscoverSheet({
 }: {
 	open: boolean;
 	base: string;
-	city: { id: string; name: string };
+	city: { id: string; name: string; tz?: string };
 	provider: 'google' | 'osm';
 	initialType: AddType;
 	currency: string;
@@ -409,13 +428,21 @@ export function AddDiscoverSheet({
 		void add.run(cents);
 	}
 
+	// An empty field says nothing; "Keep typing" is for a query begun but too
+	// short to send, which is the one moment the missing results need a reason.
+	// Once a hit is picked its row below is the answer, so the footer stops
+	// reporting on the search that found it.
+	const typed = name.trim().length;
 	const message =
-		name.trim().length < MIN_QUERY
-			? copy.discover.addDialog.keepTyping
-			: searching || detailLoading
-				? copy.discover.addDialog.searching
-				: searchError ||
-					(searched && hits.length === 0 ? copy.discover.addDialog.noMatches(name.trim()) : '');
+		typed === 0 || (hit && !detailLoading)
+			? ''
+			: typed < MIN_QUERY
+				? copy.discover.addDialog.keepTyping
+				: searching || detailLoading
+					? copy.discover.addDialog.searching
+					: searchError ||
+						(searched && hits.length === 0 ? copy.discover.addDialog.noMatches(name.trim()) : '');
+	const hitMeta = hit ? hitSummary(hit, city.tz) : null;
 
 	return (
 		<Sheet
@@ -444,10 +471,11 @@ export function AddDiscoverSheet({
 				{copy.discover.addDialog.attribution(providerLabel)}
 			</Text>
 			{hit ? (
+				// The picture confirms the pick, as on the web: the name is already
+				// in the field above and a place's address is prefilled into Notes,
+				// so the row carries only what is said nowhere else.
 				<InsetSection>
-					<ListRow
-						title={hit.name}
-						subtitle={hit.address ?? null}
+					<GroupedRow
 						leading={
 							<Cover
 								photo={hit.photo}
@@ -457,15 +485,27 @@ export function AddDiscoverSheet({
 								style={{ width: 40, borderRadius: 8 }}
 							/>
 						}
-						accessory="none"
-					/>
-					<ListRow
-						title={copy.discover.addDialog.notThisOne}
-						accessory="none"
-						onPress={unpick}
-						accessibilityLabel={copy.discover.addDialog.notThisOne}
+						trailing={
+							<Pressable
+								accessibilityRole="button"
+								onPress={unpick}
+								hitSlop={10}
+								style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}
+							>
+								<Text style={{ ...type.body, color: color.accent }}>
+									{copy.discover.addDialog.notThisOne}
+								</Text>
+							</Pressable>
+						}
+						bodyStyle={{ minHeight: 60 }}
 						last
-					/>
+					>
+						{hitMeta ? (
+							<Text style={type.subhead} numberOfLines={2} accessibilityLabel={hitMeta.label}>
+								{hitMeta.text}
+							</Text>
+						) : null}
+					</GroupedRow>
 				</InsetSection>
 			) : null}
 			<TypeSegmentSection value={view} options={TYPE_OPTIONS} onChange={changeType} />

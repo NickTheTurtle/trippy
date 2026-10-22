@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import EmptyState from '../../components/ui/EmptyState';
-import ViewAsBar, { shareLabel } from '../../components/ui/ViewAsBar';
+import ViewAsBar from '../../components/ui/ViewAsBar';
 import { ChevronIcon } from '../../components/ui/icons';
 import type { CostItem } from './types';
 import { amountFor, isFor } from './shares';
@@ -32,7 +32,6 @@ export default function CostList({
 	memberCount,
 	viewAs,
 	onViewAs,
-	total,
 	fmt,
 	home,
 	onEdit
@@ -45,7 +44,6 @@ export default function CostList({
 	/** A member id, or '' for the whole trip. */
 	viewAs: string;
 	onViewAs: (value: string) => void;
-	total: number;
 	fmt: (cents: number) => string;
 	/** The trip's home currency, which `fmt` renders in. */
 	home: string;
@@ -162,17 +160,9 @@ export default function CostList({
 				})
 			)}
 
-			{/* The grand total shares the sections' tint, so it is set apart by
-			    weight and height instead: it is the one figure on the card that
-			    is not a part of something else. It waits for a first estimate:
-			    a bold zero under an empty table states a conclusion the table
-			    has not reached. */}
-			{items.length > 0 && (
-				<div className="flex items-center gap-3 border-t border-line bg-surface-2 px-5 py-3.5 text-lead font-semibold">
-					<span>{viewAs ? shareLabel(members, viewAs, me) : c.total}</span>
-					<span className="ml-auto text-section font-bold tabular-nums">{fmt(total)}</span>
-				</div>
-			)}
+			{/* No grand total row under the table: the trip total and the reader's
+			    share already head the page, on the line with the Add button, and
+			    the same figure again at the bottom was the second time it was said. */}
 		</div>
 	);
 }

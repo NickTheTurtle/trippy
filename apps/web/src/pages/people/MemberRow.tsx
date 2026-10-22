@@ -25,8 +25,10 @@ export default function MemberRow({
 }) {
 	// An invited member's address is the one they were invited at, not the
 	// synthetic placeholder address; the server already resolves that, and
-	// returns nothing at all for somebody added by name alone.
-	const sub = person.seeded ? c.sampleCompanion : person.email;
+	// returns nothing at all for somebody added by name alone. A sample
+	// companion has only a synthetic address, and the "sample" tag beside the
+	// name already says what they are, so their row has no second line.
+	const sub = person.seeded ? null : person.email;
 	// Your own name is your account's, but it is still yours to change from
 	// here, so your row reads as an edit like any other editable one.
 	const editable = person.placeholder || person.seeded || person.id === me;

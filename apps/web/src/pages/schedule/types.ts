@@ -109,6 +109,13 @@ export type LegRow = {
 	/** What the router said. Null until it has answered once. */
 	autoMode: string | null;
 	autoMins: number | null;
+	/**
+	 * The two points and the mode the router's answer was for (`routeKey` in
+	 * core), or null on a row routed before the key existed. `resolveLeg` drops
+	 * an answer whose key no longer matches the journey, which is what a preview
+	 * of a block moved to another place needs.
+	 */
+	autoKey: string | null;
 	/** What a person pinned by hand, which wins when set. */
 	mode: string | null;
 	mins: number | null;
@@ -123,6 +130,18 @@ export type LegRow = {
 	/** The journey does not fit the gap, so the day as planned is not achievable. */
 	tight: boolean;
 };
+
+/**
+ * What the open dialog says about one journey, before it is saved.
+ *
+ * The journey cards report these by leg key alongside the event draft, and the
+ * board's replan lays them over the stored row, so the bar, its place and its
+ * warning move as the mode or the minutes are typed. `mode` is null when the
+ * card has only renamed the journey, which leaves how it is made alone; `mins`
+ * is null when the box holds no usable number, which re-estimates for the mode.
+ */
+export type LegDraft = { title: string | null; mode: string | null; mins: number | null };
+export type LegDrafts = Readonly<Record<string, LegDraft>>;
 
 /** A crew belongs to the roster, not to a day. Re-exported so the board's own
     components keep importing their types from one file. */

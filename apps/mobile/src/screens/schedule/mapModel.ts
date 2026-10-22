@@ -55,6 +55,7 @@ export function buildScheduleMapModel({
 	day,
 	events,
 	stays,
+	incoming = [],
 	legs,
 	saved,
 	city,
@@ -68,6 +69,8 @@ export function buildScheduleMapModel({
 	day?: string;
 	events: EventRow[];
 	stays: EventRow[];
+	/** Last night's stays, where the day's first journeys leave from. */
+	incoming?: EventRow[];
 	legs: LegRow[];
 	saved: SavedPoi[];
 	city: Cell | null;
@@ -146,7 +149,20 @@ export function buildScheduleMapModel({
 			};
 		});
 	const pins = groupPins([...eventPins, ...stayPins, ...savedPins]);
-	return { pins, routes: buildRoutes(locatedEvents, memberIds), region: frameRegion(pins, city) };
+	// Where each person's day sets out from, so their line starts at the bed
+	// they woke in rather than at the first stop. Last night's stays are on the
+	// day as `incoming`; the band (`stays`) carries the same rooms on the
+	// morning of checkout, and is read too, so a stay is found by either.
+	const lodgings = new Map(
+		[...incoming, ...stays]
+			.filter((stay) => stay.lat != null && stay.lng != null)
+			.map((stay) => [stay.id, stay] as const)
+	);
+	return {
+		pins,
+		routes: buildRoutes(locatedEvents, memberIds, legs, lodgings),
+		region: frameRegion(pins, city)
+	};
 }
 
 function eventPin(
@@ -205,7 +221,22 @@ export function groupPins(pins: MobileMapPin[]): MobileMapPin[] {
 	return [...byPoint.values()];
 }
 
-function buildRoutes(events: EventRow[], memberIds: string[]): MobileMapRoute[] {
+/**
+ * One line per distinct path, each person's located stops in order.
+ *
+ * A person's line is led from the lodging their first journey of the day
+ * leaves (the leg into their first stop, when it starts at a stay), in the
+ * same colour and dash, so the morning's walk out of the hotel is on the map
+ * as it is on the board. Only a line that is drawn anyway is led: a person
+ * with one stop still gets none. Nothing is drawn back to the stay at night,
+ * as no journey is planned to one.
+ */
+function buildRoutes(
+	events: EventRow[],
+	memberIds: string[],
+	legs: LegRow[],
+	lodgings: ReadonlyMap<string, EventRow>
+): MobileMapRoute[] {
 	const byPath = new Map<
 		string,
 		{ members: string[]; points: { latitude: number; longitude: number }[] }
@@ -219,6 +250,8 @@ function buildRoutes(events: EventRow[], memberIds: string[]): MobileMapRoute[] 
 			latitude: event.lat as number,
 			longitude: event.lng as number
 		}));
+		const lead = leadStay(mine[0].id, member, legs, lodgings);
+		if (lead) points.unshift({ latitude: lead.lat as number, longitude: lead.lng as number });
 		const key = points.map((point) => `${point.latitude},${point.longitude}`).join('|');
 		const existing = byPath.get(key);
 		if (existing) existing.members.push(member);
@@ -229,6 +262,19 @@ function buildRoutes(events: EventRow[], memberIds: string[]): MobileMapRoute[] 
 		color: ROUTE_COLORS[index % ROUTE_COLORS.length],
 		points: route.points
 	}));
+}
+
+/** The stay `member` leaves for their first stop, if their journey there starts at one. */
+function leadStay(
+	firstId: string,
+	member: string,
+	legs: LegRow[],
+	lodgings: ReadonlyMap<string, EventRow>
+): EventRow | null {
+	const leg = legs.find(
+		(l) => l.toEventId === firstId && l.people.includes(member) && lodgings.has(l.fromEventId)
+	);
+	return leg ? (lodgings.get(leg.fromEventId) ?? null) : null;
 }
 
 export function frameRegion(pins: MobileMapPin[], city: Cell | null) {

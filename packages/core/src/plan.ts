@@ -47,6 +47,7 @@ import {
 	legKey,
 	placeLeg,
 	planLegs,
+	routeKey,
 	type PlacedLeg,
 	type PlannedLeg,
 	type PlannerEvent
@@ -593,10 +594,17 @@ export interface LegOverride {
 	/** What a person pinned by hand, which wins when set. */
 	mode: string | null;
 	mins: number | null;
+	/**
+	 * The question the provider's answer was for: `routeKey` of the mode and both
+	 * endpoints when it was routed. Null or absent for a row routed before the
+	 * key existed, which is trusted as it always was.
+	 */
+	autoKey?: string | null;
 }
 
 /** A planned journey with its duration settled and its place on the clock. */
 export interface ResolvedLeg extends LegOverride, PlacedLeg {
+	autoKey: string | null;
 	key: string;
 	fromEventId: string;
 	toEventId: string;
@@ -620,19 +628,32 @@ export interface ResolvedLeg extends LegOverride, PlacedLeg {
  * is precisely the size of thing that gets copied and then corrected on one
  * side only, and the symptom of correcting one side is a pinned ferry time that
  * the dialog honours and the board does not.
+ *
+ * A routed answer for two points that are no longer where the journey's events
+ * are is not an answer about this journey, so it is dropped for the
+ * straight-line guess until it is routed again. That rule lives here too: an
+ * edit that moves an event in a dialog changes the points before anything is
+ * saved, and a preview that kept the old drive time disagreed with the board
+ * that came back.
  */
 export function resolveLeg(leg: PlannedLeg, stored: LegOverride | null | undefined): ResolvedLeg {
 	const guess = guessLeg(leg.km);
-	const resolvedMode = stored?.mode ?? stored?.autoMode ?? guess.mode;
-	const resolvedMins = stored?.mins ?? stored?.autoMins ?? guess.mins;
+	const autoKey = stored?.autoKey ?? null;
+	const stale =
+		autoKey != null && stored?.autoMode != null && autoKey !== routeKey(leg, stored.autoMode);
+	const autoMode = stale ? null : (stored?.autoMode ?? null);
+	const autoMins = stale ? null : (stored?.autoMins ?? null);
+	const resolvedMode = stored?.mode ?? autoMode ?? guess.mode;
+	const resolvedMins = stored?.mins ?? autoMins ?? guess.mins;
 	return {
 		key: leg.key,
 		fromEventId: leg.fromEventId,
 		toEventId: leg.toEventId,
 		people: leg.people,
 		title: stored?.title ?? null,
-		autoMode: stored?.autoMode ?? null,
-		autoMins: stored?.autoMins ?? null,
+		autoMode,
+		autoMins,
+		autoKey,
 		mode: stored?.mode ?? null,
 		mins: stored?.mins ?? null,
 		resolvedMode,

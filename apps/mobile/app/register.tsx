@@ -55,7 +55,6 @@ export default function Register() {
 				topOffset={Platform.OS === 'web' ? 72 : navBarHeight}
 				largeTitle={copy.auth.register.title}
 			>
-				<Text style={type.subhead}>{copy.auth.register.blurb}</Text>
 				<AuthProviders
 					busy={provider.busy || submit.busy}
 					onSignIn={(flow) => {

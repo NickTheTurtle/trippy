@@ -452,8 +452,8 @@ export function Notes({ tripId, refreshKey = 0 }: { tripId: string; refreshKey?:
 		<InsetSection footer={status} error={error || undefined}>
 			<TextInput
 				accessibilityLabel={t.label}
-				placeholder={t.placeholder}
-				placeholderTextColor={color.inkFaint}
+				// No placeholder: the Notes segment right above already names the
+				// box, and "Notes" again inside it was the same word twice.
 				value={local}
 				maxLength={MAX_NOTES_BODY}
 				multiline

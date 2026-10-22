@@ -752,6 +752,8 @@ board read as one scheme: an attraction pin is the activity green, a food pin th
 food orange, a stay pin the stay violet. Stays carry coordinates from their
 lodging and simply were not being plotted before; they are now their own map layer
 so the place the group sleeps is visible beside where it spends the day. The
+day's route line starts at that pin (see "The route starts at the stay"), but the
+stay stays on its own layer, unnumbered. The
 polyline colours are left on the track so the route still reads as a single
 thread rather than a rainbow.
 
@@ -2889,8 +2891,8 @@ dialog rather than opening on top of it: two stacked modals mean two scroll
 locks and two Escape handlers. Cancelling reopens the edit dialog, so a change
 of mind does not also close the thing you were editing.
 
-**Every confirmation says one sentence: "Are you sure? This action cannot be
-undone."** Each of the six delete flows used to explain its own blast radius,
+**Every confirmation says one sentence: "This cannot be undone."** It used to
+open with "Are you sure?", which asked the title's question a second time. Each of the six delete flows used to explain its own blast radius,
 some of them with live counts. The result read as six different voices arguing
 for the same decision, and the longer bodies were the ones people skipped. The
 name of the thing being destroyed carries the specificity instead, so it moved
@@ -4335,9 +4337,10 @@ the name before the chevron rather than pushing it off the screen; the View as c
 cuts a long first name for the same reason.
 
 **The add sheet collects cities; the edit sheet replaces one.** Adding works as on the
-web (5.0.8): picks join a list headed "3 cities to add", each with the iOS edit-mode
+web (5.0.8): picks join an unheaded list, each with the iOS edit-mode
 minus to take it out, and the sheet's action counts them ("Add 3 cities"), so the nav
-bar's trailing side widens for it rather than wrapping. After the add, Discover switches
+bar's trailing side widens for it rather than wrapping. The count is said once, on the
+action; a heading repeating it ("3 cities to add") was dropped as noise. After the add, Discover switches
 to the first city added, so the heading shows what just changed. Edit keeps the single
 pick it always had, because an edit replaces one city and a list would suggest otherwise.
 
@@ -4635,6 +4638,30 @@ departure, never the stored one, so a flight saved on the wrong clock can be
 turned round. On the map, a
 journey's pin waits for the day it lands, because its place is where it arrives;
 anything else is pinned on every day it is drawn on.
+
+**Every fact is said once on a screen.** An audit against that rule took out
+each second telling. A heading that repeats the segmented control above it
+(Members, Crews, Tasks, Packing) is gone; Preparation keeps "Assigned to you"
+and "Other tasks" because those headings split the list, which the segment
+does not. The cost list lost its Total row, which always equalled a figure in
+the stats card above it. A crew row names its people instead of counting them
+over the names, and a crew too big for one line names two and counts the
+rest ("and 18 more"), so its size is still said, once. A sample person keeps
+the SAMPLE tag and loses the "Sample companion" line under it. The add-location
+sheet's picked row is now the web's: the photo and the rating, price and hours,
+since the name is in the field above it and a place's address is prefilled into
+Notes; its footer also stopped reporting "No matches" for the search a pick had
+just answered. Helper text that restated its control went too: the lock
+switch's footer, the "Saved as an expense" note (income keeps its note on both
+platforms, since crediting rather than charging is the one thing the form does
+not show; the web's expense side keeps "Use a negative amount for a refund or
+payout." because the web form has no expense/income switch, see "Say it once"), the
+add-cities footer that repeated the field's own placeholder, "Keep typing" under
+an empty field, the Notes placeholder under the Notes segment, the Password
+heading over "Change password", the sign-in pages' blurbs, and the first-run
+Discover line that repeated the Add city button (and told a member, who has no
+button, to press it; a member now reads only that an organizer adds the first
+stop). `EmptyState` takes no message when its title says it all.
 
 ### 5.0.13 Live location on mobile (design only, not built)
 
@@ -4994,8 +5021,10 @@ before the journey: downwards is the block it arrives at, and covering that
 block's top edge to make a three-minute walk clickable is a poor trade. Journeys
 are also drawn before events for the same reason, so where the floor does have to
 reach back past the block it left, the block stays on top. One line rather than
-two whenever the true height is under `TWO_LINE_H`, which is what a name plus a
-meta row actually needs; below that the second line clips rather than shrinks.
+two whenever the height leaves no room for a name over a meta row, which is the
+same budget a block's own text is held to (`whoBudget`; see "A short block is
+one line, never a cut one" below); below that the second line would clip rather
+than shrink.
 
 A bar names its **origin**, not its destination, and only while it has the width
 for it. Its position already says where it lands, so naming the arrival would
@@ -5312,6 +5341,18 @@ The same test gates the route line, for the same reason and more strongly. A
 number on an out-of-order pin is a small lie; a line through pins from two tracks
 draws a route nobody takes, hopping between groups that never met. So the day's
 polyline appears exactly when the numbering does, and a split day gets pins only.
+
+The route starts at the stay. The day's travel really starts from the room: the
+first journey of the morning leaves last night's stay, and a line that began at
+stop 1 left that walk off the map while the board drew it. So when the line is
+drawn at all, it begins at the lodging the journey into stop 1 leaves from, or
+failing one, last night's stay for whoever is being read. The stay keeps its own
+unnumbered pin, colour and card and is not counted among the stops; only the
+line reaches it, through an optional `lineFrom` point on the day's track that
+both renderers prepend to the path and neither feeds to the camera (the stay is
+already a framed pin of its own). There is no line back to the stay at night; the owner asked for the start only.
+Two stays at once (a group that slept apart) draw no lead-in, since there is no
+one start to draw.
 
 **The camera answers to coordinates, not to edits.** `fitBounds` used to run on
 every redraw, because the draw effect keyed on the whole track list. Retitling an
@@ -6026,6 +6067,65 @@ be 152px.
 These exist so five pages don't each invent their own version. Reach for them
 before adding page-local CSS.
 
+**Say it once.** Every fact appears once in a view. When the same thing is on
+screen twice (a count in a heading and on a button, a name in a subtitle and
+in the page header behind the dialog, a status in a chip and in the line of
+text beside it), keep it where it does the most work, usually the control the
+reader acts with or where the eye lands first, and drop the other. Helper text
+that restates what a heading, button or field already makes obvious goes too,
+and so does a placeholder that repeats its label. What stays: errors, the
+delete confirmation, accessible names for controls with no visible text, and
+any sentence that says something nothing else on screen does (the income
+note, "Saved as income: everyone selected is credited instead of charged.", is
+the only place that rule is visible). The decisions that applied it, so they
+are not undone:
+
+- The add-cities count is on the Add button only; the "N cities to add"
+  heading over the list went, and the dialog no longer carries the trip name.
+- A settlement row has no "payment" tag (its description says "Payment from
+  A to B") and an income row no "income" tag (its line says "received" and
+  the amount is negative), on web and phone alike. On the phone a row's
+  accessible label replaces its text, so an income row's label adds "A
+  received". The expense dialog's note depends on the platform. Income shows
+  its note on web and phone alike: "Add income" and "Received by" say it is
+  income but not that the people selected are credited rather than charged.
+  An expense shows "Use a negative amount for a refund or payout." on the web
+  only. The web form has no expense/income switch and turns into income only
+  when the amount goes negative, so that line is the only way in; the phone
+  has an Expense / Income segment that already says it, so its expense side
+  has no note.
+- The estimates table has no grand total row: the trip total and the
+  reader's share already head the section beside the Add button.
+- A sample companion's row has the "sample" tag and no "Sample companion"
+  line under the name.
+- Signed out, the top bar is the brand alone: the front page's two calls to
+  action and each auth form's footer link already offer log in and sign up.
+  The auth cards lost their blurbs ("Log in to keep planning.", "One
+  moment."), the reset form says `Password` and `Save` under "Set a new
+  password", and the password section says `Current`, `New` and `Confirm`
+  under its "Password" heading.
+- The confirmation body is "This cannot be undone.", not "Are you sure?"
+  again; the title already asks.
+- Discover's no-cities panel is the heading and the button (or, for a member,
+  the note saying who will add one), with no sentence repeating the button.
+- The notepad has no "Notes" placeholder; the section control already says
+  Notes.
+- The live-updates notice is "Live updates are off." beside its Reconnect.
+- The event dialog has no date subtitle: its Start and End (or Check in and
+  Check out) fields hold the same dates.
+- A journey card's minutes box is the number alone under its "Minutes" label,
+  and the mode picker's estimates read "12m" as the board does.
+- A lone journey card for everybody on the block does not name who is going;
+  the Participants field above it already does. Several cards, or one for only
+  some of them, still name theirs, since that is what tells them apart.
+- An agenda row whose start is in the time column says only when it ends
+  ("Activity · Until 11:00 AM"); a span keeps its whole range. A journey row
+  says its minutes alone, the mode already being in its name, unless somebody
+  renamed it.
+- A journey bar tall enough for a meta row says when to leave and how long
+  ("11:00 AM 60m"), not the arrival, which is the start printed on the block
+  below it. Where that block is not on the board it keeps the full range.
+
 **One type scale, eight steps, named for their role.** The app had accumulated
 27 distinct font sizes in JSX alone, four of them within 0.01rem of each other:
 `0.9`, `0.92`, `0.93` and `0.94` were all "the title of a row", and `0.84`
@@ -6381,8 +6481,10 @@ a decision rather than adding one:
 
 - **Title is `Add <thing>` or `Edit <thing>`**, lower case after the verb, no
   article. Where the thing sits inside something the user needs named, that
-  context is the `subtitle`, never part of the title: `Add place` / _Athens_,
-  `Add city` / _trip name_. Confirmations keep their own shape, `Delete <name>?`.
+  context is the `subtitle`, never part of the title: `Add location` / _Athens_.
+  A subtitle that only repeats what the page behind already says is dropped
+  (see "Say it once"): `Add cities` no longer carries the trip name, which is
+  the header right behind it. Confirmations keep their own shape, `Delete <name>?`.
 - **Submit says `Add` or `Save`, and nothing else.** The title already names the
   thing, so repeating it in the button is noise. Busy text is `Adding...` or
   `Saving...` to match the verb the button actually took.
@@ -8106,6 +8208,179 @@ cut from the right; set by the shell for trip tabs, so section pages need not.
 **Not done: registration's time zone.** `POST /auth/register` does not accept a
 zone (new accounts start on `UTC`), so the client does not send the browser's.
 That is an API change first.
+
+## The board after the owner's three reports (web)
+
+**A journey card is part of the edit, so the board draws it as it is typed.**
+The event dialog's "Getting here" cards held their mode and minutes in local
+state and wrote them on save, so switching a walk to a taxi, or typing the
+minutes, left the bar, where it sat, its tight mark and the "View as" warnings
+exactly as they were until Save; the card's own warning read the unedited legs
+too. The cards now report what they say, by leg key (`LegDraft`), the way the
+dialog reports its event draft, and `replanLegs` lays them over the stored row
+before resolving it. Typed minutes win as a pin, which is what saving them would
+make them; a mode with no usable minutes (an emptied box, a zero on the way to
+ten) is re-estimated the way the mode picker estimates it, the router's time
+when the router was asked about that mode and the distance at that mode's pace
+otherwise. A card that only renames the journey leaves how it is made alone.
+The add dialog's cards do the same, and a cancel withdraws them with the draft,
+so the board is restored exactly.
+
+A card holds only the fields the reader touched, as mobile's `JourneyEdit` does.
+It used to copy all three on the first keystroke in any of them, so renaming a
+journey and then moving the event in the same dialog read the old minutes as a
+deliberate edit: the bar was pinned at them and the save wrote a mode and a
+duration nobody typed. Untouched fields are now read off the journey as it
+stands, a picked mode without typed minutes shows that mode's estimate, and a
+rename alone saves the name and sends back the row's own mode and minutes,
+because the route writes those on every call and absent would be a reset.
+Merging cards follows the same rule: it copies the lead card's touched fields,
+and its name, mode or minutes only where the group disagrees on them (minutes
+compared after the chosen mode applies), so "merge, then move the event"
+re-estimates journeys that already agreed, while merging a walk with a pinned
+one saves the minutes the merged card shows.
+
+The board therefore plans twice while a card has said something: once without
+the cards (`unedited`) and once with them (`planned`). The dialog takes its
+cards' baseline from the first and its warning from the second. A card compared
+with a row that already holds its own edit would read as untouched, and `save`
+only writes touched journeys, so feeding the dialog the edited plan would have
+silently dropped every journey edit on save. The second plan is skipped when no
+card has said anything.
+
+**The preview resolves a leg the way the board does.** `replanLegs` used to run
+the routing ladder inline, so a block moved to another place in the dialog kept
+the minutes routed for its old place: the leg key is the pair of events and does
+not change when one of them moves. It now calls core's `resolveLeg` with the
+row's `autoKey`, which drops a routed answer for two points the journey no
+longer joins, the same rule the server applies.
+
+**A short block is one line, never a cut one.** Blocks clip their overflow, and
+the text budget counted minutes rather than the pixels a block is drawn at, and
+assumed a meta row and a title that always fit: a 20-minute block, or one
+trimmed for the journey leaving it, sliced its title or its time mid-line.
+`whoBudget` now takes the drawn height (after the trim and the 15px floor) and
+the block's real measures, mirrored as constants from `schedule.css`. When the
+title cannot sit over a meta row, the block is `.oneline`: no vertical padding,
+the title and its start side by side, each ellipsized; under 20px the title
+alone. Every block is at least 15px, which is exactly one line, so nothing
+shorter needs a rule. Stacked blocks clamp the title to the lines that fit after
+the meta row, and the people chips run on a 15px pitch (13px chip, 2px row gap)
+so the allowed height ends between rows, never through one; a block with no row
+to spare draws no chips at all. On a one-line block the pencil shrinks to the
+line and centres on it, and where it is always shown (no hover) the text stops
+short of it. A journey bar goes thin by the same budget, which replaced
+`TWO_LINE_H`.
+
+**On a phone the day strip moves a day only on purpose.** The owner found the
+sideways scroll too sensitive. It was the browser's own pan on a mandatory snap:
+a scroll down the hours that drifted sideways moved the strip, a short flick
+changed the day, and momentum could carry a fast one across more than one. The
+strip is now `touch-action: pan-y pinch-zoom`, so the browser only pans it up
+and down, and a finger moving sideways is read by script (`AXIS_LOCK_PX` in
+`Schedule.tsx`):
+
+- Nothing is decided until the touch has moved 10px. It is then sideways only if
+  it is more than 1.5 times as far across as down, and only while its moves can
+  still be cancelled; otherwise it is the browser's vertical scroll for its whole
+  length and the strip does not move at all. Ten pixels is about the platforms'
+  own touch slop, and 1.5 leaves a 45-degree diagonal to the hours, which is
+  what reading a day mostly is.
+- A sideways touch drags the strip under the finger, clamped to one day either
+  way. On release it goes to the neighbour when the finger has travelled 30% of
+  a day, or on a flick of at least 0.5px/ms over the last 100ms that has
+  travelled 24px in the same direction; otherwise it springs back. 30% is the
+  top of the owner's 25 to 30% band, because the complaint was too much
+  movement; 0.5px/ms is a clearly fast flick rather than a drag let go, and the
+  last 100ms is what makes a finger that stopped before it lifted not a flick.
+  The 24px floor keeps a jabbed tap from counting.
+- Never more than one day: the drag is clamped to one, and the release picks
+  one neighbour or none.
+- The release runs the arrow's tween (`stepTo`) to the neighbour or back, so the
+  re-seat, the rebase and the url stay one path. The url is written whenever the
+  day landed on is not the day it names, with `replace`, as a settle does:
+  compared with the swipe's starting day instead, a swipe that interrupted a
+  slide, or began before the last swipe's payload came back, could land on a day
+  the address did not name and leave it naming another. While the finger is down
+  the settle and the width observer stand aside (`swiping`). A payload that lands
+  then still re-indexes the strip, so the swipe holds its place by day name and
+  offset (`swipeAt`), not by index, and the re-seat puts that same place back
+  under the finger; an index taken before the re-index named a different day
+  after it, which drew the day after next under the finger and landed a day off.
+  A reader who asked for stillness gets the jump `stepTo` already gives them.
+- A block lifted by a long press takes the touch over, so carrying it across
+  days works as before. Mouse, trackpad and sideways wheel are not touch and
+  scroll the strip natively, unchanged.
+
+Verified with Chrome's touch emulation (390x844), not on a phone: how it feels
+under a real thumb, and Safari's handling of `pan-y` with cancelled moves, are
+for the owner's phone to confirm.
+
+## The board after the owner's three reports (mobile)
+
+**The event sheet's journey fields reach the board as they are typed.** The
+sheet held "Getting here" in local state until Save, as the web dialog did, so
+the bars, where they sat, the tight mark, the "View as" warnings and the sheet's
+own warning all read the unedited journeys. The sheet now reports its edits by
+leg key (`onJourneys`), beside its event draft, and `useScheduleDay` lays them
+over the stored row in `replanLegs`: typed minutes win as a pin; a mode with no
+usable minutes is that mode's estimate (`estimateFor`: the routed time when it
+was routed for that mode, else `minsByMode`); a rename alone pins nothing. The
+hook plans twice while an edit stands, `drafted` (the draft alone) for the
+sheet's fields and save comparison, and `planned` (draft and edits) for
+everything drawn, including the sheet's warning. Feeding the sheet the edited
+plan would make every edit compare as untouched and never be saved. Closing the
+sheet withdraws both, so Cancel restores the board exactly; a save holds both
+until its payload lands, as it already held the draft. The add sheet is the
+same path under the draft id.
+
+An edit now holds only the fields touched (`journeys.ts`). The first keystroke
+in any field used to copy the whole journey in, so renaming a journey and then
+moving the event pinned the old minutes on the bar and on save. A picked mode
+also no longer writes its estimate into the minutes, so the minutes follow the
+event's place until somebody types one.
+
+**The preview resolves a leg as the server does.** `replanLegs` calls core's
+`resolveLeg` with the row's `autoKey` (now on `LegRow`), so an event moved to
+another place in the sheet drops the minutes routed for its old place rather
+than keeping them under an unchanged leg key.
+
+**A short block draws whole lines only.** `blockFit` budgets a block's words
+from its drawn height and width, after the journey trim and the 15px floor: a
+stack (title on up to two lines, the time, then who is on it if a whole line is
+left) when a title line and a time line fit inside 2px padding; else one line,
+the title ellipsized beside the time; the title alone under 22px (a 15-minute
+block, or one trimmed that far) or when the column cannot keep the time whole
+beside a few letters of title. The resize grip's pill is not drawn across a
+one-line block (the grip still works). A block held at the 15px floor still
+covers the top of the journey bar under it, since blocks draw over bars, so the
+bar draws only what fits whole in the part left showing (`covers`): its line at
+12px, its mode and warning marks at 10px, nothing below. A tight journey hidden
+that way still warns in the sheet, the agenda, the map callout and "View as".
+
+**A day's map line starts at the stay.** `buildRoutes` leads each person's line
+from the lodging their journey into their first stop leaves (a leg from one of
+last night's `incoming` stays, or a stay on the day's band), in the same colour
+and dash, so it is each reader's own stay under "View as". Only a line drawn
+anyway is led, and nothing returns to the stay at night, as no journey is
+planned to one. The stay keeps its own unnumbered pin and callout. The Expo web
+map is a list without lines and is unchanged.
+
+**Each fact once on the schedule screen and in its sheet.** The owner asked that
+nothing be said twice. The agenda has no date heading (the day's title is above
+it), its empty day one caption, and nothing under the title says "First day" or
+"Last day" (the disabled arrow does). A first day of a multi-day event shows its
+range line and no "From" beside it. A journey row's second line is minutes and
+people, the mode being in its icon and name; the read-only journey shows the mode
+once, in the board's own name or on a Mode row under a name somebody gave it.
+The event sheet has no date subtitle (Start and End, or Check in and Check out,
+carry it), and a read-only view drops "(optional)", which is advice about filling
+a field in. Copy: the "Add" menu's rows are `schedule.mobile.addEvent` /
+`addStay` ("Event", "Stay"), and the lock line is `schedule.mobile.lockHint`
+("Locked by the organizer"), new mobile keys, because the web still uses
+`dialog.add`, `addStay` and `lock.hint` (the last as a tooltip that names where
+to unlock). `mobile.firstDay`, `lastDay` and `freeDay` were mobile-only and are
+gone.
 
 ## Implementation status
 

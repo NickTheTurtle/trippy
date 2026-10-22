@@ -448,7 +448,6 @@ export default function Notes({ tripId }: { tripId: string }) {
 				ref={box}
 				className="input notepad"
 				aria-label={cn.label}
-				placeholder={cn.placeholder}
 				maxLength={MAX_NOTES_BODY}
 				value={text}
 				spellCheck

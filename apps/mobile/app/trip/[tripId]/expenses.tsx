@@ -28,7 +28,7 @@ import { ExpenseSheet, PaymentSheet } from '../../../src/screens/ExpenseSheet';
 import type { Expense, ExpensesData, Transfer } from '../../../src/screens/ExpenseSheet';
 import { useTripAddAction } from '../../../src/ui/TripAddAction';
 import { AppSymbol } from '../../../src/ui/Symbol';
-import { Avatar, Tag } from '../../../src/ui/marks';
+import { Avatar } from '../../../src/ui/marks';
 import { color, rowInset, space, type } from '../../../src/theme';
 import { tripTab } from '../../../src/ui/nativeTabs';
 
@@ -299,7 +299,6 @@ function ExpenseLine({
 	const credit = expense.amount_cents < 0;
 	const settled = expense.settlement === 1;
 	const c = copy.expenses.row;
-	const tag = settled ? c.paymentTag : credit ? c.incomeTag : null;
 	return (
 		<GroupedRow
 			onPress={onOpen}
@@ -307,9 +306,11 @@ function ExpenseLine({
 			accessory="chevron"
 			accessibilityLabel={[
 				settled ? c.openLabel(expense.description) : copy.common.editLabel(expense.description),
-				// The tag and the warning mark are folded into the row on iOS, so what
-				// they mean has to be in the row's own label to be heard at all.
-				tag,
+				// The row's own label is all a screen reader hears, so an income row
+				// keeps the "received" its second line shows (a settlement's
+				// description already says "Payment from A to B"), and the warning
+				// mark, which has no text, says what it means.
+				credit && !settled ? `${expense.payer_name} ${c.received}` : null,
 				expense.needsReview ? c.reviewTitle : null
 			]
 				.filter(Boolean)
@@ -345,19 +346,15 @@ function ExpenseLine({
 				</View>
 			}
 		>
-			{/* As on web, the marks are siblings of the description rather than inline
-			    in its text, so a long description wraps (to two lines) instead of
-			    pushing the thing that flags the row out of view. Each mark sits in a
-			    box one text line tall, so it centres on the first line, not the pair. */}
+			{/* As on web, the review mark is a sibling of the description rather than
+			    inline in its text, so a long description wraps (to two lines) instead
+			    of pushing the mark out of view. It sits in a box one text line tall,
+			    so it centres on the first line, not the pair. No "payment" or
+			    "income" tag: the description and the line below already say it. */}
 			<View style={styles.titleLine}>
 				<Text style={styles.title} numberOfLines={2}>
 					{expense.description}
 				</Text>
-				{tag ? (
-					<View style={styles.mark}>
-						<Tag label={tag} tone="accent" outline />
-					</View>
-				) : null}
 				{expense.needsReview ? (
 					<View style={styles.mark} accessible accessibilityLabel={c.reviewTitle}>
 						<AppSymbol

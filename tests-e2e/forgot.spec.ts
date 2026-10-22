@@ -50,7 +50,7 @@ test.describe('forgot password', () => {
 		const r = copy.auth.reset;
 		await page.goto('/reset?token=not-a-real-token');
 		await page.getByLabel(r.passwordLabel).fill('correcthorsebattery');
-		await page.getByRole('button', { name: r.submitLabel }).click();
+		await page.getByRole('button', { name: copy.common.save }).click();
 
 		// Still on the form with the refusal beside it: the page has no way to
 		// tell a wrong link from a spent or stale one, and says so once.
@@ -62,7 +62,7 @@ test.describe('forgot password', () => {
 		const r = copy.auth.reset;
 		await page.goto('/reset?token=not-a-real-token');
 		await page.getByLabel(r.passwordLabel).fill('short');
-		await page.getByRole('button', { name: r.submitLabel }).click();
+		await page.getByRole('button', { name: copy.common.save }).click();
 		await expect(page.getByText('Use at least 8 characters.')).toBeVisible();
 	});
 });

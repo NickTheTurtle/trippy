@@ -32,7 +32,8 @@ export default function NoCities({
 		<div className="card mx-auto flex w-full max-w-[34rem] flex-col items-start gap-3 p-8">
 			<PinMark />
 			<h2 className="m-0 text-heading">{c.heading}</h2>
-			<p className="muted m-0">{c.body}</p>
+			{/* No line under the heading: the button says what to do, and a member
+			    gets the note saying who will. */}
 			{isOrganizer ? (
 				<button type="button" className="btn primary mt-1" onClick={onAddCity}>
 					<PlusIcon />

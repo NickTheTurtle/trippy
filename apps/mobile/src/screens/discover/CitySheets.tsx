@@ -141,10 +141,12 @@ function CitySearch({
 		input.current?.focus();
 	}
 
+	// A short query says nothing: the field's own placeholder already shows
+	// what to type, and the footer used to repeat it word for word.
 	const message = full
 		? copy.mobileDiscover.pickLimit(MAX_PICKS)
 		: query.trim().length < MIN_QUERY
-			? copy.addCity.searchPlaceholder
+			? ''
 			: searching
 				? copy.addCity.searching
 				: searched && hits.length === 0
@@ -212,7 +214,7 @@ function PickedCities({
 }) {
 	if (!cities.length) return null;
 	return (
-		<InsetSection title={copy.addCity.pickedHeading(cities.length)}>
+		<InsetSection>
 			{cities.map((city, index) => {
 				const label = copy.discover.cityList.cityLabel(city.name, city.region);
 				return (

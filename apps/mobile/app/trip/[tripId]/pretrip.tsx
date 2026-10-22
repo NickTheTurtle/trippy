@@ -285,9 +285,9 @@ function Tasks({
 			) : null}
 			{others.length > 0 || mine.length === 0 ? (
 				<TaskCard
-					title={
-						mine.length > 0 ? copy.preparation.myTasks.othersTitle : copy.preparation.sections[kind]
-					}
+					// One list needs no heading: the segment above already names it.
+					// The headings only earn their place when they split the list.
+					title={mine.length > 0 ? copy.preparation.myTasks.othersTitle : undefined}
 					items={others}
 					kind={kind}
 					onAdd={onAdd}
@@ -327,7 +327,7 @@ function TaskCard({
 	onEdit,
 	onDone
 }: {
-	title: string;
+	title?: string;
 	items: Task[];
 	kind: 'tasks' | 'packing';
 	onAdd?: () => void;
@@ -512,17 +512,22 @@ function Costs({
 					) : null}
 				</View>
 			</InsetSection>
+			{/* No total row under the categories: the figures above already say
+			    the trip total and, read as one person, their share, so a row
+			    repeating one of them was the same number twice on one screen. */}
 			<InsetSection>
-				{data.categories.map((category) => {
+				{data.categories.map((category, categoryIndex) => {
 					const rows = shown.filter((item) => item.category === category);
 					const subtotal = rows.reduce(
 						(sum, item) => sum + amountFor(item, viewAs, data.memberCount),
 						0
 					);
 					const expanded = rows.length > 0 && (open[category] ?? true);
+					const lastCategory = categoryIndex === data.categories.length - 1;
 					return (
 						<View key={category}>
 							<GroupedRow
+								last={lastCategory && !expanded}
 								leading={
 									<View style={{ width: 14 }}>
 										{rows.length ? (
@@ -545,7 +550,7 @@ function Costs({
 								<Text style={type.head}>{cap(category)}</Text>
 							</GroupedRow>
 							{expanded
-								? rows.map((item) => (
+								? rows.map((item, rowIndex) => (
 										<CostRow
 											key={item.id}
 											item={item}
@@ -554,24 +559,13 @@ function Costs({
 											memberCount={data.memberCount}
 											fmt={fmt}
 											onPress={() => onEdit(item)}
+											last={lastCategory && rowIndex === rows.length - 1}
 										/>
 									))
 								: null}
 						</View>
 					);
 				})}
-				<GroupedRow
-					last
-					trailing={<Text style={type.head}>{fmt(shownTotal)}</Text>}
-					accessible
-					accessibilityLabel={`${
-						viewAs ? shareLabel(data.members, viewAs, data.me) : copy.preparation.costTable.total
-					}, ${fmt(shownTotal)}`}
-				>
-					<Text style={type.head}>
-						{viewAs ? shareLabel(data.members, viewAs, data.me) : copy.preparation.costTable.total}
-					</Text>
-				</GroupedRow>
 			</InsetSection>
 		</>
 	);
@@ -596,7 +590,8 @@ function CostRow({
 	viewAs,
 	memberCount,
 	fmt,
-	onPress
+	onPress,
+	last
 }: {
 	item: CostItem;
 	home: string;
@@ -604,12 +599,14 @@ function CostRow({
 	memberCount: number;
 	fmt: (cents: number) => string;
 	onPress: () => void;
+	last: boolean;
 }) {
 	const converted = !!item.currency && item.currency !== home;
 	return (
 		<GroupedRow
 			leading={<View style={{ width: 14 }} />}
 			onPress={onPress}
+			last={last}
 			accessibilityLabel={copy.common.editLabel(item.label)}
 			accessory="chevron"
 			trailing={

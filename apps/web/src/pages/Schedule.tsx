@@ -53,12 +53,16 @@ import type {
 	BoardDay,
 	EventDraft,
 	EventRow,
+	LegDrafts,
 	LegRow,
 	Member,
 	ScheduleData,
 	ViewMode
 } from './schedule/types';
 import '../styles/schedule.css';
+
+/** No journey card has said anything. One object, so "nothing" compares by identity. */
+const NO_LEG_DRAFTS: LegDrafts = Object.freeze({});
 
 const cs = copy.schedule;
 
@@ -101,13 +105,6 @@ type LaneItem =
    is what stored rows and edits are matched on; this one only has to be unique
    on the board. */
 const laneKey = legLaneId;
-
-/**
- * The shortest journey that can be drawn with a name on one line and its times
- * on another: two lines of type plus the block's own padding. Anything shorter
- * is drawn as a single rule, because two lines in less than this clip.
- */
-const TWO_LINE_H = 44;
 
 /**
  * The shortest a journey is ever drawn, in pixels.
@@ -249,6 +246,30 @@ const SETTLE_MS = 140;
  * enough that a second click is not kept waiting.
  */
 const GLIDE_MS = 320;
+
+/**
+ * A finger on the strip, which is driven by script rather than by the
+ * browser's own sideways pan (`touch-action: pan-y` on `.boardscroll`).
+ *
+ * Native panning took every sideways wobble of a scroll down the hours as a
+ * request for another day, and its momentum carried a short flick across one
+ * or several. So a touch is read first: until it has moved `AXIS_LOCK_PX` it
+ * is nothing, and then it is sideways only if it is clearly so
+ * (`AXIS_RATIO` times more across than down); anything else is the browser's
+ * vertical scroll for its whole length. A sideways one drags the strip under
+ * the finger, at most one day either way, and on release goes to the
+ * neighbour only past `SWIPE_SHARE` of a day or on a flick faster than
+ * `FLICK_PX_PER_MS` that has travelled `FLICK_MIN_PX`; otherwise it springs
+ * back. Either way it is the arrow's tween that finishes the move. The
+ * velocity is read over the last `FLICK_WINDOW_MS`, so a finger that stopped
+ * before it lifted has not flicked.
+ */
+const AXIS_LOCK_PX = 10;
+const AXIS_RATIO = 1.5;
+const SWIPE_SHARE = 0.3;
+const FLICK_PX_PER_MS = 0.5;
+const FLICK_MIN_PX = 24;
+const FLICK_WINDOW_MS = 100;
 
 /** The agenda's day step: a short slide in the direction of travel, with a fade. */
 const AGENDA_SLIDE = { px: 28, ms: 200, fade: true } as const;
@@ -407,7 +428,11 @@ const Block = memo(function Block({
 	ariaTime,
 	fixed
 }: BlockProps) {
-	const bud = whoBudget(width, to - from - trim / PX_PER_MIN, ev.title, lanePx);
+	// The height the block is drawn at, which is what its text has to fit in:
+	// the clock's, less what it gives up to a journey leaving it, floored.
+	const drawnH = Math.max(heightPx(from, to, boardStart) - trim, MIN_LEG_H);
+	const narrow = width < 0.34;
+	const bud = whoBudget(width, drawnH, ev.title, lanePx, { narrow });
 	const cls = [
 		'block',
 		ev.type,
@@ -415,7 +440,9 @@ const Block = memo(function Block({
 		resizing ? 'resizing' : '',
 		editing ? 'editingnow' : '',
 		hasLegAbove ? 'joined' : '',
-		width < 0.34 ? 'narrow' : '',
+		narrow ? 'narrow' : '',
+		// Too short to stack: one line, padded only at the sides. See `whoBudget`.
+		bud.rows !== 'stack' ? 'oneline' : '',
 		cutTop ? 'cuttop' : '',
 		cutBottom ? 'cutbottom' : '',
 		fixed ? 'fixed' : ''
@@ -448,7 +475,7 @@ const Block = memo(function Block({
 				left: `${left * 100}%`,
 				width: `calc(${width * 100}% - 6px)`,
 				top: `${topPx(from, boardStart)}px`,
-				height: `${Math.max(heightPx(from, to, boardStart) - trim, MIN_LEG_H) + (cutBottom ? GRID_TAIL_PX : 0)}px`,
+				height: `${drawnH + (cutBottom ? GRID_TAIL_PX : 0)}px`,
 				...(dx ? { transform: `translateX(${dx}px)` } : null),
 				['--trows' as string]: bud.trows,
 				['--wrows' as string]: bud.wrows
@@ -498,31 +525,43 @@ const Block = memo(function Block({
 				}}
 			>
 				<div className="bt">{ev.title}</div>
-				<div className="bmeta">
-					{bud.showTime && <span>{spanLabel ?? (bud.compact ? clock(from) : fullTime)}</span>}
-				</div>
-				<div className="bwho">
-					{ev.people.length === 0 || ev.people.length === memberCount ? (
-						<span className="who all">{copy.common.everyone}</span>
-					) : ev.people.length <= bud.fit ? (
-						ev.people.map((id) => (
-							<span key={id} className="who">
-								{shortName(id)}
-							</span>
-						))
-					) : bud.fit > 0 ? (
-						<>
-							{ev.people.slice(0, bud.fit - 1).map((id) => (
+				{/* On one line the time follows the title, short, and only where
+				    there is a line to share; stacked it is its own row, and a row
+				    with nothing to say is not drawn, so it costs the people none. */}
+				{bud.rows === 'line' && bud.showTime && (
+					<div className="bmeta">
+						<span>{spanLabel ?? clock(from)}</span>
+					</div>
+				)}
+				{bud.rows === 'stack' && bud.showTime && (
+					<div className="bmeta">
+						<span>{spanLabel ?? (bud.compact ? clock(from) : fullTime)}</span>
+					</div>
+				)}
+				{bud.wrows > 0 && (
+					<div className="bwho">
+						{ev.people.length === 0 || ev.people.length === memberCount ? (
+							<span className="who all">{copy.common.everyone}</span>
+						) : ev.people.length <= bud.fit ? (
+							ev.people.map((id) => (
 								<span key={id} className="who">
 									{shortName(id)}
 								</span>
-							))}
-							<span className="who more" title={ev.people.map((id) => shortName(id)).join(', ')}>
-								+{ev.people.length - (bud.fit - 1)}
-							</span>
-						</>
-					) : null}
-				</div>
+							))
+						) : bud.fit > 0 ? (
+							<>
+								{ev.people.slice(0, bud.fit - 1).map((id) => (
+									<span key={id} className="who">
+										{shortName(id)}
+									</span>
+								))}
+								<span className="who more" title={ev.people.map((id) => shortName(id)).join(', ')}>
+									+{ev.people.length - (bud.fit - 1)}
+								</span>
+							</>
+						) : null}
+					</div>
+				)}
 			</div>
 			{!locked && (
 				<>
@@ -600,15 +639,16 @@ const Leg = memo(function Leg({
 	onFocus
 }: LegProps) {
 	const wpx = width * lanePx;
-	const mins = leg.endMin - leg.startMin;
 	// A short hop cannot carry two lines of type, so it is drawn as a rule
 	// across the gap with its duration on it, floored to a height a pointer
 	// can hit. The floor grows upwards, into the waiting time before the
-	// journey, because downwards is the block it arrives at.
+	// journey, because downwards is the block it arrives at. Whether it can is
+	// the same budget a block's text is held to: a name over a meta row, at
+	// as many name lines as the height leaves after the meta row.
 	const trueH = heightPx(leg.startMin, leg.endMin, boardStart);
 	const h = Math.max(trueH, MIN_LEG_H);
-	const thin = trueH < TWO_LINE_H;
-	const bud = whoBudget(width, mins, name, lanePx);
+	const bud = whoBudget(width, trueH, name, lanePx, { narrow: width < 0.34, meta: true });
+	const thin = bud.rows !== 'stack';
 	const cls = [
 		'block',
 		// The journey wears the colour of the event it feeds rather than a colour
@@ -631,7 +671,7 @@ const Leg = memo(function Leg({
 			className={cls}
 			role="button"
 			tabIndex={0}
-			aria-label={`${name}, ${clock(leg.startMin)} to ${clock(leg.endMin)}. Show on the map.`}
+			aria-label={`${name}, ${clock(leg.startMin)} to ${clock(leg.endMin)}. ${cs.block.showOnMap}`}
 			title={title}
 			style={{
 				left: `${left * 100}%`,
@@ -661,8 +701,13 @@ const Leg = memo(function Leg({
 			</div>
 			{!thin && (
 				<div className="bmeta">
-					{bud.showTime && <span>{clockRange(leg.startMin, leg.endMin)}</span>}
-					<span>{leg.resolvedMins}m</span>
+					{/* When to leave. The arrival is the start the block below already
+					    prints, so it is only spelled out where that block is not on
+					    the board. */}
+					{bud.showTime && (
+						<span>{arrivalType ? clock(leg.startMin) : clockRange(leg.startMin, leg.endMin)}</span>
+					)}
+					<span>{cs.journey.estimate(leg.resolvedMins)}</span>
 				</div>
 			)}
 		</div>
@@ -1017,6 +1062,14 @@ export default function Schedule() {
 	const [focusId, setFocusId] = useState('');
 	/** The open edit dialog's unsaved draft, drawn on the board as it is typed. */
 	const [preview, setPreview] = useState<EventDraft | null>(null);
+	/** What the open dialog's journey cards say, by leg key, drawn the same way. */
+	const [legDrafts, setLegDrafts] = useState<LegDrafts>(NO_LEG_DRAFTS);
+	/* Kept by identity when nothing changed, so a dialog re-reporting the same
+	   cards after an unrelated edit does not replan the board a second time. */
+	const previewLegs = useCallback((said: LegDrafts | null) => {
+		const next = said && Object.keys(said).length ? said : NO_LEG_DRAFTS;
+		setLegDrafts((was) => (JSON.stringify(was) === JSON.stringify(next) ? was : next));
+	}, []);
 
 	/* Whether there is room beside the board for the edit dialog to peek.
 	 *
@@ -1159,6 +1212,14 @@ export default function Schedule() {
 	const placing = useRef(false);
 	/** The day the last settle committed, so it is not committed twice. */
 	const committed = useRef<string | null>(null);
+	/** True while a finger is dragging the strip sideways. See `AXIS_LOCK_PX`. */
+	const swiping = useRef(false);
+	/**
+	 * Where that finger has the strip: a day by name, and how far off its seat.
+	 * By name so a payload that re-indexes the strip mid-swipe can put the same
+	 * place back under the finger; see the re-seat.
+	 */
+	const swipeAt = useRef<{ day: string; off: number } | null>(null);
 	/**
 	 * The days the strip's panels hold, in order, as of the last commit.
 	 *
@@ -1361,27 +1422,42 @@ export default function Schedule() {
 	 * to say so meant the board stood with holes in it while the reader decided.
 	 * Pins survive, because a replanned journey is matched to its stored row by
 	 * key.
+	 *
+	 * The journey cards in the dialog are part of the same edit, so what they say
+	 * is laid over the replan too (`legDrafts`). The dialog itself reads the plan
+	 * without them (`unedited`) as its cards' baseline: a card compared with a
+	 * row that already holds its own edit would read as untouched and not save.
 	 */
-	const planned: BoardDay[] = useMemo(() => {
-		// Every stored journey in the window, so a block sent to a neighbouring
-		// day keeps a pin that the server is about to carry across with it.
-		const known = new Map(
-			(data?.board ?? []).flatMap((entry) => entry.legs.map((l) => [l.key, l] as const))
-		);
-		// The city a draft starts in, which is the clock its start is read on on
-		// every day it reaches.
-		const cityOf = (day: string) =>
-			(data?.board ?? []).find((b) => b.day === day)?.city?.id ?? null;
-		return (data?.board ?? []).map((entry) => {
-			const { events, stays } = applyDraft(entry, preview, cityOf);
-			return {
-				...entry,
-				events,
-				stays,
-				legs: preview ? replanLegs(entry, preview, memberIds, known, cityOf, zoneOf) : entry.legs
-			};
-		});
-	}, [data, preview, memberIds, zoneOf]);
+	const planBoard = useCallback(
+		(said: LegDrafts): BoardDay[] => {
+			// Every stored journey in the window, so a block sent to a neighbouring
+			// day keeps a pin that the server is about to carry across with it.
+			const known = new Map(
+				(data?.board ?? []).flatMap((entry) => entry.legs.map((l) => [l.key, l] as const))
+			);
+			// The city a draft starts in, which is the clock its start is read on on
+			// every day it reaches.
+			const cityOf = (day: string) =>
+				(data?.board ?? []).find((b) => b.day === day)?.city?.id ?? null;
+			return (data?.board ?? []).map((entry) => {
+				const { events, stays } = applyDraft(entry, preview, cityOf);
+				return {
+					...entry,
+					events,
+					stays,
+					legs: preview
+						? replanLegs(entry, preview, memberIds, known, cityOf, zoneOf, said)
+						: entry.legs
+				};
+			});
+		},
+		[data, preview, memberIds, zoneOf]
+	);
+	const unedited: BoardDay[] = useMemo(() => planBoard(NO_LEG_DRAFTS), [planBoard]);
+	const planned: BoardDay[] = useMemo(
+		() => (preview && legDrafts !== NO_LEG_DRAFTS ? planBoard(legDrafts) : unedited),
+		[planBoard, unedited, preview, legDrafts]
+	);
 
 	/* The same board, through "view as". An event with nobody on it belongs to
 	   the whole group and is always shown; otherwise the chosen person has to be
@@ -1511,7 +1587,27 @@ export default function Schedule() {
 		// Not under a hand. A live reload that lands while a block is being carried
 		// to the next day would otherwise throw the strip back onto the url's day,
 		// out from under the block and the pointer holding it. The drop reloads,
-		// and the seat is taken then.
+		// and the seat is taken then. A finger dragging the strip is the same: the
+		// release decides the day, and the payload it asks for seats it. But the
+		// strip under the finger still has to show the same place: a re-index
+		// moves every panel, so the strip is put back on the day the finger
+		// holds (`swipeAt`, by name), at the same offset. Not shifted by the
+		// re-index from `scrollLeft`, which the browser may already have clamped
+		// to a strip that just got shorter.
+		if (swiping.current) {
+			const w = stride(el);
+			const at = swipeAt.current;
+			const i = at ? days.indexOf(at.day) : -1;
+			if (w && at && i >= 0) {
+				placing.current = true;
+				el.scrollLeft = i * w + at.off;
+				const id = requestAnimationFrame(() => {
+					placing.current = false;
+				});
+				return () => cancelAnimationFrame(id);
+			}
+			return;
+		}
 		if (dragRef.current) return;
 		const w = stride(el);
 		const g = glide.current;
@@ -1564,7 +1660,7 @@ export default function Schedule() {
 		let w = stride(el);
 		const ro = new ResizeObserver(() => {
 			const now = stride(el);
-			if (!now || now === w || dragRef.current) return;
+			if (!now || now === w || dragRef.current || swiping.current) return;
 			// A slide in flight is aimed at the old width; land it before squaring.
 			endGlide();
 			const i = Math.round(el.scrollLeft / w);
@@ -1652,8 +1748,10 @@ export default function Schedule() {
 				// Not while something is being carried. The strip travelling is
 				// half of a cross-day drag, and rewriting the url mid-gesture would
 				// refetch the window and take the panel the block is drawn in out
-				// from under the hand holding it. The drop writes the url itself.
-				if (placing.current || dragRef.current || landed === committed.current) return;
+				// from under the hand holding it. The drop writes the url itself, and
+				// so does the release of a finger dragging the strip.
+				if (placing.current || dragRef.current || swiping.current || landed === committed.current)
+					return;
 				committed.current = landed;
 				navigate(navUrl(landed, data.view), { replace: true });
 			}, SETTLE_MS);
@@ -1783,6 +1881,182 @@ export default function Schedule() {
 		window.addEventListener('popstate', onPop);
 		return () => window.removeEventListener('popstate', onPop);
 	}, [data?.view, !!data, stepTo, endGlide]);
+
+	/** The latest `stepTo`, for a listener that must not re-bind with every board. */
+	const stepRef = useRef(stepTo);
+	stepRef.current = stepTo;
+
+	/**
+	 * A finger moves the strip by script, one day at most, and only on purpose.
+	 *
+	 * See `AXIS_LOCK_PX` for the rules. The strip is `touch-action: pan-y`, so
+	 * the browser only ever pans it up and down; a gesture this reads as
+	 * sideways cancels its own moves as well, which is what keeps a scroll that
+	 * the browser had not yet started from starting under it. A move that can no
+	 * longer be cancelled means the browser has already taken the gesture as a
+	 * scroll, so it stays one.
+	 *
+	 * The release hands over to `stepTo`, the arrow's tween, both to go on to the
+	 * neighbour and to spring back, so the re-seat, the rebase and the url settle
+	 * stay one path. Going on writes the url at once, replacing, as a settle
+	 * does: the payload it fetches lands under the tween exactly as an arrow's
+	 * does. A block lifted by a long press takes the touch over entirely; mouse,
+	 * trackpad and wheel never reach here.
+	 */
+	useEffect(() => {
+		const el = scrollRef.current;
+		if (!el || !data || data.view === 'agenda') return;
+		const view = data.view;
+		const step = (day: string) => stepRef.current(day);
+		type Touch1 = {
+			x: number;
+			y: number;
+			/** Where the finger came down, and where it is now. */
+			x0: number;
+			lastX: number;
+			/**
+			 * The day the strip was on when the finger took it, and how far off
+			 * that day's seat it was. A day rather than an index: a payload that
+			 * lands mid-swipe re-indexes the strip (`seatDays`), and an index read
+			 * before it names a different day after it.
+			 */
+			fromDay: string;
+			offset: number;
+			axis: 'x' | 'y' | null;
+			trail: { x: number; t: number }[];
+		};
+		let t: Touch1 | null = null;
+		/** Where `t.fromDay` sits on the strip now, re-taken from the strip if it has gone. */
+		const anchor = (cur: Touch1, w: number): number => {
+			const i = seatDays.current.indexOf(cur.fromDay);
+			if (i >= 0) return i;
+			const j = Math.max(0, Math.min(seatDays.current.length - 1, Math.round(el.scrollLeft / w)));
+			cur.fromDay = seatDays.current[j];
+			cur.offset = 0;
+			return j;
+		};
+		/** Put the strip back on the day it left, or on to the one it reached. */
+		const land = (dir: number) => {
+			const cur = t;
+			swiping.current = false;
+			swipeAt.current = null;
+			t = null;
+			const w = stride(el);
+			if (!cur || !w) return;
+			const i = anchor(cur, w);
+			const day = seatDays.current[Math.max(0, Math.min(seatDays.current.length - 1, i + dir))];
+			if (!day) return;
+			step(day);
+			// A reader who asked for stillness gets the day at once and no tween,
+			// and the tween's end is what gives snapping back to the strip.
+			if (!glide.current) el.style.removeProperty('scroll-snap-type');
+			// Against the url, not the day the swipe started on: a swipe that
+			// interrupted a slide, or started before the last one's payload came
+			// back, can land on a day the address does not name yet, or no longer.
+			const named = new URLSearchParams(window.location.search).get('day');
+			if (day !== named) navigate(navUrl(day, view), { replace: true });
+		};
+		const onStart = (e: TouchEvent) => {
+			if (swiping.current) land(0);
+			t = null;
+			if (e.touches.length !== 1 || dragRef.current) return;
+			const p = e.touches[0];
+			t = {
+				x: p.clientX,
+				y: p.clientY,
+				x0: p.clientX,
+				lastX: p.clientX,
+				fromDay: '',
+				offset: 0,
+				axis: null,
+				trail: [{ x: p.clientX, t: e.timeStamp }]
+			};
+		};
+		const onMove = (e: TouchEvent) => {
+			if (!t) return;
+			if (dragRef.current || e.touches.length !== 1) {
+				if (t.axis === 'x') land(0);
+				t = null;
+				return;
+			}
+			const p = e.touches[0];
+			const dx = p.clientX - t.x;
+			const dy = p.clientY - t.y;
+			t.lastX = p.clientX;
+			if (!t.axis) {
+				if (Math.hypot(dx, dy) < AXIS_LOCK_PX) return;
+				t.axis = e.cancelable && Math.abs(dx) > Math.abs(dy) * AXIS_RATIO ? 'x' : 'y';
+				if (t.axis === 'y') return;
+				endGlide();
+				swiping.current = true;
+				// Snapping would throw every per-move write back to the day.
+				el.style.setProperty('scroll-snap-type', 'none');
+				// Followed from here, so the strip does not jump the lock's ten pixels,
+				// and taken from where the strip is now: a payload may have re-seated
+				// it since the finger came down.
+				t.x = p.clientX;
+				const w = stride(el);
+				const i = Math.max(0, Math.min(seatDays.current.length - 1, Math.round(el.scrollLeft / w)));
+				t.fromDay = seatDays.current[i] ?? '';
+				t.offset = el.scrollLeft - i * w;
+			}
+			if (t.axis !== 'x') return;
+			if (e.cancelable) e.preventDefault();
+			const w = stride(el);
+			if (!w) return;
+			const seat = anchor(t, w) * w;
+			const max = el.scrollWidth - el.clientWidth;
+			el.scrollLeft = Math.max(
+				0,
+				Math.min(max, seat + w, Math.max(seat - w, seat + t.offset - (p.clientX - t.x)))
+			);
+			swipeAt.current = { day: t.fromDay, off: el.scrollLeft - seat };
+			t.trail.push({ x: p.clientX, t: e.timeStamp });
+			while (t.trail.length > 2 && e.timeStamp - t.trail[0].t > FLICK_WINDOW_MS) t.trail.shift();
+		};
+		const onEnd = (e: TouchEvent) => {
+			if (!t || t.axis !== 'x') {
+				t = null;
+				return;
+			}
+			const w = stride(el);
+			// The whole of the finger's travel, the lock's ten pixels included:
+			// positive is towards the next day.
+			const moved = t.x0 - t.lastX;
+			const first = t.trail[0];
+			const last = t.trail[t.trail.length - 1];
+			// Still moving when it lifted: a finger that paused first has not flicked.
+			const live = last && e.timeStamp - last.t <= FLICK_WINDOW_MS;
+			const v = live && first && last.t > first.t ? (last.x - first.x) / (last.t - first.t) : 0;
+			let dir = 0;
+			if (w && Math.abs(moved) >= w * SWIPE_SHARE) dir = Math.sign(moved);
+			else if (Math.abs(v) >= FLICK_PX_PER_MS && Math.abs(moved) >= FLICK_MIN_PX) {
+				// Only a flick the way the strip was dragged; one back towards the
+				// day it left is a change of mind, and lands it there.
+				if (Math.sign(-v) === Math.sign(moved)) dir = Math.sign(moved);
+			}
+			land(dir);
+		};
+		// Taken away by the system: nobody let go anywhere, so it goes back.
+		const onCancel = () => {
+			if (t?.axis === 'x') land(0);
+			t = null;
+		};
+		el.addEventListener('touchstart', onStart, { passive: true });
+		el.addEventListener('touchmove', onMove, { passive: false });
+		el.addEventListener('touchend', onEnd, { passive: true });
+		el.addEventListener('touchcancel', onCancel, { passive: true });
+		return () => {
+			el.removeEventListener('touchstart', onStart);
+			el.removeEventListener('touchmove', onMove);
+			el.removeEventListener('touchend', onEnd);
+			el.removeEventListener('touchcancel', onCancel);
+			swiping.current = false;
+			swipeAt.current = null;
+		};
+		// `stepTo` through a ref: it changes with every board, and re-binding
+		// mid-gesture would drop the finger's state with the strip half moved.
+	}, [data?.view, !!data, endGlide, navigate]);
 
 	/**
 	 * Whether Google has taken itself off the table.
@@ -2115,11 +2389,18 @@ export default function Schedule() {
 	   everyone who is, and the edit dialog used to be the one that did not. */
 	const legsTo = (entries: BoardDay[], eventId: string) =>
 		entries.flatMap((entry) => entry.legs.filter((l) => l.toEventId === eventId));
+	// The cards' baseline is the plan before their own edits; what the board is
+	// drawing with them applied is handed over beside it, for the warning.
 	const openLegs = useMemo(
+		() => (openEventId ? legsTo(unedited, openEventId) : []),
+		[openEventId, unedited]
+	);
+	const openLive = useMemo(
 		() => (openEventId ? legsTo(planned, openEventId) : []),
 		[openEventId, planned]
 	);
-	const draftLegs = useMemo(() => (adding ? legsTo(planned, DRAFT_ID) : []), [adding, planned]);
+	const draftLegs = useMemo(() => (adding ? legsTo(unedited, DRAFT_ID) : []), [adding, unedited]);
+	const draftLive = useMemo(() => (adding ? legsTo(planned, DRAFT_ID) : []), [adding, planned]);
 
 	/* Which edge the open dialog stands at. The board is beside the map, so the
 	   panel takes the map's side and never covers the day it is describing.
@@ -2280,44 +2561,66 @@ export default function Schedule() {
 				if (at) at.push(l);
 				else arrivals.set(l.toEventId, [l]);
 			}
+			const stops = [...dayPins].sort(
+				(a, b) => segOf(a, mapped!.day).start - segOf(b, mapped!.day).start
+			);
+			/* Where the route starts: the room the day's first journey leaves.
+			   That is the stay the journey into stop 1 sets off from, or failing
+			   one, last night's stay for whoever is being read. Only where there
+			   is exactly one such place with a pin on the map: a group that slept
+			   in two hotels has no one start, and a line from a point with no pin
+			   would be a route out of nowhere. */
+			const pinned = new Set(stayPins.map((s) => `${s.lat},${s.lng}`));
+			const room = (s: EventRow | undefined): s is EventRow =>
+				!!s && s.type === 'stay' && pinned.has(`${s.lat},${s.lng}`);
+			const leftFrom = (arrivals.get(stops[0].id) ?? [])
+				.map((l) => eventById.get(l.fromEventId))
+				.filter(room);
+			const rooms = leftFrom.length
+				? leftFrom
+				: (mapped?.incoming ?? []).filter((s) => showEvent(s) && room(s));
+			const starts = new Map(rooms.map((s) => [`${s.lat},${s.lng}`, s]));
+			const start = starts.size === 1 ? [...starts.values()][0] : null;
 			tracks.push({
 				name: dayLabel(mapped?.day ?? data.day),
 				color: '#2f6d5e',
-				items: [...dayPins]
-					.sort((a, b) => segOf(a, mapped!.day).start - segOf(b, mapped!.day).start)
-					.map((e) => {
-						const legs = arrivals.get(e.id) ?? [];
-						/* Two routes at most. A day that splits can have a journey per
-						   group, and six of them turn the card into a timetable: the
-						   board already holds the full list, and this is a glance. */
-						const shown = legs.slice(0, 2).map((l) => {
-							const from = eventById.get(l.fromEventId)?.title;
-							const mode = modeLabel(l.resolvedMode);
-							const lead = from ? `${mode} from ${from}` : mode;
-							return `${lead} · ${l.resolvedMins}m`;
-						});
-						if (legs.length > shown.length) {
-							shown.push(`+${legs.length - shown.length} more routes here`);
-						}
-						return {
-							title: e.title,
-							lat: e.lat,
-							lng: e.lng,
-							color: EVENT_COLORS[e.type],
-							subtitle: `${typeLabel(e.type)} · ${spanRange(e, zoneOf)}`,
-							detail: [peopleLabel(e.people), ...shown],
-							warn: legs.some((l) => l.tight) ? copy.viewAs.travelWarning : undefined
-						};
-					}),
+				items: stops.map((e) => {
+					const legs = arrivals.get(e.id) ?? [];
+					/* Two routes at most. A day that splits can have a journey per
+					   group, and six of them turn the card into a timetable: the
+					   board already holds the full list, and this is a glance. */
+					const shown = legs.slice(0, 2).map((l) => {
+						const from = eventById.get(l.fromEventId)?.title;
+						const mode = modeLabel(l.resolvedMode);
+						const lead = from ? `${mode} from ${from}` : mode;
+						return `${lead} · ${l.resolvedMins}m`;
+					});
+					if (legs.length > shown.length) {
+						shown.push(`+${legs.length - shown.length} more routes here`);
+					}
+					return {
+						title: e.title,
+						lat: e.lat,
+						lng: e.lng,
+						color: EVENT_COLORS[e.type],
+						subtitle: `${typeLabel(e.type)} · ${spanRange(e, zoneOf)}`,
+						detail: [peopleLabel(e.people), ...shown],
+						warn: legs.some((l) => l.tight) ? copy.viewAs.travelWarning : undefined
+					};
+				}),
 				numbered: ordered,
-				line: ordered
+				line: ordered,
+				lineFrom:
+					ordered && start ? { lat: start.lat as number, lng: start.lng as number } : undefined
 			});
 		}
 		/* The night's lodging, shown on the map like any other place now that a
 		   stay carries the coordinates of the room it books. It is its own track
-		   with no line and no number: a stay is a range of nights rather than a
-		   stop on the day's route, so joining it into that route or numbering it
-		   among the stops would both be a claim that is not true. */
+		   with no number and its own colour and card: a stay is a range of nights
+		   rather than a stop, so numbering it among the stops would be a claim
+		   that is not true. The day's route does start there, though, because
+		   that is where the day's travel really starts: the line to stop 1 is
+		   drawn from the room (`lineFrom` above), not from this track. */
 		if (stayPins.length && data) {
 			tracks.push({
 				name: typeLabel('stay'),
@@ -2335,7 +2638,7 @@ export default function Schedule() {
 			});
 		}
 		return tracks;
-	}, [mapped, data, readAs, eventById, peopleLabel, locked, segOf, zoneOf]);
+	}, [mapped, data, readAs, eventById, peopleLabel, locked, segOf, zoneOf, showEvent]);
 
 	/* Clicking a block on the board aims the map at it, so the reader can see
 	   what is around the place they just selected. A click focuses; it does not
@@ -2925,7 +3228,7 @@ export default function Schedule() {
 						<button
 							type="button"
 							className="stayface"
-							aria-label={`${s.title}. ${locked ? cs.block.openLabel : 'Show on the map.'}`}
+							aria-label={`${s.title}. ${locked ? cs.block.openLabel : cs.block.showOnMap}`}
 							onClick={() => (locked ? openBlock(s.id) : focusOnMap(s.id))}
 						>
 							<span className="stayname">{s.title}</span>
@@ -3077,7 +3380,11 @@ export default function Schedule() {
 		const to = eventById.get(leg.toEventId)?.title ?? '?';
 		// The warning is a sentence, so it is punctuated as one rather than hung
 		// off a comma, and it is the same sentence the mark beside it carries.
-		const tail = leg.tight ? `. ${copy.viewAs.travelWarning}` : leg.manual ? ', pinned' : '';
+		const tail = leg.tight
+			? `. ${copy.viewAs.travelWarning}`
+			: leg.manual
+				? `, ${cs.journey.pinned}`
+				: '';
 		return `${from} to ${to}: ${modeLabel(leg.resolvedMode)}, ${leg.resolvedMins}m${tail}\n${peopleLabel(leg.people)}`;
 	}
 
@@ -3263,7 +3570,15 @@ export default function Schedule() {
 				   carries the whole of either. */
 				when: seg.startsHere && seg.start === ev.start_min ? clock(seg.start) : '',
 				title: ev.title,
-				meta: `${typeLabel(ev.type)} · ${part ?? spanRange(ev, zoneOf)}`,
+				/* The start is already in the time column when it is there, so a
+				   one-day block says only when it ends; a span or a part of one
+				   keeps its whole range, which no column holds. */
+				meta: `${typeLabel(ev.type)} · ${
+					part ??
+					(seg.startsHere && seg.endsHere && seg.start === ev.start_min
+						? cs.span.until(endClock(ev, zoneOf))
+						: spanRange(ev, zoneOf))
+				}`,
 				tight: false,
 				open: () => openBlock(ev.id)
 			};
@@ -3273,7 +3588,10 @@ export default function Schedule() {
 			start: leg.startMin,
 			when: clock(leg.startMin),
 			title: agendaLegName(leg),
-			meta: `${modeLabel(leg.resolvedMode)} · ${leg.resolvedMins}m`,
+			// The mode is in the name unless somebody named the journey.
+			meta: leg.title
+				? `${modeLabel(leg.resolvedMode)} · ${cs.journey.estimate(leg.resolvedMins)}`
+				: cs.journey.estimate(leg.resolvedMins),
 			tight: leg.tight,
 			open: () => openLeg(leg)
 		}))
@@ -3442,6 +3760,7 @@ export default function Schedule() {
 					initialType={adding.type}
 					initialPoi={adding.poi}
 					legs={draftLegs}
+					liveLegs={draftLive}
 					eventOf={(id) => eventById.get(id) ?? null}
 					peopleLabel={peopleLabel}
 					memberOptions={memberOptions}
@@ -3461,6 +3780,7 @@ export default function Schedule() {
 					dock={dockSide}
 					peek={roomToDock}
 					onPreview={setPreview}
+					onJourneyPreview={previewLegs}
 					onClose={() => setAdding(null)}
 					onDone={() => {
 						setAdding(null);
@@ -3476,6 +3796,7 @@ export default function Schedule() {
 					event={opened}
 					day={opened.day}
 					legs={openLegs}
+					liveLegs={openLive}
 					focusLegId={openLegId}
 					eventOf={(id) => eventById.get(id) ?? null}
 					peopleLabel={peopleLabel}
@@ -3492,6 +3813,7 @@ export default function Schedule() {
 					dock={dockSide}
 					peek={roomToDock}
 					onPreview={setPreview}
+					onJourneyPreview={previewLegs}
 					onClose={closeEvent}
 					onDone={() => {
 						closeEvent();

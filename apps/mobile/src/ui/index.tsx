@@ -200,7 +200,8 @@ export function EmptyState({
 	title,
 	action
 }: {
-	message: string;
+	/** Optional only beside a `title`, which then says what is missing on its own. */
+	message?: string;
 	hint?: string;
 	graphic?: boolean;
 	/** A first-run page's own mark, in a soft tile, instead of the fly. */
@@ -223,7 +224,9 @@ export function EmptyState({
 			) : null}
 			<View style={{ gap: space.xs, alignItems: 'center' }}>
 				{title ? <Text style={{ ...type.title3, textAlign: 'center' }}>{title}</Text> : null}
-				<Text style={{ ...type.body, color: color.inkSoft, textAlign: 'center' }}>{message}</Text>
+				{message ? (
+					<Text style={{ ...type.body, color: color.inkSoft, textAlign: 'center' }}>{message}</Text>
+				) : null}
 				{hint ? <Text style={{ ...type.footnote, textAlign: 'center' }}>{hint}</Text> : null}
 			</View>
 			{action ? <View style={{ marginTop: space.sm }}>{action}</View> : null}

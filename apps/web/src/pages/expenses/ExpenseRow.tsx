@@ -3,7 +3,6 @@ import { formatMoney } from '../../lib/format';
 import { formatSpentOn } from './day';
 import { WarningIcon } from '../../components/ui/icons';
 import Avatar from '../../components/ui/Avatar';
-import Tag from '../../components/ui/Tag';
 import type { Expense } from './types';
 import { copy } from '../../copy';
 
@@ -65,16 +64,12 @@ export default function ExpenseRow({
 					    A to B", and cut at one line on a phone it lost the only half
 					    that said who. */}
 					<span className="flex items-start gap-1 text-body font-medium">
+						{/* No "payment" or "income" tag: a settlement's description already
+						    says "Payment from A to B", and an income row says "received"
+						    on the line under it and carries a negative amount. */}
 						<span className="line-clamp-2 min-w-0 [overflow-wrap:anywhere]" title={e.description}>
 							{e.description}
 						</span>
-						{/* A settlement is an expense in every way that matters to the maths,
-						    but it is not a cost anyone shared, so the ledger says which it is. */}
-						{(credit || settled) && (
-							<Tag tone="accent" outline>
-								{settled ? c.paymentTag : c.incomeTag}
-							</Tag>
-						)}
 						{/* Somebody on this row has left the trip and their share could not
 						    be re-divided. Marked rather than fixed: only the group can say
 						    who absorbs a stated amount. A sign rather than a word, because

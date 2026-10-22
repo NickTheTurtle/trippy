@@ -3,21 +3,24 @@ import { isValidEmail } from '@trippy/core/validate';
 import type { ErrorSlot } from './Toast';
 import { copy } from '../../copy';
 
-/** The card, heading and blurb every signed-out page sits in. */
+/**
+ * The card, heading and blurb every signed-out page sits in. The blurb is
+ * optional: a page whose title and button already say it all goes without.
+ */
 function AuthCard({
 	title,
 	blurb,
 	children
 }: {
 	title: string;
-	blurb: string;
+	blurb?: string;
 	children: ReactNode;
 }) {
 	return (
 		<div className="grid place-items-center px-6 py-16">
 			<div className="w-full max-w-sm rounded-lg border border-line bg-surface p-8 shadow-card">
-				<h1 className="text-title">{title}</h1>
-				<p className="mt-1.5 mb-6 text-ink-soft">{blurb}</p>
+				<h1 className={blurb ? 'text-title' : 'mb-6 text-title'}>{title}</h1>
+				{blurb && <p className="mt-1.5 mb-6 text-ink-soft">{blurb}</p>}
 				{children}
 			</div>
 		</div>
@@ -70,7 +73,6 @@ function firstProblem(form: HTMLFormElement): { field: HTMLInputElement; message
 
 export function AuthShell({
 	title,
-	blurb,
 	failure,
 	onSubmit,
 	submitting,
@@ -79,20 +81,24 @@ export function AuthShell({
 	children,
 	footer
 }: {
+	/**
+	 * No blurb under it: the title says where you are, the button says what it
+	 * does, and a sentence between them ("Log in to keep planning.") only said
+	 * one of the two again.
+	 */
 	title: string;
-	blurb: string;
 	/** The page's own corner slot, so one form never holds two refusals. */
 	failure: ErrorSlot;
 	onSubmit: () => void;
 	submitting: boolean;
 	submitLabel: string;
-	/** Drawn between the blurb and the form: another way in that is not the form. */
+	/** Drawn between the title and the form: another way in that is not the form. */
 	lead?: ReactNode;
 	children: ReactNode;
 	footer: ReactNode;
 }) {
 	return (
-		<AuthCard title={title} blurb={blurb}>
+		<AuthCard title={title}>
 			{lead}
 			<form
 				className="flex flex-col gap-3.5"
@@ -137,7 +143,7 @@ export function AuthNotice({
 	footer
 }: {
 	title: string;
-	blurb: string;
+	blurb?: string;
 	footer?: ReactNode;
 }) {
 	return (

@@ -45,7 +45,7 @@ test.describe('ui consistency', () => {
 		// The empty-state caption is a fragment, not a sentence, so it takes no stop.
 		expect(copy.common.nothingAdded.endsWith('.')).toBe(false);
 		// The house confirmation is one fixed sentence everywhere.
-		expect(copy.ui.confirmDialog.undone).toBe('Are you sure? This action cannot be undone.');
+		expect(copy.ui.confirmDialog.undone).toBe('This cannot be undone.');
 	});
 
 	test('dialog titles and field hints follow the house shape', () => {

@@ -71,21 +71,6 @@ export function dayLabel(iso: string): string {
 	return `${WEEKDAYS[wd]}, ${MONTHS[m - 1]} ${d}`;
 }
 
-/**
- * "Apr 17 to Apr 19", the span a stay covers.
- *
- * Weekdayless where `dayLabel` carries one: two of them on a line is more date
- * than a subtitle can hold, and the day of the week is not what a reader is
- * checking when they are reading a range.
- */
-export function rangeLabel(from: string, to: string): string {
-	const short = (iso: string) => {
-		const [, m, d] = iso.split('-').map(Number);
-		return `${MONTHS[m - 1]} ${d}`;
-	};
-	return `${short(from)} to ${short(to)}`;
-}
-
 /* --- The clock ------------------------------------------------------------
  *
  * Every wall-clock time the board shows is drawn here, so the app has one
@@ -344,24 +329,73 @@ export function keepsPick(from: EventType, to: EventType, picked: SavedPoi | nul
 export const NO_PEOPLE = 'An event must include at least one person.';
 
 /**
- * Blocks clip their overflow, so on a busy morning names end up sliced in half.
- * Budget the space instead: the title is clamped to `trows` lines and the
- * people chips to `wrows` rows, both 15px, so the content is guaranteed to fit.
- * Anything past the budget collapses into a `+N` chip.
+ * The block's own measures, as `schedule.css` sets them, in pixels. The budget
+ * below is arithmetic on these, so a change to one there is a change here.
+ * `.sched .block` pads 0.4rem top and bottom and `.block.narrow` 0.3rem; a
+ * title line and a row of people are both 15px, a row of people being a 13px
+ * chip and a 2px gap; the meta row is 16px under a 0.05rem margin, and the
+ * people under a 0.1rem one.
  */
-export function whoBudget(widthFrac: number, mins: number, title: string, lanePx: number) {
+const PAD_Y = 6.4;
+const NARROW_PAD_Y = 4.8;
+const LINE_H = 15;
+const META_H = 16.8;
+const WHO_GAP = 1.6;
+const WHO_ROW_GAP = 2;
+/** Under this a one-line block drops its time and shows the title alone. */
+const TITLE_ONLY_H = 20;
+
+/**
+ * How a block's text is laid out at the height it is drawn.
+ *
+ * `stack` is the title over its time over its people. `line` is the title and
+ * the time side by side on one line, and `title` the title alone, both on a
+ * box with no vertical padding; either one ellipsizes sideways rather than
+ * being cut from below.
+ */
+export type BlockRows = 'stack' | 'line' | 'title';
+
+/**
+ * Blocks clip their overflow, so on a busy morning names ended up sliced in
+ * half. Budget the space instead, from the height the block is actually drawn
+ * at: the title is clamped to `trows` lines and the people chips to `wrows`
+ * rows, so what is shown always fits whole. A block too short to stack its
+ * title over its time falls back to one line (`rows`), which a block's 15px
+ * floor always has room for. People past the budget collapse into a `+N`
+ * chip, and on a one-line block they are not drawn at all.
+ *
+ * `meta` says the stacked layout always carries a meta row (a journey always
+ * shows its minutes); otherwise it has one only where the time is shown.
+ */
+export function whoBudget(
+	widthFrac: number,
+	heightPx: number,
+	title: string,
+	lanePx: number,
+	opts: { narrow?: boolean; meta?: boolean } = {}
+) {
 	const px = Math.max(36, widthFrac * lanePx - 16);
-	const trows = Math.min(3, Math.max(1, Math.ceil((title.length * 7) / px)));
+	// Below this the clock is sliced mid-digit, which reads as a different
+	// time rather than as a truncation. The grid still says when the block is.
+	const showTime = px >= 92;
+	const inner = heightPx - 2 * (opts.narrow ? NARROW_PAD_Y : PAD_Y);
+	const meta = opts.meta || showTime ? META_H : 0;
 	const perRow = Math.max(1, Math.floor(px / 48));
-	const free = mins * PX_PER_MIN - 14 - 16 - trows * 15;
-	const wrows = Math.max(0, Math.min(4, Math.floor(free / 15)));
+	if (inner < LINE_H + meta) {
+		const rows: BlockRows = heightPx < TITLE_ONLY_H ? 'title' : 'line';
+		return { rows, trows: 1, wrows: 0, fit: 0, compact: true, showTime };
+	}
+	const wanted = Math.min(3, Math.max(1, Math.ceil((title.length * 7) / px)));
+	const trows = Math.max(1, Math.min(wanted, Math.floor((inner - meta) / LINE_H)));
+	const free = inner - meta - trows * LINE_H - WHO_GAP;
+	// The last row of people has no gap under it, so it needs 2px less.
+	const wrows = Math.max(0, Math.min(4, Math.floor((free + WHO_ROW_GAP) / LINE_H)));
 	return {
+		rows: 'stack' as BlockRows,
 		trows,
 		wrows,
 		fit: wrows * perRow,
 		compact: px < 150,
-		// Below this the clock is sliced mid-digit, which reads as a different
-		// time rather than as a truncation. The grid still says when the block is.
-		showTime: px >= 92
+		showTime
 	};
 }
