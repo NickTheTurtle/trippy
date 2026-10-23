@@ -712,7 +712,9 @@ test.describe('the day strip under a finger', () => {
 				await page.waitForTimeout(600);
 				const read = await at();
 				expect(read.hours).toBeGreaterThan(r.hours);
-				expect(read.page).toBe(r.page);
+				// The page stays put. A pixel of give: the docked offset is a fractional
+				// card position, and the proximity snap can round it by one.
+				expect(Math.abs(read.page - r.page)).toBeLessThanOrEqual(1);
 			}
 
 			// A desktop keeps the box it had: measured to the screen under the
