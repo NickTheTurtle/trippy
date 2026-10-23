@@ -33,6 +33,21 @@ async function settled(page: Page): Promise<void> {
 	);
 }
 
+/**
+ * Scroll the page so the board's card sits under the site bar, which is where
+ * the page settles once a phone has scrolled its chrome away; see `DOCK_QUERY`
+ * in `Schedule.tsx`.
+ */
+async function dock(page: Page): Promise<void> {
+	await page.evaluate(() => {
+		const card = document.querySelector('.sched .board')!;
+		const bar = document.querySelector('header')!.getBoundingClientRect().bottom;
+		window.scrollTo(0, card.getBoundingClientRect().top + window.scrollY - bar);
+	});
+	await expect(page.locator('.sched .boardscroll')).not.toHaveAttribute('data-parked');
+	await settled(page);
+}
+
 async function addEvent(
 	request: APIRequestContext,
 	fixture: ApiFixture,
@@ -634,6 +649,87 @@ test.describe('the day strip under a finger', () => {
 		await cdp.detach();
 	}
 
+	test('on a phone the board docks at seven tenths of the screen, and the page brings it there', async ({
+		page,
+		request
+	}) => {
+		const fixture = await createApiFixture(request);
+		const first = fixture.tripBody.startDate;
+		try {
+			// Two people, so the "View as" row is there: the crowded toolbar.
+			await seedMembers(request, fixture, ['Wren']);
+			await signIn(page, fixture.sessionCookie);
+			const strip = page.locator('.sched .boardscroll');
+			for (const size of [
+				{ width: 390, height: 844 },
+				{ width: 375, height: 667 }
+			]) {
+				await page.setViewportSize(size);
+				await page.goto(`/trips/${fixture.tripId}/schedule?day=${first}&view=day`);
+				await expect(page.locator(`.daypanel[data-day="${first}"]`)).toBeVisible();
+				await page.evaluate(() => document.fonts.ready);
+				await settled(page);
+				const at = () =>
+					strip.evaluate((el) => {
+						const r = el.getBoundingClientRect();
+						return {
+							top: r.top,
+							bottom: r.bottom,
+							height: r.height,
+							hours: el.scrollTop,
+							page: window.scrollY,
+							parked: el.hasAttribute('data-parked'),
+							wide: document.documentElement.scrollWidth - document.documentElement.clientWidth
+						};
+					});
+
+				// At rest the chrome is above the board and its bottom is below the
+				// fold, so a finger on the hours moves the page rather than the hours.
+				let r = await at();
+				expect(r.bottom, `${size.width}px`).toBeGreaterThan(size.height);
+				expect(r.parked).toBe(true);
+				const x = size.width / 2;
+				await swipe(page, { x, y: size.height - 60, dx: 0, dy: -120, steps: 12, stepMs: 16 });
+				await page.waitForTimeout(600);
+				const after = await at();
+				expect(after.page).toBeGreaterThan(r.page);
+				expect(after.hours).toBe(r.hours);
+
+				// Docked under the site bar, the whole box is on screen and it is at
+				// least seven tenths of it.
+				await dock(page);
+				r = await at();
+				const bar = await page.evaluate(
+					() => document.querySelector('header')!.getBoundingClientRect().bottom
+				);
+				expect(r.top).toBeGreaterThanOrEqual(bar);
+				expect(r.bottom).toBeLessThanOrEqual(size.height);
+				expect(r.height / size.height, `${size.width}x${size.height}`).toBeGreaterThanOrEqual(0.7);
+				expect(r.wide).toBe(0);
+
+				// And from there the hours are what a finger moves.
+				await swipe(page, { x, y: r.top + r.height * 0.6, dx: 0, dy: -150, steps: 12, stepMs: 16 });
+				await page.waitForTimeout(600);
+				const read = await at();
+				expect(read.hours).toBeGreaterThan(r.hours);
+				expect(read.page).toBe(r.page);
+			}
+
+			// A desktop keeps the box it had: measured to the screen under the
+			// chrome, never parked, and the page does not snap.
+			await page.setViewportSize({ width: 1280, height: 900 });
+			await page.goto(`/trips/${fixture.tripId}/schedule?day=${first}&view=day`);
+			await expect(page.locator(`.daypanel[data-day="${first}"]`)).toBeVisible();
+			await settled(page);
+			await expect(strip).not.toHaveAttribute('data-parked');
+			expect(
+				await page.evaluate(() => document.documentElement.classList.contains('boarddock'))
+			).toBe(false);
+		} finally {
+			fixture.teardown();
+		}
+	});
+
 	test('only a deliberate sideways swipe changes the day, and by one', async ({
 		page,
 		request
@@ -649,6 +745,9 @@ test.describe('the day strip under a finger', () => {
 				await page.goto(`/trips/${fixture.tripId}/schedule?day=${first}&view=day`);
 				await expect(page.locator(`.daypanel[data-day="${first}"]`)).toBeVisible();
 				await settled(page);
+				// Read docked, which is where a phone reads the hours: until then a
+				// vertical finger on the board scrolls the page instead.
+				await dock(page);
 				const box = (await strip.boundingBox())!;
 				const w = await page
 					.locator('.daypanel')
@@ -692,7 +791,7 @@ test.describe('the day strip under a finger', () => {
 
 			// Over a third of a day: the next one.
 			at = await open();
-			await swipe(page, { x: at.x, y: at.y, dx: -0.35 * at.w, steps: 25, stepMs: 20, holdMs: 150 });
+			await swipe(page, { x: at.x, y: at.y, dx: -0.45 * at.w, steps: 25, stepMs: 20, holdMs: 150 });
 			await expect(page).toHaveURL(new RegExp(`day=${next}`));
 			await expect(reading).toHaveAttribute('data-day', next);
 
@@ -707,6 +806,269 @@ test.describe('the day strip under a finger', () => {
 			await swipe(page, { x: at.x, y: at.y, dx: -1.8 * at.w, steps: 8, stepMs: 10 });
 			await expect(page).toHaveURL(new RegExp(`day=${next}`));
 			expect((await read()).travel).toBeLessThanOrEqual(at.w + 1);
+		} finally {
+			fixture.teardown();
+		}
+	});
+
+	test('the date names the day a move commits to, once, and the arrows never move', async ({
+		page,
+		request
+	}) => {
+		const fixture = await createApiFixture(request);
+		const first = fixture.tripBody.startDate;
+		try {
+			await signIn(page, fixture.sessionCookie);
+			await page.goto(`/trips/${fixture.tripId}/schedule?day=${first}&view=day`);
+			await expect(page.locator(`.daypanel[data-day="${first}"]`)).toBeVisible();
+			await settled(page);
+			const strip = page.locator('.sched .boardscroll');
+			const box = (await strip.boundingBox())!;
+			const w = await page
+				.locator('.daypanel')
+				.first()
+				.evaluate((el) => el.getBoundingClientRect().width);
+			const x = box.x + box.width * 0.75;
+			// On screen: at rest a phone's docked box runs on below the fold.
+			const y = box.y + Math.min(box.height, 500, page.viewportSize()!.height - box.y) * 0.6;
+
+			/** Every frame from here: the date as written, and where each arrow stands. */
+			const watch = () =>
+				page.evaluate(() => {
+					const w = window as unknown as { seen: { title: string; l: number; r: number }[] };
+					w.seen = [];
+					const tick = () => {
+						const head = document.querySelector('.sched .boardhead')!;
+						const [l, r] = [...head.querySelectorAll('.navbtn')].map(
+							(b) => b.getBoundingClientRect().left
+						);
+						w.seen.push({ title: head.querySelector('.curday')!.textContent ?? '', l, r });
+						requestAnimationFrame(tick);
+					};
+					requestAnimationFrame(tick);
+				});
+			const seen = async () => {
+				const frames = await page.evaluate(
+					() => (window as unknown as { seen: { title: string; l: number; r: number }[] }).seen
+				);
+				const titles: string[] = [];
+				for (const f of frames) if (titles[titles.length - 1] !== f.title) titles.push(f.title);
+				return {
+					titles,
+					lefts: [...new Set(frames.map((f) => f.l))],
+					rights: [...new Set(frames.map((f) => f.r))]
+				};
+			};
+
+			// Slowly past halfway, back short of a third, and let go: it springs
+			// back, and the date said the day it started on the whole way.
+			await watch();
+			const cdp = await page.context().newCDPSession(page);
+			await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+			const path = [
+				...Array.from({ length: 24 }, (_, i) => (-0.65 * w * (i + 1)) / 24),
+				...Array.from({ length: 24 }, (_, i) => -0.65 * w + (0.55 * w * (i + 1)) / 24)
+			];
+			for (const dx of path) {
+				await page.waitForTimeout(20);
+				await cdp.send('Input.dispatchTouchEvent', {
+					type: 'touchMove',
+					touchPoints: [{ x: x + dx, y }]
+				});
+			}
+			await page.waitForTimeout(150);
+			await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+			await cdp.detach();
+			await page.waitForTimeout(800);
+			let s = await seen();
+			expect(s.titles).toHaveLength(1);
+			expect(s.titles[0]).toContain('10');
+			expect(s.lefts).toHaveLength(1);
+			expect(s.rights).toHaveLength(1);
+			await expect(page).toHaveURL(new RegExp(`day=${first}`));
+
+			// A swipe that goes: the date changes once, to the day it went to, and
+			// the arrows are where they were.
+			await watch();
+			await swipe(page, { x, y, dx: -0.55 * w, steps: 12, stepMs: 16 });
+			await expect(page).toHaveURL(/day=2027-02-11/);
+			await page.waitForTimeout(800);
+			const was = s;
+			s = await seen();
+			expect(s.titles).toHaveLength(2);
+			expect(s.titles[1]).toContain('11');
+			expect(s.lefts).toEqual(was.lefts);
+			expect(s.rights).toEqual(was.rights);
+		} finally {
+			fixture.teardown();
+		}
+	});
+
+	test('a second swipe straight after the first moves the strip and lands a day further', async ({
+		page,
+		request
+	}) => {
+		const fixture = await createApiFixture(request);
+		const first = fixture.tripBody.startDate;
+		try {
+			await signIn(page, fixture.sessionCookie);
+			await page.goto(`/trips/${fixture.tripId}/schedule?day=${first}&view=day`);
+			await expect(page.locator(`.daypanel[data-day="${first}"]`)).toBeVisible();
+			await settled(page);
+			const strip = page.locator('.sched .boardscroll');
+			const box = (await strip.boundingBox())!;
+			const w = await page
+				.locator('.daypanel')
+				.first()
+				.evaluate((el) => el.getBoundingClientRect().width);
+			const x = box.x + box.width * 0.75;
+			// On screen: at rest a phone's docked box runs on below the fold.
+			const y = box.y + Math.min(box.height, 500, page.viewportSize()!.height - box.y) * 0.6;
+
+			await swipe(page, { x, y, dx: -0.55 * w, steps: 10, stepMs: 16 });
+			// The first swipe's slide is still running and its day's payload may
+			// not be back: the second must still be taken as a swipe, from the day
+			// the first one went to.
+			await page.waitForTimeout(100);
+			await page.evaluate(() => {
+				const w = window as unknown as { held: number; left: number[] };
+				const el = document.querySelector<HTMLElement>('.sched .boardscroll')!;
+				w.held = 0;
+				w.left = [];
+				// After the strip's own handler: a move it took is a cancelled one.
+				addEventListener('touchmove', (e) => {
+					if (e.defaultPrevented) w.held++;
+					w.left.push(el.scrollLeft);
+				});
+			});
+			await swipe(page, { x, y, dx: -0.55 * w, steps: 10, stepMs: 16 });
+			const moved = await page.evaluate(() => {
+				const w = window as unknown as { held: number; left: number[] };
+				return { held: w.held, left: w.left };
+			});
+			// The strip followed the finger...
+			expect(moved.held).toBeGreaterThan(5);
+			expect(Math.max(...moved.left) - Math.min(...moved.left)).toBeGreaterThan(0.3 * w);
+			// ...and the two swipes are two days.
+			await expect(page).toHaveURL(/day=2027-02-12/, { timeout: 8000 });
+			await expect(page.locator('.daypanel:not([inert])')).toHaveAttribute(
+				'data-day',
+				'2027-02-12'
+			);
+			await expect(page.locator('.sched .boardhead .curday')).toContainText('12');
+		} finally {
+			fixture.teardown();
+		}
+	});
+
+	/** Where a finger goes on the strip, and how wide a day is. */
+	async function aim(page: Page) {
+		const box = (await page.locator('.sched .boardscroll').boundingBox())!;
+		const w = await page
+			.locator('.daypanel')
+			.first()
+			.evaluate((el) => el.getBoundingClientRect().width);
+		return {
+			x: box.x + box.width * 0.75,
+			// On screen: at rest a phone's docked box runs on below the fold.
+			y: box.y + Math.min(box.height, 500, page.viewportSize()!.height - box.y) * 0.6,
+			w
+		};
+	}
+
+	test('a touch while the hours are still moving scrolls them, not the day', async ({
+		page,
+		request
+	}) => {
+		const fixture = await createApiFixture(request);
+		const first = fixture.tripBody.startDate;
+		try {
+			await signIn(page, fixture.sessionCookie);
+			await page.goto(`/trips/${fixture.tripId}/schedule?day=${first}&view=day`);
+			await expect(page.locator(`.daypanel[data-day="${first}"]`)).toBeVisible();
+			await settled(page);
+			const { x, y, w } = await aim(page);
+			const strip = page.locator('.sched .boardscroll');
+			await strip.evaluate((el) => {
+				const s = el.scrollLeft;
+				const g = window as unknown as { travel: number };
+				g.travel = 0;
+				el.addEventListener('scroll', () => {
+					g.travel = Math.max(g.travel, Math.abs(el.scrollLeft - s));
+				});
+			});
+			// The hours coasting: a few pixels a frame, which is what a flick's
+			// momentum looks like to the page, and not written by the page itself.
+			// It goes on through the touch, as momentum does, so a slow machine
+			// cannot let it stop before the finger lands.
+			const coasted = await strip.evaluate(
+				(el) =>
+					new Promise<number>((started) => {
+						const top = el.scrollTop;
+						let n = 0;
+						const tick = () => {
+							el.scrollTop += 4;
+							if (++n === 4) started(el.scrollTop - top);
+							if (n < 60) requestAnimationFrame(tick);
+						};
+						requestAnimationFrame(tick);
+					})
+			);
+			expect(coasted).toBeGreaterThan(0);
+			// A clear sideways swipe that lands on them is the scroll being caught.
+			await swipe(page, { x, y, dx: -0.55 * w, steps: 10, stepMs: 16 });
+			await page.waitForTimeout(600);
+			expect(await page.evaluate(() => (window as unknown as { travel: number }).travel)).toBe(0);
+			await expect(page).toHaveURL(new RegExp(`day=${first}`));
+		} finally {
+			fixture.teardown();
+		}
+	});
+
+	test('a touch straight after the page moves the hours itself can still swipe', async ({
+		page,
+		request
+	}) => {
+		const fixture = await createApiFixture(request);
+		const first = fixture.tripBody.startDate;
+		const last = fixture.tripBody.endDate;
+		// The middle day starts at nine and the last at five, so arriving on the
+		// middle day brings the last into the strip and opens the window an hour
+		// earlier: the page scrolls the hours down by that hour to keep them still.
+		await addEvent(request, fixture, {
+			day: '2027-02-11',
+			type: 'activity',
+			start: 540,
+			duration: 45
+		});
+		await addEvent(request, fixture, { day: last, type: 'activity', start: 300, duration: 45 });
+		try {
+			await signIn(page, fixture.sessionCookie);
+			await page.goto(`/trips/${fixture.tripId}/schedule?day=${first}&view=day`);
+			await expect(page.locator(`.daypanel[data-day="${first}"]`)).toBeVisible();
+			await settled(page);
+			const { x, y, w } = await aim(page);
+			const strip = page.locator('.sched .boardscroll');
+			// The reader scrolls the hours a little, so the page's own jump comes a
+			// moment after a real scroll: read as movement, it was fast.
+			await strip.evaluate((el) => {
+				el.scrollTop += 40;
+				const g = window as unknown as { rebased: Promise<void> };
+				let top = el.scrollTop;
+				g.rebased = new Promise((done) =>
+					el.addEventListener('scroll', () => {
+						if (el.scrollTop - top >= 50) done();
+						top = el.scrollTop;
+					})
+				);
+			});
+			await swipe(page, { x, y, dx: -0.55 * w, steps: 10, stepMs: 16 });
+			await expect(page).toHaveURL(/day=2027-02-11/);
+			// The payload lands and the hours are re-based; the next swipe comes
+			// straight after, well inside the coasting window.
+			await page.evaluate(() => (window as unknown as { rebased: Promise<void> }).rebased);
+			await swipe(page, { x, y, dx: -0.55 * w, steps: 10, stepMs: 16 });
+			await expect(page).toHaveURL(new RegExp(`day=${last}`), { timeout: 5000 });
 		} finally {
 			fixture.teardown();
 		}
@@ -793,7 +1155,8 @@ test.describe('the day strip under a finger', () => {
 				.first()
 				.evaluate((el) => el.getBoundingClientRect().width);
 			const x = box.x + box.width * 0.75;
-			const y = box.y + Math.min(box.height, 500) * 0.6;
+			// On screen: at rest a phone's docked box runs on below the fold.
+			const y = box.y + Math.min(box.height, 500, page.viewportSize()!.height - box.y) * 0.6;
 
 			/** The url, the panel being read, the stepper and the panel under the strip's seat. */
 			const agree = () =>
@@ -810,7 +1173,7 @@ test.describe('the day strip under a finger', () => {
 				});
 
 			// One swipe to the 12th; its payload is still on the way.
-			await swipe(page, { x, y, dx: -0.35 * w, steps: 12, stepMs: 16 });
+			await swipe(page, { x, y, dx: -0.45 * w, steps: 12, stepMs: 16 });
 			await expect(page).toHaveURL(/day=2027-02-12/);
 			await page.waitForTimeout(450);
 
@@ -827,7 +1190,7 @@ test.describe('the day strip under a finger', () => {
 				await page.waitForTimeout(16);
 				await cdp.send('Input.dispatchTouchEvent', {
 					type: 'touchMove',
-					touchPoints: [{ x: x - (0.35 * w * i) / 12, y }],
+					touchPoints: [{ x: x - (0.45 * w * i) / 12, y }],
 					timestamp: t0 + (i * 16) / 1000
 				});
 			}
@@ -851,7 +1214,7 @@ test.describe('the day strip under a finger', () => {
 
 			// A swipe that only half starts while a slide is still running springs
 			// back, and the url names whatever the strip comes to rest on.
-			await swipe(page, { x, y, dx: -0.35 * w, steps: 8, stepMs: 12 });
+			await swipe(page, { x, y, dx: -0.45 * w, steps: 8, stepMs: 12 });
 			await swipe(page, { x, y, dx: 30, steps: 4, stepMs: 40, holdMs: 150 });
 			await page.unroute(/\/schedule\?day=/);
 			await expect

@@ -1,7 +1,19 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+	memo,
+	startTransition,
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+	useSyncExternalStore,
+	type MouseEvent as ReactMouseEvent,
+	type ReactNode
+} from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { api, ApiError } from '../lib/api';
-import { useApi } from '../hooks/useApi';
+import { prefetch, useApi } from '../hooks/useApi';
 import { useLiveSection } from '../hooks/useTripEvents';
 import useMediaQuery from '../hooks/useMediaQuery';
 import useSlideIn from '../hooks/useSlideIn';
@@ -213,6 +225,22 @@ const MIN_VIEW_H = 320;
  */
 const VIEW_AIR = 8;
 /**
+ * Where the board docks rather than fitting under the page's chrome.
+ *
+ * On a phone the site bar, the trip's header, its tabs, the schedule's toolbar,
+ * the stepper and the lodging band put the top of the box 557px down an 844px
+ * screen, so a box sized to what was left under them got its 320px floor:
+ * five hours of a nineteen-hour day. Below this
+ * width the box is sized instead for the screen the page scrolls to, with the
+ * board's card tucked under the site's pinned bar and only the stepper and the
+ * lodging band above the hours, and one scroll of the page takes the rest of
+ * the chrome away. See `fit` and `park`, and "The board docks on a phone" in
+ * `docs/DESIGN.md`. `schedule.css` uses the same width.
+ */
+const DOCK_QUERY = '(max-width: 640px)';
+/** Sub-pixel rounding, and nothing more, when asking whether the box is in sight. */
+const DOCK_SLOP_PX = 2;
+/**
  * The room the scroll box leaves above the first hour line, for the label that
  * hangs over it. Set in `schedule.css` as `.boardscroll`'s `padding-top`, and
  * repeated here because a drag measures where the block it is holding sits
@@ -233,19 +261,19 @@ const BOARD_PAD_PX = 12;
 const SETTLE_MS = 140;
 
 /**
- * How long an arrow takes to carry the strip to the next day.
+ * How long a slide to a day is given before it is checked on.
  *
- * Scripted rather than the browser's own smooth scroll, which could not be told
- * where it was going once it had started: the payload for the new day landed
- * part-way through, the strip re-indexed under it, and the re-seat that keeps
- * the day still had to cancel the glide to do its job. What the reader saw was
- * thirty pixels of motion and then a jump. A tween owns its numbers, so the
- * re-seat moves both ends of it by the re-index and lets it finish.
- *
- * About a third of a second, eased out: long enough to read as travel, short
- * enough that a second click is not kept waiting.
+ * An arrow and a swipe's release slide the strip with the browser's own
+ * smooth scroll (see `stepTo`), whose length and easing are the browser's,
+ * about a fifth of a second for a day. A slide lands when the box reaches its
+ * day. Anything can stop a smooth scroll short: a key that scrolls the hours,
+ * a finger that touches down, a wheel. The move is decided by then, so a slide
+ * found short when this runs out (or when the browser reports the scroll
+ * finished short of it, with no finger down) is set going again; found short
+ * by this timer a second time, the strip is put on its day at once. See
+ * `resumeGlide`.
  */
-const GLIDE_MS = 320;
+const GLIDE_CHECK_MS = 700;
 
 /**
  * A finger on the strip, which is driven by script rather than by the
@@ -260,16 +288,31 @@ const GLIDE_MS = 320;
  * the finger, at most one day either way, and on release goes to the
  * neighbour only past `SWIPE_SHARE` of a day or on a flick faster than
  * `FLICK_PX_PER_MS` that has travelled `FLICK_MIN_PX`; otherwise it springs
- * back. Either way it is the arrow's tween that finishes the move. The
+ * back. Either way the browser's smooth scroll finishes the move. The
  * velocity is read over the last `FLICK_WINDOW_MS`, so a finger that stopped
  * before it lifted has not flicked.
  */
-const AXIS_LOCK_PX = 10;
-const AXIS_RATIO = 1.5;
-const SWIPE_SHARE = 0.3;
+const AXIS_LOCK_PX = 14;
+const AXIS_RATIO = 3;
+const SWIPE_SHARE = 0.35;
 const FLICK_PX_PER_MS = 0.5;
-const FLICK_MIN_PX = 24;
+const FLICK_MIN_PX = 40;
 const FLICK_WINDOW_MS = 100;
+/**
+ * No sideways swipe while anything is scrolling up or down: a finger that
+ * lands while the hours or the page are still moving stops them and is a
+ * vertical touch for its whole length, as a touch on a decelerating scroll view
+ * is on iOS. The page counts as well as the box, because on a phone the board
+ * docks and an up-or-down swipe often moves the page rather than the hours.
+ *
+ * Moving means at least `COASTING_PX_PER_MS`, about a pixel a frame, within
+ * the last `COASTING_MS`: any scroll the eye can still see. Each source's speed
+ * is taken over the time since its own last scroll event, so a single jump
+ * after a still spell (the board re-seating its hours when a day lands) reads
+ * as slow and does not count.
+ */
+const COASTING_MS = 120;
+const COASTING_PX_PER_MS = 0.05;
 
 /** The agenda's day step: a short slide in the direction of travel, with a fade. */
 const AGENDA_SLIDE = { px: 28, ms: 200, fade: true } as const;
@@ -722,18 +765,13 @@ const Leg = memo(function Leg({
  * and redrawing twenty rules and their labels for every pointer move was a
  * measurable part of what made the drag late.
  *
- * Drawn twice over, in two parts. Each day panel draws its rules, bare, across
- * the day's own width; the one time column beside the strip draws the labels
- * and the gutter's stretch of each rule. See `.timecol` in `schedule.css`.
+ * Every day panel draws its own, labels and all, in its own gutter, so the
+ * hours slide sideways with their day. A single fixed column beside the strip
+ * was tried and taken back: on a day with nothing on it the labels were the
+ * only thing that could have moved, and with them standing still a step gave
+ * no sign that it had happened.
  */
-const Axis = memo(function Axis({
-	boardStart,
-	labels
-}: {
-	boardStart: number;
-	/** The hour names, which only the fixed time column carries. */
-	labels: boolean;
-}) {
+const Axis = memo(function Axis({ boardStart }: { boardStart: number }) {
 	return (
 		<div className="axis">
 			{hoursFrom(boardStart).map((h) => (
@@ -752,7 +790,7 @@ const Axis = memo(function Axis({
 					    ran 11 PM, blank, and stopped without saying where. Each
 					    midnight is true where it sits, one opening the day and one
 					    closing it, so both are written. */}
-					{labels && <span>{hourLabel(h)}</span>}
+					<span>{hourLabel(h)}</span>
 				</div>
 			))}
 		</div>
@@ -762,19 +800,59 @@ const Axis = memo(function Axis({
 /**
  * How far apart the strip's days are, in pixels: the width of one day panel.
  *
- * Not the box's width. The time column stands at the left of the box and the
- * panels are the rest of it, so a day is the box less the gutter, and every
- * seat, slide and "which day is this offset on" is a multiple of that. Read
- * off a panel rather than worked out from the gutter, so the stylesheet owns
- * the number and a width change is never a stale constant.
+ * A panel is the whole width of the box, hour gutter included, so this is the
+ * box's width; it is read off a panel anyway, so every seat, slide, settle and
+ * "which day is this offset on" has one source and the stylesheet owns the
+ * number.
  */
-function stride(el: HTMLElement): number {
+function stride(el: HTMLElement, fresh = false): number {
+	const known = strides.get(el);
+	if (known && !fresh) return known;
 	const panel = el.querySelector<HTMLElement>('.daypanel');
-	return panel ? panel.getBoundingClientRect().width : el.clientWidth;
+	const w = panel ? panel.getBoundingClientRect().width : el.clientWidth;
+	if (w) strides.set(el, w);
+	return w;
 }
+/**
+ * The last measured day width per box, so a finger's every move reads no
+ * geometry. A panel is the box's width, so it only changes when the box does,
+ * and the width keeper (a ResizeObserver on the box) re-measures it then.
+ */
+const strides = new WeakMap<HTMLElement, number>();
 
 /** The url for a day and a view. The schedule is addressable; see `navUrl`. */
 const navUrl = (day: string, v: string) => `?day=${day}&view=${v}`;
+
+/**
+ * The bottom edge of whatever is pinned across the top of the window, which is
+ * the site's sticky bar. Read off the page rather than repeated as a number, so
+ * the dock follows the bar if the bar ever changes height.
+ */
+function pinnedBar(): number {
+	let bottom = 0;
+	for (const el of document.querySelectorAll('header')) {
+		const pos = getComputedStyle(el).position;
+		if (pos !== 'sticky' && pos !== 'fixed') continue;
+		const r = el.getBoundingClientRect();
+		if (r.top <= 0.5 && r.bottom > bottom) bottom = r.bottom;
+	}
+	return bottom;
+}
+
+/**
+ * One day panel's drawing, as a component of its own rather than inline in the
+ * page's render.
+ *
+ * Not memoised: the drawing reads most of the page's state, and a list of what
+ * it depends on would be one more thing to fall out of date. What this buys is
+ * a seam. React can only pause a render between components, and with the three
+ * days drawn inline the page's render was one piece, a quarter of a second at
+ * a phone's speed, that a payload landing as a transition could not pause for
+ * the next swipe. Each day is its own piece now.
+ */
+function PanelBody({ draw }: { draw: () => ReactNode }) {
+	return draw();
+}
 
 /**
  * The controls that apply to the whole schedule, and the board's own title bar.
@@ -863,6 +941,73 @@ const Toolbar = memo(function Toolbar({
    label of its own since the control is the date, and gives a phone the
    platform's own picker. The input underneath is the picker; the button on top
    is what stays readable as `Fri, Apr 17`. */
+/**
+ * The day name's step: a few pixels from the side of travel, with a fade.
+ *
+ * Small on purpose. The strip under it is already making the move; this only
+ * says the name was replaced rather than re-rendered, and which way. It plays
+ * once per step because the name changes once per step (see `shownDay`), and
+ * not at all for a reader who asked for stillness.
+ */
+const TITLE_SLIDE = { px: 10, ms: 180, fade: true } as const;
+
+/**
+ * The day the date title names, outside React state.
+ *
+ * The title names the day the strip comes to rest on, with the band and the
+ * map. While a block is carried across days it also names, on its own, the
+ * day the drop would land on, as the strip passes each day's middle: kept in
+ * a store the title alone subscribes to, so that renders the title bar and
+ * nothing else, where rendering the page under the carried block was what
+ * made the carry stutter. See `shownDay` for the rest.
+ */
+function dayStore() {
+	let day: string | null = null;
+	const subs = new Set<() => void>();
+	return {
+		get: () => day,
+		set(next: string) {
+			if (next === day) return;
+			day = next;
+			for (const f of subs) f();
+		},
+		sub(f: () => void) {
+			subs.add(f);
+			return () => {
+				subs.delete(f);
+			};
+		}
+	};
+}
+type DayStore = ReturnType<typeof dayStore>;
+
+type BoardHeadProps = {
+	label: string;
+	view: string;
+	day: string;
+	first: string;
+	last: string;
+	prev: string | null;
+	next: string | null;
+	/**
+	 * Step the strip a day either way from the day the reader has committed to
+	 * (`stepBy`), so an arrow makes the move a hand would and a second press
+	 * during a slide goes a day further. False when the strip cannot, and the
+	 * link navigates as a link.
+	 */
+	onStep?: (dir: number) => boolean;
+};
+
+/** The title bar, naming the day in `store` (or `fallback` before anything has). */
+function LiveHead({
+	store,
+	fallback,
+	...rest
+}: Omit<BoardHeadProps, 'label' | 'day'> & { store: DayStore; fallback: string }) {
+	const day = useSyncExternalStore(store.sub, store.get) ?? fallback;
+	return <BoardHead {...rest} label={dayLabel(day)} day={day} />;
+}
+
 const BoardHead = memo(function BoardHead({
 	label,
 	view,
@@ -872,20 +1017,19 @@ const BoardHead = memo(function BoardHead({
 	prev,
 	next,
 	onStep
-}: {
-	label: string;
-	view: string;
-	day: string;
-	first: string;
-	last: string;
-	prev: string | null;
-	next: string | null;
-	/** Slide the strip to a neighbour, so an arrow makes the move a hand would. */
-	onStep?: (day: string) => void;
-}) {
+}: BoardHeadProps) {
 	const navigate = useNavigate();
 	const picker = useRef<HTMLInputElement | null>(null);
 	const typing = useRef<number | null>(null);
+	const name = useRef<HTMLSpanElement | null>(null);
+	useSlideIn(name, day, Date.parse(`${day}T00:00:00Z`) / 86_400_000, TITLE_SLIDE);
+	/* An arrow is a link, for the address it carries and for a middle click;
+	   a plain click is the strip's to make. */
+	const step = (dir: number, to: string) => (e: ReactMouseEvent) => {
+		if (!onStep || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+		e.preventDefault();
+		if (!onStep(dir)) navigate(navUrl(to, view));
+	};
 
 	// `showPicker` is what opens the calendar on a click; where it is missing,
 	// focusing the field still lets the keyboard and the platform take over.
@@ -948,7 +1092,7 @@ const BoardHead = memo(function BoardHead({
 					className="navbtn"
 					to={navUrl(prev, view)}
 					aria-label={cs.nav.previousDay}
-					onClick={() => onStep?.(prev)}
+					onClick={step(-1, prev)}
 				>
 					‹
 				</Link>
@@ -957,7 +1101,7 @@ const BoardHead = memo(function BoardHead({
 					‹
 				</button>
 			)}
-			<span className="curday">
+			<span className="curday" ref={name}>
 				{jumpable ? (
 					<>
 						<button
@@ -995,7 +1139,7 @@ const BoardHead = memo(function BoardHead({
 					className="navbtn"
 					to={navUrl(next, view)}
 					aria-label={cs.nav.nextDay}
-					onClick={() => onStep?.(next)}
+					onClick={step(1, next)}
 				>
 					›
 				</Link>
@@ -1028,7 +1172,42 @@ export default function Schedule() {
 	if (viewParam) query.set('view', viewParam);
 	const qs = query.toString();
 
-	const { data, error, reload } = useApi<ScheduleData>(qs ? `${base}?${qs}` : base);
+	/* Each payload lands as a transition (see `useApi`), and never while the
+	   strip is moving. Drawing a payload is three panels, the band and the map:
+	   rendered in one piece it held the main thread for a quarter of a second at
+	   a phone's speed. Under a finger that was the next swipe's first moves
+	   waiting behind it; under a glide it was the glide stopping dead for those
+	   frames. So one that arrives mid-motion is held (`stillNow` says when) and
+	   put on screen when the strip comes to rest (`flushHeld`), unless the url
+	   has moved on from it by then. */
+	const stillNow = useRef<() => boolean>(() => true);
+	const held = useRef<{ apply: () => void; path: string }[]>([]);
+	const gate = useCallback((apply: () => void, path: string) => {
+		if (stillNow.current()) apply();
+		else held.current.push({ apply, path });
+	}, []);
+	/** The payload path for a day and view, as `useApi` is pointed at it. */
+	const pathFor = useCallback(
+		(day: string | null, view: string | null) => {
+			const q = new URLSearchParams();
+			if (day) q.set('day', day);
+			if (view) q.set('view', view);
+			const s = q.toString();
+			return s ? `${base}?${s}` : base;
+		},
+		[base]
+	);
+	const flushHeld = useCallback(() => {
+		const q = held.current;
+		held.current = [];
+		const url = new URLSearchParams(window.location.search);
+		const now = pathFor(url.get('day'), url.get('view'));
+		for (const h of q) if (h.path === now) h.apply();
+	}, [pathFor]);
+	const { data, error, reload } = useApi<ScheduleData>(qs ? `${base}?${qs}` : base, {
+		gate,
+		transition: true
+	});
 	const toast = useToast();
 	// The payload carries the events, the crews that fill their people picker,
 	// the stays behind the lodging band and the roster it is filtered by.
@@ -1191,27 +1370,32 @@ export default function Schedule() {
 	   fold and grow a second scrollbar around a board that has its own. What is
 	   pulled is measured and bounded by the air that is actually there, so a
 	   board too tall for the screen still scrolls the page to its last row
-	   rather than having its end cut off. */
+	   rather than having its end cut off.
+
+	   On a phone the screen it measures to is the one the page scrolls to: see
+	   `DOCK_QUERY`. */
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const rootRef = useRef<HTMLDivElement>(null);
 	const pullRef = useRef(0);
 	const [viewH, setViewH] = useState(0);
 
 	/**
-	 * The day the strip is showing, which is not always the day in the url.
+	 * The day being read, which is not always the day in the url.
 	 *
 	 * The board is a strip of full-width days that scrolls sideways and settles
-	 * on one. The url follows a settle, and while a gesture is still in flight it
-	 * is behind, so the stepper and the lodging band read this instead: they name
-	 * the day under the reader's eyes, and a band still naming the day they have
-	 * scrolled away from is worse than no band at all. Null until the reader has
-	 * moved, which is to say the url is the answer until a hand says otherwise.
+	 * on one. The lodging band, the map and which panel is `inert` read this.
+	 * It is set once per move, when the strip comes to rest on the day the move
+	 * decided (`settleMove`, or a native scroll's settle), together with the url,
+	 * never under a finger or a glide: rendering the page for it mid-glide was
+	 * the glide's dropped frames. The date title follows the same moment through
+	 * `heading`. Null until the reader has moved, which is to say the url is the
+	 * answer until a hand says otherwise.
 	 */
 	const [shownDay, setShownDay] = useState<string | null>(null);
+	/** The date title's day; see `dayStore`. */
+	const heading = useMemo(dayStore, []);
 	/** True while the strip is being positioned by code rather than by a hand. */
 	const placing = useRef(false);
-	/** The day the last settle committed, so it is not committed twice. */
-	const committed = useRef<string | null>(null);
 	/** True while a finger is dragging the strip sideways. See `AXIS_LOCK_PX`. */
 	const swiping = useRef(false);
 	/**
@@ -1233,33 +1417,123 @@ export default function Schedule() {
 	/** The payload the last re-seat saw, so it can tell a new one from a re-render. */
 	const seatData = useRef<ScheduleData | null>(null);
 	/**
-	 * An arrow's slide to a neighbour, while it runs. See `GLIDE_MS`.
+	 * An arrow's or a release's slide to a day, while it runs. See `stepTo`.
 	 *
-	 * `at` is the offset the tween last wrote, which is the position the reader
-	 * is looking at: the box's own `scrollLeft` can already have been clamped by
-	 * a re-index that took a panel away, so it is not the thing to rebase.
+	 * The browser's own smooth scroll to the day's seat (`to`), which on a
+	 * composited scroller is run by the compositor: no frame of it waits for the
+	 * main thread, and moving a scroll offset repaints nothing. `push` is how the
+	 * url is written when it lands; `timer` checks on it (`GLIDE_CHECK_MS`) and
+	 * `resumed` says it has already been set going again once.
 	 */
 	const glide = useRef<{
 		day: string;
-		from: number;
 		to: number;
-		at: number;
-		t0: number;
-		raf: number;
+		push: boolean;
+		timer: number;
+		resumed: boolean;
 	} | null>(null);
+	/**
+	 * A step asked for from a day whose neighbour the strip does not hold yet.
+	 *
+	 * The strip holds three days around the url's, so a second swipe made before
+	 * the first one's payload is back reaches the edge: the day after next is not
+	 * on it. A second arrow press during a slide is the same. Rather than drop the
+	 * step, the strip comes to rest on the edge day and goes on, the same slide,
+	 * once that day's payload brings its neighbour (`push` for an arrow). Cleared
+	 * by any other move (`stepTo`) and by any payload for another day.
+	 */
+	const pendingStep = useRef<{ from: string; dir: number; push: boolean } | null>(null);
 	const stillness = useMediaQuery('(prefers-reduced-motion: reduce)');
-	/** Stop a slide where it is and hand the strip back to its snap. */
+	/**
+	 * Stop a slide where it is and hand the strip back to its snap.
+	 *
+	 * An instant scroll to where the box is ends the browser's smooth one there,
+	 * so the strip does not move on screen and everything that reads its
+	 * position afterwards (a finger taking it, the width keeper, a mouse press)
+	 * finds the place the reader sees.
+	 */
 	const endGlide = useCallback(() => {
 		const g = glide.current;
 		if (!g) return;
-		cancelAnimationFrame(g.raf);
+		window.clearTimeout(g.timer);
 		glide.current = null;
-		scrollRef.current?.style.removeProperty('scroll-snap-type');
+		const el = scrollRef.current;
+		if (!el) return;
+		el.scrollTo({ left: el.scrollLeft, behavior: 'instant' });
+		el.style.removeProperty('scroll-snap-type');
 	}, []);
 	useEffect(() => endGlide, [endGlide]);
+	/** Land a slide that has reached its day; see `stepTo`. Set further down. */
+	const finishGlide = useRef<() => boolean>(() => false);
+	/** Set a slide found short of its day going again; see `GLIDE_CHECK_MS`. Set further down. */
+	const resumeGlide = useRef<(byTimer?: boolean) => void>(() => {});
+	/** Commit a slide's move before it lands; see the finger listener. Set further down. */
+	const commitGlide = useRef<() => void>(() => {});
+	/** True while a finger is on the strip, whichever way it goes. */
+	const fingerDown = useRef(false);
+	/* A payload is held while a slide runs untouched; see `gate`. Not while a
+	   finger is on the strip: the next swipe needs the day after the one the
+	   last reached, which only that day's payload brings, and the re-seat keeps
+	   the place under the finger by day name when it lands. */
+	stillNow.current = () => !glide.current || fingerDown.current;
+	/**
+	 * The hours' offset the page itself last set, until the scroll event that
+	 * carries it has been seen. The coasting rule (`COASTING_MS`) reads the box's
+	 * vertical scroll events as a reader's scroll still moving, and the page's
+	 * own jumps (the hours re-based when an earlier start opens the window, the
+	 * board opening on its first block, a carried block's glue) are not one: a
+	 * 60px re-base read as fast movement and locked the next swipe vertical.
+	 */
+	const ownTop = useRef<number | null>(null);
+	/** Set the hours' offset, marked as the page's own; see `ownTop`. */
+	const setTop = useCallback((el: HTMLElement, top: number) => {
+		const was = el.scrollTop;
+		el.scrollTop = top;
+		if (el.scrollTop !== was) ownTop.current = el.scrollTop;
+	}, []);
+	const docking = useMediaQuery(DOCK_QUERY);
 	useLayoutEffect(() => {
 		const el = scrollRef.current;
 		if (!el) return;
+		/* The phone's screen with its toolbars showing. iOS Safari and Chrome on
+		   Android slide their toolbars away as the page scrolls, which changes
+		   `innerHeight` and fires a resize; a box sized off that grew and shrank
+		   under the reader with every change of direction. `100svh` is the
+		   smaller of the two and never moves, so the docked box keeps one height
+		   and the toolbar sliding away only uncovers a strip of page under it.
+		   Read off a probe because that is the one way to get the unit in
+		   pixels; where the unit is not known the probe measures nothing and
+		   the window's own height stands in. */
+		const probe = document.createElement('div');
+		probe.style.cssText =
+			'position:fixed;top:0;left:0;width:0;height:100svh;visibility:hidden;pointer-events:none';
+		if (docking) document.body.append(probe);
+		/** Where the docked box sits, once `fit` has measured it; null off a phone. */
+		let dock: { bar: number; fits: boolean } | null = null;
+		/* Whether the hours take a vertical finger, which on a phone is only once
+		   the whole box is in sight.
+
+		   The docked box is taller than what is left under the chrome before the
+		   page has scrolled, so its bottom starts below the fold. Left to scroll
+		   there, a finger on the board moved the hours inside a box it could only
+		   see the top of, the page under it never went anywhere, and the last
+		   hours of the day sat below the screen where scrolling the box could not
+		   bring them. So until the box is wholly on screen it takes no vertical
+		   pan and the finger scrolls the page, which is what brings the box up;
+		   from then on the hours scroll, and the page chains on past either end of
+		   them as it always has. Programmatic scrolling is unaffected, so a drag
+		   still travels the hours and the day still opens on its first block.
+
+		   Not when the box cannot fit even docked (the floor is binding): it would
+		   never be wholly in sight, and the hours would never move. */
+		const park = () => {
+			const r = el.getBoundingClientRect();
+			const parked =
+				!!dock &&
+				dock.fits &&
+				(r.top < dock.bar - DOCK_SLOP_PX || r.bottom > window.innerHeight + DOCK_SLOP_PX);
+			if (parked !== el.hasAttribute('data-parked')) el.toggleAttribute('data-parked', parked);
+		};
 		const fit = () => {
 			const card = el.parentElement;
 			const root = rootRef.current;
@@ -1268,7 +1542,20 @@ export default function Schedule() {
 			const docTop = box.top + window.scrollY;
 			// What the card draws under the box, which is its padding today.
 			const cardTail = Math.max(0, card.getBoundingClientRect().bottom - box.bottom);
-			setViewH(Math.max(MIN_VIEW_H, window.innerHeight - docTop - cardTail - VIEW_AIR));
+			if (docking) {
+				// The card docked under the site's bar: the stepper and the lodging
+				// band above the box, measured, and the screen under them.
+				const bar = pinnedBar();
+				const above = box.top - card.getBoundingClientRect().top;
+				const screen = probe.getBoundingClientRect().height || window.innerHeight;
+				const room = Math.floor(screen - bar - above - cardTail - VIEW_AIR);
+				dock = { bar, fits: room >= MIN_VIEW_H };
+				root.style.setProperty('--dockline', `${bar}px`);
+				setViewH(Math.max(MIN_VIEW_H, room));
+			} else {
+				dock = null;
+				setViewH(Math.max(MIN_VIEW_H, window.innerHeight - docTop - cardTail - VIEW_AIR));
+			}
 
 			const doc = document.documentElement;
 			const pull = pullRef.current;
@@ -1281,9 +1568,11 @@ export default function Schedule() {
 				pullRef.current = want;
 				root.style.setProperty('--tailpull', `${want}px`);
 			}
+			park();
 		};
 		fit();
 		window.addEventListener('resize', fit);
+		if (docking) window.addEventListener('scroll', park, { passive: true });
 		/* The web font lands after the first paint, and it is narrower than the
 		   fallback: on a phone the lodging band comes back from two rows to one
 		   when it arrives. That moves the box up without changing the height of
@@ -1299,9 +1588,22 @@ export default function Schedule() {
 		if (el.parentElement) ro.observe(el.parentElement);
 		return () => {
 			window.removeEventListener('resize', fit);
+			window.removeEventListener('scroll', park);
 			ro.disconnect();
+			probe.remove();
+			el.removeAttribute('data-parked');
 		};
-	}, [data]);
+	}, [data, docking]);
+
+	/* The page snaps to the docked board, softly. See `.boarddock` in
+	   `schedule.css`: the class is on the root because the root is what
+	   scrolls, and it comes off with the page so no other page snaps. */
+	useEffect(() => {
+		if (!docking) return;
+		const doc = document.documentElement;
+		doc.classList.add('boarddock');
+		return () => doc.classList.remove('boarddock');
+	}, [docking]);
 
 	/* The board's one write path: a drag that lands, a resize that lands. Its
 	   failures are corner toasts rather than a line above the board. The line
@@ -1535,13 +1837,13 @@ export default function Schedule() {
 		return board.find((b) => b.day === on) ?? anchor;
 	}, [board, shownDay, data?.day, anchor]);
 
-	/* The day the map draws. In the agenda it is the day being read, so an arrow
-	   moves the map on the tap together with the list it switches, rather than a
-	   fetch later. On the day board it stays the url's day: the day being read
-	   there changes at the halfway point of every swipe, and a camera that flew
-	   off mid-gesture and back when the hand let go would be a second motion
-	   arguing with the first. */
-	const mapped = data?.view === 'agenda' ? reading : anchor;
+	/* The day the map draws: the day being read, in both views, so it follows
+	   a move as one change when the strip comes to rest, together with the band,
+	   rather than a fetch later. It was the url's day on the day board while the
+	   day being read changed at the halfway point of every swipe, since a camera
+	   that flew off mid-gesture and back when the hand let go would have been a
+	   second motion arguing with the first. */
+	const mapped = reading;
 	const mappedCity = mapped?.city ?? null;
 
 	const navigate = useNavigate();
@@ -1580,8 +1882,8 @@ export default function Schedule() {
 		if (!el || !data) return;
 		if (data.view === 'agenda') {
 			endGlide();
+			heading.set(data.day);
 			setShownDay(data.day);
-			committed.current = data.day;
 			return;
 		}
 		// Not under a hand. A live reload that lands while a block is being carried
@@ -1611,22 +1913,26 @@ export default function Schedule() {
 		if (dragRef.current) return;
 		const w = stride(el);
 		const g = glide.current;
-		const shared = days.find((d) => was.includes(d));
 		// Only the payload for the day the slide is going to may carry it on. A
 		// payload for any other day means the reader has gone somewhere else since
 		// the click (the back button, the date picker), and its three days can
 		// still hold the slide's day: carried on, the slide landed there and the
 		// settle wrote it over the entry the reader had just returned to. A board
 		// that changed without a new payload ("view as", a draft) is the same
-		// payload, so the slide goes on.
+		// payload, so the slide goes on. A payload is held while a slide runs
+		// (`gate`), so one re-indexing the strip under it is rare; when it does,
+		// the box is moved by the re-index at once and the slide goes on from
+		// there to the day's new seat.
 		const ours = !fresh || data.day === g?.day;
-		if (g && w && ours && days.includes(g.day) && shared !== undefined) {
-			const shift = (days.indexOf(shared) - was.indexOf(shared)) * w;
-			g.from += shift;
-			g.at += shift;
-			g.to = days.indexOf(g.day) * w;
-			el.scrollLeft = g.at;
-			committed.current = data.day;
+		if (g && w && ours && days.includes(g.day)) {
+			const shared = days.find((d) => was.includes(d));
+			const shift = shared ? (days.indexOf(shared) - was.indexOf(shared)) * w : 0;
+			const to = days.indexOf(g.day) * w;
+			if (shift || to !== g.to) {
+				g.to = to;
+				el.scrollTo({ left: el.scrollLeft + shift, behavior: 'instant' });
+				el.scrollTo({ left: to, behavior: 'smooth' });
+			}
 			return;
 		}
 		endGlide();
@@ -1634,15 +1940,15 @@ export default function Schedule() {
 		if (i < 0) return;
 		placing.current = true;
 		el.scrollLeft = i * w;
+		heading.set(data.day);
 		setShownDay(data.day);
-		committed.current = data.day;
 		// Released on the next frame: setting scrollLeft queues a scroll event,
 		// and reading it as a gesture would commit the seat we just took.
 		const id = requestAnimationFrame(() => {
 			placing.current = false;
 		});
 		return () => cancelAnimationFrame(id);
-	}, [data, board, endGlide]);
+	}, [data, board, endGlide, heading]);
 
 	/**
 	 * Keep the seat when the box changes width.
@@ -1657,9 +1963,10 @@ export default function Schedule() {
 	useEffect(() => {
 		const el = scrollRef.current;
 		if (!el || data?.view === 'agenda') return;
-		let w = stride(el);
+		let w = stride(el, true);
 		const ro = new ResizeObserver(() => {
-			const now = stride(el);
+			// Fresh, which also refreshes the width every other reader takes.
+			const now = stride(el, true);
 			if (!now || now === w || dragRef.current || swiping.current) return;
 			// A slide in flight is aimed at the old width; land it before squaring.
 			endGlide();
@@ -1716,17 +2023,30 @@ export default function Schedule() {
 		const box = el.getBoundingClientRect();
 		const seen = Math.min(box.bottom, window.innerHeight) - Math.max(box.top, 0);
 		if (first - el.scrollTop <= seen / 2) return;
-		el.scrollTop = Math.max(0, first - 30 * PX_PER_MIN);
+		setTop(el, Math.max(0, first - 30 * PX_PER_MIN));
 	});
 
 	/**
 	 * Follow the strip, and commit the day it comes to rest on.
 	 *
-	 * Two jobs on one listener because they are the same measurement. The day
-	 * being read is updated continuously, so the stepper and the band keep up
-	 * with the hand; the url is written only once the strip has stopped, because
-	 * a url per frame would fill the back button with every day scrolled past.
+	 * The day being read changes once per move, when the move is decided, never
+	 * part-way through it. It used to follow the strip's halfway point on every
+	 * scroll event, which under a finger that wavered around the middle of a
+	 * swipe flipped the stepper, the band and the map back and forth, and on a
+	 * swipe released past a third of a day left the old name up until the glide
+	 * crossed the middle. An arrow, a swipe's release and the back button name
+	 * the day themselves through `stepTo`; a payload names its own day in the
+	 * re-seat; what is left for this listener is a strip moved natively (a
+	 * trackpad, a sideways wheel, the keyboard), whose decision is where it
+	 * comes to rest, so it names the day at the settle.
 	 *
+	 * The one exception is a block being carried. The strip travelling is half
+	 * of a cross-day drag, and the drop lands on whichever day is under the
+	 * block, so the stepper names that day as the strip passes its middle: it is
+	 * the answer to "where will this go", which is what the hand is asking.
+	 *
+	 * The url is written only once the strip has stopped, because a url per
+	 * frame would fill the back button with every day scrolled past, and with
 	 * `replace`, for the same reason: the strip is one continuous movement
 	 * through the trip, not a series of visits, so it leaves one entry behind
 	 * rather than one per day. The arrows and the date picker still push, since
@@ -1736,116 +2056,276 @@ export default function Schedule() {
 		const el = scrollRef.current;
 		if (!el || !data || data.view === 'agenda') return;
 		let settle = 0;
+		/** The day the strip's seat is nearest now, by the panels in the DOM. */
+		const under = () => {
+			const w = stride(el);
+			return w ? seatDays.current[Math.round(el.scrollLeft / w)] : undefined;
+		};
 		const onScroll = () => {
 			if (placing.current) return;
-			const w = stride(el);
-			if (!w) return;
-			const landed = seatDays.current[Math.round(el.scrollLeft / w)];
-			if (!landed) return;
-			setShownDay(landed);
+			// The title only: the band, the map and the url follow the drop.
+			if (dragRef.current) {
+				const day = under();
+				if (day) heading.set(day);
+			}
 			window.clearTimeout(settle);
 			settle = window.setTimeout(() => {
-				// Not while something is being carried. The strip travelling is
-				// half of a cross-day drag, and rewriting the url mid-gesture would
-				// refetch the window and take the panel the block is drawn in out
-				// from under the hand holding it. The drop writes the url itself, and
-				// so does the release of a finger dragging the strip.
-				if (placing.current || dragRef.current || swiping.current || landed === committed.current)
+				// Not while something is being carried. Rewriting the url mid-gesture
+				// would refetch the window and take the panel the block is drawn in
+				// out from under the hand holding it. The drop writes the url itself.
+				// Not under a finger or a slide either: both end in `settleMove`,
+				// which names the day and writes the url when the strip stops. A slide
+				// that has come to rest on its day lands here where the browser has no
+				// `scrollend`; one short of it is the slide's own timer's to deal with
+				// (`resumeGlide`).
+				if (glide.current) {
+					finishGlide.current();
 					return;
-				committed.current = landed;
-				navigate(navUrl(landed, data.view), { replace: true });
+				}
+				if (placing.current || dragRef.current || swiping.current) return;
+				const landed = under();
+				if (!landed) return;
+				heading.set(landed);
+				startTransition(() => setShownDay(landed));
+				const named = new URLSearchParams(window.location.search).get('day');
+				if (landed !== named) navigate(navUrl(landed, data.view), { replace: true });
+				flushHeld();
 			}, SETTLE_MS);
 		};
+		// Where the browser says when a scroll has finished, a slide lands then
+		// rather than a settle later. Finished short of its day (a key scrolled
+		// the hours, say), the slide is set going again, since the move it is
+		// making is decided; not under a finger, which the slide's timer waits out.
+		const onScrollEnd = () => {
+			if (!glide.current || finishGlide.current() || fingerDown.current) return;
+			resumeGlide.current();
+		};
 		el.addEventListener('scroll', onScroll, { passive: true });
+		el.addEventListener('scrollend', onScrollEnd, { passive: true });
 		return () => {
 			el.removeEventListener('scroll', onScroll);
+			el.removeEventListener('scrollend', onScrollEnd);
 			window.clearTimeout(settle);
 		};
-	}, [data, navigate]);
+	}, [data, navigate, heading, flushHeld]);
 
-	/* A hand on the strip takes it back from a slide in flight: a finger or a
-	   press landing on it, or a sideways wheel. A vertical wheel is reading the
-	   hours, not asking for another day, so it leaves the slide alone. */
+	/* A hand on the strip takes it back from a slide in flight: a press landing
+	   on it, or a sideways wheel. A vertical wheel is reading the hours, not
+	   asking for another day, so it leaves the slide alone. A finger is the
+	   touch handler's to judge: it lets a slide run on under a touch that turns
+	   out to be a scroll down the hours, and only stops it when the touch locks
+	   sideways and takes the strip itself. Ending it on contact left the strip
+	   half way between two days with a swipe already decided, and the next swipe
+	   was then read from the day it had left. */
 	useEffect(() => {
 		const el = scrollRef.current;
 		if (!el || data?.view === 'agenda') return;
 		const onWheel = (e: WheelEvent) => {
 			if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) endGlide();
 		};
-		el.addEventListener('pointerdown', endGlide, { passive: true });
-		el.addEventListener('touchstart', endGlide, { passive: true });
+		const onDown = (e: PointerEvent) => {
+			if (e.pointerType !== 'touch') endGlide();
+		};
+		/* A finger on a strip that is still sliding: the slide runs on, but the
+		   move it is making is decided, so it is committed now (title, band, map,
+		   url) rather than when it lands, and its payload is let through. A swipe
+		   made straight after a swipe then has the day after next to move into. */
+		const onTouch = () => {
+			fingerDown.current = true;
+			commitGlide.current();
+		};
+		const onLift = (e: TouchEvent) => {
+			if (e.touches.length === 0) fingerDown.current = false;
+		};
+		el.addEventListener('pointerdown', onDown, { passive: true });
 		el.addEventListener('wheel', onWheel, { passive: true });
+		el.addEventListener('touchstart', onTouch, { passive: true });
+		el.addEventListener('touchend', onLift, { passive: true });
+		el.addEventListener('touchcancel', onLift, { passive: true });
 		return () => {
-			el.removeEventListener('pointerdown', endGlide);
-			el.removeEventListener('touchstart', endGlide);
+			el.removeEventListener('pointerdown', onDown);
 			el.removeEventListener('wheel', onWheel);
+			el.removeEventListener('touchstart', onTouch);
+			el.removeEventListener('touchend', onLift);
+			el.removeEventListener('touchcancel', onLift);
+			fingerDown.current = false;
 		};
 	}, [data?.view, !!data, endGlide]);
 
 	/**
-	 * Slide the strip to a neighbour, which is what an arrow now does.
+	 * The end of a move: the strip has come to rest on `day`.
+	 *
+	 * Everything that follows the day besides its title happens here, once, and
+	 * not while an untouched strip moves: the band, the map and which panel is
+	 * `inert` (`shownDay`), the url for a swipe (an arrow wrote its own on the
+	 * press), and with the url the fetch of that day's payload, which the release
+	 * or the press has already started (`prefetch`), and any payload held while
+	 * the strip moved. A finger that touches a sliding strip brings this forward
+	 * (`commitGlide`). `replace` for a swipe, which is travel.
+	 */
+	const settleMove = useCallback(
+		(day: string, push: boolean) => {
+			heading.set(day);
+			startTransition(() => setShownDay(day));
+			const named = new URLSearchParams(window.location.search).get('day');
+			if (data && day !== named) navigate(navUrl(day, data.view), { replace: !push });
+			flushHeld();
+		},
+		[data, navigate, heading, flushHeld]
+	);
+
+	/**
+	 * Slide the strip to a day on it, which is what an arrow and a swipe's
+	 * release do. False when the day is not on the strip.
 	 *
 	 * The arrows are still links, so the board stays addressable and the back
-	 * button still walks the days. This runs first, over the panels that are on
-	 * screen at the time of the click: the old three are still painted while the
-	 * new day is being fetched, so the strip slides to the neighbour the reader
-	 * asked for, and the re-seat above rebases the slide when the payload lands
-	 * part-way through it. One motion, whether it was a hand or an arrow that
-	 * started it, and the same scroll events, so the stepper renames the day at
-	 * the halfway point exactly as it does under a finger.
+	 * button still walks the days; an arrow's step (`push`) writes its address
+	 * on the press. This runs over the panels that are on screen at the time:
+	 * the strip slides to the day asked for and, when it gets there,
+	 * `settleMove` names it and the payload for the new day is put under it.
+	 * One motion, whether it was a hand or an arrow that started it.
+	 * Nothing on the page changes while it moves: the title, the band and the
+	 * map all name the new day when it lands, once (a spring-back names the day
+	 * already named, so nothing changes). Even the title alone, renamed as the
+	 * slide got under way, cost a render and a relayout of the page in the
+	 * middle of the slide, which the next scroll event paid for as a forced
+	 * layout: a dropped frame at a phone's speed.
 	 *
-	 * A tween rather than `scrollTo({ behavior: 'smooth' })`: see `GLIDE_MS`.
-	 * Snapping is off while it runs, for the reason it is off under a carried
-	 * block (`.held`): a mandatory snap container answers every per-frame write
-	 * by throwing the strip back to the nearest day. Written as an inline style
-	 * rather than a class so a render in the middle of the slide cannot take it
-	 * away. A reader who asked for stillness gets the day at once.
+	 * The slide is the browser's own smooth scroll to the day's seat. On a
+	 * composited scroller that runs on the compositor and moves only a scroll
+	 * offset, so once it starts no frame of it waits for the main thread and
+	 * nothing is repainted. The tween it replaced wrote `scrollLeft` from a frame
+	 * callback, and every frame the page spent on anything else (a render, the
+	 * payload) was a frame the strip stood still: measured on a phone-speed
+	 * production build, two frames drawn in 450ms. Animating the strip's
+	 * transform instead was measured too, and repainted the whole strip on
+	 * every frame. The smooth scroll used to be cancelled by a payload landing
+	 * part-way through it; payloads now wait for the strip to stop (`gate`).
+	 * The target is a snap point, so snapping stays on for an arrow; a finger
+	 * that switched it off gets it back when the slide lands. A reader who
+	 * asked for stillness gets the day at once.
 	 *
 	 * The agenda has no strip. When the payload already holds the day asked for,
 	 * the list switches to it at once instead of waiting for the fetch.
 	 */
 	const stepTo = useCallback(
-		(day: string) => {
+		(day: string, push = false): boolean => {
 			const el = scrollRef.current;
-			if (!el) return;
+			if (!el || !data) return false;
 			const i = board.findIndex((b) => b.day === day);
-			if (i < 0) return;
-			committed.current = day;
-			if (data?.view === 'agenda') {
-				setShownDay(day);
-				return;
+			if (i < 0) return false;
+			pendingStep.current = null;
+			if (data.view === 'agenda') {
+				settleMove(day, push);
+				return true;
 			}
+			// The payload the url will ask for when the strip lands, asked for now.
+			if (day !== new URLSearchParams(window.location.search).get('day'))
+				prefetch(pathFor(day, data.view));
+			// An arrow's step is a visit, written to the history on the press: a
+			// Back pressed while the slide runs then returns to the day it left,
+			// where a push written on landing let Back skip past it. The router's
+			// render for the new address is main-thread work, which the slide, run
+			// by the compositor, does not wait for.
+			if (push && day !== new URLSearchParams(window.location.search).get('day'))
+				navigate(navUrl(day, data.view));
 			const to = i * stride(el);
+			// A new slide replaces the one in flight from wherever it has got to.
 			const was = glide.current;
-			if (was) cancelAnimationFrame(was.raf);
-			if (stillness) {
-				endGlide();
-				el.scrollLeft = to;
-				return;
+			if (was) window.clearTimeout(was.timer);
+			glide.current = null;
+			if (stillness || Math.abs(to - el.scrollLeft) < 1) {
+				el.scrollTo({ left: to, behavior: 'instant' });
+				el.style.removeProperty('scroll-snap-type');
+				settleMove(day, push);
+				return true;
 			}
-			const from = was ? was.at : el.scrollLeft;
-			el.style.setProperty('scroll-snap-type', 'none');
-			const g = { day, from, to, at: from, t0: performance.now(), raf: 0 };
-			glide.current = g;
-			// Progress is counted a frame at a time, capped at two frames' worth,
-			// rather than read off the clock. The payload lands mid-slide and
-			// drawing the new panels is one long frame; read off the clock, the
-			// strip leapt a third of a day to catch up with the time it missed.
-			let done = 0;
-			let last = g.t0;
-			const tick = (now: number) => {
-				if (glide.current !== g) return;
-				done += Math.min(Math.max(0, now - last), 34);
-				last = now;
-				const t = Math.min(1, done / GLIDE_MS);
-				g.at = g.from + (g.to - g.from) * (1 - (1 - t) ** 3);
-				el.scrollLeft = g.at;
-				if (t < 1) g.raf = requestAnimationFrame(tick);
-				else endGlide();
-			};
-			g.raf = requestAnimationFrame(tick);
+			const timer = window.setTimeout(() => resumeGlide.current(true), GLIDE_CHECK_MS);
+			glide.current = { day, to, push, timer, resumed: false };
+			el.scrollTo({ left: to, behavior: 'smooth' });
+			return true;
 		},
-		[board, data?.view, stillness, endGlide]
+		[board, data, stillness, heading, settleMove, pathFor, navigate]
+	);
+	/* A slide lands when the box has reached its day's seat: on `scrollend`, or
+	   on the settle after the last scroll event where the browser has no
+	   `scrollend`. False while it is still on its way. */
+	finishGlide.current = () => {
+		const g = glide.current;
+		const el = scrollRef.current;
+		if (!g || !el || Math.abs(el.scrollLeft - g.to) > 1) return false;
+		window.clearTimeout(g.timer);
+		glide.current = null;
+		el.style.removeProperty('scroll-snap-type');
+		settleMove(g.day, g.push);
+		return true;
+	};
+	/* A slide found short of its day, by its timer or by a `scrollend` that came
+	   early. Under a finger it waits: the finger may be taking the strip, and a
+	   slide pulled out from under it would fight the hand. Otherwise it is set
+	   going again; found short again by its timer, the strip is put on its day
+	   at once and the move settles there, url, band, map and any held payload,
+	   as if it had landed. Only the timer may make that jump: a wheel over the
+	   hours fires `scrollend` on every tick while the slide is still moving, and
+	   treating the second one as "short again" cut the slide off mid-motion.
+	   Left as it was, a slide stopped short stayed "running" for good: every
+	   payload held, snapping off between two days, and the title naming a day
+	   the strip never reached. */
+	resumeGlide.current = (byTimer = false) => {
+		const g = glide.current;
+		const el = scrollRef.current;
+		if (!g || !el || finishGlide.current()) return;
+		window.clearTimeout(g.timer);
+		const check = () => window.setTimeout(() => resumeGlide.current(true), GLIDE_CHECK_MS);
+		if (fingerDown.current) {
+			g.timer = check();
+			return;
+		}
+		if (!g.resumed || !byTimer) {
+			g.resumed = true;
+			g.timer = check();
+			el.scrollTo({ left: g.to, behavior: 'smooth' });
+			return;
+		}
+		glide.current = null;
+		const w = stride(el);
+		const i = seatDays.current.indexOf(g.day);
+		el.scrollTo({ left: w && i >= 0 ? i * w : g.to, behavior: 'instant' });
+		el.style.removeProperty('scroll-snap-type');
+		settleMove(g.day, g.push);
+	};
+	commitGlide.current = () => {
+		const g = glide.current;
+		if (g) settleMove(g.day, g.push);
+	};
+
+	/**
+	 * An arrow's step: a day either side of the day the reader has committed to,
+	 * which is the day a running slide is going to, not the url's.
+	 *
+	 * The arrows' own days are the payload's neighbours of the url's day, so a
+	 * second press during a slide, or before the new day's payload was back,
+	 * asked for the day the first press was already going to and was lost. Read
+	 * off the strip instead; when the neighbour is not on it yet, the step waits
+	 * for the committed day's payload (`pendingStep`). False when there is no
+	 * strip to step on, and the arrow navigates as a link.
+	 */
+	const stepBy = useCallback(
+		(dir: number): boolean => {
+			if (!data) return false;
+			const from = glide.current?.day ?? heading.get() ?? data.day;
+			const days = seatDays.current;
+			const i = days.indexOf(from);
+			if (i < 0) return false;
+			const to = days[i + dir];
+			if (to) return stepTo(to, true);
+			// The committed day's own payload is on screen: it would have brought a
+			// neighbour, so there is none.
+			if (from === seatData.current?.day) return true;
+			pendingStep.current = { from, dir, push: true };
+			return true;
+		},
+		[data, heading, stepTo]
 	);
 
 	/**
@@ -1886,6 +2366,24 @@ export default function Schedule() {
 	const stepRef = useRef(stepTo);
 	stepRef.current = stepTo;
 
+	/* Carry on a swipe that asked for a day the strip did not hold yet (see
+	   `pendingStep`), now that the edge day's payload has brought its neighbour.
+	   After the re-seat in the same commit, so the slide starts from the seat or
+	   the rebased slide that has just been put under the reader. Keyed on the
+	   payload alone: only a payload can bring the day, and a render for anything
+	   else (the name changing, a draft) must not clear the wait. */
+	useLayoutEffect(() => {
+		const p = pendingStep.current;
+		if (!p || !data || swiping.current || dragRef.current) return;
+		pendingStep.current = null;
+		if (data.day !== p.from) return;
+		const next = p.dir > 0 ? data.nextDay : data.prevDay;
+		if (!next) return;
+		// A swipe's landing writes the url (`settleMove`); an arrow's, on the step.
+		stepRef.current(next, p.push);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [data]);
+
 	/**
 	 * A finger moves the strip by script, one day at most, and only on purpose.
 	 *
@@ -1896,17 +2394,17 @@ export default function Schedule() {
 	 * longer be cancelled means the browser has already taken the gesture as a
 	 * scroll, so it stays one.
 	 *
-	 * The release hands over to `stepTo`, the arrow's tween, both to go on to the
-	 * neighbour and to spring back, so the re-seat, the rebase and the url settle
-	 * stay one path. Going on writes the url at once, replacing, as a settle
-	 * does: the payload it fetches lands under the tween exactly as an arrow's
-	 * does. A block lifted by a long press takes the touch over entirely; mouse,
+	 * The release hands over to `stepTo`, the arrow's slide, both to go on to
+	 * the neighbour and to spring back, so the re-seat, the payload hold and the
+	 * url settle stay one path. Going on writes the url when the strip lands,
+	 * replacing, as a settle does; the payload is fetched at the release and put
+	 * on screen at the landing, or at once if a finger is already back on the
+	 * strip. A block lifted by a long press takes the touch over entirely; mouse,
 	 * trackpad and wheel never reach here.
 	 */
 	useEffect(() => {
 		const el = scrollRef.current;
 		if (!el || !data || data.view === 'agenda') return;
-		const view = data.view;
 		const step = (day: string) => stepRef.current(day);
 		type Touch1 = {
 			x: number;
@@ -1926,6 +2424,26 @@ export default function Schedule() {
 			trail: { x: number; t: number }[];
 		};
 		let t: Touch1 | null = null;
+		/** When the hours or the page last moved vertically, for `COASTING_MS`. */
+		let movedAt = -Infinity;
+		/* `own` is a value the page itself wrote (see `ownTop`): seen, it becomes
+		   the new baseline without counting as movement. */
+		const tracker = (read: () => number, own?: { current: number | null }) => {
+			let last = read();
+			let lastAt = -Infinity;
+			return (e: Event) => {
+				const now = read();
+				if (now === last) return;
+				const mine = own?.current === now;
+				if (own && mine) own.current = null;
+				const v = Math.abs(now - last) / Math.max(1, e.timeStamp - lastAt);
+				last = now;
+				lastAt = e.timeStamp;
+				if (!mine && v >= COASTING_PX_PER_MS) movedAt = e.timeStamp;
+			};
+		};
+		const onScroll = tracker(() => el.scrollTop, ownTop);
+		const onPageScroll = tracker(() => window.scrollY);
 		/** Where `t.fromDay` sits on the strip now, re-taken from the strip if it has gone. */
 		const anchor = (cur: Touch1, w: number): number => {
 			const i = seatDays.current.indexOf(cur.fromDay);
@@ -1942,19 +2460,26 @@ export default function Schedule() {
 			swipeAt.current = null;
 			t = null;
 			const w = stride(el);
-			if (!cur || !w) return;
+			// Nowhere to go: the strip gets its snap back, which settles it.
+			if (!cur || !w) return void el.style.removeProperty('scroll-snap-type');
 			const i = anchor(cur, w);
-			const day = seatDays.current[Math.max(0, Math.min(seatDays.current.length - 1, i + dir))];
-			if (!day) return;
+			const edge = seatDays.current.length - 1;
+			const day = seatDays.current[Math.max(0, Math.min(edge, i + dir))];
+			if (!day) return void el.style.removeProperty('scroll-snap-type');
 			step(day);
-			// A reader who asked for stillness gets the day at once and no tween,
-			// and the tween's end is what gives snapping back to the strip.
+			// Past the edge of the strip: the day asked for is not on it yet. Rest
+			// on the edge and go on when its payload lands; see `pendingStep`. Not
+			// when the edge day's own payload is the one on screen: it would have
+			// brought the neighbour, so there is none.
+			if ((i + dir < 0 || i + dir > edge) && seatData.current?.day !== day)
+				pendingStep.current = { from: day, dir, push: false };
+			// No slide (a reader who asked for stillness, or nothing left to travel):
+			// the strip is already on its day, so it gets its snap back now rather
+			// than when a slide lands.
 			if (!glide.current) el.style.removeProperty('scroll-snap-type');
-			// Against the url, not the day the swipe started on: a swipe that
-			// interrupted a slide, or started before the last one's payload came
-			// back, can land on a day the address does not name yet, or no longer.
-			const named = new URLSearchParams(window.location.search).get('day');
-			if (day !== named) navigate(navUrl(day, view), { replace: true });
+			// The url is written when the strip lands (`settleMove`), against the
+			// url rather than the day the swipe started on: a swipe that interrupted
+			// a slide can land on a day the address does not name yet, or no longer.
 		};
 		const onStart = (e: TouchEvent) => {
 			if (swiping.current) land(0);
@@ -1968,7 +2493,7 @@ export default function Schedule() {
 				lastX: p.clientX,
 				fromDay: '',
 				offset: 0,
-				axis: null,
+				axis: e.timeStamp - movedAt < COASTING_MS ? 'y' : null,
 				trail: [{ x: p.clientX, t: e.timeStamp }]
 			};
 		};
@@ -1987,16 +2512,27 @@ export default function Schedule() {
 				if (Math.hypot(dx, dy) < AXIS_LOCK_PX) return;
 				t.axis = e.cancelable && Math.abs(dx) > Math.abs(dy) * AXIS_RATIO ? 'x' : 'y';
 				if (t.axis === 'y') return;
+				// A slide still running is a move already decided, so the finger
+				// takes the strip from the day it is going to, not the day it is
+				// leaving: a swipe made straight after another used to be read from
+				// wherever the slide had got to, which for the first half of it is
+				// the old day, and so landed on the day it was already heading for.
+				const going = glide.current?.day;
 				endGlide();
 				swiping.current = true;
 				// Snapping would throw every per-move write back to the day.
 				el.style.setProperty('scroll-snap-type', 'none');
-				// Followed from here, so the strip does not jump the lock's ten pixels,
-				// and taken from where the strip is now: a payload may have re-seated
-				// it since the finger came down.
-				t.x = p.clientX;
+				// Followed from where the finger came down, so the strip catches up
+				// the lock's distance at once and is under the finger from the first
+				// sideways frame; taken from where the strip is now, since a payload
+				// may have re-seated it since the finger came down.
+				t.x = t.x0;
 				const w = stride(el);
-				const i = Math.max(0, Math.min(seatDays.current.length - 1, Math.round(el.scrollLeft / w)));
+				const g = going ? seatDays.current.indexOf(going) : -1;
+				const i =
+					g >= 0
+						? g
+						: Math.max(0, Math.min(seatDays.current.length - 1, Math.round(el.scrollLeft / w)));
 				t.fromDay = seatDays.current[i] ?? '';
 				t.offset = el.scrollLeft - i * w;
 			}
@@ -2005,12 +2541,15 @@ export default function Schedule() {
 			const w = stride(el);
 			if (!w) return;
 			const seat = anchor(t, w) * w;
-			const max = el.scrollWidth - el.clientWidth;
-			el.scrollLeft = Math.max(
+			// The strip's last seat, from the days it holds rather than from the
+			// box's scroll width, which would be a layout read on every move.
+			const max = Math.max(0, seatDays.current.length - 1) * w;
+			const at = Math.max(
 				0,
 				Math.min(max, seat + w, Math.max(seat - w, seat + t.offset - (p.clientX - t.x)))
 			);
-			swipeAt.current = { day: t.fromDay, off: el.scrollLeft - seat };
+			el.scrollLeft = at;
+			swipeAt.current = { day: t.fromDay, off: at - seat };
 			t.trail.push({ x: p.clientX, t: e.timeStamp });
 			while (t.trail.length > 2 && e.timeStamp - t.trail[0].t > FLICK_WINDOW_MS) t.trail.shift();
 		};
@@ -2042,11 +2581,15 @@ export default function Schedule() {
 			if (t?.axis === 'x') land(0);
 			t = null;
 		};
+		el.addEventListener('scroll', onScroll, { passive: true });
+		window.addEventListener('scroll', onPageScroll, { passive: true });
 		el.addEventListener('touchstart', onStart, { passive: true });
 		el.addEventListener('touchmove', onMove, { passive: false });
 		el.addEventListener('touchend', onEnd, { passive: true });
 		el.addEventListener('touchcancel', onCancel, { passive: true });
 		return () => {
+			el.removeEventListener('scroll', onScroll);
+			window.removeEventListener('scroll', onPageScroll);
 			el.removeEventListener('touchstart', onStart);
 			el.removeEventListener('touchmove', onMove);
 			el.removeEventListener('touchend', onEnd);
@@ -2221,10 +2764,9 @@ export default function Schedule() {
 		const el = scrollRef.current;
 		const d = dragRef.current;
 		if (!el || !d || glue === prev) return;
-		el.scrollTop += glue - prev;
 		const top = BOARD_PAD_PX + topPx(d.liveStart, boardStart);
 		const foot = top + d.mins * PX_PER_MIN - el.clientHeight;
-		el.scrollTop = Math.min(Math.max(el.scrollTop, foot), top);
+		setTop(el, Math.min(Math.max(el.scrollTop + glue - prev, foot), top));
 	});
 
 	/**
@@ -2273,7 +2815,7 @@ export default function Schedule() {
 		if (opened <= 0) return;
 		el.classList.add('rebase');
 		void el.scrollHeight;
-		el.scrollTop += opened;
+		setTop(el, el.scrollTop + opened);
 		requestAnimationFrame(() => el.classList.remove('rebase'));
 	});
 
@@ -3495,7 +4037,7 @@ export default function Schedule() {
 				className={`daygrid${drag ? ' still' : ''}${drag && openedBy > 0 ? ' opening' : ''}`}
 				style={{ height: `${(DAY_END - boardStart) * PX_PER_MIN + GRID_TAIL_PX}px` }}
 			>
-				<Axis boardStart={boardStart} labels={false} />
+				<Axis boardStart={boardStart} />
 
 				<div
 					className="lane"
@@ -3647,15 +4189,15 @@ export default function Schedule() {
 			<div className="split">
 				<div className="boardcol">
 					<div className="board card" ref={boardRef}>
-						<BoardHead
-							label={dayLabel(reading?.day ?? data.day)}
+						<LiveHead
+							store={heading}
+							fallback={reading?.day ?? data.day}
 							view={view}
-							day={reading?.day ?? data.day}
 							first={data.firstDay}
 							last={data.lastDay}
 							prev={dayStep(-1)}
 							next={dayStep(1)}
-							onStep={stepTo}
+							onStep={stepBy}
 						/>
 						{reading && stayBands(reading)}
 						{anchor ? (
@@ -3684,28 +4226,6 @@ export default function Schedule() {
 									<div ref={agendaRef}>{agendaBoard()}</div>
 								) : (
 									<>
-										{/* The time column. One for the whole strip, standing
-										    still at the left of the box while the days slide
-										    past it, and scrolling with them up and down because
-										    it is in the same scroller: the hours are the one
-										    thing on the board that is the same on every day,
-										    and a gutter that travelled with each panel moved
-										    the clock sideways on every step. Its height and its
-										    rules are the panels' own, from the same origin, so
-										    a label sits on its rule at every scroll.
-
-										    A child of the box itself, not of the strip. A sticky
-										    element can only travel inside its parent, and the
-										    strip is one box wide: inside it, the column was
-										    carried off with the strip past the first day. */}
-										<div
-											className={`timecol${drag ? ' still' : ''}`}
-											style={{
-												height: `${(DAY_END - boardStart) * PX_PER_MIN + GRID_TAIL_PX}px`
-											}}
-										>
-											<Axis boardStart={boardStart} labels />
-										</div>
 										<div className="daytrack">
 											{board.map((entry) => (
 												<div
@@ -3729,14 +4249,18 @@ export default function Schedule() {
 												   hand holding it, the gesture would die mid-air. */
 													inert={!drag && entry.day !== (reading?.day ?? data.day)}
 												>
-													{dayBoard(entry, {
-														lanePx: laneW || 560,
-														// One panel is measured, and they are all the same
-														// width: a second observer on a strip that
-														// re-indexes would report the same number twice and
-														// re-render the board for it.
-														measure: entry.day === data.day
-													})}
+													<PanelBody
+														draw={() =>
+															dayBoard(entry, {
+																lanePx: laneW || 560,
+																// One panel is measured, and they are all the same
+																// width: a second observer on a strip that
+																// re-indexes would report the same number twice and
+																// re-render the board for it.
+																measure: entry.day === data.day
+															})
+														}
+													/>
 												</div>
 											))}
 										</div>
