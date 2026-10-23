@@ -23,10 +23,11 @@ const SLIDE_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)';
 /**
  * Slides a panel in place from the side it came from when its contents change.
  *
- * Two callers on the schedule. The board card slides when the view changes
+ * Three callers on the schedule. The board card slides when the view changes
  * (Day and Agenda replace what the card draws, and there is no gesture between
- * them to borrow), and the agenda's list slides when its day changes, since the
- * list has no strip of days under it to travel. The day board's own step is not
+ * them to borrow), the agenda's list slides when its day changes, since the
+ * list has no strip of days under it to travel, and the board's day name takes
+ * a few pixels and a fade when it is replaced. The day board's own step is not
  * a caller: it is a real horizontal movement of the strip. The tab change,
  * which pages the whole section, was a caller once and is now its own gesture
  * in `usePageTransition`: a full-section carousel is a different motion (two

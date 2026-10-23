@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { startTransition, useCallback, useEffect, useRef, useState } from 'react';
 import { api, ApiError } from '../lib/api';
 import { copy } from '../copy';
 
@@ -27,17 +27,88 @@ export type Loadable<T> = {
 	reload: () => void;
 };
 
-export function useApi<T>(path: string | null): Loadable<T> {
+/**
+ * Responses asked for ahead of the page that will want them, by path.
+ *
+ * Short-lived and taken once: a page that navigates to a path within
+ * `WARM_MS` of `prefetch` for it gets the request already on the wire (or
+ * already answered) instead of starting one; anything older is refetched, and
+ * a reload of the path a page is already on never reads from here.
+ */
+const warm = new Map<string, { at: number; p: Promise<unknown> }>();
+const WARM_MS = 3000;
+
+/** Start loading `path` now, for a `useApi` that is about to be pointed at it. */
+export function prefetch(path: string): void {
+	const hit = warm.get(path);
+	if (hit && Date.now() - hit.at < WARM_MS) return;
+	const p = api(path);
+	// Read later, or never; a failure is the later load's to report.
+	p.catch(() => {});
+	warm.set(path, { at: Date.now(), p });
+}
+
+function takeWarm<T>(path: string): Promise<T> | null {
+	const hit = warm.get(path);
+	if (!hit) return null;
+	warm.delete(path);
+	return Date.now() - hit.at < WARM_MS ? (hit.p as Promise<T>) : null;
+}
+
+export function useApi<T>(
+	path: string | null,
+	opts: {
+		/**
+		 * Land each response as a React transition. Rendering a large page for a
+		 * new payload then yields to input every few milliseconds rather than
+		 * holding the main thread for the whole of it, and the previous data
+		 * stays on screen until the new render is ready. For a page whose fetches
+		 * follow a gesture that may still be going on (the schedule's day strip).
+		 */
+		transition?: boolean;
+		/**
+		 * Decide when a response is put on screen. Called with the update and the
+		 * path it answers; the caller runs it now, later, or not at all. The
+		 * schedule holds one that arrives while its strip is moving, since drawing
+		 * a payload mid-slide is exactly the frame that stutters. An update that
+		 * is run after its path has been superseded does nothing.
+		 */
+		gate?: (apply: () => void, path: string) => void;
+	} = {}
+): Loadable<T> {
 	const [data, setData] = useState<T | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [errorStatus, setErrorStatus] = useState<number | null>(null);
 	const [loading, setLoading] = useState(path !== null);
 	const [nonce, setNonce] = useState(0);
+	const transition = opts.transition ?? false;
+	const gate = useRef(opts.gate);
+	gate.current = opts.gate;
+	/** The path the last load was for, so only a change of path reads a prefetch. */
+	const loaded = useRef<string | null>(null);
 
 	useEffect(() => {
 		if (path === null) return;
 		const ac = new AbortController();
-		setLoading(true);
+		const moved = loaded.current !== path;
+		loaded.current = path;
+		// Every update this hook makes re-renders its caller, so in transition
+		// mode they all go together: an urgent `loading` flip on its own would be
+		// a full synchronous render of the old data, which is the cost avoided.
+		const land = transition ? startTransition : (fn: () => void) => fn();
+		land(() => setLoading(true));
+		/** Put an outcome on screen, when the caller's gate says so. */
+		const settle = (update: () => void) => {
+			const apply = () => {
+				if (ac.signal.aborted) return;
+				land(() => {
+					update();
+					setLoading(false);
+				});
+			};
+			if (gate.current) gate.current(apply, path);
+			else apply();
+		};
 
 		// The request is started a microtask late, and that is deliberate.
 		//
@@ -57,28 +128,35 @@ export function useApi<T>(path: string | null): Loadable<T> {
 		queueMicrotask(() => {
 			if (ac.signal.aborted) return;
 
-			api<T>(path, { signal: ac.signal })
+			const ahead = moved ? takeWarm<T>(path) : null;
+			(ahead ?? api<T>(path, { signal: ac.signal }))
 				.then((d) => {
-					setData(d);
-					setError(null);
-					setErrorStatus(null);
+					if (ac.signal.aborted) return;
+					settle(() => {
+						setData(d);
+						setError(null);
+						setErrorStatus(null);
+					});
 				})
 				.catch((err) => {
 					// An abort means this request was superseded, so its outcome is not
 					// news. Reporting it would overwrite the newer request's state.
 					if (ac.signal.aborted) return;
-					setError(err instanceof ApiError ? err.message : copy.api.loadFailed);
-					setErrorStatus(err instanceof ApiError ? err.status : 0);
-				})
-				.finally(() => {
-					if (!ac.signal.aborted) setLoading(false);
+					settle(() => {
+						setError(err instanceof ApiError ? err.message : copy.api.loadFailed);
+						setErrorStatus(err instanceof ApiError ? err.status : 0);
+					});
 				});
 		});
 
 		return () => ac.abort();
-	}, [path, nonce]);
+	}, [path, nonce, transition]);
 
-	const reload = useCallback(() => setNonce((n) => n + 1), []);
+	const reload = useCallback(() => {
+		// A day asked for ahead may have changed with whatever made this reload.
+		warm.clear();
+		setNonce((n) => n + 1);
+	}, []);
 
 	return { data, error, errorStatus, loading, reload };
 }

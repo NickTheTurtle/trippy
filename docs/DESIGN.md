@@ -292,31 +292,22 @@ clock, and no one can tell which of them a block at the seam belongs to.
 Snapping also makes "which day is the reader on" an answer rather than a
 measurement, and that answer is what becomes the url.
 
-**The time axis stands still; the days slide past it.** Each panel used to draw
-its own hour labels, so on every step or swipe the clock slid sideways with the
-day, and halfway through one there were two clocks on screen. The hours are the
-one thing that is the same on every day, so there is now one time column, a
-direct child of `.boardscroll` with `position: sticky; left: 0`, laid out beside
-the strip (`.boardscroll` is a flex row of the column and `.daytrack`). Sticky
-rather than a separate box scrolled in step by script, because it shares the
-scroller with the days: it scrolls up and down with them pixel for pixel, and
-there is no frame in which it can trail. It must be the box's own child: a
-sticky element only travels inside its parent, and inside the strip, which is
-one box wide, the column was dragged off with the days as soon as the strip
-passed its first day. It is opaque and above the blocks, so the day leaving the
-box passes under it, and below a carried block (z-index 20), which may be held
-over it on its way to another date. Each panel keeps its hour rules, bare, from
-the same origin, so a label sits on its rule at every scroll; the `.still` and
-`.rebase` transition switches cover the column as they cover the grid.
-
-A day is now the box less the gutter. The strip is `100% - --hourgutter` wide
-and each panel is the whole strip, so days sit edge to edge; the box's
-`scroll-padding-left` is the gutter, so every snap point is a day's left edge
-against the column, which is exactly `index * day width`. Every seat, slide,
-settle and edge-travel rate reads that width off a panel (`stride()` in
-`Schedule.tsx`) rather than taking `clientWidth`, so the stylesheet owns the
-number. The lodging band and the date header are outside the box and did not
-change.
+**The hour labels travel with their day.** Each panel draws its own hour gutter
+(`.daygrid`'s `padding-left: var(--hourgutter)`, the lane starting at the
+gutter), so on a step or a swipe the clock slides sideways with the day. For a
+while the hours were one sticky time column beside the strip instead, a direct
+child of `.boardscroll` with `position: sticky; left: 0`, the strip
+`100% - --hourgutter` wide and snapped against it with `scroll-padding-left`.
+The owner took it back: on a day with nothing on it the labels were the only
+thing that could have moved, and with them standing still a step or a swipe
+gave no visible sign that it had worked. The column, its width maths and the
+snap padding are gone; a panel is the whole box again. Every seat, slide,
+settle and edge-travel rate still reads the day's width off a panel
+(`stride()` in `Schedule.tsx`), which is now simply the box's width, so the
+number has one source. What the column period added and was kept: the hours'
+vertical stillness across days (the floor and the `.rebase` scroll
+correction), the glide rebase, `popstate`, the mid-swipe re-seat by day name,
+cross-day drag and the lodging band's held height.
 
 **One scroll container, two axes.** `.boardscroll` gains `overflow-x`; the
 panels are not given a scroller of their own. A box with `overflow-x: auto`
@@ -349,36 +340,83 @@ because those are decisions. The commit waits `SETTLE_MS` (140ms), long enough
 to sit out the tail of a decelerating flick and short enough that reaching for
 the map does not find the address bar behind.
 
-**The header reads the gesture, not the url.** The stepper and the lodging band
-stay outside the scroller, since they name the day and must not scroll away, but
-they read the day currently under the reader rather than `data.day`. A band
-still naming the day you have scrolled off is worse than no band.
+**The header names the move, once, when the strip comes to rest.** The stepper
+and the lodging band stay outside the scroller, since they name the day and must
+not scroll away, and they read the day being read (`shownDay`, and for the title
+a small store, `heading`) rather than `data.day`. That day used to follow the
+strip's halfway point on every scroll event, which the owner found janky on a
+phone: a finger wavering around the middle flipped the date back and forth, and
+a swipe released past a third of a day (a commit) still showed the old date
+until the glide crossed the middle. It is now set once per move, when the strip
+lands on the day the move decided (`settleMove`): an arrow's, a swipe's release
+and Back or Forward through `stepTo`, a native trackpad or wheel scroll at its
+settle, a picked date when its payload lands. It was set at the decision for a
+while, at the start of the glide; on a phone-speed production build even the
+title's own render there cost the glide a frame, so title, band and map now
+change together at the landing, a fifth of a second later. A spring-back names
+the day already named, so nothing changes. A carried block is the one
+exception: the title alone (through `heading`, so only the title bar renders)
+follows the strip's middle while it travels, because that is the day the drop
+will land on. The name takes a 10px, 180ms slide and fade from the side of
+travel (`useSlideIn`, none under reduced motion). It sits in a fixed 8rem box
+with tabular figures; the widest name, "Mon, May 30", is 111px at that size, so
+the arrows either side never move.
 
-**The arrows stay links.** They now start the same horizontal travel a hand
-would, over the panels already painted, while the new payload loads: `useApi`
-keeps the previous data rather than blanking, which is exactly what makes that
-possible. They remain `<Link>`s so the board stays addressable and the back
-button still walks the days.
+**The arrows stay links.** They start the same horizontal travel a hand would,
+over the panels already painted: `useApi` keeps the previous data rather than
+blanking, which is exactly what makes that possible. They remain `<Link>`s so
+the board stays addressable, a middle click opens the day, and the back button
+still walks the days; a plain click is the strip's (the link's navigation is
+prevented). An arrow pushes its day to the history on the press, not when the
+slide lands: written on landing, a Back pressed mid-slide skipped past the day
+the reader had just left. The router's render for the new address is
+main-thread work the compositor-run slide does not wait for. An arrow steps
+from the day the reader has committed to (the day a running slide is going
+to), not from the payload's neighbours of the url's day (`stepBy`): those made
+a second press during a slide ask for the day the first was already going to,
+and it was lost. When the committed day's neighbour is not on the strip yet,
+the press waits for that day's payload (`pendingStep`), as a second swipe does.
 
-**An arrow's slide is a tween, not the browser's smooth scroll.** The slide
-began as `scrollTo({ behavior: 'smooth' })`, which cannot be told where it is
-going once it has started. The payload for the new day lands part-way through
-(about 100ms locally, longer in production), the strip re-indexes under it, and
-the re-seat above had to set `scrollLeft` to keep the day still, which cancelled
-the glide. Measured frame by frame, the reader saw 30 to 60px of motion and then
-a jump of the remaining 550. `stepTo` now runs its own ease-out over
-`GLIDE_MS` (320ms), and the re-seat, finding a slide in flight, moves its start,
-its end and the offset on screen by the re-index (how far a day the old three
-and the new three share changed index) and lets it finish. Snapping is off for
-the length of the slide, for the reason it is off under a carried block: a
-mandatory snap container answers every per-frame write by throwing the strip
-back. It is an inline style rather than a class so a render mid-slide cannot
-drop it. Progress is counted a frame at a time, capped at two frames, rather
-than read off the clock, because drawing the new panels is one long frame and a
-clock-driven slide leapt a third of a day to catch up. A hand on the strip (a
-press, a touch, a sideways wheel) ends the slide where it is; a swipe is still
-native scroll and snap, untouched. Under `prefers-reduced-motion` the arrow puts
-the day there at once.
+**An arrow's slide is the browser's smooth scroll again.** The slide began as
+`scrollTo({ behavior: 'smooth' })`, and was replaced by a script-driven tween
+because a payload landing part-way through re-indexed the strip and the re-seat
+had to cancel the glide. The tween wrote `scrollLeft` from a frame callback,
+and on a phone-speed production build (CPU throttled 4x) every frame the page
+spent on anything else was a frame the strip stood still: the release rendered
+the board for the new day, the url write rendered it again, and the payload
+landed inside the slide, so the slide drew 1 to 10 frames in its 320ms. Now
+nothing renders during a slide that nobody is touching: payloads are held until
+the strip stops (`useApi`'s `gate`, flushed by `settleMove`, dropped if the url
+has moved on), a swipe's url is written when it lands (with the fetch already
+started by `prefetch` at the release), and the title, band and map change
+then. A finger that touches a strip still sliding commits the move at once
+(title, band, map, url) and lets payloads through, mid-slide, so a second swipe
+has the day after next to move into; the re-seat keeps the place under the
+finger by day name. With nothing left to cancel it, the slide is the browser's
+smooth scroll, which on a composited scroller is run by the compositor and
+moves only a scroll offset. It lands on `scrollend`, or on the settle after
+the last scroll event where `scrollend` is missing.
+
+A smooth scroll can be stopped short of its day by anything that scrolls the
+box: a key that scrolls the hours, a vertical scroll, a touch (what a touch
+does to it depends on the browser: Chrome lets it run, iOS may stop it). Left
+alone, such a slide stayed "running" for good, so every payload stayed held,
+snapping stayed off with the strip between two days, and the title and url
+named a day it never reached. Each slide now has its own timer
+(`GLIDE_CHECK_MS`, 700ms), and a `scrollend` short of the day with no finger
+down does the same as the timer running out: the move is decided, so the slide
+is set going again (`resumeGlide`); found short a second time, the strip is put
+on its day at once and settles there, url, band, map and held payloads
+included. Under a finger the check waits for the finger to lift. A re-index
+during a slide moves the box by the re-index and restarts the slide from
+there. The target is a snap point, so snapping stays on for an arrow. A hand
+that takes the strip (a press, a sideways wheel, a touch once it locks
+sideways) ends the slide where it is with an instant scroll. Under
+`prefers-reduced-motion` the day is put there at once. Animating the strip's
+`transform` instead (a Web Animation, or an inline transform under a finger)
+was measured and rejected: in this layout every frame of it repainted the
+whole strip (90 paints for 30 frames inline, 44 for one compositor animation),
+where a scroll offset repaints nothing.
 
 Only the payload for the day the slide is heading to may rebase it. Any other
 payload means the reader has gone somewhere else since the click (Back, the
@@ -412,9 +450,9 @@ agenda payload carries the same three days as the day board's, so the day an
 arrow asks for is already on the client: the list switches and slides on the
 click, and the fetch that follows only confirms it. The map follows the list
 there, drawn from the day being read, so it flies on the tap too. The day board
-keeps its map on the url's day: the day being read changes at the halfway point
-of every swipe, and a camera that flew off mid-gesture would be a second motion
-arguing with the hand.
+now does the same: its day being read changes once per committed move rather
+than at the halfway point of every swipe, so a camera following it no longer
+flies off mid-gesture.
 
 **Carrying a block across dates.** A block is drawn inside its own day's panel,
 so it would slide out from under a still hand as the strip travels. It is
@@ -8280,34 +8318,49 @@ strip is now `touch-action: pan-y pinch-zoom`, so the browser only pans it up
 and down, and a finger moving sideways is read by script (`AXIS_LOCK_PX` in
 `Schedule.tsx`):
 
-- Nothing is decided until the touch has moved 10px. It is then sideways only if
-  it is more than 1.5 times as far across as down, and only while its moves can
-  still be cancelled; otherwise it is the browser's vertical scroll for its whole
-  length and the strip does not move at all. Ten pixels is about the platforms'
-  own touch slop, and 1.5 leaves a 45-degree diagonal to the hours, which is
-  what reading a day mostly is.
+- Nothing is decided until the touch has moved 14px (`AXIS_LOCK_PX`). It is
+  then sideways only if it is more than 3 times as far across as down
+  (`AXIS_RATIO`), and only while its moves can still be cancelled; otherwise it
+  is the browser's vertical scroll for its whole length and the strip does not
+  move at all. The owner raised both from 10px and 1.5 on a phone: a scroll down
+  the hours that drifted was still changing the day.
+- No swipe while anything is still scrolling up or down. A touch that lands
+  while the hours or the page have moved at least `COASTING_PX_PER_MS`
+  (0.05px/ms, about a pixel a frame) within the last `COASTING_MS` (120ms) is a
+  vertical touch for its whole length, as a touch on a decelerating scroll view
+  is on iOS: it is the scroll being caught. The page counts as well as the box,
+  because on a phone the board docks and an up-or-down swipe often moves the
+  page. Each source's speed is taken over the time since its own last scroll
+  event, so a jump after a still spell reads as slow. The page's own writes to
+  the hours (the re-base when an earlier start opens the window, the board
+  opening on its first block, a carried block's glue) go through `setTop`,
+  which marks them (`ownTop`), and the tracker takes a marked value as its new
+  baseline without counting it: a 60px re-base that came within a second or so
+  of a reader's scroll read as fast movement and locked the next swipe
+  vertical.
 - A sideways touch drags the strip under the finger, clamped to one day either
-  way. On release it goes to the neighbour when the finger has travelled 30% of
-  a day, or on a flick of at least 0.5px/ms over the last 100ms that has
-  travelled 24px in the same direction; otherwise it springs back. 30% is the
-  top of the owner's 25 to 30% band, because the complaint was too much
-  movement; 0.5px/ms is a clearly fast flick rather than a drag let go, and the
+  way. On release it goes to the neighbour when the finger has travelled 35% of
+  a day (`SWIPE_SHARE`), or on a flick of at least 0.5px/ms
+  (`FLICK_PX_PER_MS`) over the last 100ms that has travelled 40px
+  (`FLICK_MIN_PX`) in the same direction; otherwise it springs back. The share
+  and the floor were raised with the lock, from 30% and 24px, on the owner's
+  phone; 0.5px/ms is a clearly fast flick rather than a drag let go, and the
   last 100ms is what makes a finger that stopped before it lifted not a flick.
-  The 24px floor keeps a jabbed tap from counting.
 - Never more than one day: the drag is clamped to one, and the release picks
   one neighbour or none.
-- The release runs the arrow's tween (`stepTo`) to the neighbour or back, so the
-  re-seat, the rebase and the url stay one path. The url is written whenever the
-  day landed on is not the day it names, with `replace`, as a settle does:
-  compared with the swipe's starting day instead, a swipe that interrupted a
-  slide, or began before the last swipe's payload came back, could land on a day
-  the address did not name and leave it naming another. While the finger is down
-  the settle and the width observer stand aside (`swiping`). A payload that lands
-  then still re-indexes the strip, so the swipe holds its place by day name and
-  offset (`swipeAt`), not by index, and the re-seat puts that same place back
-  under the finger; an index taken before the re-index named a different day
-  after it, which drew the day after next under the finger and landed a day off.
-  A reader who asked for stillness gets the jump `stepTo` already gives them.
+- The release runs the arrow's slide (`stepTo`, the browser's smooth scroll)
+  to the neighbour or back, so the re-seat, the payload hold and the url stay
+  one path. The url is written when the strip lands, with `replace`, as a
+  settle does, whenever the day landed on is not the day it names: compared
+  with the swipe's starting day instead, a swipe that interrupted a slide, or
+  began before the last swipe's payload came back, could land on a day the
+  address did not name and leave it naming another. While the finger is down
+  the settle and the width observer stand aside (`swiping`). A payload that
+  lands then still re-indexes the strip, so the swipe holds its place by day
+  name and offset (`swipeAt`), not by index, and the re-seat puts that same
+  place back under the finger; an index taken before the re-index named a
+  different day after it, which drew the day after next under the finger and
+  landed a day off. A reader who asked for stillness gets the day at once.
 - A block lifted by a long press takes the touch over, so carrying it across
   days works as before. Mouse, trackpad and sideways wheel are not touch and
   scroll the strip natively, unchanged.
@@ -8315,6 +8368,134 @@ and down, and a finger moving sideways is read by script (`AXIS_LOCK_PX` in
 Verified with Chrome's touch emulation (390x844), not on a phone: how it feels
 under a real thumb, and Safari's handling of `pan-y` with cancelled moves, are
 for the owner's phone to confirm.
+
+**A swipe straight after a swipe is a second day.** The owner found the strip
+sometimes ignored a swipe made right after landing on a new day. Measured at
+390x844 with the CPU throttled 4x and 6x, swipe 2 started 0 to 700ms after
+swipe 1's release; there were three causes:
+
+- The second swipe was read from the wrong day. A touch ended the first
+  swipe's glide on contact, leaving the strip part way, and the lock took the
+  day from `round(scrollLeft / width)`, which for the first half of the glide
+  is the day being left. Swipe 2 then "went" to the day swipe 1 had already
+  reached: 3 of 10 trials landed a day short. A touch now leaves the glide
+  running until it locks sideways, and the lock takes the glide's destination
+  as its day.
+- The day after next may not be on the strip yet: the strip holds the url
+  day's neighbours, and swipe 1's payload may still be on its way. Such a
+  release rests on the edge day and records `pendingStep`; when that day's
+  payload lands with its neighbour, the same slide carries on to it.
+- The main thread was busy just as the finger came down. Naming the day inside
+  `touchend` rendered the whole board synchronously in the handler (182ms at
+  4x), and the payload that follows landed as one urgent render (268ms). The
+  name is now set in a `startTransition`, `useApi` lands the schedule's
+  payloads as transitions (`{ transition: true }`), and each day panel renders
+  as its own component (`PanelBody`) so a transition can yield between days.
+  The handler now costs 0 to 31ms at the same throttling.
+
+What remains is the payload's commit, which React cannot interrupt. It does
+not land under an untouched slide (payloads wait for the strip to stop; see the
+smooth-scroll paragraph above); under a finger it is let through on purpose,
+so the next swipe has the day after next, and that swipe may wait for it.
+
+**Sliding on a day full of events is per-frame cheap.** The owner, on a
+production build, found sliding slow on days with events. Profiled at 390x844,
+CPU throttled 4x, on Athens' busiest days (Apr 17 and 18, about 80 blocks and
+45 journeys across the three panels), with a Chrome trace and Long Animation
+Frame attribution:
+
+- The drag was already cheap: no React render per move, no layout, and a
+  `scrollLeft` write repaints nothing (2 paints a gesture). It now also reads
+  no geometry per move: the day width is cached (`stride`, refreshed by the
+  width keeper's ResizeObserver) and the strip's last seat comes from the days
+  it holds rather than `scrollWidth`.
+- The glide was not: the release and the url write each rendered the whole
+  board inside the slide, and the payload landed in it too, so the tween drew
+  between 1 and 10 frames in 320ms. See the smooth-scroll paragraph above for
+  the fix: nothing renders while an untouched slide runs, except the router's
+  render for an arrow's address, which the compositor-run slide does not wait
+  for.
+- The date title gets a layer of its own (`will-change` on `.curday`), so its
+  slide on a new day does not re-layer the page.
+
+Untraced, main-thread frames at 4x, two rounds each: the glide went from p95
+33 to 433ms (up to 56 dropped frames, a 1.2s glide) to p95 16.7 to 16.8ms (one
+run 33ms, 1 dropped frame), and takes about 210ms; the drag stays at p95
+16.7 to 16.8ms (one run 33ms). Traced compositor frames in the glide went from
+p50 24 to 52ms to 16.4 to 18.4ms. These are headless Chrome numbers: how it
+feels on a real phone, and Safari's smooth scroll in particular, is the
+owner's to confirm.
+
+**On a phone the board docks under the site bar.** The owner asked for a taller
+calendar on mobile web. At 390x844 the box began 557px down the screen (site bar
+65, trip header 176, tabs 45, toolbar 102 and its 1rem, then the card's
+stepper and a two-row lodging band) and sat on its 320px floor: 287px of it on
+screen at rest, about five hours of the day. At 375x667 only 77px of it was on
+screen at rest. Trimming more of the schedule's own chrome could not get there:
+with every pixel of it gone the box would still have been under 550px at
+390x844, because most of what stood above it is not this page's.
+
+So below 640px (`DOCK_QUERY`) the box is sized for the screen the page scrolls
+to rather than for the one it opens on: the card's top under the site's sticky
+bar, then the stepper and the lodging band, then the box down to the bottom of
+the screen less the card's tail and `VIEW_AIR`. One scroll of the page takes
+the trip header, the tabs and the toolbar away and the board is at full height
+with the date still above it; a scroll back brings them back. The parts are
+measured, not stated: the bar is whatever `header` is pinned at the top
+(`pinnedBar`), and what the card puts above the box is read off the card.
+
+- **`svh`, not `innerHeight`.** iOS Safari and Chrome on Android slide their
+  toolbars away as the page scrolls, which changes `innerHeight` and fires a
+  resize, so a box measured off it would grow and shrink with every change of
+  direction. The small viewport never moves; it is read in pixels off a fixed
+  `100svh` probe, and the window's height stands in where the unit is unknown.
+  With the toolbars gone the docked board simply has a strip of page under it.
+- **The hours take a vertical finger only once the whole box is on screen**
+  (`park`, `data-parked`). Before that the box's bottom is below the fold, and
+  left to scroll, a finger on the hours moved them inside a box it could see the
+  top of while the page stayed put and the evening stayed below the screen. So
+  until the box is wholly in sight its `overflow-y` is `hidden` and the finger
+  scrolls the page, which is what brings the box up. Only the vertical axis: the
+  sideways swipe is script and works throughout, and script can still move the
+  hours, so a drag travels them and the day still opens on its first block.
+  Not when the floor binds and the box could never fit, or nothing would ever
+  scroll the hours.
+- **No trap either way.** Docked, the hours scroll, and a flick past either end
+  of the day chains on to the page as it always has (vertical chaining is still
+  left on): down to the map, or up to the toolbar and the trip. The stepper,
+  the band and the card's edges are outside the box, so a finger there always
+  moves the page.
+- **The page settles on the dock** with `scroll-snap-type: y proximity` on the
+  root, the card as the snap area and the bar as its `scroll-margin-top`, so a
+  swipe up from the top lands with the stepper under the bar rather than half a
+  card either side. Proximity, never mandatory: the page has to rest at the top
+  and down at the map. The class (`boarddock`) is set on the root by the page
+  and removed with it, so no other page snaps. Measured in Chrome at 390x844, a
+  slow drag left within about 250px of the dock settles on it, which makes the
+  two rest states the top (toolbar in view) and the dock, as a collapsing header
+  in a native app has; a flick reaches either.
+- **The lodging band is one row.** It was two at phone widths, the chip and
+  then `+ Add stay` under it, 85px over the hours on every day. The chip now
+  puts who is staying under the name instead of beside it, at the same 44px
+  height, which frees the width `+ Add stay` needs on the row; a name too long
+  ellipsises (the dialog and the map say it whole), and more stays than fit
+  scroll sideways rather than wrapping. `bandFloor` still holds the band's
+  height. The card's top padding and the stepper's rule give up a few pixels
+  of air.
+
+What was not done: putting "View as", `+ Add` and the Day/Agenda switch on one
+row. Measured, they need 484px, and at 390 the filter would be left a few
+characters wide; the two-row toolbar is the owner's earlier ruling (see "The
+schedule toolbar has two rows on a phone"), and docked it is off the screen
+anyway. The agenda is the same box and docks the same way.
+
+Measured with Chrome's touch emulation, before and after:
+
+| Screen            | Box before | Box after, docked     | On screen at rest before / after |
+| ----------------- | ---------- | --------------------- | -------------------------------- |
+| 390x844           | 320px      | 647px, 77%, 10.8h     | 287px / 339px                    |
+| 375x667           | 320px      | 470px, 70%, 7.8h      | 77px / 129px                     |
+| 1280x900 (desk)   | 630px      | 630px, unchanged      | unchanged                        |
 
 ## The board after the owner's three reports (mobile)
 
