@@ -15,6 +15,7 @@
 		"./travel": "./src/travel.ts",
 		"./plan": "./src/plan.ts",
 		"./span": "./src/span.ts",
+		"./schedule-day": "./src/schedule-day.ts",
 		"./pretrip-shares": "./src/pretrip-shares.ts",
 		"./notes": "./src/notes.ts",
 		"./currency": "./src/currency.ts",

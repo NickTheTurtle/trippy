@@ -2,14 +2,20 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { copy } from '@trippy/copy';
 import { suggestStart } from '@trippy/core/plan';
 import { useApi } from '../../hooks/useApi';
+import { rememberScheduleDay, scheduleOpeningDay } from '../../lib/scheduleDay';
 import { useLiveSection } from '../../hooks/useTripEvents';
 import { applyDraft, replanLegs } from './replan';
 import type { JourneyEdits } from './journeys';
 import { DRAFT_ID, zoneLookup } from './shared';
 import type { BoardDay, EventDraft, EventRow, LegRow, ScheduleData, ViewMode } from './types';
 
-export function useScheduleDay(tripId: string, paused = false) {
+export function useScheduleDay(
+	tripId: string,
+	paused = false,
+	trip?: { id: string; start_date: string | null; end_date: string | null } | null
+) {
 	const [day, setDay] = useState<string | null>(null);
+	const [ready, setReady] = useState(false);
 	const [view, setView] = useState<ViewMode>('day');
 	const [viewAs, setViewAs] = useState('');
 	const [preview, setPreview] = useState<EventDraft | null>(null);
@@ -25,7 +31,24 @@ export function useScheduleDay(tripId: string, paused = false) {
 	// here, not by the server.
 	const qs = new URLSearchParams({ view: 'day' });
 	if (day) qs.set('day', day);
-	const apiState = useApi<ScheduleData>(`/trips/${tripId}/schedule?${qs}`);
+	useEffect(() => {
+		setReady(false);
+		setDay(null);
+	}, [tripId]);
+	useEffect(() => {
+		if (ready || trip === undefined) return;
+		let alive = true;
+		const choose = trip?.id === tripId ? scheduleOpeningDay(trip) : Promise.resolve(null);
+		void choose.then((next) => {
+			if (!alive) return;
+			setDay(next);
+			setReady(true);
+		});
+		return () => {
+			alive = false;
+		};
+	}, [ready, trip, tripId]);
+	const apiState = useApi<ScheduleData>(ready ? `/trips/${tripId}/schedule?${qs}` : null);
 	const reload = useCallback(() => {
 		if (paused) setReloadDue(true);
 		else apiState.reload();
@@ -49,6 +72,9 @@ export function useScheduleDay(tripId: string, paused = false) {
 		if (!data) return null;
 		return day && data.board.some((entry) => entry.day === day) ? day : data.day;
 	}, [data, day]);
+	useEffect(() => {
+		if (shownDay) void rememberScheduleDay(tripId, shownDay);
+	}, [shownDay, tripId]);
 	/*
 	 * The days either side of the shown one. `undefined` is not known yet: the
 	 * shown day was held as a neighbour, and its own far neighbour comes with its
@@ -267,6 +293,7 @@ export function useScheduleDay(tripId: string, paused = false) {
 
 	return {
 		...apiState,
+		loading: apiState.loading || !ready,
 		data,
 		/** The day on screen, which leads the payload's `day` on a step. */
 		day: shownDay,

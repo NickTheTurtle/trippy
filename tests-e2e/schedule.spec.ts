@@ -1350,7 +1350,7 @@ test.describe('a suggested time', () => {
 		// The museum runs to 11:00, so that is where the next thing goes.
 		await page.getByRole('button', { name: '+ Add', exact: true }).click();
 		const dialog = page.getByRole('dialog').first();
-		await expect(dialog.getByLabel('Start hour')).toHaveText('11');
+		await expect(dialog.getByLabel('Start hour')).toHaveValue('11');
 
 		await dialog.getByRole('combobox', { name: 'Activity' }).fill('Taverna');
 		await page.getByRole('option', { name: /Taverna/ }).click();

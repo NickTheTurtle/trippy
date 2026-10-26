@@ -299,9 +299,16 @@
 	/* A finger only pans the board up and down; sideways it is script that
 	   moves the strip, one deliberate day at a time, with a lock on the axis so
 	   a scroll down the hours that wobbles does not change the day. See
-	   `AXIS_LOCK_PX` in `Schedule.tsx`. Touch only: a mouse, a trackpad and a
-	   sideways wheel scroll the strip natively as before. */
+	   `AXIS_LOCK_PX` in `Schedule.tsx`. */
 	touch-action: pan-y pinch-zoom;
+}
+/* Desktop wheels and trackpads use the same script and thresholds. The box
+   remains a scroll container for script, but the browser no longer moves it
+   sideways by itself and skips several days on trackpad momentum. */
+@media (hover: hover) and (pointer: fine) {
+	.sched .boardscroll:not(.list) {
+		overflow-x: hidden;
+	}
 }
 /* The strip itself: the days, side by side, each as wide as the box. */
 .sched .daytrack {
@@ -646,7 +653,7 @@
  * which also has to keep the platform's own long-press callout out of the way. */
 @media (pointer: coarse) {
 	.sched .block,
-	.sched .bresize {
+	.sched .block .bresize {
 		touch-action: manipulation;
 		-webkit-touch-callout: none;
 	}
@@ -1364,27 +1371,11 @@
  * `Schedule.tsx`), and one scroll of the page brings it there. Measured: 647px
  * at 390x844 and 470px at 375x667, against 320px at both.
  *
- * Three things make that read as one board rather than a box in a page. */
+ * Vertical scrolling stays native at every page position. Changing overflow
+ * during a touch cancels scrolling on iOS, and a page snap fights the nested
+ * scroller's momentum. The header and card edges remain page-scroll targets. */
 @media (max-width: 640px) {
-	/* Until the whole box is on screen a vertical finger scrolls the page, not
-	   the hours, so the first swipe brings the board up instead of scrolling a
-	   box whose bottom is still below the fold. Set by `park` in the page. Only
-	   the vertical axis: the strip keeps its sideways swipe throughout, and
-	   script can still move the hours, so a drag still travels them. */
-	.sched .boardscroll[data-parked] {
-		overflow-y: hidden;
-	}
-	/* The page settles on the dock when a scroll ends near it, so a swipe up
-	   from the top lands with the stepper under the site bar rather than half a
-	   card either side of it. `proximity`, never `mandatory`: the page has to
-	   rest anywhere else it is left, at the top and down at the map. The class
-	   is on the root, which is what scrolls, and the page takes it off again
-	   when it goes, so this is the one rule in the file not under `.sched`. */
-	html.boarddock {
-		scroll-snap-type: y proximity;
-	}
 	.sched .board {
-		scroll-snap-align: start;
 		scroll-margin-top: var(--dockline, 0px);
 		padding-top: 0.5rem;
 	}

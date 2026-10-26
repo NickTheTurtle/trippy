@@ -349,7 +349,7 @@ phone: a finger wavering around the middle flipped the date back and forth, and
 a swipe released past a third of a day (a commit) still showed the old date
 until the glide crossed the middle. It is now set once per move, when the strip
 lands on the day the move decided (`settleMove`): an arrow's, a swipe's release
-and Back or Forward through `stepTo`, a native trackpad or wheel scroll at its
+and Back or Forward through `stepTo`, a wheel or trackpad move at its landing,
 settle, a picked date when its payload lands. It was set at the decision for a
 while, at the start of the glide; on a phone-speed production build even the
 title's own render there cost the glide a frame, so title, band and map now
@@ -361,6 +361,13 @@ will land on. The name takes a 10px, 180ms slide and fade from the side of
 travel (`useSlideIn`, none under reduced motion). It sits in a fixed 8rem box
 with tabular figures; the widest name, "Mon, May 30", is 111px at that size, so
 the arrows either side never move.
+
+**A schedule without a day opens where the reader was.** An address that names
+a day always wins. Otherwise the first visit to a trip opens on today when today
+is between the trip's start and end dates, using the device's calendar day. After
+that, web and phone remember the last day shown for that trip on that device and
+reopen there while the trip still has it. This is local reading state, not a
+shared trip setting, so one member moving to Friday does not move anybody else.
 
 **The arrows stay links.** They start the same horizontal travel a hand would,
 over the panels already painted: `useApi` keeps the previous data rather than
@@ -6027,6 +6034,15 @@ spoke a different clock from itself. The value is unchanged and deliberately so.
 It is still minutes past midnight, so this is how a time is read and typed
 rather than what it is, and no caller of the field moved.
 
+Hour and minute are real text inputs with `inputMode="numeric"`, not focusable
+spans. A span receives desktop keystrokes but never asks a phone to show its
+keyboard. The inputs handle `input` as well as desktop `keydown`, because phone
+keyboards can insert text without sending digit keys. Focus selects the segment,
+and AM/PM is a tappable button as well as keyboard-operable. Clearing a segment
+allows replacement without writing an invalid time; leaving it empty restores
+its last valid value. These are the same controls on desktop and mobile, not two
+different clocks with different validation rules.
+
 The rules the segments follow:
 
 - The hour is 1 to 12 and unpadded, the minute is always two digits: "9:30 AM",
@@ -8070,14 +8086,20 @@ press used to start the strip travelling to the next day.
 that began on a block moved it, which on a phone is most swipes. On a coarse
 pointer the blocks now allow `manipulation`, so the board pans like any page,
 and a block is lifted by a finger held still for `LONG_PRESS_MS` (400ms, about
-the platform's own long press). Once lifted, the pan the browser would start is
-cancelled by a non-passive `touchmove` listener, registered only for the length
-of a gesture because a non-passive touch listener makes every scroll on the page
-wait for script. That listener is the only way to take a pan back after
-`touch-action` has already allowed it; the pointer handover (the touch is
-implicitly captured to the face and the long press moves the capture to the box)
-is why the face's `lostpointercapture` is not read as a cancel. The platform's
-long-press callout and context menu give way to the gesture.
+the platform's own long press). Touch drag and resize then follow the native
+touch identifier through `touchmove` and `touchend`, rather than relying on
+PointerEvents: a browser can cancel that pointer stream when it considers a pan,
+and pointer capture cannot recover it. A non-passive listener is installed on
+the board before the touch begins, cancelling a pan only while a block is
+lifted. Installing it in a React effect after the lift left a gap where a browser
+could claim scrolling first. Ordinary swipes remain native scrolling or day
+swipes, with no event write. Real `touchcancel`, an extra finger, loss of window
+focus or an unmounted board cancels the edit without saving; cancellation of
+only the pointer stream does not lose a live touch. Mouse and pen still use
+pointer capture. The platform's long-press callout and context menu give way to
+the gesture. The resize grip explicitly gets the same mobile pan permission as
+the block: its later desktop `touch-action: none` rule previously won the
+cascade and stopped an ordinary vertical swipe that landed on that edge.
 
 **The block's face is a sibling of its pencil.** The block used to be a
 `role="button"` with a real `<button>` inside it. It is now a box carrying the
@@ -8362,8 +8384,13 @@ and down, and a finger moving sideways is read by script (`AXIS_LOCK_PX` in
   different day after it, which drew the day after next under the finger and
   landed a day off. A reader who asked for stillness gets the day at once.
 - A block lifted by a long press takes the touch over, so carrying it across
-  days works as before. Mouse, trackpad and sideways wheel are not touch and
-  scroll the strip natively, unchanged.
+  days works as before.
+- Desktop wheels and trackpads use the same lock, thresholds and one-day limit.
+  Native horizontal wheel scrolling skipped days on trackpad momentum and did
+  not match the phone. On a fine pointer the board hides native horizontal
+  overflow and script moves the strip. A wheel gesture ends after `SETTLE_MS`
+  of quiet, so its momentum belongs to the same move. Shift with an ordinary
+  vertical wheel is treated as sideways, like the browser's default.
 
 Verified with Chrome's touch emulation (390x844), not on a phone: how it feels
 under a real thumb, and Safari's handling of `pan-y` with cancelled moves, are
@@ -8450,30 +8477,23 @@ measured, not stated: the bar is whatever `header` is pinned at the top
   direction. The small viewport never moves; it is read in pixels off a fixed
   `100svh` probe, and the window's height stands in where the unit is unknown.
   With the toolbars gone the docked board simply has a strip of page under it.
-- **The hours take a vertical finger only once the whole box is on screen**
-  (`park`, `data-parked`). Before that the box's bottom is below the fold, and
-  left to scroll, a finger on the hours moved them inside a box it could see the
-  top of while the page stayed put and the evening stayed below the screen. So
-  until the box is wholly in sight its `overflow-y` is `hidden` and the finger
-  scrolls the page, which is what brings the box up. Only the vertical axis: the
-  sideways swipe is script and works throughout, and script can still move the
-  hours, so a drag travels them and the day still opens on its first block.
-  Not when the floor binds and the box could never fit, or nothing would ever
-  scroll the hours.
+- **The hours always scroll natively.** Previously `park` toggled
+  `overflow-y: hidden` until the whole board fit under the site bar. That made
+  the same swipe alternate between scrolling the page and scrolling the hours,
+  and changing overflow while iOS held a gesture could cancel it. A slightly
+  off-screen board could also stay non-scrollable. The taller viewport remains,
+  but the board now keeps `overflow-y: auto` at every page position.
 - **No trap either way.** Docked, the hours scroll, and a flick past either end
   of the day chains on to the page as it always has (vertical chaining is still
   left on): down to the map, or up to the toolbar and the trip. The stepper,
   the band and the card's edges are outside the box, so a finger there always
   moves the page.
-- **The page settles on the dock** with `scroll-snap-type: y proximity` on the
-  root, the card as the snap area and the bar as its `scroll-margin-top`, so a
-  swipe up from the top lands with the stepper under the bar rather than half a
-  card either side. Proximity, never mandatory: the page has to rest at the top
-  and down at the map. The class (`boarddock`) is set on the root by the page
-  and removed with it, so no other page snaps. Measured in Chrome at 390x844, a
-  slow drag left within about 250px of the dock settles on it, which makes the
-  two rest states the top (toolbar in view) and the dock, as a collapsing header
-  in a native app has; a flick reaches either.
+- **The page does not snap vertically.** The former root proximity snap could
+  pull the page back toward the board while the nested hours were scrolling.
+  Keeping both scroll surfaces stable lets the browser handle momentum and
+  boundary chaining without a script or a snap taking ownership mid-gesture.
+  The stepper, band and card edges remain available to scroll the page and bring
+  the tall board fully into view. Horizontal day snapping is unchanged.
 - **The lodging band is one row.** It was two at phone widths, the chip and
   then `+ Add stay` under it, 85px over the hours on every day. The chip now
   puts who is staying under the name instead of beside it, at the same 44px
@@ -8491,11 +8511,11 @@ anyway. The agenda is the same box and docks the same way.
 
 Measured with Chrome's touch emulation, before and after:
 
-| Screen            | Box before | Box after, docked     | On screen at rest before / after |
-| ----------------- | ---------- | --------------------- | -------------------------------- |
-| 390x844           | 320px      | 647px, 77%, 10.8h     | 287px / 339px                    |
-| 375x667           | 320px      | 470px, 70%, 7.8h      | 77px / 129px                     |
-| 1280x900 (desk)   | 630px      | 630px, unchanged      | unchanged                        |
+| Screen          | Box before | Box after, docked | On screen at rest before / after |
+| --------------- | ---------- | ----------------- | -------------------------------- |
+| 390x844         | 320px      | 647px, 77%, 10.8h | 287px / 339px                    |
+| 375x667         | 320px      | 470px, 70%, 7.8h  | 77px / 129px                     |
+| 1280x900 (desk) | 630px      | 630px, unchanged  | unchanged                        |
 
 ## The board after the owner's three reports (mobile)
 

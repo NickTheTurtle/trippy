@@ -44,7 +44,7 @@ async function dock(page: Page): Promise<void> {
 		const bar = document.querySelector('header')!.getBoundingClientRect().bottom;
 		window.scrollTo(0, card.getBoundingClientRect().top + window.scrollY - bar);
 	});
-	await expect(page.locator('.sched .boardscroll')).not.toHaveAttribute('data-parked');
+	await expect(page.locator('.sched .boardscroll')).toHaveCSS('overflow-y', 'auto');
 	await settled(page);
 }
 
@@ -649,7 +649,7 @@ test.describe('the day strip under a finger', () => {
 		await cdp.detach();
 	}
 
-	test('on a phone the board docks at seven tenths of the screen, and the page brings it there', async ({
+	test('on a phone the tall board scrolls at every page position without snapping the page', async ({
 		page,
 		request
 	}) => {
@@ -683,17 +683,16 @@ test.describe('the day strip under a finger', () => {
 						};
 					});
 
-				// At rest the chrome is above the board and its bottom is below the
-				// fold, so a finger on the hours moves the page rather than the hours.
+				// Native scrolling stays available even before the whole board fits.
 				let r = await at();
 				expect(r.bottom, `${size.width}px`).toBeGreaterThan(size.height);
-				expect(r.parked).toBe(true);
+				expect(r.parked).toBe(false);
 				const x = size.width / 2;
 				await swipe(page, { x, y: size.height - 60, dx: 0, dy: -120, steps: 12, stepMs: 16 });
 				await page.waitForTimeout(600);
 				const after = await at();
-				expect(after.page).toBeGreaterThan(r.page);
-				expect(after.hours).toBe(r.hours);
+				expect(after.hours).toBeGreaterThan(r.hours);
+				expect(Math.abs(after.page - r.page)).toBeLessThanOrEqual(1);
 
 				// Docked under the site bar, the whole box is on screen and it is at
 				// least seven tenths of it.
@@ -712,8 +711,7 @@ test.describe('the day strip under a finger', () => {
 				await page.waitForTimeout(600);
 				const read = await at();
 				expect(read.hours).toBeGreaterThan(r.hours);
-				// The page stays put. A pixel of give: the docked offset is a fractional
-				// card position, and the proximity snap can round it by one.
+				// A pixel of give for fractional page coordinates.
 				expect(Math.abs(read.page - r.page)).toBeLessThanOrEqual(1);
 			}
 
@@ -1306,6 +1304,81 @@ test.describe('each fact once', () => {
 				copy.schedule.journey.groupLabel(copy.common.everyone)
 			);
 			await expect(card.locator('.jminsf')).toHaveText(copy.schedule.journey.minutes);
+		} finally {
+			fixture.teardown();
+		}
+	});
+});
+
+test.describe('the day strip under a desktop wheel', () => {
+	test.use({ viewport: { width: 1280, height: 900 } });
+
+	test('desktop wheels and trackpads use the phone swipe rules', async ({ page, request }) => {
+		const fixture = await createApiFixture(request);
+		const first = fixture.tripBody.startDate;
+		const next = '2027-02-11';
+		try {
+			await signIn(page, fixture.sessionCookie);
+			const strip = page.locator('.sched .boardscroll');
+			const reading = page.locator('.daypanel:not([inert])');
+			const open = async () => {
+				await page.goto(`/trips/${fixture.tripId}/schedule?day=${first}&view=day`);
+				await expect(reading).toHaveAttribute('data-day', first);
+				await settled(page);
+				const box = (await strip.boundingBox())!;
+				await page.mouse.move(box.x + box.width / 2, box.y + Math.min(box.height, 500) / 2);
+				const w = await reading.evaluate((el) => el.getBoundingClientRect().width);
+				await strip.evaluate((el) => {
+					const s = el.scrollLeft;
+					const w = window as unknown as { travel: number; top0: number };
+					w.travel = 0;
+					w.top0 = el.scrollTop;
+					el.addEventListener('scroll', () => {
+						w.travel = Math.max(w.travel, Math.abs(el.scrollLeft - s));
+					});
+				});
+				return w;
+			};
+			const wheel = async (dx: number, dy: number, steps: number, stepMs = 16) => {
+				for (let i = 0; i < steps; i++) {
+					await page.mouse.wheel(dx / steps, dy / steps);
+					await page.waitForTimeout(stepMs);
+				}
+				await page.waitForTimeout(250);
+			};
+			const read = () =>
+				strip.evaluate((el) => {
+					const w = window as unknown as { travel: number; top0: number };
+					return { travel: w.travel, scrolled: el.scrollTop - w.top0, left: el.scrollLeft };
+				});
+
+			let w = await open();
+			await expect(strip).toHaveCSS('overflow-x', 'hidden');
+			await wheel(18, 220, 20);
+			let r = await read();
+			expect(r.travel).toBe(0);
+			expect(r.scrolled).toBeGreaterThan(100);
+			await expect(page).toHaveURL(new RegExp(`day=${first}`));
+
+			w = await open();
+			await wheel(0.2 * w, 0, 20, 20);
+			await expect.poll(async () => (await read()).left).toBe(0);
+			expect((await read()).travel).toBeGreaterThan(0.1 * w);
+			await expect(reading).toHaveAttribute('data-day', first);
+
+			w = await open();
+			await wheel(0.45 * w, 0, 20, 20);
+			await expect(page).toHaveURL(new RegExp(`day=${next}`));
+			await expect(reading).toHaveAttribute('data-day', next);
+
+			w = await open();
+			await wheel(60, 0, 4, 12);
+			await expect(page).toHaveURL(new RegExp(`day=${next}`));
+
+			w = await open();
+			await wheel(1.8 * w, 0, 8, 10);
+			await expect(page).toHaveURL(new RegExp(`day=${next}`));
+			expect((await read()).travel).toBeLessThanOrEqual(w + 1);
 		} finally {
 			fixture.teardown();
 		}

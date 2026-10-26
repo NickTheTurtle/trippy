@@ -16,6 +16,7 @@ export default defineConfig({
 			{ find: '@trippy/core/travel', replacement: core('travel.ts') },
 			{ find: '@trippy/core/plan', replacement: core('plan.ts') },
 			{ find: '@trippy/core/span', replacement: core('span.ts') },
+			{ find: '@trippy/core/schedule-day', replacement: core('schedule-day.ts') },
 			{ find: '@trippy/core/pretrip-shares', replacement: core('pretrip-shares.ts') },
 			{ find: '@trippy/core/notes', replacement: core('notes.ts') },
 			{ find: '@trippy/core/currency', replacement: core('currency.ts') },

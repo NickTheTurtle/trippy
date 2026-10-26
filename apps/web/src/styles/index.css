@@ -344,6 +344,13 @@ textarea.input {
 .tfseg {
 	flex: none;
 	width: 1.5rem;
+	min-width: 0;
+	box-sizing: border-box;
+	border: 0;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	line-height: inherit;
 	padding: 0 0.15rem;
 	border-radius: 4px;
 	outline: none;
@@ -364,6 +371,7 @@ textarea.input {
 	width: 1.9rem;
 	margin-left: 0.25rem;
 	text-align: left;
+	cursor: pointer;
 }
 .tfseg:focus {
 	background: var(--color-accent);

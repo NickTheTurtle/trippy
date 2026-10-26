@@ -15,6 +15,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router';
 import { api, ApiError } from '../lib/api';
 import { prefetch, useApi } from '../hooks/useApi';
 import { useLiveSection } from '../hooks/useTripEvents';
+import { rememberScheduleDay, scheduleOpeningDay } from '../lib/scheduleDay';
 import useMediaQuery from '../hooks/useMediaQuery';
 import useSlideIn from '../hooks/useSlideIn';
 import { useTrip } from './TripShell';
@@ -234,12 +235,10 @@ const VIEW_AIR = 8;
  * width the box is sized instead for the screen the page scrolls to, with the
  * board's card tucked under the site's pinned bar and only the stepper and the
  * lodging band above the hours, and one scroll of the page takes the rest of
- * the chrome away. See `fit` and `park`, and "The board docks on a phone" in
+ * the chrome away. See `fit`, and "The board docks on a phone" in
  * `docs/DESIGN.md`. `schedule.css` uses the same width.
  */
 const DOCK_QUERY = '(max-width: 640px)';
-/** Sub-pixel rounding, and nothing more, when asking whether the box is in sight. */
-const DOCK_SLOP_PX = 2;
 /**
  * The room the scroll box leaves above the first hour line, for the label that
  * hangs over it. Set in `schedule.css` as `.boardscroll`'s `padding-top`, and
@@ -397,7 +396,7 @@ type BlockProps = {
 	onMove: (e: React.PointerEvent) => void;
 	onUp: () => void;
 	/** The gesture was taken away (a system pan, a lost capture): end it, write nothing. */
-	onCancel: () => void;
+	onCancel: (e?: React.PointerEvent) => void;
 	onOpen: (id: string) => void;
 	/** Aim the map at this block. This is what a plain click does now; opening
 	    the editor is the pencil alone. */
@@ -525,7 +524,9 @@ const Block = memo(function Block({
 			}}
 			onPointerDown={(e) => onDown(e, ev, day)}
 			onPointerMove={onMove}
-			onPointerUp={onUp}
+			onPointerUp={(e) => {
+				if (e.pointerType !== 'touch') onUp();
+			}}
 			// On the box, not the face, because the box is what holds the pointer
 			// capture during a press: the click that follows is dispatched to the
 			// captured element, so a handler on the face never heard a mouse click.
@@ -542,7 +543,7 @@ const Block = memo(function Block({
 				// touch is captured to what it landed on, and the long press moves
 				// that capture up onto the block. Only the box's own loss (or the
 				// grip's) is the gesture being taken away.
-				if (!(e.target as HTMLElement).closest('.bface')) onCancel();
+				if (!(e.target as HTMLElement).closest('.bface')) onCancel(e);
 			}}
 			onContextMenu={(e) => {
 				// A long press on a phone is how a block is picked up, and the same
@@ -615,7 +616,9 @@ const Block = memo(function Block({
 							aria-label={cs.block.resizeLabel}
 							onPointerDown={(e) => onGripDown(e, ev)}
 							onPointerMove={onGripMove}
-							onPointerUp={onGripUp}
+							onPointerUp={(e) => {
+								if (e.pointerType !== 'touch') onGripUp();
+							}}
 						/>
 					)}
 					<button
@@ -1167,8 +1170,13 @@ export default function Schedule() {
 	const [params] = useSearchParams();
 	const dayParam = params.get('day');
 	const viewParam = params.get('view');
+	const openingDay = useMemo(
+		() => (dayParam ? null : scheduleOpeningDay(trip)),
+		[dayParam, trip.id, trip.start_date, trip.end_date]
+	);
 	const query = new URLSearchParams();
-	if (dayParam) query.set('day', dayParam);
+	const requestedDay = dayParam ?? openingDay;
+	if (requestedDay) query.set('day', requestedDay);
 	if (viewParam) query.set('view', viewParam);
 	const qs = query.toString();
 
@@ -1212,6 +1220,18 @@ export default function Schedule() {
 	// The payload carries the events, the crews that fill their people picker,
 	// the stays behind the lodging band and the roster it is filtered by.
 	useLiveSection(['schedule', 'lodging', 'members', 'trip'], reload);
+	const replaceOpeningDay = useNavigate();
+	useEffect(() => {
+		if (!dayParam && openingDay) {
+			replaceOpeningDay(navUrl(openingDay, viewParam ?? 'day'), { replace: true });
+		}
+	}, [dayParam, openingDay, viewParam, replaceOpeningDay]);
+	useEffect(() => {
+		// The address changes when a move is committed; the payload may be held
+		// until a slide lands, and leaving before then still leaves this day.
+		const day = dayParam ?? data?.day;
+		if (day) rememberScheduleDay(trip.id, day);
+	}, [dayParam, data?.day, trip.id]);
 
 	/**
 	 * Who the board is being read for: a member id, or '' for everyone.
@@ -1508,32 +1528,6 @@ export default function Schedule() {
 		probe.style.cssText =
 			'position:fixed;top:0;left:0;width:0;height:100svh;visibility:hidden;pointer-events:none';
 		if (docking) document.body.append(probe);
-		/** Where the docked box sits, once `fit` has measured it; null off a phone. */
-		let dock: { bar: number; fits: boolean } | null = null;
-		/* Whether the hours take a vertical finger, which on a phone is only once
-		   the whole box is in sight.
-
-		   The docked box is taller than what is left under the chrome before the
-		   page has scrolled, so its bottom starts below the fold. Left to scroll
-		   there, a finger on the board moved the hours inside a box it could only
-		   see the top of, the page under it never went anywhere, and the last
-		   hours of the day sat below the screen where scrolling the box could not
-		   bring them. So until the box is wholly on screen it takes no vertical
-		   pan and the finger scrolls the page, which is what brings the box up;
-		   from then on the hours scroll, and the page chains on past either end of
-		   them as it always has. Programmatic scrolling is unaffected, so a drag
-		   still travels the hours and the day still opens on its first block.
-
-		   Not when the box cannot fit even docked (the floor is binding): it would
-		   never be wholly in sight, and the hours would never move. */
-		const park = () => {
-			const r = el.getBoundingClientRect();
-			const parked =
-				!!dock &&
-				dock.fits &&
-				(r.top < dock.bar - DOCK_SLOP_PX || r.bottom > window.innerHeight + DOCK_SLOP_PX);
-			if (parked !== el.hasAttribute('data-parked')) el.toggleAttribute('data-parked', parked);
-		};
 		const fit = () => {
 			const card = el.parentElement;
 			const root = rootRef.current;
@@ -1549,11 +1543,9 @@ export default function Schedule() {
 				const above = box.top - card.getBoundingClientRect().top;
 				const screen = probe.getBoundingClientRect().height || window.innerHeight;
 				const room = Math.floor(screen - bar - above - cardTail - VIEW_AIR);
-				dock = { bar, fits: room >= MIN_VIEW_H };
 				root.style.setProperty('--dockline', `${bar}px`);
 				setViewH(Math.max(MIN_VIEW_H, room));
 			} else {
-				dock = null;
 				setViewH(Math.max(MIN_VIEW_H, window.innerHeight - docTop - cardTail - VIEW_AIR));
 			}
 
@@ -1568,11 +1560,9 @@ export default function Schedule() {
 				pullRef.current = want;
 				root.style.setProperty('--tailpull', `${want}px`);
 			}
-			park();
 		};
 		fit();
 		window.addEventListener('resize', fit);
-		if (docking) window.addEventListener('scroll', park, { passive: true });
 		/* The web font lands after the first paint, and it is narrower than the
 		   fallback: on a phone the lodging band comes back from two rows to one
 		   when it arrives. That moves the box up without changing the height of
@@ -1588,22 +1578,10 @@ export default function Schedule() {
 		if (el.parentElement) ro.observe(el.parentElement);
 		return () => {
 			window.removeEventListener('resize', fit);
-			window.removeEventListener('scroll', park);
 			ro.disconnect();
 			probe.remove();
-			el.removeAttribute('data-parked');
 		};
 	}, [data, docking]);
-
-	/* The page snaps to the docked board, softly. See `.boarddock` in
-	   `schedule.css`: the class is on the root because the root is what
-	   scrolls, and it comes off with the page so no other page snaps. */
-	useEffect(() => {
-		if (!docking) return;
-		const doc = document.documentElement;
-		doc.classList.add('boarddock');
-		return () => doc.classList.remove('boarddock');
-	}, [docking]);
 
 	/* The board's one write path: a drag that lands, a resize that lands. Its
 	   failures are corner toasts rather than a line above the board. The line
@@ -2036,9 +2014,8 @@ export default function Schedule() {
 	 * swipe released past a third of a day left the old name up until the glide
 	 * crossed the middle. An arrow, a swipe's release and the back button name
 	 * the day themselves through `stepTo`; a payload names its own day in the
-	 * re-seat; what is left for this listener is a strip moved natively (a
-	 * trackpad, a sideways wheel, the keyboard), whose decision is where it
-	 * comes to rest, so it names the day at the settle.
+	 * re-seat; what is left for this listener is a strip moved by the keyboard,
+	 * whose decision is where it comes to rest, so it names the day at the settle.
 	 *
 	 * The one exception is a block being carried. The strip travelling is half
 	 * of a cross-day drag, and the drop lands on whichever day is under the
@@ -2110,8 +2087,9 @@ export default function Schedule() {
 	}, [data, navigate, heading, flushHeld]);
 
 	/* A hand on the strip takes it back from a slide in flight: a press landing
-	   on it, or a sideways wheel. A vertical wheel is reading the hours, not
-	   asking for another day, so it leaves the slide alone. A finger is the
+	   on it, or a sideways gesture once it has passed the axis lock. A vertical
+	   wheel is reading the hours, not asking for another day, so it leaves the
+	   slide alone. A finger is the
 	   touch handler's to judge: it lets a slide run on under a touch that turns
 	   out to be a scroll down the hours, and only stops it when the touch locks
 	   sideways and takes the strip itself. Ending it on contact left the strip
@@ -2120,9 +2098,6 @@ export default function Schedule() {
 	useEffect(() => {
 		const el = scrollRef.current;
 		if (!el || data?.view === 'agenda') return;
-		const onWheel = (e: WheelEvent) => {
-			if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) endGlide();
-		};
 		const onDown = (e: PointerEvent) => {
 			if (e.pointerType !== 'touch') endGlide();
 		};
@@ -2138,13 +2113,11 @@ export default function Schedule() {
 			if (e.touches.length === 0) fingerDown.current = false;
 		};
 		el.addEventListener('pointerdown', onDown, { passive: true });
-		el.addEventListener('wheel', onWheel, { passive: true });
 		el.addEventListener('touchstart', onTouch, { passive: true });
 		el.addEventListener('touchend', onLift, { passive: true });
 		el.addEventListener('touchcancel', onLift, { passive: true });
 		return () => {
 			el.removeEventListener('pointerdown', onDown);
-			el.removeEventListener('wheel', onWheel);
 			el.removeEventListener('touchstart', onTouch);
 			el.removeEventListener('touchend', onLift);
 			el.removeEventListener('touchcancel', onLift);
@@ -2399,8 +2372,8 @@ export default function Schedule() {
 	 * url settle stay one path. Going on writes the url when the strip lands,
 	 * replacing, as a settle does; the payload is fetched at the release and put
 	 * on screen at the landing, or at once if a finger is already back on the
-	 * strip. A block lifted by a long press takes the touch over entirely; mouse,
-	 * trackpad and wheel never reach here.
+	 * strip. Desktop wheels and trackpads use the same decision path. A block
+	 * lifted by a long press takes the touch over entirely.
 	 */
 	useEffect(() => {
 		const el = scrollRef.current;
@@ -2424,6 +2397,11 @@ export default function Schedule() {
 			trail: { x: number; t: number }[];
 		};
 		let t: Touch1 | null = null;
+		/* A wheel or trackpad gesture follows the same rules as a finger. The
+		   browser reports deltas rather than a contact point, so these numbers
+		   are the hand's travel, not screen coordinates. The gesture ends after a
+		   short quiet spell, which keeps trackpad momentum in the same move. */
+		let wheel: (Touch1 & { dx: number; dy: number; peak: number; timer: number }) | null = null;
 		/** When the hours or the page last moved vertically, for `COASTING_MS`. */
 		let movedAt = -Infinity;
 		/* `own` is a value the page itself wrote (see `ownTop`): seen, it becomes
@@ -2454,11 +2432,14 @@ export default function Schedule() {
 			return j;
 		};
 		/** Put the strip back on the day it left, or on to the one it reached. */
-		const land = (dir: number) => {
-			const cur = t;
+		const land = (dir: number, cur: Touch1 | null = t) => {
 			swiping.current = false;
 			swipeAt.current = null;
-			t = null;
+			if (cur === t) t = null;
+			if (wheel && cur === wheel) {
+				window.clearTimeout(wheel.timer);
+				wheel = null;
+			}
 			const w = stride(el);
 			// Nowhere to go: the strip gets its snap back, which settles it.
 			if (!cur || !w) return void el.style.removeProperty('scroll-snap-type');
@@ -2558,28 +2539,116 @@ export default function Schedule() {
 				t = null;
 				return;
 			}
-			const w = stride(el);
-			// The whole of the finger's travel, the lock's ten pixels included:
-			// positive is towards the next day.
-			const moved = t.x0 - t.lastX;
 			const first = t.trail[0];
 			const last = t.trail[t.trail.length - 1];
 			// Still moving when it lifted: a finger that paused first has not flicked.
 			const live = last && e.timeStamp - last.t <= FLICK_WINDOW_MS;
 			const v = live && first && last.t > first.t ? (last.x - first.x) / (last.t - first.t) : 0;
-			let dir = 0;
-			if (w && Math.abs(moved) >= w * SWIPE_SHARE) dir = Math.sign(moved);
-			else if (Math.abs(v) >= FLICK_PX_PER_MS && Math.abs(moved) >= FLICK_MIN_PX) {
-				// Only a flick the way the strip was dragged; one back towards the
-				// day it left is a change of mind, and lands it there.
-				if (Math.sign(-v) === Math.sign(moved)) dir = Math.sign(moved);
-			}
-			land(dir);
+			land(decide(t, v));
 		};
 		// Taken away by the system: nobody let go anywhere, so it goes back.
 		const onCancel = () => {
 			if (t?.axis === 'x') land(0);
 			t = null;
+		};
+		const decide = (cur: Touch1 & { peak?: number }, v: number) => {
+			const w = stride(el);
+			const moved = cur.x0 - cur.lastX;
+			if (w && Math.abs(moved) >= w * SWIPE_SHARE) return Math.sign(moved);
+			if (Math.abs(v) >= FLICK_PX_PER_MS && Math.abs(moved) >= FLICK_MIN_PX) {
+				return Math.sign(-v) === Math.sign(moved) ? Math.sign(moved) : 0;
+			}
+			return 0;
+		};
+		const wheelDelta = (e: WheelEvent) => {
+			const unit =
+				e.deltaMode === WheelEvent.DOM_DELTA_LINE
+					? 16
+					: e.deltaMode === WheelEvent.DOM_DELTA_PAGE
+						? el.clientWidth
+						: 1;
+			// A mouse with no sideways wheel uses Shift, as the browser does.
+			const x = e.shiftKey && !e.deltaX ? e.deltaY : e.deltaX;
+			const y = e.shiftKey && !e.deltaX ? 0 : e.deltaY;
+			return { dx: x * unit, dy: y * unit };
+		};
+		const finishWheel = () => {
+			const cur = wheel;
+			if (!cur) return;
+			if (cur.axis !== 'x') {
+				window.clearTimeout(cur.timer);
+				wheel = null;
+				return;
+			}
+			land(decide(cur, cur.peak), cur);
+		};
+		const onWheel = (e: WheelEvent) => {
+			if (dragRef.current || e.ctrlKey) return;
+			const delta = wheelDelta(e);
+			if (!delta.dx && !delta.dy) return;
+			if (!wheel) {
+				wheel = {
+					x: 0,
+					y: 0,
+					x0: 0,
+					lastX: 0,
+					fromDay: '',
+					offset: 0,
+					axis: e.timeStamp - movedAt < COASTING_MS ? 'y' : null,
+					trail: [{ x: 0, t: e.timeStamp }],
+					dx: 0,
+					dy: 0,
+					peak: 0,
+					timer: 0
+				};
+			}
+			const cur = wheel;
+			window.clearTimeout(cur.timer);
+			cur.timer = window.setTimeout(finishWheel, SETTLE_MS);
+			cur.dx += delta.dx;
+			cur.dy += delta.dy;
+			if (!cur.axis) {
+				if (Math.hypot(cur.dx, cur.dy) < AXIS_LOCK_PX) return;
+				cur.axis = Math.abs(cur.dx) > Math.abs(cur.dy) * AXIS_RATIO ? 'x' : 'y';
+				if (cur.axis === 'y') return;
+				const going = glide.current?.day;
+				endGlide();
+				swiping.current = true;
+				el.style.setProperty('scroll-snap-type', 'none');
+				const w = stride(el);
+				const g = going ? seatDays.current.indexOf(going) : -1;
+				const i =
+					g >= 0
+						? g
+						: Math.max(0, Math.min(seatDays.current.length - 1, Math.round(el.scrollLeft / w)));
+				cur.fromDay = seatDays.current[i] ?? '';
+				cur.offset = el.scrollLeft - i * w;
+				cur.lastX = -cur.dx;
+			} else if (cur.axis === 'x') {
+				cur.lastX -= delta.dx;
+			}
+			if (cur.axis !== 'x') return;
+			e.preventDefault();
+			const w = stride(el);
+			if (!w) return;
+			const seat = anchor(cur, w) * w;
+			const max = Math.max(0, seatDays.current.length - 1) * w;
+			const at = Math.max(
+				0,
+				Math.min(max, seat + w, Math.max(seat - w, seat + cur.offset - cur.lastX))
+			);
+			el.scrollLeft = at;
+			swipeAt.current = { day: cur.fromDay, off: at - seat };
+			cur.trail.push({ x: cur.lastX, t: e.timeStamp });
+			while (cur.trail.length > 2 && e.timeStamp - cur.trail[0].t > FLICK_WINDOW_MS) {
+				cur.trail.shift();
+			}
+			const first = cur.trail[0];
+			const last = cur.trail[cur.trail.length - 1];
+			if (first && last.t > first.t) {
+				const v = (last.x - first.x) / (last.t - first.t);
+				if (Math.abs(v) > Math.abs(cur.peak)) cur.peak = v;
+			}
 		};
 		el.addEventListener('scroll', onScroll, { passive: true });
 		window.addEventListener('scroll', onPageScroll, { passive: true });
@@ -2587,6 +2656,7 @@ export default function Schedule() {
 		el.addEventListener('touchmove', onMove, { passive: false });
 		el.addEventListener('touchend', onEnd, { passive: true });
 		el.addEventListener('touchcancel', onCancel, { passive: true });
+		el.addEventListener('wheel', onWheel, { passive: false });
 		return () => {
 			el.removeEventListener('scroll', onScroll);
 			window.removeEventListener('scroll', onPageScroll);
@@ -2594,6 +2664,8 @@ export default function Schedule() {
 			el.removeEventListener('touchmove', onMove);
 			el.removeEventListener('touchend', onEnd);
 			el.removeEventListener('touchcancel', onCancel);
+			el.removeEventListener('wheel', onWheel);
+			if (wheel) window.clearTimeout(wheel.timer);
 			swiping.current = false;
 			swipeAt.current = null;
 		};
@@ -3327,6 +3399,8 @@ export default function Schedule() {
 	 * have to see it in the tick that changes it.
 	 */
 	const hold = useRef<{ timer: number; x: number; y: number } | null>(null);
+	const touchId = useRef<number | null>(null);
+	const touchLifted = useRef(false);
 	const dropHold = useCallback(() => {
 		if (!hold.current) return;
 		window.clearTimeout(hold.current.timer);
@@ -3338,20 +3412,26 @@ export default function Schedule() {
 	 * Start a gesture now for a mouse or a pen, or after a still long press for a
 	 * finger. `start` is handed the element to capture the pointer on.
 	 *
-	 * The long press only works because the board lets the browser pan on touch
-	 * (`touch-action` in `schedule.css`) and then, once a block is lifted, stops
-	 * the pan itself: see the `touchmove` guard below.
+	 * Touches keep their native stream after lifting. A mobile browser may
+	 * cancel PointerEvents when it considers a pan, even after a long press;
+	 * pointer capture cannot reclaim that stream.
 	 */
 	const pressThen = useCallback(
 		(e: React.PointerEvent, start: () => void) => {
 			const el = e.currentTarget as HTMLElement;
 			const id = e.pointerId;
 			const begin = () => {
-				try {
-					el.setPointerCapture(id);
-				} catch {
-					// The pointer has already gone; the gesture never started.
-					return;
+				if (e.pointerType === 'touch') {
+					if (touchId.current == null) return;
+					touchLifted.current = true;
+					endGlide();
+				} else {
+					try {
+						el.setPointerCapture(id);
+					} catch {
+						// The pointer has already gone; the gesture never started.
+						return;
+					}
 				}
 				start();
 			};
@@ -3367,7 +3447,7 @@ export default function Schedule() {
 				}, LONG_PRESS_MS)
 			};
 		},
-		[dropHold]
+		[dropHold, endGlide]
 	);
 
 	/** A resting finger that moved is a scroll, not a press: let the page have it. */
@@ -3379,22 +3459,6 @@ export default function Schedule() {
 		[dropHold]
 	);
 
-	/* While a block is lifted by a finger, the finger moves the block and not the
-	   page. `touch-action` is decided when the touch lands, and on a coarse
-	   pointer it allows panning so that a swipe scrolls; the only way to take
-	   the pan back once the long press has lifted a block is to cancel the touch
-	   moves. Registered only for the length of a gesture, because a non-passive
-	   touch listener makes every scroll on the page wait for script. */
-	const gestureOn = drag !== null || resize !== null;
-	useEffect(() => {
-		if (!gestureOn) return;
-		const stop = (e: TouchEvent) => {
-			if (e.cancelable) e.preventDefault();
-		};
-		document.addEventListener('touchmove', stop, { passive: false });
-		return () => document.removeEventListener('touchmove', stop);
-	}, [gestureOn]);
-
 	/**
 	 * The gesture was taken away before it was let go: a pointer cancelled by
 	 * the system, or a capture lost. Whatever the block was doing under the
@@ -3402,11 +3466,18 @@ export default function Schedule() {
 	 * anywhere. It used to stay drawn wherever the pointer was last seen, with
 	 * the edge loop still running, until the next pointer event on the page.
 	 */
-	const cancelGesture = useCallback(() => {
-		dropHold();
-		if (dragRef.current) putDrag(null);
-		if (resizeRef.current) putResize(null);
-	}, [dropHold, putDrag, putResize]);
+	const cancelGesture = useCallback(
+		(e?: React.PointerEvent) => {
+			// The touch itself, not its optional pointer stream, owns a lifted block.
+			if (e?.pointerType === 'touch' && touchLifted.current) return;
+			dropHold();
+			touchLifted.current = false;
+			touchId.current = null;
+			if (dragRef.current) putDrag(null);
+			if (resizeRef.current) putResize(null);
+		},
+		[dropHold, putDrag, putResize]
+	);
 
 	const onPointerDown = useCallback(
 		(e: React.PointerEvent, ev: EventRow, day: string) => {
@@ -3444,27 +3515,32 @@ export default function Schedule() {
 		[putDrag, locked, pressThen, segOf, zoneOf]
 	);
 
-	const onPointerMove = useCallback(
-		(e: React.PointerEvent) => {
-			holdMoved(e);
+	const moveDrag = useCallback(
+		(x: number, y: number) => {
 			const d = dragRef.current;
 			if (!d) return;
-			const y = e.clientY;
 			// Either way counts: a block carried sideways to tomorrow is dragged
 			// without its time ever changing.
-			if (Math.hypot(e.clientX - d.pointerStartX, y - d.pointerStartY) > DRAG_SLOP_PX) {
+			if (Math.hypot(x - d.pointerStartX, y - d.pointerStartY) > DRAG_SLOP_PX) {
 				didDrag.current = true;
 			}
 			// The ref is the truth and is right immediately; the frame draws it.
 			dragRef.current = {
 				...d,
 				pointerY: y,
-				pointerX: e.clientX,
+				pointerX: x,
 				liveStart: liveStartFor(d, d.creep, y)
 			};
 			touch();
 		},
-		[touch, holdMoved]
+		[touch]
+	);
+	const onPointerMove = useCallback(
+		(e: React.PointerEvent) => {
+			holdMoved(e);
+			if (e.pointerType !== 'touch') moveDrag(e.clientX, e.clientY);
+		},
+		[holdMoved, moveDrag]
 	);
 
 	/**
@@ -3598,12 +3674,10 @@ export default function Schedule() {
 		[putResize, locked, pressThen]
 	);
 
-	const onResizeMove = useCallback(
-		(e: React.PointerEvent) => {
-			holdMoved(e);
+	const moveResize = useCallback(
+		(y: number) => {
 			const r = resizeRef.current;
 			if (!r) return;
-			const y = e.clientY;
 			if (Math.abs(y - r.pointerStartY) > DRAG_SLOP_PX) didDrag.current = true;
 			resizeRef.current = {
 				...r,
@@ -3622,7 +3696,14 @@ export default function Schedule() {
 			};
 			touch();
 		},
-		[touch, holdMoved]
+		[touch]
+	);
+	const onResizeMove = useCallback(
+		(e: React.PointerEvent) => {
+			holdMoved(e);
+			if (e.pointerType !== 'touch') moveResize(e.clientY);
+		},
+		[holdMoved, moveResize]
 	);
 
 	const onResizeUp = useCallback(async () => {
@@ -3639,6 +3720,64 @@ export default function Schedule() {
 		setPending({ id, end: snapped });
 		await act(() => eventOp(id, { op: 'resize', endMin: snapped }));
 	}, [act, eventOp, putResize, dropHold]);
+
+	const touchActions = useRef({
+		moveDrag,
+		moveResize,
+		onPointerUp,
+		onResizeUp,
+		cancelGesture,
+		dropHold
+	});
+	touchActions.current = { moveDrag, moveResize, onPointerUp, onResizeUp, cancelGesture, dropHold };
+	useEffect(() => {
+		const el = scrollRef.current;
+		if (!el || data?.view === 'agenda') return;
+		const start = (e: TouchEvent) => {
+			if (e.touches.length !== 1) {
+				touchActions.current.cancelGesture();
+				return;
+			}
+			touchId.current = e.touches[0].identifier;
+		};
+		const move = (e: TouchEvent) => {
+			if (!touchLifted.current) return;
+			const p = [...e.touches].find((p) => p.identifier === touchId.current);
+			if (e.touches.length !== 1 || !p || !e.cancelable) {
+				touchActions.current.cancelGesture();
+				return;
+			}
+			e.preventDefault();
+			if (dragRef.current) touchActions.current.moveDrag(p.clientX, p.clientY);
+			else if (resizeRef.current) touchActions.current.moveResize(p.clientY);
+		};
+		const end = (e: TouchEvent) => {
+			if (![...e.changedTouches].some((p) => p.identifier === touchId.current)) return;
+			const lifted = touchLifted.current;
+			touchLifted.current = false;
+			touchId.current = null;
+			touchActions.current.dropHold();
+			if (!lifted) return;
+			if (dragRef.current) void touchActions.current.onPointerUp();
+			else if (resizeRef.current) void touchActions.current.onResizeUp();
+		};
+		const cancel = () => touchActions.current.cancelGesture();
+		// Installed before the first move, on the board only. It cancels a pan
+		// only after a long press; ordinary scrolling never waits for a React effect.
+		el.addEventListener('touchstart', start, { capture: true, passive: true });
+		el.addEventListener('touchmove', move, { capture: true, passive: false });
+		el.addEventListener('touchend', end, { capture: true, passive: true });
+		el.addEventListener('touchcancel', cancel, { capture: true, passive: true });
+		window.addEventListener('blur', cancel);
+		return () => {
+			el.removeEventListener('touchstart', start, true);
+			el.removeEventListener('touchmove', move, true);
+			el.removeEventListener('touchend', end, true);
+			el.removeEventListener('touchcancel', cancel, true);
+			window.removeEventListener('blur', cancel);
+			cancel();
+		};
+	}, [!!data, data?.view]);
 
 	/**
 	 * The board's entrance when the view changes under it.

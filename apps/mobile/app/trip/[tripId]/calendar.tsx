@@ -44,7 +44,14 @@ import { segmentOn, type ZoneOf } from '@trippy/core/span';
 import type { BoardDay, EventRow, LegRow, ScheduleData } from '../../../src/screens/schedule/types';
 import { tripTab } from '../../../src/ui/nativeTabs';
 
-type TripData = { trip: { schedule_locked: number } };
+type TripData = {
+	trip: {
+		id: string;
+		schedule_locked: number;
+		start_date: string | null;
+		end_date: string | null;
+	};
+};
 
 export default tripTab(Calendar);
 
@@ -53,7 +60,8 @@ function Calendar() {
 	const toast = useToast();
 	const [gestureActive, setGestureActive] = useState(false);
 	const tripState = useApi<TripData>(`/trips/${tripId}`);
-	const schedule = useScheduleDay(tripId, gestureActive);
+	const tripDates = tripState.data?.trip ?? (tripState.error ? null : undefined);
+	const schedule = useScheduleDay(tripId, gestureActive, tripDates);
 	useLiveSection(['trip'], tripState.reload);
 	const data = schedule.data;
 	const locked = tripState.data?.trip.schedule_locked === 1;
