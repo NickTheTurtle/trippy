@@ -6,7 +6,7 @@
  * most of the way down it and hitting one row among seventy. Typing it is four
  * keystrokes and needs no aim.
  *
- * Segments rather than a free text box, because a free box has to be parsed and
+ * Editable segments rather than a free time string, because a free string has to be parsed and
  * can be wrong: "2pm", "1430", "half two". Each segment holds one thing and
  * nothing else, so there is no input the field has to refuse. Arrows step it,
  * digits replace it, and the caret moves on by itself once a segment can take
@@ -66,13 +66,14 @@ export default function TimeField({
 	const h12 = hour12(h24);
 
 	const box = useRef<HTMLDivElement>(null);
-	const hourRef = useRef<HTMLSpanElement>(null);
-	const minRef = useRef<HTMLSpanElement>(null);
-	const apRef = useRef<HTMLSpanElement>(null);
+	const hourRef = useRef<HTMLInputElement>(null);
+	const minRef = useRef<HTMLInputElement>(null);
+	const apRef = useRef<HTMLButtonElement>(null);
 	/* What has been typed into the current segment so far. A lone "1" could still
 	   become "12", so the segment waits for a second digit before moving on, and
 	   forgets what it saw the moment focus or segment changes. */
 	const [typed, setTyped] = useState('');
+	const [empty, setEmpty] = useState<'h' | 'm' | null>(null);
 
 	/* Midnight is the end of the board as well as the start of it, so the value
 	   runs to 24:00 and the field clamps rather than wrapping: an event cannot
@@ -148,34 +149,64 @@ export default function TimeField({
 			left,
 			right
 		}: {
-			ref: RefObject<HTMLSpanElement | null>;
+			ref: RefObject<HTMLInputElement | null>;
 			shown: string;
 			now: number;
 			max: number;
 			bump: (d: number) => void;
 			digits: (d: string) => void;
-			left?: RefObject<HTMLSpanElement | null>;
-			right: RefObject<HTMLSpanElement | null>;
+			left?: RefObject<HTMLElement | null>;
+			right: RefObject<HTMLElement | null>;
 		}
 	) => (
-		<span
+		<input
 			ref={ref}
 			className={`tfseg tf${which}`}
+			type="text"
+			inputMode="numeric"
+			autoComplete="off"
 			role="spinbutton"
-			tabIndex={0}
+			value={empty === which ? '' : shown}
 			aria-label={`${ariaLabel} ${which === 'h' ? 'hour' : 'minute'}`}
 			aria-valuenow={now}
 			aria-valuemin={which === 'h' ? 1 : 0}
 			aria-valuemax={max}
 			aria-valuetext={shown}
-			onFocus={() => setTyped('')}
+			onFocus={(e) => {
+				setTyped('');
+				setEmpty(null);
+				e.currentTarget.select();
+			}}
+			onClick={(e) => e.currentTarget.select()}
+			onChange={(e) => {
+				const text = e.currentTarget.value;
+				if (!text) {
+					setTyped('');
+					setEmpty(which);
+					return;
+				}
+				setEmpty(null);
+				const data = (e.nativeEvent as InputEvent).data;
+				// Phone keyboards deliver input, not necessarily keydown. Keep
+				// the same segment typing rules without processing a digit twice.
+				if (data != null && /^[0-9]$/.test(data)) {
+					digits(data);
+				} else if (/^[0-9]{1,2}$/.test(text)) {
+					setTyped('');
+					const n = Math.max(which === 'h' ? 1 : 0, Math.min(max, Number(text)));
+					if (which === 'h') setHour(n);
+					else setMin(n);
+				}
+			}}
 			onKeyDown={(e) => {
 				if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
 					e.preventDefault();
 					setTyped('');
+					setEmpty(null);
 					bump(e.key === 'ArrowUp' ? 1 : -1);
 				} else if (/^[0-9]$/.test(e.key)) {
 					e.preventDefault();
+					setEmpty(null);
 					digits(e.key);
 				} else if (e.key === ':' || e.key === 'ArrowRight') {
 					e.preventDefault();
@@ -195,9 +226,7 @@ export default function TimeField({
 					apRef.current?.focus();
 				}
 			}}
-		>
-			{shown}
-		</span>
+		/>
 	);
 
 	return (
@@ -207,6 +236,7 @@ export default function TimeField({
 			onBlur={(e) => {
 				if (box.current?.contains(e.relatedTarget as Node)) return;
 				setTyped('');
+				setEmpty(null);
 				onCommit?.();
 			}}
 			onClick={(e) => {
@@ -243,8 +273,9 @@ export default function TimeField({
 				left: hourRef,
 				right: apRef
 			})}
-			<span
+			<button
 				ref={apRef}
+				type="button"
 				className="tfseg tfap"
 				role="spinbutton"
 				tabIndex={0}
@@ -254,6 +285,7 @@ export default function TimeField({
 				aria-valuemax={1}
 				aria-valuetext={pm ? 'PM' : 'AM'}
 				onFocus={() => setTyped('')}
+				onClick={() => setPm(!pm)}
 				onKeyDown={(e) => {
 					if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
 						// Two states, so both arrows are the same instruction: swap.
@@ -269,7 +301,7 @@ export default function TimeField({
 				}}
 			>
 				{pm ? 'PM' : 'AM'}
-			</span>
+			</button>
 		</div>
 	);
 }
